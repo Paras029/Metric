@@ -1,6 +1,6 @@
 # Handover — Agentic Scenario Generator v5
 
-**Status:** 64/64 tests passing. All eight commands verified end to end.
+**Status:** 73/73 tests passing. All eight commands verified end to end with `--no-llm`.
 **Supersedes:** all earlier handover documents. The code is the source of truth; this is
 written from it.
 
@@ -211,9 +211,33 @@ high reasoning effort against a small cap truncates JSON rather than shortening 
 | Routine (writer, extractor) | `LLM_MAX_TOKENS`, 16000 | `LLM_REASONING_EFFORT`, minimal |
 | Judgement (materiality, review) | `LLM_JUDGEMENT_MAX_TOKENS`, 32000 | `LLM_JUDGEMENT_REASONING_EFFORT`, high |
 
-All four share `llm/prompts.py`, which builds the use-case description and graph description
-from the intake. A supplementary context file supplements this and is never a prerequisite —
-each pass is fully oriented from the intake alone.
+### 5.1 The prompt library
+
+Prompt wording lives in `scenario_generator/prompts`, one plain file per prompt, and is reached
+only through `llm/prompt_loader.py`. Nothing else reads those files. The split is deliberate:
+
+- **`prompts/*.md`** — instruction text. Editable by someone who is not changing code, which is
+  the point. This is where wording, emphasis and worked examples live.
+- **`llm/context.py`** — text *derived from intake data*: the use case description, the declared
+  graph, the benchmark digest. This is logic and stays in Python; it changes when the data model
+  changes, not when someone wants a prompt to read differently.
+
+Placeholders are `{{doubled_braces}}`, **not** `str.format`. Prompts embed JSON examples, and
+under `str.format` every literal brace in those examples would need doubling — which makes the
+files hostile to the people the split exists to serve. Only `{{word}}` is substituted; every
+other brace passes through untouched.
+
+Rendering is strict in both directions: a slot with no value, and a value with no slot, both
+raise `PromptError` naming the file. A rename on either side fails immediately instead of sending
+a malformed prompt. `tests/test_prompt_library.py` holds the contract of which prompts exist and
+which slots each one takes, so the same mistake is caught before a run.
+
+Four prompts are shared rather than owned by one pass: `shared.mission`,
+`shared.materiality_scale` (both judgement passes use the same tier definitions),
+`shared.house_style`, and `reviewer.owner_block`.
+
+A supplementary context file supplements all of this and is never a prerequisite — each pass is
+fully oriented from the intake alone.
 
 | Pass | Sets |
 |---|---|
@@ -229,11 +253,13 @@ each pass is fully oriented from the intake alone.
 ```
 scenario_generator/
     core/     models, intake, graph, generation, probes, proposals, coverage, context
-    llm/      config, gateway, prompts, writer, materiality, reviewer, extractor
+    llm/      config, gateway, prompt_loader, context, writer, materiality,
+              reviewer, extractor
+    prompts/  the prompt library — one file per prompt, editable without code changes
     io/       sheets, workbooks
     utils/    text, json_parsing, batching
     cli.py, pipeline.py, probe_library.yaml
-tests/        64 tests, stdlib unittest
+tests/        73 tests, stdlib unittest
 examples/     build_claims_intake.py, claims_context.md, llm_demo.py
 ```
 
@@ -314,13 +340,86 @@ critique discussion for options to slim it.
 
 ---
 
-## 9. Next session
+## 9. Defects fixed during the prompt externalisation
+
+Recorded because each one had been shipping silently, and because they explain output quality
+problems that were previously put down to model variance.
+
+1. **The graph-scenario writer prompt instructed the model to disclose the answer key.** It asked
+   the description to state "what a correct outcome looks like", while the probe prompt in the
+   same module forbade exactly that. The writer was also handed `ending_state` — the terminal
+   state, i.e. the ground truth. Descriptions ship in the challenge pack, and the pack test only
+   asserts that ground-truth *columns* are absent, so outcome text embedded in a description
+   passed straight through.
+
+   Fixed on both sides. The prompt now carries a single shared non-disclosure rule
+   (`shared.house_style`, used by both writer prompts), and `ScenarioWriter._payload` no longer
+   includes the terminal state at all — the guarantee is structural, not an instruction the model
+   may or may not follow. Per-step outcomes are still supplied, because the tester has to know
+   which condition to induce; the route's destination is not. A test asserts the terminal state
+   cannot appear in the writer payload.
+
+2. **A string-escaping bug gave the two writer prompts contradictory formatting instructions.**
+   `_WRITE_USER` was a normal (non-raw) triple-quoted string containing `separated by \n`, which
+   Python turned into a real newline — so the model was told "separated by ⏎." while the probe
+   prompt correctly said `\\n`. This is the most likely source of the inconsistent turn-plan
+   formatting. Moving prompts into plain files removes the class of bug entirely: what is written
+   in the file is what the model sees.
+
+3. **Materiality guidance was duplicated and mildly self-contradictory.** `MATERIALITY_SCALE` and
+   the eight numbered factors in the materiality task prompt restated each other and pulled in
+   different directions ("most should sit at Medium or Low" against "do not default everything to
+   Medium"). The scale now owns the tier definitions and calibration; the task prompt owns only
+   how to read the computed signals attached to each scenario. Calibration is stated as the shape
+   to expect rather than a quota, so a genuinely high-risk agent can still come back with several
+   Critical tiers.
+
+4. **The reviewer could anchor on a placeholder tier.** It is shown `existing_materiality`, which
+   may be a real first-pass assessment or an untouched default where `assess-materiality` was not
+   run, with no way to tell them apart. The field guide now says so explicitly and instructs it to
+   reach its own tier from the evidence before comparing.
+
+Also strengthened while the prompts were open: worked examples with paired good/bad output in
+both writer prompts, an explicit input-side/scoring-side distinction in the house style, explicit
+JSON shape examples in every task prompt, and probe turn plans described as a floor with an
+escalation instruction rather than a fixed script — which matches the documented design in §7.4
+but did not match the prompt before.
+
+## 10. Next session
 
 Suggested order:
 
-1. Fill `.env` and run the full pipeline against a real intake with a real model — everything
-   below depends on this.
-2. Spot-check probe descriptions and review output for quality.
-3. Decide whether review proposals need a human approval gate before issue.
-4. Intake slimming and validation layer.
-5. Graph extraction from model documentation (the independence gap in item 9 above).
+1. **Stage 0 — document ingestion.** Agreed as the next build. Takes the model document, vendor
+   documents, workflow diagrams and slide decks submitted by the model owner, and produces three
+   artifacts: an evidence record (every extracted claim with its source document and page, the
+   machine-readable state), a cited context document for the `--context` flag, and a gap report
+   phrased as questions for the human. A second command drafts a pre-filled intake workbook from
+   the evidence record, schema-identical to `init-template` output so `build-graph` consumes it
+   whether or not the human edits it. Grounding is the hard requirement: every claim carries a
+   verbatim quote, a deterministic pass verifies that quote against the source text, and anything
+   unverifiable is discarded rather than trusted. Diagram-derived claims cannot be verified this
+   way and are always marked for human confirmation.
+2. Fill `.env` and run the full pipeline against a real intake with a real model — the rewritten
+   prompts have not been seen against a live gateway.
+3. Spot-check probe descriptions and review output for quality.
+4. Decide whether review proposals need a human approval gate before issue.
+5. Intake slimming and validation layer. Note a latent defect to fold in: `read_intake` does
+   `personas[0] = ...` without checking the list is non-empty, so an intake with no personas
+   fails with a bare `IndexError`.
+6. Graph extraction from model documentation (the independence gap in §7).
+
+### Constraints that shape the next build
+
+- **UI is the step after stage 0.** The CLI must keep working, but the stages will be driven from
+  a UI where the user corrects intermediate output and resumes. Consequences worth holding to:
+  presentation stays in `cli.py`, core and LLM layers return structured results rather than
+  printing, progress is reported through a callback, and every stage reads and writes explicit
+  artifacts so a UI can show and edit what sits between them.
+- **Enterprise packaging.** Dependencies come from an internal Artifactory mirror, not PyPI
+  directly. Prefer pure-Python, widely mirrored libraries with small dependency trees. Tesseract
+  and other system binaries are not expected to be available. LangChain is not available; an
+  internal wrapper exists but is not documented well enough to build on, so document parsing
+  should sit behind a small internal interface that such a wrapper could later implement.
+- **Vision support is unconfirmed.** Multimodal input is likely available on the gateway but has
+  not been verified. Design so diagram extraction degrades to a human-supplied description rather
+  than blocking the pipeline.

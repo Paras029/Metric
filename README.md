@@ -378,6 +378,21 @@ it and keeps replies easier to parse. Raise the token budgets only if that does 
 
 ## Extending
 
+**Changing a prompt.** Every prompt lives in `scenario_generator/prompts` as its own file, one
+per prompt, named `<pass>.<purpose>.md`. Edit the wording and run the pipeline again — nothing is
+compiled and no Python changes.
+
+Anything in double braces, like `{{use_case}}`, is a slot the code fills in at run time. Leave
+those spelled exactly as they are; everything else is yours. Single braces are ordinary text, so
+the JSON examples in the prompts need no escaping. If a slot is renamed or removed, the run stops
+immediately with a message naming the file and the slot rather than sending a broken prompt, and
+`tests/test_prompt_library.py` catches the same mistake before it ever runs.
+
+Four files are shared rather than belonging to one pass: `shared.mission` (what the exercise is
+for), `shared.materiality_scale` (the tier definitions, used by both judgement passes),
+`shared.house_style` (the voice, and the rule that owner-facing text never reveals the expected
+outcome), and `reviewer.owner_block`.
+
 **Adding a probe.** Append an entry to `probe_library.yaml` with an id, family, name, intent,
 expectation, applicability predicate and turn count. Nothing else needs to change. The test
 suite will reject an entry that names domain-specific objects or references an unknown
@@ -400,11 +415,14 @@ of runs.
 python -m unittest discover -s tests
 ```
 
-64 tests, standard library only. Beyond unit coverage of graph traversal, matching and parsing,
+73 tests, standard library only. Beyond unit coverage of graph traversal, matching and parsing,
 several tests exist to protect properties that would otherwise fail silently:
 
 - The challenge pack contains no expected outcomes, no probe expectations and no ground-truth
   columns.
+- The scenario writer is never given a scenario's terminal state, so the expected outcome cannot
+  reach the pack through the text it writes.
+- Every prompt a pass loads exists, and its slots match what that pass supplies.
 - No probe names a domain-specific object.
 - No probe references an unknown applicability predicate.
 - A review revision never overwrites the original assessment, and a human override always wins.
@@ -420,8 +438,11 @@ scenario_generator/
     core/          Domain logic: intake parsing, decision graph, scenario
                    generation, probes, proposals, coverage matching.
                    No I/O beyond the intake workbook, no model calls.
-    llm/           Gateway client, shared prompt context, and the four passes:
-                   writer, materiality, reviewer, extractor.
+    llm/           Gateway client, prompt loader, the text built from intake
+                   data (context.py), and the four passes: writer,
+                   materiality, reviewer, extractor.
+    prompts/       The prompt library: one plain file per prompt. Editable
+                   without touching Python.
     io/            Workbook reading and writing.
     utils/         Text, JSON and batching helpers. No internal dependencies.
     cli.py         Argument parsing.

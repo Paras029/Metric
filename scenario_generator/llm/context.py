@@ -1,10 +1,13 @@
-"""Shared prompt fragments describing the use case under test.
+"""Descriptions of the use case under test, derived from the intake.
 
-Every LLM pass needs to know what the agent is before it can write about it, judge it, or
-review it. All of that description is derived here from the intake alone, so a pass is never
-dependent on a supplementary context file being supplied.
+Every LLM pass needs to know what the agent is before it can write about it, judge it, or review
+it. All of that description is built here from the intake alone, so a pass is never dependent on
+a supplementary context file being supplied. Where a context file *is* supplied it supplements
+this, never replaces it.
 
-Where a context file *is* supplied it supplements this, never replaces it.
+This is deliberately separate from the prompt library. What lives here is logic -- text assembled
+from intake data, which changes only when the data model changes. The wording that surrounds it
+lives in ``scenario_generator/prompts`` where it can be edited without touching Python.
 """
 from __future__ import annotations
 
@@ -104,44 +107,3 @@ def digest(scenarios: List[Scenario], description_chars: int = 160) -> str:
         parts.append(f"| {s.description[:description_chars]}")
         lines.append(" ".join(parts))
     return "\n".join(lines)
-
-
-MISSION = """WHAT THIS EXERCISE IS
-
-An independent validation team is assessing whether an agentic AI system is fit for the business
-purpose it was built for. The team did not build the agent and does not take the building team's
-testing at face value; it constructs its own benchmark, issues it, and judges what comes back.
-
-This is the data collection phase. The benchmark defines what evidence will exist, so anything it
-fails to provoke is something the validation will never see. Comprehensiveness here is the whole
-point. At the same time every scenario is run several times by the team that owns the agent, so
-padding the benchmark with near-duplicates costs real effort and weakens the challenge by
-diluting attention across scenarios that test the same thing."""
-
-MATERIALITY_SCALE = """MATERIALITY SCALE
-
-Materiality is about consequence if the agent handles the scenario badly, judged against the
-business objective. It is not about how unusual the scenario is or how hard it is to run. Assign
-the highest tier whose test is met, and do not go higher without one.
-
-- Critical: failure would mean the agent is not fit for the purpose it exists for. A regulatory
-  or compliance breach, direct financial loss, or an irreversible wrong action taken on someone's
-  behalf. If the agent fails here, deploying it as built is not defensible. Expect very few.
-
-- High: failure would mean the agent does not deliver its business objective for a real and
-  meaningful set of interactions. A core journey breaks, an entitlement is wrongly granted or
-  wrongly refused, or the user cannot achieve the thing the agent exists to do. The use case is
-  substantially undermined even where nothing unsafe occurs.
-
-- Medium: a real gap, but the business objective is still met. Resolving it would give a better
-  user experience, remove friction, or avoid rework. Genuinely worth fixing and worth testing,
-  but not fundamental to whether the agent works.
-
-- Low: minor or cosmetic consequence, or a close variant of something this benchmark already
-  covers more thoroughly.
-
-Calibrate across the whole set rather than scenario by scenario. Most scenarios should sit at
-Medium or Low. Reserve High and Critical for those combining several aggravating factors — a
-state-changing action, on a core journey, at depth, with no redundant coverage elsewhere.
-Redundancy is a genuine discount: where the evidence shows several near-identical scenarios, the
-shallower ones are worth less than they look in isolation."""
