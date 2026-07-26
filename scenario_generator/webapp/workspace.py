@@ -20,8 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from .stages import (COMPLETE, FAILED, LOCKED, READY, RUNNING, STAGE_BY_KEY, STAGE_KEYS, STALE,
-                     Stage, STAGES, downstream_of, index_of, predecessor)
+from .stages import (COMPLETE, FAILED, LOCKED, READY, RUNNING, STAGE_BY_KEY, STAGE_KEYS,
+                     STALE, STAGES, Stage, downstream_of, index_of, predecessor)
 
 STATE_FILE = "workspace.json"
 _SAFE_NAME = re.compile(r"[^a-z0-9]+")
@@ -160,11 +160,6 @@ class Workspace:
             previous = predecessor(stage.key)
             satisfied = previous is None or self.stages[previous.key].status in (COMPLETE, STALE)
             current.status = READY if satisfied else LOCKED
-
-    def mark_running(self, key: str) -> None:
-        self.stages[key].status = RUNNING
-        self.stages[key].updated_at = _now()
-        self.save()
 
     def mark_failed(self, key: str, note: str) -> None:
         state = self.stages[key]

@@ -1,6 +1,6 @@
 # Handover — Agentic Scenario Generator v5
 
-**Status:** 133/133 tests passing. All eight commands verified end to end with `--no-llm`.
+**Status:** 136/136 tests passing. All eleven commands verified end to end with `--no-llm`.
 Document ingestion (stage 0) and the local web interface are built; see §10 for what
 remains.
 **Supersedes:** all earlier handover documents. The code is the source of truth; this is
@@ -29,10 +29,10 @@ appears in the pack.
 ## 2. Pipeline
 
 ```
-init-template → build-graph → build-probes → refine → assess-materiality → review
-                                                                             │
-                                                            build-pack ←─────┤
-                                                          map-coverage ←─────┘
+ingest → init-template → build-graph → build-probes → refine → assess-materiality → review
+                                                                                      │
+                                                                     build-pack ←─────┤
+                                                                   map-coverage ←─────┘
 ```
 
 **The challenge pack is derived, not authored.** It must be rebuilt after anything that changes
@@ -43,6 +43,7 @@ scenarios. `review --pack PATH` rebuilds it inline; otherwise `review` logs a wa
 
 | Stage | LLM | Function |
 |---|---|---|
+| `ingest` | yes | submitted documents → verified evidence, context file, open questions |
 | `init-template` | no | blank intake workbook |
 | `build-graph` | no | exhaustive graph walk → scenarios + per-turn expected outcomes |
 | `build-probes` | no | appends applicable probes; idempotent |
@@ -51,9 +52,10 @@ scenarios. `review --pack PATH` rebuilds it inline; otherwise `review` logs a wa
 | `review` | yes | whole-benchmark sweep: settle materiality, flag, propose |
 | `build-pack` | no | challenge pack from a registry |
 | `map-coverage` | yes | owner scenarios → benchmark matching |
+| `serve` | no | the local web interface |
 
 `generate` = build-graph + refine + assess-materiality in memory. Flags: `--no-llm`,
-`--with-probes`, `--context FILE`, `--max-proposals N`.
+`--with-probes`, `--context FILE`, `--note TEXT` (repeatable), `--max-proposals N`.
 
 **Determinism boundary.** Stages 1–3 are fully deterministic: same intake, same scenarios, every
 time, each traceable to the path that produced it. No model call decides which scenarios exist —
@@ -428,8 +430,10 @@ Also built:
   quote fails the check and loses the claim.
 
 Not built yet: image/diagram reading (waiting on the vision check in §12), chunk-level triage to
-drop irrelevant passages before the expensive call, conflict detection between documents
-(`evidence.find_conflicts` raises `NotImplementedError` deliberately), and `draft-intake`.
+drop irrelevant passages before the expensive call, conflict detection between documents, and
+`draft-intake`. Conflict detection previously sat in `evidence.py` as a function that raised
+`NotImplementedError`; it has been removed rather than left in place, since a placeholder that
+cannot be called is indistinguishable from a feature that is broken.
 
 **Design decisions already fixed.** Ingestion produces three artifacts: the evidence record
 (machine-readable), a cited context document for `--context`, and a gap report phrased as
@@ -464,9 +468,15 @@ no `npm install` is one less thing to break on someone else's machine.
 - **`webapp/app.py`** — routes. Holds no pipeline logic; each stage calls the same functions the
   CLI calls, so the two front ends cannot drift and a workspace can move between them.
 
-**All ten stages are wired.** Every runner reads what the previous stage left on disk, calls the
-same function the CLI calls, and writes its output back, so the registry is the hand-off between
-them and either front end can pick up where the other stopped.
+**All ten stages are wired**, and both front ends reach the same capability. Every runner reads
+what the previous stage left on disk, calls the same `pipeline.py` function the CLI calls, and
+writes its output back, so the registry is the hand-off between them and either front end can
+pick up where the other stopped. `pipeline.py` owns the orchestration; `webapp/app.py` owns
+routing and presentation and contains no pipeline logic of its own.
+
+The command line gained `ingest` and `serve` to close the gap: everything the interface does is
+reachable from the CLI. What the interface adds is the drawn graph, the record of what has run,
+and out-of-date marking — presentation of the same work, not extra capability.
 
 - **`webapp/graphview.py`** — the declared graph as an SVG, generated in Python rather than by a
   drawing library so it renders offline with no script and no font download, and so hover detail

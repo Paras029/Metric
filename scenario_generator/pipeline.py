@@ -1,10 +1,14 @@
-"""Orchestration for the five stages: build-graph, refine, assess-materiality, map-coverage,
-and the one-shot `generate` convenience. No argparse here — see cli.py for the command line.
+"""Orchestration for every stage of the pipeline. No argparse here — see cli.py for the command
+line, and webapp/ for the interface. Both front ends call these functions, which is what keeps
+them capable of the same things and stops a workspace from being trapped in one of them.
 """
 from __future__ import annotations
 
+import json
 import logging
-from typing import List, Optional
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable, List, Optional, Sequence
 
 from .core import (DecisionGraph, IntakeData, Scenario, build_probes, enumerate_paths,
                    instantiate_all, load_context, match_scenarios, read_intake,
@@ -14,6 +18,8 @@ from .io import (read_registry, read_scenarios, write_challenge_pack, write_over
 from .llm import (MaterialityAssessor, MetadataExtractor, ScenarioReviewer,
                   ScenarioWriter)
 from .llm.reviewer import DEFAULT_PROPOSAL_LIMIT
+from .ingest import (DocumentExtractor, build_context_document, open_questions,
+                     rejection_summary)
 
 logger = logging.getLogger("scenario_generator")
 
@@ -165,7 +171,7 @@ def build_pack(intake_path: str, registry_path: str, pack_path: str) -> List[Sce
 
 
 def map_coverage(intake_path: str, registry_path: str, owner_path: str, report_path: str,
-                 extractor: Optional[MetadataExtractor] = None) -> None:
+                 extractor: Optional[MetadataExtractor] = None) -> "CoverageResult":
     """Stage: map a modeling team's own scenarios onto a generated registry, write the overlap
     report. The benchmark is loaded from the registry, so its category and materiality are
     whatever refine()/assess_materiality() already assigned — coverage never recomputes them.
@@ -181,3 +187,85 @@ def map_coverage(intake_path: str, registry_path: str, owner_path: str, report_p
     covered, gaps = write_overlap_report(report_path, intake, matches, benchmark)
     logger.info("Owner covered %d/%d benchmark scenarios; %d gap(s). Wrote %s",
                 covered, len(benchmark), gaps, report_path)
+    return CoverageResult(covered=covered, gaps=gaps, benchmark=len(benchmark),
+                          owner_scenarios=len(owner_scenarios), report_path=report_path)
+
+
+# --------------------------------------------------------------------------- results
+
+@dataclass
+class CoverageResult:
+    """What map_coverage established, so a caller need not re-read the workbook it just wrote."""
+
+    covered: int
+    gaps: int
+    benchmark: int
+    owner_scenarios: int
+    report_path: str
+
+
+@dataclass
+class IngestResult:
+    """What ingestion produced, and where it put it."""
+
+    record: object
+    questions: List[dict]
+    evidence_path: str
+    context_path: str
+    questions_path: str
+
+    @property
+    def summary(self) -> dict:
+        from .core.evidence import summarise
+        return summarise(self.record)
+
+
+# --------------------------------------------------------------------------- stage 0
+
+def ingest_documents(source_paths: Sequence[str], output_prefix: str,
+                     extractor: Optional[DocumentExtractor] = None,
+                     progress: Optional[Callable[[str], None]] = None) -> IngestResult:
+    """Stage 0: read submitted documents into verified evidence, context and open questions.
+
+    Writes three files under ``output_prefix``: the evidence record, the cited context document
+    that later stages take through ``--context``, and the questions nobody's documents answered.
+    Every claim in the record was checked against the passage it cites; anything unsupported was
+    discarded before it got here.
+    """
+    extractor = extractor or DocumentExtractor(progress=progress)
+    record = extractor.run([Path(p) for p in source_paths])
+
+    evidence_path = f"{output_prefix}_evidence.json"
+    context_path = f"{output_prefix}_context.md"
+    questions_path = f"{output_prefix}_questions.md"
+
+    Path(evidence_path).write_text(json.dumps(record.to_dict(), indent=2), encoding="utf-8")
+    Path(context_path).write_text(build_context_document(record, Path(output_prefix).name),
+                                  encoding="utf-8")
+
+    questions = open_questions(record)
+    Path(questions_path).write_text(render_questions(questions), encoding="utf-8")
+
+    counts = record.to_dict()
+    logger.info("Read %d document(s): %d statement(s) kept, %d question(s) outstanding. %s",
+                len(counts["documents"]), len(record.usable()), len(questions),
+                rejection_summary(record))
+    logger.info("Wrote %s, %s and %s", evidence_path, context_path, questions_path)
+
+    return IngestResult(record=record, questions=questions, evidence_path=evidence_path,
+                        context_path=context_path, questions_path=questions_path)
+
+
+def render_questions(questions: List[dict]) -> str:
+    """The open questions as a document someone can work through and answer."""
+    lines = ["# Open questions", "",
+             "Answers become evidence attributed to the validation team rather than to a "
+             "document. Supply them with --note, or in the interface.", ""]
+    for number, question in enumerate(questions, start=1):
+        lines.append(f"{number}. **{question['heading']}** — {question['question']}")
+        lines.append(f"   _{question['detail']}_")
+        lines.append("")
+    if not questions:
+        lines.append("Nothing outstanding: every category was addressed and every statement was "
+                     "checkable.")
+    return "\n".join(lines)

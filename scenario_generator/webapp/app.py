@@ -22,15 +22,13 @@ from flask import (Flask, abort, redirect, render_template, request, send_file, 
                    url_for)
 from werkzeug.utils import secure_filename
 
-from ..core.evidence import summarise
 from ..core.generation import required_runs
 from ..core.intake import read_intake, write_template
 from ..core.models import MATERIALITY, IntakeData
-from ..ingest import (build_context_document, extract_documents, open_questions,
-                      record_from_json, record_to_json)
+from ..ingest import open_questions, record_from_json
 from ..io import read_scenarios, write_challenge_pack, write_registry
 from ..llm import MaterialityAssessor, ScenarioReviewer, ScenarioWriter
-from ..pipeline import build_scenarios, map_coverage
+from ..pipeline import build_scenarios, ingest_documents, map_coverage, render_questions
 from .graphview import graph_summary, render_svg
 from .stages import STAGE_BY_KEY, STAGES, STATUS_LABELS, index_of
 from .workspace import Workspace, stage_view
@@ -49,8 +47,8 @@ UPLOAD_EXTENSIONS = {".pdf", ".docx", ".pptx", ".png", ".jpg", ".jpeg", ".md", "
 # shown in the stage panel rather than swallowed.
 
 REGISTRY = "registry.xlsx"
-EVIDENCE = "evidence.json"
-CONTEXT = "context.md"
+EVIDENCE = "ingest_evidence.json"
+CONTEXT = "ingest_context.md"
 QUESTIONS = "open_questions.md"
 PACK = "challenge_pack.xlsx"
 OVERLAP = "coverage.xlsx"
@@ -84,6 +82,18 @@ def _context(workspace: Workspace) -> str:
     return "\n\n".join(parts)
 
 
+def _evidence_record(workspace: Workspace):
+    """The evidence record if ingestion has run, otherwise None."""
+    path = workspace.root / EVIDENCE
+    if not path.exists():
+        return None
+    try:
+        return record_from_json(path)
+    except (OSError, ValueError) as exc:
+        logger.warning("Could not read the evidence record: %s", exc)
+        return None
+
+
 def _source_files(workspace: Workspace):
     folder = workspace.root / "sources"
     return sorted(p for p in folder.glob("*") if p.is_file()) if folder.exists() else []
@@ -95,46 +105,33 @@ def _run_evidence(workspace: Workspace) -> Dict[str, object]:
     if not paths:
         raise ValueError("No documents have been added at the submitted documents stage.")
 
-    record = extract_documents(paths)
-    record_to_json(record, workspace.root / EVIDENCE)
-    (workspace.root / CONTEXT).write_text(
-        build_context_document(record, workspace.name), encoding="utf-8")
+    result = ingest_documents([str(p) for p in paths], str(workspace.root / "ingest"))
+    workspace.state("evidence").artifacts.update({
+        "evidence": Path(result.evidence_path).name,
+        "context": Path(result.context_path).name,
+    })
 
-    workspace.state("evidence").artifacts.update(
-        {"evidence": EVIDENCE, "context": CONTEXT})
-
-    counts = summarise(record)
-    unreadable = [d.name for d in record.documents if d.kind == "unreadable"]
-    return {"Documents read": counts["documents"] - len(unreadable),
+    counts = result.summary
+    unreadable = sum(1 for d in result.record.documents if d.kind == "unreadable")
+    return {"Documents read": counts["documents"] - unreadable,
             "Statements kept": counts["usable"],
             "Discarded as unsupported": counts["rejected"],
             "Needing confirmation": counts["needing_confirmation"],
             "Categories with nothing": counts["empty_facets"],
-            "Unreadable files": len(unreadable)}
+            "Unreadable files": unreadable}
 
 
 def _run_questions(workspace: Workspace) -> Dict[str, object]:
     """Turn the evidence record into the list of things nobody's documents answered."""
-    path = workspace.root / EVIDENCE
-    if not path.exists():
+    record = _evidence_record(workspace)
+    if record is None:
         raise ValueError("Extract the evidence first.")
 
-    record = record_from_json(path)
     questions = open_questions(record)
-
-    lines = ["# Open questions", "",
-             "Answers become evidence attributed to the validation team rather than to a "
-             "document.", ""]
-    for number, question in enumerate(questions, start=1):
-        lines.append(f"{number}. **{question['heading']}** — {question['question']}")
-        lines.append(f"   _{question['detail']}_")
-        lines.append("")
-    if not questions:
-        lines.append("Nothing outstanding: every category was addressed and every statement "
-                     "was checkable.")
-    (workspace.root / QUESTIONS).write_text("\n".join(lines), encoding="utf-8")
-
+    path = workspace.root / QUESTIONS
+    path.write_text(render_questions(questions), encoding="utf-8")
     workspace.state("questions").artifacts["questions"] = QUESTIONS
+
     gaps = sum(1 for q in questions if q["kind"] == "gap")
     return {"Open questions": len(questions), "Categories not covered": gaps,
             "Statements to confirm": len(questions) - gaps,
@@ -221,13 +218,14 @@ def _run_coverage(workspace: Workspace) -> Dict[str, object]:
         raise ValueError("Upload the model owner's own scenario library first.")
 
     intake_path = workspace.artifact_path("intake", "workbook")
-    report = workspace.root / OVERLAP
-    matches = map_coverage(str(intake_path), str(workspace.root / REGISTRY), str(owner),
-                           str(report))
+    result = map_coverage(str(intake_path), str(workspace.root / REGISTRY), str(owner),
+                          str(workspace.root / OVERLAP))
     workspace.state("coverage").artifacts["report"] = OVERLAP
 
-    covered = sum(1 for m in matches if getattr(m, "verdict", "").lower().startswith("match"))
-    return {"Benchmark scenarios": len(matches), "Covered by their testing": covered}
+    return {"Benchmark scenarios": result.benchmark,
+            "Covered by their testing": result.covered,
+            "Not covered": result.gaps,
+            "Their scenarios read": result.owner_scenarios}
 
 
 # Every stage that does work has a runner. The two that only take input from the user -- the
@@ -311,13 +309,8 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         )
 
     def _questions_for(workspace: Workspace):
-        path = workspace.root / EVIDENCE
-        if not path.exists():
-            return []
-        try:
-            return open_questions(record_from_json(path))
-        except Exception:
-            return []
+        record = _evidence_record(workspace)
+        return open_questions(record) if record else []
 
     @app.post("/stage/<key>/note")
     def add_note(key: str):

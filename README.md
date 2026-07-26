@@ -15,6 +15,7 @@ validating team.
 - [The problem](#the-problem)
 - [How it works](#how-it-works)
 - [Installation](#installation)
+- [The interface](#the-interface)
 - [Quick start](#quick-start)
 - [The intake workbook](#the-intake-workbook)
 - [Commands](#commands)
@@ -51,17 +52,21 @@ on the validating side.
 
 ## How it works
 
-Six stages. The first three are deterministic and involve no language model; the rest add
-description, judgement and review on top.
+Documents in, benchmark out. The stages that decide *what* gets tested are deterministic; a
+language model is used only to describe, weigh and review what enumeration already found.
 
 ```
-init-template  →  build-graph  →  build-probes  →  refine  →  assess-materiality  →  review
-                                                                                       │
-                                       map-coverage  ←────────────────────────────────┘
+ingest  →  init-template  →  build-graph  →  build-probes  →  refine  →  assess-materiality
+                                                                                    │
+                                                                        review  ←───┘
+                                                                          │
+                                        build-pack  ←─────────────────────┤
+                                      map-coverage  ←─────────────────────┘
 ```
 
 | Stage | LLM | What it does |
 |---|---|---|
+| `ingest` | yes | Reads submitted documents into cited evidence, a context file and open questions. |
 | `init-template` | no | Writes a blank intake workbook for the agent's owner to complete. |
 | `build-graph` | no | Walks the decision graph exhaustively; every distinct path becomes a scenario with its expected route recorded. |
 | `build-probes` | no | Adds adversarial and non-functional probes that apply to this agent. |
@@ -108,7 +113,7 @@ Everything below can also be driven from a local web interface, which is usually
 to take a use case through the pipeline for the first time.
 
 ```bash
-python -m scenario_generator.webapp
+python -m scenario_generator serve
 ```
 
 It serves on `http://127.0.0.1:5000` and binds to localhost only. There is no authentication and
@@ -146,15 +151,20 @@ line, or the other way round.
 ## Quick start
 
 ```bash
-# 1. Produce a blank intake and send it to the team that owns the agent.
+# 1. Read whatever the model owner sent into cited evidence and a context file.
+python -m scenario_generator ingest submitted_docs/ acme
+
+# 2. Produce a blank intake and send it to the team that owns the agent.
+#    acme_questions.md lists what their documents did not cover.
 python -m scenario_generator init-template intake.xlsx
 
-# 2. With the intake returned, generate the benchmark.
-python -m scenario_generator generate intake.xlsx acme --with-probes
+# 3. With the intake returned, generate the benchmark.
+python -m scenario_generator generate intake.xlsx acme --with-probes \
+    --context acme_context.md
 
-# 3. Review the finished benchmark as a whole, rebuilding the pack with the result.
+# 4. Review the finished benchmark as a whole, rebuilding the pack with the result.
 python -m scenario_generator review intake.xlsx acme_registry.xlsx acme_registry.xlsx \
-    --pack acme_challenge_pack.xlsx
+    --context acme_context.md --pack acme_challenge_pack.xlsx
 ```
 
 This produces `acme_challenge_pack.xlsx` — issued to the agent's owner — and
@@ -209,18 +219,28 @@ letting the wording of an outcome be interpreted.
 ## Commands
 
 ```
+ingest              SOURCES... OUTPUT_PREFIX
 init-template       OUTPUT
 build-graph         INTAKE GRAPH_OUTPUT [--with-probes]
 build-probes        INTAKE GRAPH_INPUT GRAPH_OUTPUT
-refine              INTAKE GRAPH_INPUT OUTPUT_PREFIX [--no-llm] [--context FILE]
-assess-materiality  INTAKE REGISTRY_IN REGISTRY_OUT [--no-llm] [--context FILE]
-review              INTAKE REGISTRY_IN REGISTRY_OUT [--no-llm] [--context FILE]
+refine              INTAKE GRAPH_INPUT OUTPUT_PREFIX [--no-llm] [--context FILE] [--note TEXT]
+assess-materiality  INTAKE REGISTRY_IN REGISTRY_OUT [--no-llm] [--context FILE] [--note TEXT]
+review              INTAKE REGISTRY_IN REGISTRY_OUT [--no-llm] [--context FILE] [--note TEXT]
                                                     [--max-proposals N] [--pack FILE]
                                                     [--owner-scenarios FILE]
 build-pack          INTAKE REGISTRY PACK_OUTPUT
-generate            INTAKE OUTPUT_PREFIX [--no-llm] [--with-probes] [--context FILE]
+generate            INTAKE OUTPUT_PREFIX [--no-llm] [--with-probes] [--context FILE] [--note TEXT]
 map-coverage        INTAKE REGISTRY OWNER_SCENARIOS REPORT
+serve               [--port N] [--workspaces DIR]
 ```
+
+`--note` is repeatable and takes free text: anything the documents do not say that the pass
+should know. `ingest` accepts files or directories, and reads a directory one level deep.
+
+Everything the interface does is available here, and both write the same files, so a use case
+can move between them at any point. The interface adds the drawn graph, the stage-by-stage
+record of what has run, and out-of-date marking; it does not add a capability the command line
+lacks.
 
 Passing the same path as input and output updates a registry in place. `build-probes` is
 idempotent: running it twice replaces the probes rather than duplicating them.
@@ -456,7 +476,7 @@ of runs.
 python -m unittest discover -s tests
 ```
 
-133 tests, standard library only. Beyond unit coverage of graph traversal, matching and parsing,
+136 tests, standard library only. Beyond unit coverage of graph traversal, matching and parsing,
 several tests exist to protect properties that would otherwise fail silently:
 
 - Changing a stage marks every later stage out of date, and out-of-date output is kept rather
@@ -467,6 +487,8 @@ several tests exist to protect properties that would otherwise fail silently:
   silently, and one unreadable file does not stop the rest of the pack being read.
 - The drawn graph invents no edge the intake does not declare, and names any state nothing
   leads to.
+- Every stage of the interface runs to completion against stubbed model calls, so a stage nobody
+  clicked through by hand cannot ship broken.
 
 - The challenge pack contains no expected outcomes, no probe expectations and no ground-truth
   columns.

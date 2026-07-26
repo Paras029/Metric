@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Callable, List, Optional, Sequence
 
 from ..core.evidence import FACETS, Claim, DocumentRef, EvidenceRecord, SourceRef
-from ..core.grounding import verify
+from ..core.grounding import rejection_report, verify
 from ..llm import config, prompt_loader
 from ..llm.gateway import ask_llm
 from ..utils import parse_json_object
@@ -116,6 +116,8 @@ class DocumentExtractor:
 
         checked = verify(candidates, text)
         kept = [c for c in checked if c.is_usable]
+        for line in rejection_report(checked):
+            logger.info("Discarded — %s", line)
         if len(kept) < len(checked):
             logger.info("%s (%s): kept %d of %d claims; the rest cited text that is not there.",
                         reference.name, span, len(kept), len(checked))

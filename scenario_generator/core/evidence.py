@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import asdict, dataclass, field
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List
 
 # What ingestion looks for, and why. The first six mirror the intake's own sheets, so a claim can
 # be routed to the cell it informs. The rest exist because scenario generation needs to know what
@@ -160,18 +160,3 @@ def summarise(record: EvidenceRecord) -> Dict[str, int]:
         "needing_confirmation": len(record.needing_confirmation()),
         "empty_facets": len(record.empty_facets()),
     }
-
-
-def find_conflicts(claims: List[Claim]) -> None:
-    """Placeholder for cross-document conflict detection, recorded on the claims themselves.
-
-    Conflicts are surfaced rather than resolved: where a vendor document and a model document
-    disagree, both claims survive and a human decides. Implemented once extraction is in place,
-    since what counts as a conflict depends on how statements are phrased.
-    """
-    raise NotImplementedError("conflict detection lands with the extraction pass")
-
-
-def optional(value: Optional[str]) -> str:
-    """Normalise an absent string field to the empty string, for consistent record shape."""
-    return (value or "").strip()

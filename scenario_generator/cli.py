@@ -5,12 +5,14 @@ from __future__ import annotations
 
 import argparse
 import logging
+from pathlib import Path
 from typing import List, Optional
 
 from .core import write_template
+from .ingest import SUPPORTED_EXTENSIONS
 from .llm import NullMaterialityAssessor, NullReviewer, NullWriter
 from .pipeline import (assess_materiality, build_graph, build_pack, build_probes_stage,
-                       generate, map_coverage, refine, review)
+                       generate, ingest_documents, map_coverage, refine, review)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -97,6 +99,21 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_map.add_argument("owner")
     p_map.add_argument("report")
 
+    p_ingest = sub.add_parser(
+        "ingest",
+        help="stage 0: read submitted documents into evidence, context and open questions")
+    p_ingest.add_argument("sources", nargs="+",
+                          help="document files, or directories to read them from "
+                               f"({', '.join(SUPPORTED_EXTENSIONS)})")
+    p_ingest.add_argument("output_prefix",
+                          help="written as PREFIX_evidence.json, PREFIX_context.md and "
+                               "PREFIX_questions.md")
+
+    p_serve = sub.add_parser("serve", help="run the local web interface")
+    p_serve.add_argument("--port", type=int, default=5000)
+    p_serve.add_argument("--workspaces", default="workspaces",
+                         help="directory holding one folder per use case (default: workspaces)")
+
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -139,8 +156,48 @@ def main(argv: Optional[List[str]] = None) -> int:
         map_coverage(args.intake, args.registry, args.owner, args.report)
         return 0
 
+    if args.command == "ingest":
+        paths = _collect_documents(args.sources)
+        if not paths:
+            print("No readable documents found in what you gave me.")
+            return 1
+        ingest_documents(paths, args.output_prefix, progress=_print_progress)
+        return 0
+
+    if args.command == "serve":
+        from .webapp.app import create_app          # imported here so the CLI works without Flask
+        app = create_app(Path(args.workspaces))
+        print(f"\n  Scenario generator — http://127.0.0.1:{args.port}\n")
+        app.run(host="127.0.0.1", port=args.port)
+        return 0
+
     generate(args.intake, args.output_prefix,
             writer=NullWriter() if args.no_llm else None,
             assessor=NullMaterialityAssessor() if args.no_llm else None,
             with_probes=args.with_probes, context_path=args.context, notes=args.note)
     return 0
+
+
+def _collect_documents(sources: List[str]) -> List[str]:
+    """Expand whatever was named on the command line into a list of readable files.
+
+    A directory is read one level deep rather than recursively: a submitted pack is a folder of
+    documents, and walking into subdirectories tends to pick up archives and working copies the
+    sender did not mean to include.
+    """
+    found: List[str] = []
+    for source in sources:
+        path = Path(source)
+        if path.is_dir():
+            found.extend(str(child) for child in sorted(path.iterdir())
+                         if child.is_file() and child.suffix.lower() in SUPPORTED_EXTENSIONS)
+        elif path.is_file():
+            found.append(str(path))
+        else:
+            logging.getLogger("scenario_generator").warning("Skipping %s: not found.", source)
+    return found
+
+
+def _print_progress(message: str) -> None:
+    """Ingestion is slow enough that silence reads as a hang."""
+    print(f"  {message}")

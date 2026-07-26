@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import html
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from ..core.models import IntakeData, State
 
