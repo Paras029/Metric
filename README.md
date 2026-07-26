@@ -66,7 +66,7 @@ ingest  →  init-template  →  build-graph  →  build-probes  →  refine  �
 
 | Stage | LLM | What it does |
 |---|---|---|
-| `ingest` | yes | Reads submitted documents into cited evidence, a context file and open questions. |
+| `ingest` | yes | Reads submitted documents, answers the eleven questions the benchmark needs from all of them at once, and writes a cited context file and the open questions. |
 | `init-template` | no | Writes a blank intake workbook for the agent's owner to complete. |
 | `build-graph` | no | Walks the decision graph exhaustively; every distinct path becomes a scenario with its expected route recorded. |
 | `build-probes` | no | Adds adversarial and non-functional probes that apply to this agent. |
@@ -476,7 +476,7 @@ of runs.
 python -m unittest discover -s tests
 ```
 
-136 tests, standard library only. Beyond unit coverage of graph traversal, matching and parsing,
+144 tests, standard library only. Beyond unit coverage of graph traversal, matching and parsing,
 several tests exist to protect properties that would otherwise fail silently:
 
 - Changing a stage marks every later stage out of date, and out-of-date output is kept rather
@@ -485,6 +485,10 @@ several tests exist to protect properties that would otherwise fail silently:
   mangled by PDF extraction is still matched.
 - A document that cannot be read is refused with a reason rather than contributing nothing
   silently, and one unreadable file does not stop the rest of the pack being read.
+- Facts stated in three separate sections are assembled into one answer, which is the thing a
+  passage-at-a-time reading cannot do.
+- A synthesised answer cannot cite an observation that does not exist, and a failed synthesis
+  falls back to the raw observations rather than losing them.
 - The drawn graph invents no edge the intake does not declare, and names any state nothing
   leads to.
 - Every stage of the interface runs to completion against stubbed model calls, so a stage nobody

@@ -89,12 +89,16 @@ STAGES: Tuple[Stage, ...] = (
     Stage("evidence", "Extracted evidence", JUDGED,
           "What the documents were found to say, each statement tied to the page it came from. "
           "Anything that could not be traced to a source was dropped.",
-          "Each passage is read for the eleven categories the benchmark depends on, and every "
-          "statement returned is paired with the words it was drawn from. Those words are then "
-          "checked against the document itself. A statement whose quote cannot be located is "
-          "discarded rather than flagged, on the basis that an unfounded citation is more "
-          "damaging than no citation at all. The count of discards is reported, because a high "
-          "one is evidence about the pack or the method rather than a detail to absorb quietly."),
+          "This runs in two passes because documentation does not answer the questions a "
+          "benchmark needs in any one place. The first reads each passage and brings back what it "
+          "establishes, paired with the words it was read from, which are then checked against "
+          "the document; an observation whose quote cannot be located is discarded, since an "
+          "unfounded citation is more damaging than no citation. The second takes one question at "
+          "a time and answers it from every observation bearing on it across every document at "
+          "once, assembling a process described in one section, its exception three pages later "
+          "and the threshold governing it in a table into a single account. Answers cite the "
+          "observations they rest on, and state what the documents left unsettled rather than "
+          "completing the picture from what such a system usually does."),
 
     Stage("questions", "Open questions", REVIEW,
           "What the documents did not cover. Your answers are recorded as evidence in their own "

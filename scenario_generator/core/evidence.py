@@ -1,20 +1,28 @@
 """The evidence record: what the submitted documents were found to say, and where.
 
-This is the machine-readable state produced by document ingestion, and the single input to both
-things built from it -- the context document handed to later stages, and the draft intake
-workbook. Keeping it as a record of individual claims rather than a block of prose is what makes
-the rest of the guarantee possible: every downstream sentence traces to one claim, and every
-claim traces to a span of a submitted document.
+Two layers, and the distinction between them is the point.
+
+A **claim** is one observation read out of one passage: a statement, the excerpt supporting it,
+and the document and locator it came from. Claims are checked against their source, so a claim is
+something the documentation demonstrably says.
+
+A **facet answer** is the synthesis of every claim bearing on one of the questions this pipeline
+needs answered. Real documentation does not answer those questions in one place -- what the agent
+decides, and where it branches, is spread over pages that each describe a fragment. An answer is
+therefore allowed to collect and restructure, which a claim is not, and it records which claims it
+rests on so the restructuring can be traced back.
+
+Keeping the two apart is what lets the context document say more than any single sentence of the
+source while still being auditable to the page.
 
 Nothing here reads a file or calls a model. Parsing lives behind the document reader interface;
-extraction is a model call; this module only defines what a claim is and what a set of them
-means.
+extraction and synthesis are model calls; this module only defines what the results are.
 """
 from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import asdict, dataclass, field
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Optional, Tuple
 
 # What ingestion looks for, and why. The first six mirror the intake's own sheets, so a claim can
 # be routed to the cell it informs. The rest exist because scenario generation needs to know what
@@ -64,17 +72,18 @@ class SourceRef:
 
 @dataclass
 class Claim:
-    """One fact drawn from one place in one document.
+    """One observation read out of one place in one document.
 
     ``statement`` is the fact in the extractor's words; ``quote`` is the span of source text it
     came from. The two are separate so the second can be checked against the document -- a
     statement with no locatable quote is not evidence, whatever it says.
     """
 
-    facet: str
-    statement: str
-    quote: str
-    source: SourceRef
+    id: str = ""
+    facet: str = ""
+    statement: str = ""
+    quote: str = ""
+    source: SourceRef = field(default_factory=lambda: SourceRef(""))
     status: str = VERIFIED
     note: str = ""
     conflicts_with: List[str] = field(default_factory=list)
@@ -88,6 +97,28 @@ class Claim:
     def needs_confirmation(self) -> bool:
         """Whether a human must confirm it before it is relied on."""
         return self.status == UNVERIFIABLE or bool(self.conflicts_with)
+
+
+@dataclass
+class FacetAnswer:
+    """What the documents, taken together, establish about one question.
+
+    ``answer`` and ``points`` may restructure and combine what several claims say -- that is the
+    reason this layer exists. ``sources`` names the claims it was built from, and ``unknowns``
+    records what the documents did not settle, stated openly rather than left as an absence
+    nobody notices.
+    """
+
+    facet: str
+    answer: str = ""
+    points: List[str] = field(default_factory=list)
+    unknowns: List[str] = field(default_factory=list)
+    sources: List[str] = field(default_factory=list)
+    confidence: str = "Low"
+
+    @property
+    def is_answered(self) -> bool:
+        return bool(self.answer.strip() or self.points)
 
 
 @dataclass
@@ -106,6 +137,13 @@ class EvidenceRecord:
 
     documents: List[DocumentRef] = field(default_factory=list)
     claims: List[Claim] = field(default_factory=list)
+    answers: List[FacetAnswer] = field(default_factory=list)
+
+    def answer_for(self, facet: str) -> Optional["FacetAnswer"]:
+        return next((a for a in self.answers if a.facet == facet), None)
+
+    def claims_by_id(self) -> Dict[str, Claim]:
+        return {c.id: c for c in self.claims if c.id}
 
     def usable(self) -> List[Claim]:
         return [c for c in self.claims if c.is_usable]
@@ -120,17 +158,29 @@ class EvidenceRecord:
         return [c for c in self.usable() if c.needs_confirmation]
 
     def empty_facets(self) -> List[str]:
-        """Facets no document said anything about.
+        """Questions the documents did not answer.
 
-        This is the gap report's backbone. A facet with no evidence is not an extraction failure
+        This is the gap report's backbone. A question with no answer is not an extraction failure
         to be worked around -- it means the submitted pack does not describe something the
         benchmark needs, and the person who submitted it is the one who can fix that.
+
+        Judged on the synthesised answer where synthesis has run, because scattered observations
+        that were never assembled into an answer are not, in any useful sense, an answer.
         """
+        if self.answers:
+            return [facet for facet in FACETS
+                    if not (self.answer_for(facet) and self.answer_for(facet).is_answered)]
         return [facet for facet in FACETS if not self.by_facet(facet)]
+
+    def open_unknowns(self) -> List[Tuple[str, str]]:
+        """Every specific thing an answer said it could not settle, as (facet, unknown)."""
+        return [(answer.facet, unknown)
+                for answer in self.answers for unknown in answer.unknowns]
 
     def to_dict(self) -> dict:
         return {"documents": [asdict(d) for d in self.documents],
-                "claims": [asdict(c) for c in self.claims]}
+                "claims": [asdict(c) for c in self.claims],
+                "answers": [asdict(a) for a in self.answers]}
 
     @classmethod
     def from_dict(cls, data: dict) -> "EvidenceRecord":
@@ -139,7 +189,8 @@ class EvidenceRecord:
         for raw in data.get("claims", []):
             raw = dict(raw)
             claims.append(Claim(source=SourceRef(**raw.pop("source", {})), **raw))
-        return cls(documents=documents, claims=claims)
+        answers = [FacetAnswer(**a) for a in data.get("answers", [])]
+        return cls(documents=documents, claims=claims, answers=answers)
 
 
 def group_by_facet(claims: Iterable[Claim]) -> "OrderedDict[str, List[Claim]]":
@@ -159,4 +210,6 @@ def summarise(record: EvidenceRecord) -> Dict[str, int]:
         "rejected": len(record.rejected()),
         "needing_confirmation": len(record.needing_confirmation()),
         "empty_facets": len(record.empty_facets()),
+        "answered": sum(1 for a in record.answers if a.is_answered),
+        "unknowns": len(record.open_unknowns()),
     }

@@ -1,22 +1,24 @@
-"""Building the context document and the open questions from a verified evidence record.
+"""Building the context document and the open questions from a synthesised evidence record.
 
-The context document is **assembled, not written**. Every line comes from a claim that survived
-the grounding check, carries the document and page it came from, and appears in an order fixed by
-the facet list. No model is involved at this point, which is what lets the file be handed to
-later stages as fact rather than as another opinion to weigh.
+The context document is what every later stage reads to understand the agent, and what the intake
+is drafted from. It is organised as answers to the questions the benchmark depends on, because
+that is the form the work downstream actually needs — not a list of the sentences that happened
+to appear in the source.
 
-That is a deliberate trade. Assembled prose reads as a cited briefing rather than a narrative.
-Its primary reader is another model, and every line being traceable is worth more here than the
-text flowing well. A rewritten version would be a model paraphrasing verified claims, which
-reintroduces exactly the misphrasing this design exists to prevent.
+Assembly here is deterministic. The synthesis pass did the combining and restructuring, under
+instruction to rest only on verified observations and to cite them; this module lays that out and
+attaches the citations. No model call happens at this point, so the file can be handed on as a
+record of what was established rather than as another opinion to weigh.
 
-The open questions are the same record read from the other side: what the documents did not say.
+The supporting observations are printed beneath each answer with their document and page. That is
+what makes the restructuring auditable: a reader who doubts a sentence can follow it to the pages
+it was built from.
 """
 from __future__ import annotations
 
 from typing import List
 
-from ..core.evidence import FACETS, Claim, EvidenceRecord, group_by_facet
+from ..core.evidence import FACETS, EvidenceRecord
 
 FACET_HEADINGS = {
     "use_case": "What the agent is for",
@@ -32,8 +34,8 @@ FACET_HEADINGS = {
     "terminology": "Domain vocabulary",
 }
 
-# What to ask when a facet came back empty. Phrased as a request to a person, because that is
-# what it is -- these go to whoever submitted the pack.
+# What to ask when a question came back unanswered. Phrased as a request to a person, because
+# that is what it is -- these go to whoever submitted the pack.
 FACET_QUESTIONS = {
     "use_case": "What is this agent for, and what does success look like for the business?",
     "personas": "Which kinds of user does the agent serve, and how do their needs differ?",
@@ -52,53 +54,67 @@ FACET_QUESTIONS = {
 }
 
 
-def _citation(claim: Claim) -> str:
-    return f"[{claim.source}]" if str(claim.source) else ""
-
-
 def build_context_document(record: EvidenceRecord, use_case_name: str = "") -> str:
-    """Render the evidence record as a cited briefing, in a fixed order."""
+    """Render the evidence record as an organised, cited briefing."""
     lines: List[str] = []
     title = use_case_name.strip() or "the agent under validation"
-    lines.append(f"# Context for {title}")
-    lines.append("")
-    lines.append("Assembled from the documents listed below. Every statement is quoted or "
-                 "paraphrased from a passage that was checked against its source; anything that "
-                 "could not be traced was discarded rather than included.")
-    lines.append("")
 
-    lines.append("## Documents this was built from")
-    lines.append("")
+    lines += [f"# Context for {title}", "",
+              "Assembled from the documents listed below by reading each of them for what it "
+              "establishes about the agent, then answering each question from everything found "
+              "across all of them. Supporting observations are listed under each answer with the "
+              "page they came from; every one was checked against its source before use.", ""]
+
+    lines += ["## Documents this was built from", ""]
     if record.documents:
         for document in record.documents:
-            detail = f"{document.kind}, {document.units} sections" if document.units else document.kind
+            detail = (f"{document.kind}, {document.units} sections" if document.units
+                      else document.kind)
             note = f" — {document.note}" if document.note else ""
             lines.append(f"- **{document.name}** ({detail}){note}")
     else:
         lines.append("- none")
     lines.append("")
 
-    grouped = group_by_facet(record.usable())
-    for facet in FACETS:
-        claims = grouped.get(facet) or []
-        if not claims:
-            continue
-        lines.append(f"## {FACET_HEADINGS.get(facet, facet)}")
-        lines.append("")
-        for claim in claims:
-            marker = " *(unconfirmed)*" if claim.needs_confirmation else ""
-            lines.append(f"- {claim.statement}{marker} {_citation(claim)}".rstrip())
-        lines.append("")
+    claims = record.claims_by_id()
+    answered = [f for f in FACETS
+                if record.answer_for(f) and record.answer_for(f).is_answered]
+
+    for facet in answered:
+        answer = record.answer_for(facet)
+        lines += [f"## {FACET_HEADINGS.get(facet, facet)}", ""]
+        if answer.confidence and answer.confidence != "High":
+            lines += [f"*Confidence: {answer.confidence.lower()} — the documents cover this "
+                      f"only partly.*", ""]
+        if answer.answer:
+            lines += [answer.answer, ""]
+
+        if answer.points:
+            lines += ["**Specifics**", ""]
+            lines += [f"- {point}" for point in answer.points]
+            lines.append("")
+
+        if answer.unknowns:
+            lines += ["**Not settled by the documents**", ""]
+            lines += [f"- {unknown}" for unknown in answer.unknowns]
+            lines.append("")
+
+        supporting = [claims[cid] for cid in answer.sources if cid in claims]
+        if supporting:
+            lines += ["<details><summary>Supporting observations</summary>", ""]
+            for claim in supporting:
+                marker = " *(unconfirmed)*" if claim.needs_confirmation else ""
+                lines.append(f"- `{claim.id}` {claim.statement}{marker} — {claim.source}")
+            lines += ["", "</details>", ""]
 
     missing = record.empty_facets()
     if missing:
-        lines.append("## Not covered by the submitted documents")
-        lines.append("")
-        lines.append("Nothing in the pack addressed the following. Treat these as unknown rather "
-                     "than as absent from the agent.")
-        lines.append("")
-        for facet in missing:
-            lines.append(f"- {FACET_HEADINGS.get(facet, facet)}")
+        lines += ["## Not covered by the submitted documents", "",
+                  "Nothing in the pack settled the following. Treat these as unknown rather than "
+                  "as absent from the agent — a gap in the documentation and a deliberate "
+                  "exclusion have very different consequences for a benchmark.", ""]
+        lines += [f"- **{FACET_HEADINGS.get(facet, facet)}** — "
+                  f"{FACET_QUESTIONS.get(facet, '')}" for facet in missing]
         lines.append("")
 
     return "\n".join(lines).strip() + "\n"
@@ -107,10 +123,11 @@ def build_context_document(record: EvidenceRecord, use_case_name: str = "") -> s
 def open_questions(record: EvidenceRecord) -> List[dict]:
     """What still needs answering, as a list a person can work through.
 
-    Two kinds, deliberately kept in one list. A facet nothing addressed is a question about the
-    submitted pack. A claim that could not be checked -- read off a diagram, or supplied by
-    someone earlier -- is a question about a specific statement. Both block the same thing: an
-    intake that can be trusted.
+    Three kinds, deliberately in one list because they block the same thing — an intake that can
+    be trusted. A question nothing addressed is a gap in the submitted pack. A specific point an
+    answer could not settle is a gap inside an otherwise good answer, and is usually the more
+    useful of the two, since it is precise enough to be answered in a sentence. A statement that
+    could not be checked against text needs confirming before anything rests on it.
     """
     questions: List[dict] = []
 
@@ -120,7 +137,16 @@ def open_questions(record: EvidenceRecord) -> List[dict]:
             "facet": facet,
             "heading": FACET_HEADINGS.get(facet, facet),
             "question": FACET_QUESTIONS.get(facet, f"What does the agent do about {facet}?"),
-            "detail": "No submitted document addressed this.",
+            "detail": "No submitted document settled this.",
+        })
+
+    for facet, unknown in record.open_unknowns():
+        questions.append({
+            "kind": "unknown",
+            "facet": facet,
+            "heading": FACET_HEADINGS.get(facet, facet),
+            "question": unknown,
+            "detail": "The documents answered this question in part, but not this.",
         })
 
     for claim in record.needing_confirmation():
@@ -139,6 +165,6 @@ def rejection_summary(record: EvidenceRecord) -> str:
     """One line on what was thrown away, for the run log."""
     rejected = record.rejected()
     if not rejected:
-        return "Every extracted claim was supported by its source."
-    return (f"{len(rejected)} claim(s) cited text that could not be found in the document and "
-            f"were discarded.")
+        return "Every observation was supported by its source."
+    return (f"{len(rejected)} observation(s) cited text that could not be found in the document "
+            f"and were discarded.")

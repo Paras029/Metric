@@ -22,11 +22,17 @@ from scenario_generator.webapp.stages import STAGES
 
 _EXAMPLE = Path(__file__).resolve().parent.parent / "examples" / "build_claims_intake.py"
 
-_EXTRACT_REPLY = json.dumps({"claims": [{
-    "facet": "scope_boundaries",
-    "statement": "Legal advice is out of scope.",
-    "quote": "The assistant does not offer legal advice",
-    "locator": "under “Out of scope”"}]})
+def _ingest_reply(system, user, **kwargs):
+    """Ingestion runs two passes; the prompt says which one is being asked for."""
+    if "WHAT TO RETURN FOR EACH OBSERVATION" in user:
+        return json.dumps({"observations": [{
+            "facet": "scope_boundaries",
+            "statement": "Legal advice is out of scope.",
+            "quote": "The assistant does not offer legal advice",
+            "locator": "under “Out of scope”"}]})
+    return json.dumps({"answer": "Legal advice is out of scope and goes to a person.",
+                       "points": ["Legal advice is out of scope."],
+                       "unknowns": [], "sources": ["O-001"], "confidence": "Medium"})
 
 _SOURCE = """# Out of scope
 
@@ -92,7 +98,7 @@ class TestEveryStageRuns(unittest.TestCase):
 
     def test_all_runners_complete(self):
         patches = {
-            "scenario_generator.ingest.extraction.ask_llm": lambda s, u, **k: _EXTRACT_REPLY,
+            "scenario_generator.ingest.extraction.ask_llm": _ingest_reply,
             "scenario_generator.llm.writer.ask_llm": lambda s, u, **k: "{}",
             "scenario_generator.llm.materiality.ask_llm": lambda s, u, **k: "{}",
             "scenario_generator.llm.reviewer.ask_llm": lambda s, u, **k: '{"proposals": []}',

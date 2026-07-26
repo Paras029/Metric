@@ -24,11 +24,19 @@ from typing import Iterable, List, Tuple
 from .evidence import KIND_HUMAN, KIND_IMAGE, REJECTED, UNVERIFIABLE, VERIFIED, Claim
 
 # Below this length a quote matches too much by accident to be evidence of anything.
-MIN_QUOTE_CHARS = 25
+MIN_QUOTE_CHARS = 16
 
-# How much of the quote must be found, in order, in the source. Set high: the tolerance exists
-# for extraction artefacts, not for paraphrase.
-MATCH_THRESHOLD = 0.90
+# How much of the quote must be found, in order, in the source.
+#
+# This was 0.90 and rejected too much. The number trades two failures against each other, and
+# they are not equally costly here. A fabricated quote is caught at almost any threshold, because
+# invented text shares little with the document. A real quote fails when the model tidied
+# punctuation, joined two sentences, or dropped a clause -- all of which are faithful readings
+# expressed loosely. Losing those is how extraction ends up thin, and a benchmark built on a thin
+# reading of the documentation is the expensive outcome. Verification is also now run against the
+# whole document rather than a single passage, which removes the other large source of false
+# rejections: a quote that legitimately straddles a chunk boundary.
+MATCH_THRESHOLD = 0.78
 
 _HYPHEN_BREAK = re.compile(r"(\w)[-‐-―]\s*\n\s*(\w)")
 _WHITESPACE = re.compile(r"\s+")

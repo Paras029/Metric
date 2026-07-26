@@ -22,10 +22,12 @@ from flask import (Flask, abort, redirect, render_template, request, send_file, 
                    url_for)
 from werkzeug.utils import secure_filename
 
+from ..core.evidence import FACETS
 from ..core.generation import required_runs
 from ..core.intake import read_intake, write_template
 from ..core.models import MATERIALITY, IntakeData
 from ..ingest import open_questions, record_from_json
+from ..ingest.context_document import FACET_HEADINGS
 from ..io import read_scenarios, write_challenge_pack, write_registry
 from ..llm import MaterialityAssessor, ScenarioReviewer, ScenarioWriter
 from ..pipeline import build_scenarios, ingest_documents, map_coverage, render_questions
@@ -114,10 +116,11 @@ def _run_evidence(workspace: Workspace) -> Dict[str, object]:
     counts = result.summary
     unreadable = sum(1 for d in result.record.documents if d.kind == "unreadable")
     return {"Documents read": counts["documents"] - unreadable,
-            "Statements kept": counts["usable"],
+            "Questions answered": f"{counts['answered']} of {len(FACETS)}",
+            "Observations kept": counts["usable"],
             "Discarded as unsupported": counts["rejected"],
-            "Needing confirmation": counts["needing_confirmation"],
-            "Categories with nothing": counts["empty_facets"],
+            "Points left unsettled": counts["unknowns"],
+            "Questions unanswered": counts["empty_facets"],
             "Unreadable files": unreadable}
 
 
@@ -306,7 +309,26 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             graph_svg=graph_svg,
             graph_facts=graph_facts,
             questions=_questions_for(workspace) if key == "questions" else [],
+            answers=_answers_for(workspace) if key == "evidence" else [],
         )
+
+    def _answers_for(workspace: Workspace):
+        """One row per question, so the reader can see coverage at a glance."""
+        record = _evidence_record(workspace)
+        if not record:
+            return []
+        rows = []
+        for facet in FACETS:
+            answer = record.answer_for(facet)
+            rows.append({
+                "heading": FACET_HEADINGS.get(facet, facet),
+                "answered": bool(answer and answer.is_answered),
+                "confidence": answer.confidence if answer else "Low",
+                "points": len(answer.points) if answer else 0,
+                "unknowns": len(answer.unknowns) if answer else 0,
+                "answer": (answer.answer if answer else "") or "",
+            })
+        return rows
 
     def _questions_for(workspace: Workspace):
         record = _evidence_record(workspace)

@@ -640,3 +640,35 @@ ol, ul { list-style: none; padding: 0; }
 @media (max-width: 62rem) {
   .shell { background: var(--ground); }
 }
+
+/* ------------------------------------------------------------------ answered questions
+ * One row per question the ingestion pass had to answer. Reading down the confidence column
+ * says how well the submitted pack describes the agent, which is the thing worth knowing before
+ * any of it is relied on.
+ */
+.answers { margin-top: 1rem; border-top: 1px solid var(--line-soft); }
+.answers__row {
+  display: grid;
+  gap: .25rem;
+  padding: .8rem 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.answers__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .6rem; }
+.answers__heading { font-weight: 600; font-size: .9rem; color: var(--deep); }
+.answers__confidence {
+  font-size: .66rem;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  padding: .1rem .4rem;
+  border-radius: 3px;
+}
+.answers__confidence--high   { background: #E8F6F0; color: var(--verified); }
+.answers__confidence--medium { background: #FDF4E3; color: var(--attention); }
+.answers__confidence--low    { background: #FDF0EF; color: var(--rejected); }
+.answers__confidence--none   { background: var(--line-soft); color: var(--ink-faint); }
+.answers__body { font-size: .86rem; color: var(--ink-soft); }
+.answers__counts { font-size: .74rem; color: var(--ink-faint); }
+.answers__row--missing .answers__heading { color: var(--ink-faint); }
+
+.questions__row--unknown .questions__kind { color: var(--attention); }

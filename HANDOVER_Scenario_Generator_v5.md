@@ -1,6 +1,6 @@
 # Handover — Agentic Scenario Generator v5
 
-**Status:** 136/136 tests passing. All eleven commands verified end to end with `--no-llm`.
+**Status:** 144/144 tests passing. All eleven commands verified end to end with `--no-llm`.
 Document ingestion (stage 0) and the local web interface are built; see §10 for what
 remains.
 **Supersedes:** all earlier handover documents. The code is the source of truth; this is
@@ -410,6 +410,40 @@ Built and tested:
   or from a human answering a gap question are marked `unverifiable` rather than rejected, and
   always surface for confirmation. Rejections are reported, never dropped silently.
 
+### Ingestion is two passes, and that is the correction that mattered
+
+The first build read one passage at a time and kept a claim only if a verbatim sentence *inside
+that passage* stated it. Tested against a real 60-page model document it extracted very little,
+and the reason was structural rather than a matter of prompt wording: a fact that no single
+passage asserts could not be expressed at all. Almost everything a benchmark needs to know about
+an agent is of that kind — a process in one section, its exception three pages later, the
+threshold governing it in a table.
+
+The pass is now **survey then synthesise**:
+
+- **Survey** reads each passage and brings back observations, deliberately generously. It is told
+  explicitly that it is *not* answering anything, only surrendering raw material, and that a
+  peripheral observation costs almost nothing while a missed one cannot be recovered. Partial
+  information is wanted: "cases above a threshold go to a person" is worth recording even where
+  the passage never says what the threshold is.
+- **Synthesis** takes one question and sees *every* observation bearing on it from every document
+  at once. This is where scattered material is collected and restructured into an answer. It must
+  cite the observation ids it rests on and state its own `unknowns` rather than completing the
+  picture from what such a system usually does.
+
+**The grounding trade-off was rebalanced, deliberately.** Observations are still checked, but
+against the *whole document* rather than the passage they came from, and `MATCH_THRESHOLD`
+dropped from 0.90 to 0.78. The two failures are not equally costly here: a fabricated quote is
+caught at almost any threshold because invented text shares little with the document, whereas a
+real quote fails when the model tidied punctuation or joined two sentences. Losing those is how
+extraction ends up thin. Synthesised answers are explicitly derived and cite their observations,
+so a reader traces answer → observation → page and restructuring stays visible as restructuring.
+
+Chunks now overlap by one segment, so a process spanning a page break is seen whole by at least
+one passage. `EvidenceRecord` gained `answers: List[FacetAnswer]`, and `empty_facets` is judged
+on the synthesised answer — scattered observations never assembled into an answer are not an
+answer.
+
 Also built:
 
 - **`ingest/readers.py`** — one reader per format behind `read_document`, each returning
@@ -425,9 +459,10 @@ Also built:
 - **`ingest/context_document.py`** — deterministic assembly of the cited context file, and
   `open_questions`, which reads the record from the other side: categories nothing addressed, and
   statements that could not be checked.
-- **Prompts** `ingest.system` and `ingest.extract`. The extraction prompt's load-bearing
-  instruction is that a quote must be copied character for character, because an approximated
-  quote fails the check and loses the claim.
+- **Prompts** `ingest.system`, `ingest.survey` and `ingest.synthesise`. The survey prompt's
+  load-bearing instruction is to collect generously, with the asymmetry spelled out. The
+  synthesis prompt's is that the documents will *not* answer the question in one place and the
+  model is expected to assemble — while stating unknowns rather than inventing.
 
 Not built yet: image/diagram reading (waiting on the vision check in §12), chunk-level triage to
 drop irrelevant passages before the expensive call, conflict detection between documents, and

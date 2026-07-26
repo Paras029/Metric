@@ -139,6 +139,42 @@
       </section>
     {% endif %}
 
+    {% if answers %}
+      <section class="panel">
+        <h2 class="panel__title">What the documents answered</h2>
+        <p class="panel__body">
+          Each question was answered from every observation bearing on it, across all documents at
+          once — the documents do not answer these in one place. Anything left unsettled is
+          recorded rather than filled in.
+        </p>
+        <ul class="answers">
+          {% for row in answers %}
+            <li class="answers__row {% if not row.answered %}answers__row--missing{% endif %}">
+              <span class="answers__head">
+                <span class="answers__heading">{{ row.heading }}</span>
+                {% if row.answered %}
+                  <span class="answers__confidence answers__confidence--{{ row.confidence|lower }}">
+                    {{ row.confidence }} confidence
+                  </span>
+                {% else %}
+                  <span class="answers__confidence answers__confidence--none">Not answered</span>
+                {% endif %}
+              </span>
+              {% if row.answered %}
+                <span class="answers__body">{{ row.answer[:260] }}{% if row.answer|length > 260 %}…{% endif %}</span>
+                <span class="answers__counts mono">
+                  {{ row.points }} specific point{{ '' if row.points == 1 else 's' }}
+                  {%- if row.unknowns %} · {{ row.unknowns }} unsettled{% endif %}
+                </span>
+              {% else %}
+                <span class="answers__body">No submitted document settled this.</span>
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+
     {% if questions %}
       <section class="panel">
         <h2 class="panel__title">What is still unanswered</h2>
@@ -150,7 +186,9 @@
           {% for question in questions %}
             <li class="questions__row questions__row--{{ question.kind }}">
               <span class="questions__kind">
-                {{ 'Not covered' if question.kind == 'gap' else 'Confirm' }}
+                {% if question.kind == 'gap' %}Not covered
+                {% elif question.kind == 'unknown' %}Unsettled
+                {% else %}Confirm{% endif %}
               </span>
               <span class="questions__body">
                 <span class="questions__text">{{ question.question }}</span>
