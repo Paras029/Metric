@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Scenario generator{% endblock %}
+
+{% block body %}
+<main class="entry">
+  <div class="entry__inner">
+    <p class="eyebrow">Independent validation</p>
+    <h1 class="entry__title">Scenario generator</h1>
+    <p class="entry__lede">
+      Build a test benchmark for an agentic AI system from the documentation its owner submitted,
+      issue it to them, and measure what their own testing already covers.
+    </p>
+
+    <form class="entry__form" method="post" action="{{ url_for('create_workspace') }}">
+      <label class="field">
+        <span class="field__label">Use case name</span>
+        <input class="field__input" type="text" name="name" required autofocus
+               placeholder="Cardmember disputes assistant">
+      </label>
+      <button class="button button--primary" type="submit">Start a use case</button>
+    </form>
+
+    {% if workspaces %}
+      <section class="entry__recent">
+        <h2 class="entry__recent-title">Open a use case</h2>
+        <ul class="ledger">
+          {% for workspace in workspaces %}
+            {% set progress = workspace.progress() %}
+            <li class="ledger__row">
+              <a class="ledger__link" href="{{ url_for('open_workspace', slug=workspace.root.name) }}">
+                <span class="ledger__name">{{ workspace.name }}</span>
+                <span class="ledger__meta">
+                  <span class="mono">{{ progress.done }}/{{ progress.total }}</span> complete
+                  {% if progress.stale %}
+                    <span class="tag tag--stale">{{ progress.stale }} out of date</span>
+                  {% endif %}
+                </span>
+              </a>
+            </li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+  </div>
+</main>
+{% endblock %}

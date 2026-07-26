@@ -32,3 +32,6 @@ claims_intake.xlsx
 .idea/
 .DS_Store
 Thumbs.db
+
+# Local web interface workspaces (contain business scenario data).
+workspaces/

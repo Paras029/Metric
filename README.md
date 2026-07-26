@@ -102,6 +102,32 @@ placeholder text — useful for validating an intake before spending any model c
 
 ---
 
+## The interface
+
+Everything below can also be driven from a local web interface, which is usually the easier way
+to take a use case through the pipeline for the first time.
+
+```bash
+python -m scenario_generator.webapp
+```
+
+It serves on `http://127.0.0.1:5000` and binds to localhost only. There is no authentication and
+it is not written for shared deployment.
+
+Each stage states how its output was produced — **computed** (deterministic, reproducible),
+**model judgement** (an opinion with reasons attached, to be overruled where you disagree), or
+**your decision** (nothing advances until you approve). Reading a materiality tier and a graph
+walk with the same level of trust would be a mistake, so the interface never presents them the
+same way.
+
+Changing something early marks every later stage out of date rather than leaving it looking
+finished. Out-of-date output is kept and stays readable — it is a record of what was issued —
+but nothing presents it as current.
+
+Work is stored under `workspaces/`, one directory per use case, holding the same workbooks the
+commands below produce. A use case can be started in the interface and finished on the command
+line, or the other way round.
+
 ## Quick start
 
 ```bash
@@ -415,8 +441,13 @@ of runs.
 python -m unittest discover -s tests
 ```
 
-73 tests, standard library only. Beyond unit coverage of graph traversal, matching and parsing,
+107 tests, standard library only. Beyond unit coverage of graph traversal, matching and parsing,
 several tests exist to protect properties that would otherwise fail silently:
+
+- Changing a stage marks every later stage out of date, and out-of-date output is kept rather
+  than deleted.
+- A quote that was reworded rather than copied from the source document is rejected, while one
+  mangled by PDF extraction is still matched.
 
 - The challenge pack contains no expected outcomes, no probe expectations and no ground-truth
   columns.
@@ -444,11 +475,15 @@ scenario_generator/
     prompts/       The prompt library: one plain file per prompt. Editable
                    without touching Python.
     io/            Workbook reading and writing.
+    webapp/        Local web interface: stage definitions, workspace state,
+                   routes, templates and stylesheet. Presentation only —
+                   every stage calls the same pipeline functions the CLI does.
     utils/         Text, JSON and batching helpers. No internal dependencies.
     cli.py         Argument parsing.
     pipeline.py    Stage orchestration.
     probe_library.yaml
 tests/             Standard-library unittest suite.
+tools/             Developer utilities, not part of the pipeline.
 examples/          A worked intake, the business context that accompanies it,
                    and a script that runs the full pipeline.
 ```

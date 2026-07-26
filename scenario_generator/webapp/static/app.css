@@ -1,0 +1,443 @@
+/* Scenario generator — local interface.
+ *
+ * A validator's workbench rather than a product page: dense, quiet, and organised so that the
+ * state of the work is readable at a glance. Two ideas carry the design.
+ *
+ * First, every stage declares how its output was produced — computed, judged by a model, or
+ * decided by the person using it. That distinction is real and consequential, so it is given a
+ * consistent visual treatment rather than being buried in prose.
+ *
+ * Second, work that has gone out of date announces itself. A stale stage is never allowed to
+ * look finished.
+ *
+ * Self-contained: no webfonts, no CDN, no build step. Substituting a licensed brand typeface is
+ * a one-line change to --font-sans.
+ */
+
+:root {
+  --deep: #00175A;
+  --deep-soft: #0E2C77;
+  --blue: #006FCF;
+  --blue-dark: #005AA8;
+
+  --ink: #0B1B33;
+  --ink-soft: #4A5A72;
+  --ink-faint: #7C8AA0;
+
+  --paper: #FFFFFF;
+  --ground: #F4F6FA;
+  --line: #DEE4EE;
+  --line-soft: #EBEFF6;
+
+  --verified: #1B7F5A;
+  --attention: #A56200;
+  --rejected: #B3261E;
+
+  --font-sans: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue",
+               Arial, sans-serif;
+  --font-mono: "Cascadia Mono", "SF Mono", "JetBrains Mono", Consolas, "Liberation Mono",
+               monospace;
+
+  --rail-width: 17.5rem;
+  --radius: 6px;
+  --shadow: 0 1px 2px rgba(11, 27, 51, .06), 0 8px 24px -12px rgba(11, 27, 51, .18);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, p, dl, dd, ol, ul { margin: 0; }
+ol, ul { list-style: none; padding: 0; }
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: .92em;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.01em;
+}
+
+.eyebrow {
+  font-size: .69rem;
+  font-weight: 600;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.link { color: var(--blue-dark); text-decoration: underline; text-underline-offset: 2px; }
+
+:where(a, button, input, [tabindex]):focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* ------------------------------------------------------------------ entry screen */
+.entry {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 3rem 1.5rem;
+  background:
+    radial-gradient(60rem 30rem at 15% -10%, rgba(0, 111, 207, .09), transparent 60%),
+    var(--ground);
+}
+.entry__inner { width: min(38rem, 100%); }
+
+.entry__title {
+  margin: .5rem 0 0;
+  font-size: clamp(2rem, 5vw, 2.6rem);
+  font-weight: 650;
+  letter-spacing: -.025em;
+  color: var(--deep);
+}
+.entry__lede { margin-top: .85rem; color: var(--ink-soft); max-width: 34rem; }
+
+.entry__form {
+  margin-top: 2.25rem;
+  padding: 1.5rem;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.field { display: block; }
+.field__label {
+  display: block;
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  margin-bottom: .4rem;
+}
+.field__input {
+  width: 100%;
+  padding: .6rem .75rem;
+  font: inherit;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.field__input:focus { border-color: var(--blue); outline: none; box-shadow: 0 0 0 3px rgba(0,111,207,.14); }
+.entry__form .button { margin-top: 1rem; }
+
+.entry__recent { margin-top: 2.5rem; }
+.entry__recent-title {
+  font-size: .8rem;
+  font-weight: 600;
+  letter-spacing: .04em;
+  color: var(--ink-soft);
+  margin-bottom: .6rem;
+}
+
+.ledger { border-top: 1px solid var(--line); }
+.ledger__row { border-bottom: 1px solid var(--line); }
+.ledger__link {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding: .8rem .25rem;
+  color: inherit;
+  text-decoration: none;
+}
+.ledger__link:hover { background: var(--line-soft); }
+.ledger__name { font-weight: 550; }
+.ledger__meta { font-size: .82rem; color: var(--ink-faint); }
+
+/* ------------------------------------------------------------------ shell */
+.shell { display: grid; grid-template-columns: var(--rail-width) 1fr; min-height: 100vh; }
+
+.rail {
+  background: var(--deep);
+  color: #DDE7F5;
+  padding: 1.5rem 0 2rem;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.rail__head { padding: 0 1.4rem 1.35rem; border-bottom: 1px solid rgba(255,255,255,.11); }
+.rail__home {
+  color: #FFFFFF;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: .93rem;
+  letter-spacing: -.01em;
+}
+.rail__workspace {
+  margin-top: .3rem;
+  font-size: .82rem;
+  color: #93AACD;
+  overflow-wrap: anywhere;
+}
+.rail__progress { margin-top: 1rem; }
+
+.meter {
+  height: 3px;
+  background: rgba(255,255,255,.15);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.meter__fill {
+  display: block;
+  height: 100%;
+  background: var(--blue);
+  transition: width .45s cubic-bezier(.4, 0, .2, 1);
+}
+.rail__count { margin-top: .5rem; font-size: .76rem; color: #93AACD; }
+.rail__stale { color: #F0B24A; }
+
+/* Stage list. The connector is a single line behind the markers, so the sequence reads as one
+ * run of work rather than ten unrelated links. */
+.steps { position: relative; padding: 1.1rem 0 0; }
+.steps::before {
+  content: "";
+  position: absolute;
+  left: 2.02rem;
+  top: 1.9rem;
+  bottom: 1.4rem;
+  width: 1px;
+  background: rgba(255,255,255,.14);
+}
+
+.steps__link {
+  display: flex;
+  gap: .8rem;
+  align-items: flex-start;
+  padding: .5rem 1.4rem;
+  color: inherit;
+  text-decoration: none;
+}
+.steps__link:hover { background: rgba(255,255,255,.05); }
+
+.steps__marker {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  width: 1.45rem;
+  height: 1.45rem;
+  margin-top: .1rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--deep);
+  border: 1px solid rgba(255,255,255,.28);
+  font-family: var(--font-mono);
+  font-size: .72rem;
+  color: #A9BEDC;
+}
+
+.steps__title { display: block; font-size: .87rem; line-height: 1.35; }
+.steps__status {
+  display: block;
+  font-size: .7rem;
+  letter-spacing: .02em;
+  color: #7C93B8;
+  margin-top: .1rem;
+}
+
+.steps__item--complete .steps__marker {
+  background: var(--verified);
+  border-color: var(--verified);
+  color: #FFFFFF;
+}
+.steps__item--stale .steps__marker {
+  background: transparent;
+  border-color: #F0B24A;
+  color: #F0B24A;
+}
+.steps__item--stale .steps__status { color: #F0B24A; }
+.steps__item--failed .steps__marker { background: var(--rejected); border-color: var(--rejected); color: #fff; }
+.steps__item--locked .steps__link { opacity: .45; }
+.steps__item--active { background: rgba(255,255,255,.09); }
+.steps__item--active .steps__title { font-weight: 600; color: #fff; }
+.steps__item--active .steps__marker { border-color: var(--blue); color: #fff; }
+
+/* ------------------------------------------------------------------ canvas */
+.canvas { padding: 2.75rem clamp(1.5rem, 4vw, 3.5rem) 4rem; max-width: 60rem; }
+
+.head { padding-bottom: 1.75rem; border-bottom: 1px solid var(--line); }
+.head__title {
+  margin: .45rem 0 0;
+  font-size: 1.85rem;
+  font-weight: 620;
+  letter-spacing: -.024em;
+  color: var(--deep);
+}
+.head__blurb { margin-top: .6rem; color: var(--ink-soft); max-width: 46rem; }
+
+/* The signature: how this stage's output was produced. Consistent placement, consistent
+ * treatment, three unmistakable variants. */
+.mode {
+  margin-top: 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: .6rem .85rem;
+  padding: .7rem .9rem;
+  border-left: 3px solid var(--line);
+  background: var(--paper);
+  border-radius: 0 4px 4px 0;
+}
+.mode__label {
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+}
+.mode__note { font-size: .84rem; color: var(--ink-soft); }
+
+.mode--computed { border-left-color: var(--verified); }
+.mode--computed .mode__label { color: var(--verified); }
+.mode--judged { border-left-color: var(--blue); }
+.mode--judged .mode__label { color: var(--blue-dark); }
+.mode--review { border-left-color: var(--attention); }
+.mode--review .mode__label { color: var(--attention); }
+
+.panel {
+  margin-top: 1.5rem;
+  padding: 1.4rem 1.5rem;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.panel__title {
+  font-size: .96rem;
+  font-weight: 620;
+  color: var(--deep);
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+}
+.panel__body { margin-top: .5rem; color: var(--ink-soft); max-width: 44rem; }
+.panel__foot { margin-top: 1rem; font-size: .78rem; color: var(--ink-faint); }
+.panel--action { border-color: #C9D8EC; }
+
+.figures {
+  margin-top: 1.1rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 1px;
+  background: var(--line-soft);
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.figures__cell { background: var(--paper); padding: .8rem .9rem; }
+.figures__label { font-size: .72rem; color: var(--ink-faint); letter-spacing: .02em; }
+.figures__value {
+  margin: .25rem 0 0;
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--deep);
+}
+
+.files { margin-top: .9rem; border-top: 1px solid var(--line-soft); }
+.files__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: .6rem 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.files__name { color: var(--ink-soft); overflow-wrap: anywhere; }
+
+.upload { margin-top: 1.1rem; display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; }
+.upload__input { font: inherit; font-size: .86rem; max-width: 100%; }
+.upload__input::file-selector-button {
+  font: inherit;
+  font-size: .84rem;
+  padding: .4rem .8rem;
+  margin-right: .75rem;
+  color: var(--deep);
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.reset { margin-top: 2.25rem; }
+
+/* ------------------------------------------------------------------ banners, tags, buttons */
+.banner {
+  padding: .9rem 1.1rem;
+  border-radius: var(--radius);
+  margin-bottom: 1.5rem;
+  border-left: 3px solid;
+}
+.banner__title { font-weight: 620; font-size: .9rem; }
+.banner__body { margin-top: .2rem; font-size: .86rem; color: var(--ink-soft); }
+.banner--stale { background: #FDF6E7; border-color: var(--attention); }
+.banner--stale .banner__title { color: var(--attention); }
+.banner--failed { background: #FCEDEC; border-color: var(--rejected); }
+.banner--failed .banner__title { color: var(--rejected); }
+
+.tag {
+  font-size: .68rem;
+  font-weight: 650;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  padding: .16rem .45rem;
+  border-radius: 3px;
+}
+.tag--stale { background: #FDF0D8; color: var(--attention); }
+
+.button {
+  display: inline-block;
+  font: inherit;
+  font-size: .875rem;
+  font-weight: 550;
+  padding: .55rem 1.1rem;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background-color .15s ease, border-color .15s ease;
+}
+.button--primary { background: var(--blue); color: #fff; }
+.button--primary:hover { background: var(--blue-dark); }
+.button--quiet {
+  background: var(--paper);
+  color: var(--deep);
+  border-color: var(--line);
+  padding: .38rem .8rem;
+  font-size: .82rem;
+}
+.button--quiet:hover { background: var(--ground); }
+.button--danger {
+  background: transparent;
+  color: var(--rejected);
+  border-color: #E6C4C1;
+  font-size: .82rem;
+  padding: .42rem .85rem;
+}
+.button--danger:hover { background: #FCEDEC; }
+
+/* ------------------------------------------------------------------ narrow screens */
+@media (max-width: 62rem) {
+  .shell { grid-template-columns: 1fr; }
+  .rail { position: static; height: auto; }
+  .steps { display: flex; flex-wrap: wrap; padding-top: .75rem; }
+  .steps::before { display: none; }
+  .steps__link { padding: .45rem .9rem; }
+  .steps__status { display: none; }
+  .canvas { padding: 2rem 1.25rem 3rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+}

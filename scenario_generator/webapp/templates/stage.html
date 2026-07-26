@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% set stage = view.stage %}
+{% block title %}{{ stage.title }} — {{ workspace.name }}{% endblock %}
+
+{% block body %}
+<div class="shell">
+
+  <nav class="rail" aria-label="Pipeline stages">
+    <div class="rail__head">
+      <a class="rail__home" href="{{ url_for('index') }}">Scenario generator</a>
+      <p class="rail__workspace">{{ workspace.name }}</p>
+      {% set progress = workspace.progress() %}
+      <div class="rail__progress">
+        <div class="meter" role="img"
+             aria-label="{{ progress.done }} of {{ progress.total }} stages complete">
+          <span class="meter__fill"
+                style="width: {{ (progress.done / progress.total * 100) | round }}%"></span>
+        </div>
+        <p class="rail__count">
+          <span class="mono">{{ progress.done }}/{{ progress.total }}</span> complete
+          {%- if progress.stale %} · <span class="rail__stale">{{ progress.stale }} out of date</span>{% endif %}
+        </p>
+      </div>
+    </div>
+
+    <ol class="steps">
+      {% for item in rail %}
+        <li class="steps__item steps__item--{{ item.status }}
+                   {% if item.stage.key == stage.key %}steps__item--active{% endif %}">
+          <a class="steps__link" href="{{ url_for('stage', key=item.stage.key) }}"
+             {% if item.stage.key == stage.key %}aria-current="step"{% endif %}>
+            <span class="steps__marker" aria-hidden="true">{{ item.number }}</span>
+            <span class="steps__body">
+              <span class="steps__title">{{ item.stage.title }}</span>
+              <span class="steps__status">
+                {{ item.status | stage_status }}{% if item.stage.optional %} · optional{% endif %}
+              </span>
+            </span>
+          </a>
+        </li>
+      {% endfor %}
+    </ol>
+  </nav>
+
+  <main class="canvas">
+    {% if invalidated %}
+      <div class="banner banner--stale" role="status">
+        <p class="banner__title">Later stages are now out of date</p>
+        <p class="banner__body">
+          {{ invalidated }} — their output still reflects what was here before. Run them again
+          when you are ready.
+        </p>
+      </div>
+    {% endif %}
+
+    <header class="head">
+      <p class="eyebrow">Stage <span class="mono">{{ view.number }}</span> of
+        <span class="mono">{{ rail | length }}</span></p>
+      <h1 class="head__title">{{ stage.title }}</h1>
+      <p class="head__blurb">{{ stage.blurb }}</p>
+
+      <div class="mode mode--{{ stage.mode }}">
+        <span class="mode__label">{{ stage.mode_label }}</span>
+        <span class="mode__note">{{ stage.mode_note }}</span>
+      </div>
+    </header>
+
+    {% set state = view.state %}
+
+    {% if state.status == 'failed' %}
+      <div class="banner banner--failed" role="alert">
+        <p class="banner__title">This stage did not finish</p>
+        <p class="banner__body">{{ state.note }}</p>
+      </div>
+    {% endif %}
+
+    {% if view.has_output and state.summary %}
+      <section class="panel">
+        <h2 class="panel__title">
+          Result
+          {% if state.status == 'stale' %}<span class="tag tag--stale">Out of date</span>{% endif %}
+        </h2>
+        <dl class="figures">
+          {% for label, value in state.summary.items() %}
+            <div class="figures__cell">
+              <dt class="figures__label">{{ label }}</dt>
+              <dd class="figures__value mono">{{ value }}</dd>
+            </div>
+          {% endfor %}
+        </dl>
+        {% if state.updated_at %}
+          <p class="panel__foot">Last run <span class="mono">{{ state.updated_at }}</span></p>
+        {% endif %}
+      </section>
+    {% endif %}
+
+    {% if state.artifacts %}
+      <section class="panel">
+        <h2 class="panel__title">Files</h2>
+        <ul class="files">
+          {% for name, path in state.artifacts.items() %}
+            <li class="files__row">
+              <span class="files__name mono">{{ path.rsplit('/', 1)[-1] }}</span>
+              <a class="button button--quiet"
+                 href="{{ url_for('download', key=stage.key, name=name) }}">Download</a>
+            </li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+
+    <section class="panel panel--action">
+      {% if workspace.is_blocked(stage.key) %}
+        <h2 class="panel__title">Not yet available</h2>
+        <p class="panel__body">
+          Finish the stage before this one first. Every stage builds on what the last one
+          produced.
+        </p>
+
+      {% elif stage.key in ('sources', 'intake') %}
+        <h2 class="panel__title">
+          {% if stage.key == 'intake' %}Provide the intake workbook{% else %}Add documents{% endif %}
+        </h2>
+        <p class="panel__body">
+          {% if stage.key == 'intake' %}
+            Upload a completed intake workbook. Need a blank one?
+            <a class="link" href="{{ url_for('blank_template') }}">Download the template</a>.
+          {% else %}
+            PDF, Word, PowerPoint and images. Include the workflow diagram if there is one.
+          {% endif %}
+        </p>
+        <form class="upload" method="post" enctype="multipart/form-data"
+              action="{{ url_for('upload', key=stage.key) }}">
+          <input class="upload__input" type="file" name="files"
+                 {% if stage.key != 'intake' %}multiple{% endif %}
+                 accept=".pdf,.docx,.pptx,.png,.jpg,.jpeg,.md,.txt,.xlsx">
+          <button class="button button--primary" type="submit">Upload</button>
+        </form>
+
+      {% elif runnable %}
+        <h2 class="panel__title">
+          {% if view.has_output %}Run this stage again{% else %}Run this stage{% endif %}
+        </h2>
+        <p class="panel__body">
+          {% if view.has_output %}
+            Replaces the output above, and marks every later stage out of date so nothing
+            downstream is left claiming to reflect it.
+          {% else %}
+            Uses the output of stage
+            <span class="mono">{{ view.number - 1 }}</span> as it stands now.
+          {% endif %}
+        </p>
+        <form method="post" action="{{ url_for('run_stage', key=stage.key) }}">
+          <button class="button button--primary" type="submit">
+            {% if view.has_output %}Run again{% else %}Run{% endif %}
+          </button>
+        </form>
+
+      {% else %}
+        <h2 class="panel__title">Not connected yet</h2>
+        <p class="panel__body">
+          This stage runs from the command line today and is being brought into the interface.
+          Nothing here is doing anything invisible in the meantime.
+        </p>
+      {% endif %}
+    </section>
+
+    {% if view.has_output %}
+      <form class="reset" method="post" action="{{ url_for('reset_stage', key=stage.key) }}">
+        <button class="button button--danger" type="submit">
+          Clear this stage and everything after it
+        </button>
+      </form>
+    {% endif %}
+  </main>
+</div>
+{% endblock %}

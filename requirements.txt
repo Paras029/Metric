@@ -1,4 +1,9 @@
+# Core pipeline.
 openpyxl
 requests
 python-dotenv
 pyyaml
+
+# Local web interface. Flask bundles Jinja2 and Werkzeug; nothing else is needed, and there is
+# no Node or npm step -- the interface is server-rendered HTML with hand-written CSS.
+flask

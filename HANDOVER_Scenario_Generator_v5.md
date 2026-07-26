@@ -1,6 +1,7 @@
 # Handover — Agentic Scenario Generator v5
 
-**Status:** 73/73 tests passing. All eight commands verified end to end with `--no-llm`.
+**Status:** 107/107 tests passing. All eight commands verified end to end with `--no-llm`.
+Document ingestion (stage 0) and the local web interface are part-built — see §10.
 **Supersedes:** all earlier handover documents. The code is the source of truth; this is
 written from it.
 
@@ -104,8 +105,9 @@ Precedence: `Materiality Override` (human) > `Reviewed Materiality` (review pass
 `Materiality` (first sweep), resolved into `Effective Materiality`, which drives run counts.
 Earlier values are never overwritten — the reasoning stays visible.
 
-The scale lives once in `llm/prompts.py` and is shared by both passes, as are the peer signals
-(now in `core/generation.py`, deterministic domain logic rather than LLM-layer code).
+The scale lives once in `prompts/shared.materiality_scale.md` and is shared by both passes, as
+are the peer signals (in `core/generation.py`, deterministic domain logic rather than LLM-layer
+code).
 
 ### 3.35 Coverage-gap scenarios
 
@@ -385,28 +387,94 @@ JSON shape examples in every task prompt, and probe turn plans described as a fl
 escalation instruction rather than a fixed script — which matches the documented design in §7.4
 but did not match the prompt before.
 
-## 10. Next session
+## 10. Document ingestion and the interface — what exists so far
+
+### 10.1 Ingestion (stage 0), partially built
+
+Built and tested:
+
+- **`core/evidence.py`** — the evidence record. A claim is a statement, the verbatim quote it
+  came from, and a source reference (document, locator, kind). Claims are grouped into eleven
+  facets: the intake's six sheets, plus business problem/intended use, policy constraints, scope
+  boundaries, known risk areas, the owner's own testing, and domain terminology. The extra facets
+  exist because `review` reasons about business consequence and cannot do that from graph
+  structure alone.
+- **`core/grounding.py`** — the anti-hallucination guard, and the reason the rest is safe to
+  build. A claim's quote is checked against the source text it cites; if it is not there the
+  claim is **rejected**, not flagged. Matching normalises how text *arrives* (line-wrapped
+  hyphenation, typographic quotes, ligatures, whitespace) but not what it *says*, so a reworded
+  quote fails. Threshold 0.90 coverage, minimum quote length 25 characters. Claims from diagrams
+  or from a human answering a gap question are marked `unverifiable` rather than rejected, and
+  always surface for confirmation. Rejections are reported, never dropped silently.
+
+Not built yet: the document readers (PDF/DOCX/PPTX/image), the chunk-and-triage orchestration,
+the extraction pass and its prompts, context-document assembly, the gap report, conflict
+detection (`evidence.find_conflicts` raises `NotImplementedError` deliberately), and
+`draft-intake`.
+
+**Design decisions already fixed.** Ingestion produces three artifacts: the evidence record
+(machine-readable), a cited context document for `--context`, and a gap report phrased as
+questions. The context document is **assembled deterministically from verified claims**, not
+free-written — a model is used only to group near-duplicates and order them. A prose rendering
+was considered and deferred: rewriting verified claims reintroduces the misphrasing risk the
+whole design exists to remove, so if one is ever added it must be a secondary artifact that no
+stage consumes. Conflicts between documents are surfaced, never silently resolved.
+
+**`draft-intake` writes a real intake workbook**, schema-identical to `init-template` output.
+This works because `read_intake` reads cells positionally and looks sheets up by name, so extra
+provenance columns to the right and extra provenance sheets are both invisible to it — verified
+by reading the code, not assumed. The human reviews and corrects it in Excel and it feeds
+`build-graph` whether or not they edit it.
+
+### 10.2 The interface
+
+`python -m scenario_generator.webapp`, Flask, localhost only. Server-rendered HTML with
+hand-written CSS: **no Node, no npm, no build step.** Node is installed on the target machine but
+npm *registry* access is a separate approval from PyPI, and a locally-run Python tool that needs
+no `npm install` is one less thing to break on someone else's machine.
+
+- **`webapp/stages.py`** — the ten stages, and each one's `mode`: `computed`, `judged` or
+  `review`. This distinction is the interface's organising idea. The pipeline genuinely mixes
+  deterministic enumeration with model judgement, and a validator needs to know which produced
+  what they are reading. Presenting them identically would be the most misleading thing this
+  interface could do.
+- **`webapp/workspace.py`** — state, persisted as JSON beside the workbooks. The rule it exists
+  to enforce: completing a stage marks every *completed* later stage `stale`. Their outputs are
+  **kept** — they are a record of what was issued, and deleting them would be its own data loss —
+  but nothing presents them as current. A stale stage can still be re-run.
+- **`webapp/app.py`** — routes. Holds no pipeline logic; each stage calls the same functions the
+  CLI calls, so the two front ends cannot drift and a workspace can move between them.
+
+Wired end to end today: intake upload → benchmark → issue, producing the same 43 scenarios as the
+CLI on the worked example. Stages with no runner render an explicit "not connected yet" panel
+rather than a button that silently does nothing.
+
+Fonts and colour: institutional palette built on Amex deep blue `#00175A` and bright blue
+`#006FCF`. Type is a system stack — `--font-sans` in `webapp/static/app.css` is a single
+variable, so dropping in a licensed brand typeface is a one-line change plus the font files.
+
+## 11. Next session
 
 Suggested order:
 
-1. **Stage 0 — document ingestion.** Agreed as the next build. Takes the model document, vendor
-   documents, workflow diagrams and slide decks submitted by the model owner, and produces three
-   artifacts: an evidence record (every extracted claim with its source document and page, the
-   machine-readable state), a cited context document for the `--context` flag, and a gap report
-   phrased as questions for the human. A second command drafts a pre-filled intake workbook from
-   the evidence record, schema-identical to `init-template` output so `build-graph` consumes it
-   whether or not the human edits it. Grounding is the hard requirement: every claim carries a
-   verbatim quote, a deterministic pass verifies that quote against the source text, and anything
-   unverifiable is discarded rather than trusted. Diagram-derived claims cannot be verified this
-   way and are always marked for human confirmation.
-2. Fill `.env` and run the full pipeline against a real intake with a real model — the rewritten
+1. **Finish stage 0.** The document readers behind one interface (pypdf, python-docx,
+   python-pptx, Pillow — all confirmed reachable from the internal index), chunk-and-triage
+   orchestration, the extraction pass and its prompts, deterministic context-document assembly,
+   the gap report, and `draft-intake`.
+2. **Vision check.** Whether diagrams can be read by the gateway is still unconfirmed. The check
+   is in §12. Design so a negative answer degrades to a human-supplied description rather than
+   blocking the pipeline.
+3. **Wire the remaining stages into the interface** — evidence, questions, scenario text,
+   materiality, review, coverage. Long-running stages need progress reporting through a callback
+   rather than printing, since the interface has to show something during a multi-minute run.
+4. Fill `.env` and run the full pipeline against a real intake with a real model — the rewritten
    prompts have not been seen against a live gateway.
-3. Spot-check probe descriptions and review output for quality.
-4. Decide whether review proposals need a human approval gate before issue.
-5. Intake slimming and validation layer. Note a latent defect to fold in: `read_intake` does
+5. Spot-check probe descriptions and review output for quality.
+6. Decide whether review proposals need a human approval gate before issue.
+7. Intake slimming and validation layer. Note a latent defect to fold in: `read_intake` does
    `personas[0] = ...` without checking the list is non-empty, so an intake with no personas
    fails with a bare `IndexError`.
-6. Graph extraction from model documentation (the independence gap in §7).
+8. Graph extraction from model documentation (the independence gap in §7).
 
 ### Constraints that shape the next build
 
@@ -423,3 +491,27 @@ Suggested order:
 - **Vision support is unconfirmed.** Multimodal input is likely available on the gateway but has
   not been verified. Design so diagram extraction degrades to a human-supplied description rather
   than blocking the pipeline.
+
+---
+
+## 12. Checking the gateway for vision support
+
+Still unconfirmed, and it decides how workflow diagrams are handled. Two parts.
+
+**Ask the platform team:**
+
+1. Does the gateway expose a multimodal model, and what is its model ID? A text-only ID rejects
+   images regardless of anything else.
+2. Does the gateway accept `content` as an array of parts, or only a plain string? This is the
+   one that most often blocks it — many enterprise gateways normalise the request body and strip
+   or reject the array form even when the model behind them supports vision.
+3. What is the maximum request body size? Base64 inflates an image by roughly a third.
+4. Is there an approved internal document-intelligence or OCR service? Worth asking before
+   building anything; if one exists it is likely better supported than either alternative.
+
+**Run this with a working `.env`:** send a 1×1 pixel PNG as an image part and read the result.
+200 with a sensible reply means vision works. A 400 naming `content` means the gateway rejects
+the multimodal shape. A 400 naming the model means the model ID is text-only.
+
+Tesseract is assumed unavailable — it needs a system binary, which is a harder approval than a
+Python package, so it is not part of any design here.
