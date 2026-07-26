@@ -54,7 +54,7 @@ def build_probes_stage(intake_path: str, graph_path: str, output_path: str) -> L
 
 
 def refine(intake_path: str, graph_path: str, output_prefix: str, writer=None,
-           context_path: str = None) -> List[Scenario]:
+           context_path: str = None, notes=None) -> List[Scenario]:
     """Stage 2: graph file -> LLM description and turn plan -> challenge pack + registry.
 
     Category and persona are already fixed deterministically by build-graph; materiality is not
@@ -63,7 +63,7 @@ def refine(intake_path: str, graph_path: str, output_prefix: str, writer=None,
     intake = read_intake(intake_path)
     scenarios = read_scenarios(graph_path, intake)
 
-    (writer or ScenarioWriter(context=load_context(context_path))).write(scenarios, intake)
+    (writer or ScenarioWriter(context=load_context(context_path, notes))).write(scenarios, intake)
 
     write_challenge_pack(f"{output_prefix}_challenge_pack.xlsx", intake, scenarios)
     write_registry(f"{output_prefix}_registry.xlsx", intake, scenarios)
@@ -73,13 +73,13 @@ def refine(intake_path: str, graph_path: str, output_prefix: str, writer=None,
 
 def assess_materiality(intake_path: str, registry_in_path: str, registry_out_path: str,
                        assessor: Optional[MaterialityAssessor] = None,
-                       context_path: str = None) -> List[Scenario]:
+                       context_path: str = None, notes=None) -> List[Scenario]:
     """Stage: a separate LLM sweep that assigns materiality using cross-scenario signals, then
     rewrites the registry. Pass the same path twice to update in place."""
     intake = read_intake(intake_path)
     scenarios = read_scenarios(registry_in_path, intake)
 
-    (assessor or MaterialityAssessor(context=load_context(context_path))).assess(scenarios, intake)
+    (assessor or MaterialityAssessor(context=load_context(context_path, notes))).assess(scenarios, intake)
 
     write_registry(registry_out_path, intake, scenarios)
     logger.info("Assessed materiality for %d scenarios. Wrote %s", len(scenarios), registry_out_path)
@@ -88,12 +88,12 @@ def assess_materiality(intake_path: str, registry_in_path: str, registry_out_pat
 
 def generate(intake_path: str, output_prefix: str, writer=None,
             assessor: Optional[MaterialityAssessor] = None, with_probes: bool = False,
-            context_path: str = None) -> List[Scenario]:
+            context_path: str = None, notes=None) -> List[Scenario]:
     """One-shot convenience: build_scenarios + LLM writer + materiality sweep + both workbooks,
     no intermediate files."""
     intake = read_intake(intake_path)
     scenarios = build_scenarios(intake, with_probes)
-    context = load_context(context_path)
+    context = load_context(context_path, notes)
     logger.info("Generated %d scenarios for '%s' (%d probes)", len(scenarios), intake.name,
                 sum(1 for s in scenarios if s.is_probe))
 
@@ -107,7 +107,7 @@ def generate(intake_path: str, output_prefix: str, writer=None,
 
 
 def review(intake_path: str, registry_in_path: str, registry_out_path: str,
-           reviewer=None, context_path: str = None, proposal_limit: int = None,
+           reviewer=None, context_path: str = None, notes=None, proposal_limit: int = None,
            owner_scenarios_path: str = None, pack_path: str = None) -> List[Scenario]:
     """Final stage: a whole-registry LLM sweep that may revise materiality and propose additions.
 
@@ -125,7 +125,7 @@ def review(intake_path: str, registry_in_path: str, registry_out_path: str,
     existing = [s for s in scenarios if not s.is_proposed]
 
     reviewer = reviewer or ScenarioReviewer(
-        context=load_context(context_path),
+        context=load_context(context_path, notes),
         proposal_limit=proposal_limit or DEFAULT_PROPOSAL_LIMIT)
     owner = read_owner_scenarios(owner_scenarios_path) if owner_scenarios_path else None
     reviewed, proposals = reviewer.review(existing, intake, owner)

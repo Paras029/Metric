@@ -124,6 +124,21 @@ Changing something early marks every later stage out of date rather than leaving
 finished. Out-of-date output is kept and stays readable — it is a record of what was issued —
 but nothing presents it as current.
 
+The declared graph is drawn wherever the intake is available — states as boxes, decision outcomes
+as the arrows between them, hover for detail. A branch missing from that picture is a branch the
+benchmark will never test, and a state nothing leads to is called out by name.
+
+Every stage takes notes. Anything the documents do not say and a later stage should know — a
+correction, a constraint, a risk the pack does not mention — can be added at any point, and is
+given to every stage that follows, marked with where it was added. The command line takes the
+same thing through `--note`, which is repeatable:
+
+```bash
+python -m scenario_generator review intake.xlsx registry.xlsx registry.xlsx \
+    --note "Disputes over 500 always go to a person." \
+    --note "The vendor document is a version behind."
+```
+
 Work is stored under `workspaces/`, one directory per use case, holding the same workbooks the
 commands below produce. A use case can be started in the interface and finished on the command
 line, or the other way round.
@@ -441,13 +456,17 @@ of runs.
 python -m unittest discover -s tests
 ```
 
-107 tests, standard library only. Beyond unit coverage of graph traversal, matching and parsing,
+133 tests, standard library only. Beyond unit coverage of graph traversal, matching and parsing,
 several tests exist to protect properties that would otherwise fail silently:
 
 - Changing a stage marks every later stage out of date, and out-of-date output is kept rather
   than deleted.
 - A quote that was reworded rather than copied from the source document is rejected, while one
   mangled by PDF extraction is still matched.
+- A document that cannot be read is refused with a reason rather than contributing nothing
+  silently, and one unreadable file does not stop the rest of the pack being read.
+- The drawn graph invents no edge the intake does not declare, and names any state nothing
+  leads to.
 
 - The challenge pack contains no expected outcomes, no probe expectations and no ground-truth
   columns.
@@ -474,6 +493,8 @@ scenario_generator/
                    materiality, reviewer, extractor.
     prompts/       The prompt library: one plain file per prompt. Editable
                    without touching Python.
+    ingest/        Document ingestion: readers for each format, the
+                   extraction pass, and context-document assembly.
     io/            Workbook reading and writing.
     webapp/        Local web interface: stage definitions, workspace state,
                    routes, templates and stylesheet. Presentation only —

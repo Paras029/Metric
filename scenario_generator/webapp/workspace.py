@@ -62,13 +62,48 @@ class Workspace:
     """One use case, its directory, and the state of every stage in it."""
 
     def __init__(self, root: Path, name: str = "", created_at: str = "",
-                 stages: Optional[Dict[str, StageState]] = None) -> None:
+                 stages: Optional[Dict[str, StageState]] = None,
+                 notes: Optional[List[dict]] = None) -> None:
         self.root = Path(root)
         self.name = name or self.root.name
         self.created_at = created_at or _now()
         self.stages: Dict[str, StageState] = stages or {
             key: StageState() for key in STAGE_KEYS}
+        self.notes: List[dict] = list(notes or [])
         self._settle()
+
+    # ----------------------------------------------------------------- added context
+    def add_note(self, stage_key: str, text: str) -> None:
+        """Record something the user knows that the documents did not say.
+
+        Notes accumulate rather than replace, and each carries the stage it was added at. Every
+        later stage that consults context sees all of them: a correction made while reading the
+        evidence is just as relevant to the final review, and asking the user to repeat it there
+        would be a good way to lose it.
+        """
+        text = (text or "").strip()
+        if not text:
+            return
+        self.notes.append({"stage": stage_key, "text": text, "added_at": _now()})
+        self.save()
+
+    def notes_for(self, stage_key: str) -> List[dict]:
+        return [note for note in self.notes if note["stage"] == stage_key]
+
+    def context_text(self) -> str:
+        """Everything the user has added, as one block for the passes that take context.
+
+        Each note is attributed to the stage it was added at, so a model reading this can tell a
+        note written while looking at raw documents from one written while reading the finished
+        benchmark.
+        """
+        if not self.notes:
+            return ""
+        lines = ["NOTES ADDED BY THE VALIDATION TEAM", ""]
+        for note in self.notes:
+            title = STAGE_BY_KEY[note["stage"]].title if note["stage"] in STAGE_BY_KEY else "General"
+            lines.append(f"- ({title}) {note['text']}")
+        return "\n".join(lines)
 
     # ----------------------------------------------------------------- persistence
     @property
@@ -78,6 +113,7 @@ class Workspace:
     def save(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
         payload = {"name": self.name, "created_at": self.created_at,
+                   "notes": list(self.notes),
                    "stages": {k: v.to_dict() for k, v in self.stages.items()}}
         self.state_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -88,7 +124,8 @@ class Workspace:
         stages = {key: StageState.from_dict(data.get("stages", {}).get(key, {}))
                   for key in STAGE_KEYS}
         return cls(root=root, name=data.get("name", root.name),
-                   created_at=data.get("created_at", ""), stages=stages)
+                   created_at=data.get("created_at", ""), stages=stages,
+                   notes=data.get("notes", []))
 
     @classmethod
     def create(cls, base: Path, name: str) -> "Workspace":

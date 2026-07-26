@@ -14,6 +14,7 @@ authentication, and workspaces are readable by anyone who can reach the port.
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from pathlib import Path
 from typing import Callable, Dict
 
@@ -21,9 +22,16 @@ from flask import (Flask, abort, redirect, render_template, request, send_file, 
                    url_for)
 from werkzeug.utils import secure_filename
 
+from ..core.evidence import summarise
+from ..core.generation import required_runs
 from ..core.intake import read_intake, write_template
-from ..io import write_challenge_pack, write_registry
-from ..pipeline import build_scenarios
+from ..core.models import MATERIALITY, IntakeData
+from ..ingest import (build_context_document, extract_documents, open_questions,
+                      record_from_json, record_to_json)
+from ..io import read_scenarios, write_challenge_pack, write_registry
+from ..llm import MaterialityAssessor, ScenarioReviewer, ScenarioWriter
+from ..pipeline import build_scenarios, map_coverage
+from .graphview import graph_summary, render_svg
 from .stages import STAGE_BY_KEY, STAGES, STATUS_LABELS, index_of
 from .workspace import Workspace, stage_view
 
@@ -34,12 +42,108 @@ UPLOAD_EXTENSIONS = {".pdf", ".docx", ".pptx", ".png", ".jpg", ".jpeg", ".md", "
 
 
 # --------------------------------------------------------------------------- stage runners
-def _run_intake(workspace: Workspace) -> Dict[str, object]:
-    """Read the intake workbook and report the shape of what it declares."""
+#
+# Each runner takes the workspace, does one stage's work, and returns the figures worth showing.
+# None of them contain pipeline logic: they read what the previous stage left on disk, call the
+# same functions the command line calls, and write their own output back. Anything they raise is
+# shown in the stage panel rather than swallowed.
+
+REGISTRY = "registry.xlsx"
+EVIDENCE = "evidence.json"
+CONTEXT = "context.md"
+QUESTIONS = "open_questions.md"
+PACK = "challenge_pack.xlsx"
+OVERLAP = "coverage.xlsx"
+
+
+def _intake(workspace: Workspace) -> IntakeData:
     path = workspace.artifact_path("intake", "workbook")
     if not path:
-        raise ValueError("No intake workbook has been provided yet.")
-    intake = read_intake(str(path))
+        raise ValueError("No intake workbook yet. Provide one at the intake stage.")
+    return read_intake(str(path))
+
+
+def _scenarios(workspace: Workspace, intake: IntakeData):
+    """The benchmark as the last stage left it."""
+    path = workspace.root / REGISTRY
+    if not path.exists():
+        raise ValueError("Build the benchmark first.")
+    return read_scenarios(str(path), intake)
+
+
+def _context(workspace: Workspace) -> str:
+    """Everything available as supplementary context: the extracted document context, plus every
+    note the user has added. Both are optional and each stage runs without them."""
+    parts = []
+    extracted = workspace.root / CONTEXT
+    if extracted.exists():
+        parts.append(extracted.read_text(encoding="utf-8"))
+    notes = workspace.context_text()
+    if notes:
+        parts.append(notes)
+    return "\n\n".join(parts)
+
+
+def _source_files(workspace: Workspace):
+    folder = workspace.root / "sources"
+    return sorted(p for p in folder.glob("*") if p.is_file()) if folder.exists() else []
+
+
+def _run_evidence(workspace: Workspace) -> Dict[str, object]:
+    """Read the submitted documents into a verified evidence record, and write the context file."""
+    paths = _source_files(workspace)
+    if not paths:
+        raise ValueError("No documents have been added at the submitted documents stage.")
+
+    record = extract_documents(paths)
+    record_to_json(record, workspace.root / EVIDENCE)
+    (workspace.root / CONTEXT).write_text(
+        build_context_document(record, workspace.name), encoding="utf-8")
+
+    workspace.state("evidence").artifacts.update(
+        {"evidence": EVIDENCE, "context": CONTEXT})
+
+    counts = summarise(record)
+    unreadable = [d.name for d in record.documents if d.kind == "unreadable"]
+    return {"Documents read": counts["documents"] - len(unreadable),
+            "Statements kept": counts["usable"],
+            "Discarded as unsupported": counts["rejected"],
+            "Needing confirmation": counts["needing_confirmation"],
+            "Categories with nothing": counts["empty_facets"],
+            "Unreadable files": len(unreadable)}
+
+
+def _run_questions(workspace: Workspace) -> Dict[str, object]:
+    """Turn the evidence record into the list of things nobody's documents answered."""
+    path = workspace.root / EVIDENCE
+    if not path.exists():
+        raise ValueError("Extract the evidence first.")
+
+    record = record_from_json(path)
+    questions = open_questions(record)
+
+    lines = ["# Open questions", "",
+             "Answers become evidence attributed to the validation team rather than to a "
+             "document.", ""]
+    for number, question in enumerate(questions, start=1):
+        lines.append(f"{number}. **{question['heading']}** — {question['question']}")
+        lines.append(f"   _{question['detail']}_")
+        lines.append("")
+    if not questions:
+        lines.append("Nothing outstanding: every category was addressed and every statement "
+                     "was checkable.")
+    (workspace.root / QUESTIONS).write_text("\n".join(lines), encoding="utf-8")
+
+    workspace.state("questions").artifacts["questions"] = QUESTIONS
+    gaps = sum(1 for q in questions if q["kind"] == "gap")
+    return {"Open questions": len(questions), "Categories not covered": gaps,
+            "Statements to confirm": len(questions) - gaps,
+            "Notes you have added": len(workspace.notes)}
+
+
+def _run_intake(workspace: Workspace) -> Dict[str, object]:
+    """Read the intake workbook and report the shape of what it declares."""
+    intake = _intake(workspace)
     return {"Use case": intake.name, "Capabilities": len(intake.capabilities),
             "Decision points": len(intake.decisions), "States": len(intake.states),
             "Personas": len(intake.personas), "Tools": len(intake.tools)}
@@ -47,44 +151,97 @@ def _run_intake(workspace: Workspace) -> Dict[str, object]:
 
 def _run_benchmark(workspace: Workspace) -> Dict[str, object]:
     """Enumerate every route through the declared graph and add the applicable probes."""
-    path = workspace.artifact_path("intake", "workbook")
-    if not path:
-        raise ValueError("Complete the intake stage first.")
-    intake = read_intake(str(path))
+    intake = _intake(workspace)
     scenarios = build_scenarios(intake, with_probes=True)
-
-    registry = workspace.root / "registry.xlsx"
-    write_registry(str(registry), intake, scenarios)
-    workspace.state("benchmark").artifacts["registry"] = registry.name
+    write_registry(str(workspace.root / REGISTRY), intake, scenarios)
+    workspace.state("benchmark").artifacts["registry"] = REGISTRY
 
     probes = sum(1 for s in scenarios if s.is_probe)
     return {"Scenarios": len(scenarios), "Routes through the graph": len(scenarios) - probes,
             "Probes": probes}
 
 
+def _run_text(workspace: Workspace) -> Dict[str, object]:
+    """Write each scenario up for the team that owns the agent."""
+    intake = _intake(workspace)
+    scenarios = _scenarios(workspace, intake)
+    ScenarioWriter(context=_context(workspace)).write(scenarios, intake)
+    write_registry(str(workspace.root / REGISTRY), intake, scenarios)
+    workspace.state("text").artifacts["registry"] = REGISTRY
+
+    written = sum(1 for s in scenarios if s.description)
+    return {"Scenarios written": written, "Turns scripted": sum(s.turn_count for s in scenarios)}
+
+
+def _run_materiality(workspace: Workspace) -> Dict[str, object]:
+    """Assign a tier to every scenario, with the redundancy signals in view."""
+    intake = _intake(workspace)
+    scenarios = _scenarios(workspace, intake)
+    MaterialityAssessor(context=_context(workspace)).assess(scenarios, intake)
+    write_registry(str(workspace.root / REGISTRY), intake, scenarios)
+    workspace.state("materiality").artifacts["registry"] = REGISTRY
+
+    tiers = Counter(s.effective_materiality for s in scenarios)
+    return {tier: tiers.get(tier, 0) for tier in MATERIALITY}
+
+
+def _run_review(workspace: Workspace) -> Dict[str, object]:
+    """One pass over the whole benchmark, then rebuild the pack so its verdict actually lands."""
+    intake = _intake(workspace)
+    scenarios = _scenarios(workspace, intake)
+    reviewer = ScenarioReviewer(context=_context(workspace))
+    scenarios, proposals = reviewer.review(scenarios, intake)
+    scenarios = list(scenarios) + list(proposals)
+
+    write_registry(str(workspace.root / REGISTRY), intake, scenarios)
+    workspace.state("review").artifacts["registry"] = REGISTRY
+
+    flagged = sum(1 for s in scenarios if getattr(s, "review_flag", ""))
+    return {"Scenarios reviewed": len(scenarios) - len(proposals),
+            "Proposed additions": len(proposals), "Flagged for a second look": flagged}
+
+
 def _run_issue(workspace: Workspace) -> Dict[str, object]:
     """Write the challenge pack for the model owner and the registry kept internally."""
+    intake = _intake(workspace)
+    scenarios = _scenarios(workspace, intake)
+    write_challenge_pack(str(workspace.root / PACK), intake, scenarios)
+    write_registry(str(workspace.root / REGISTRY), intake, scenarios)
+    workspace.state("issue").artifacts.update({"challenge_pack": PACK, "registry": REGISTRY})
+
+    runs = sum(required_runs(s.effective_materiality) for s in scenarios)
+    return {"Scenarios issued": len(scenarios), "Runs requested": runs,
+            "Expected outcomes in the pack": 0}
+
+
+def _run_coverage(workspace: Workspace) -> Dict[str, object]:
+    """Match the model owner's own scenario library against this benchmark."""
+    owner = workspace.artifact_path("coverage", "owner_scenarios")
+    if not owner:
+        raise ValueError("Upload the model owner's own scenario library first.")
+
     intake_path = workspace.artifact_path("intake", "workbook")
-    if not intake_path:
-        raise ValueError("Complete the intake stage first.")
-    intake = read_intake(str(intake_path))
-    scenarios = build_scenarios(intake, with_probes=True)
+    report = workspace.root / OVERLAP
+    matches = map_coverage(str(intake_path), str(workspace.root / REGISTRY), str(owner),
+                           str(report))
+    workspace.state("coverage").artifacts["report"] = OVERLAP
 
-    pack = workspace.root / "challenge_pack.xlsx"
-    registry = workspace.root / "registry.xlsx"
-    write_challenge_pack(str(pack), intake, scenarios)
-    write_registry(str(registry), intake, scenarios)
-    workspace.state("issue").artifacts.update(
-        {"challenge_pack": pack.name, "registry": registry.name})
-    return {"Scenarios issued": len(scenarios), "Expected outcomes in the pack": 0}
+    covered = sum(1 for m in matches if getattr(m, "verdict", "").lower().startswith("match"))
+    return {"Benchmark scenarios": len(matches), "Covered by their testing": covered}
 
 
-# Stages with no runner yet render an honest "not connected" panel rather than a button that
-# quietly does nothing.
+# Every stage that does work has a runner. The two that only take input from the user -- the
+# document pack and the intake workbook -- are handled by the upload route instead.
 RUNNERS: Dict[str, Callable[[Workspace], Dict[str, object]]] = {
+    "evidence": _run_evidence,
+    "questions": _run_questions,
     "intake": _run_intake,
     "benchmark": _run_benchmark,
+    "text": _run_text,
+    "materiality": _run_materiality,
+    "review": _run_review,
     "issue": _run_issue,
+    "coverage": _run_coverage,
 }
 
 
@@ -128,6 +285,17 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         if key not in STAGE_BY_KEY:
             abort(404)
         workspace = _workspace()
+
+        # The graph is drawn wherever the intake is available, since it is the clearest reading
+        # of what the benchmark will and will not be able to reach.
+        graph_svg, graph_facts = "", {}
+        if key in ("intake", "benchmark") and workspace.artifact_path("intake", "workbook"):
+            try:
+                intake = _intake(workspace)
+                graph_svg, graph_facts = render_svg(intake), graph_summary(intake)
+            except Exception as exc:                       # a malformed intake must not blank it
+                logger.warning("Could not draw the graph: %s", exc)
+
         return render_template(
             "stage.html",
             workspace=workspace,
@@ -135,7 +303,28 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             view=stage_view(workspace, STAGE_BY_KEY[key]),
             runnable=key in RUNNERS,
             invalidated=request.args.get("invalidated", ""),
+            notes=workspace.notes_for(key),
+            note_total=len(workspace.notes),
+            graph_svg=graph_svg,
+            graph_facts=graph_facts,
+            questions=_questions_for(workspace) if key == "questions" else [],
         )
+
+    def _questions_for(workspace: Workspace):
+        path = workspace.root / EVIDENCE
+        if not path.exists():
+            return []
+        try:
+            return open_questions(record_from_json(path))
+        except Exception:
+            return []
+
+    @app.post("/stage/<key>/note")
+    def add_note(key: str):
+        """Record something the user knows that the documents did not say."""
+        workspace = _workspace()
+        workspace.add_note(key, request.form.get("note", ""))
+        return redirect(url_for("stage", key=key, added="1"))
 
     @app.post("/stage/<key>/upload")
     def upload(key: str):
@@ -162,6 +351,8 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
         if key == "intake":
             workspace.state("intake").artifacts["workbook"] = stored[0]
+        elif key == "coverage":
+            workspace.state("coverage").artifacts["owner_scenarios"] = stored[0]
         else:
             for name in stored:
                 workspace.state(key).artifacts[name] = f"sources/{name}"

@@ -1,7 +1,8 @@
 # Handover — Agentic Scenario Generator v5
 
-**Status:** 107/107 tests passing. All eight commands verified end to end with `--no-llm`.
-Document ingestion (stage 0) and the local web interface are part-built — see §10.
+**Status:** 133/133 tests passing. All eight commands verified end to end with `--no-llm`.
+Document ingestion (stage 0) and the local web interface are built; see §10 for what
+remains.
 **Supersedes:** all earlier handover documents. The code is the source of truth; this is
 written from it.
 
@@ -407,10 +408,28 @@ Built and tested:
   or from a human answering a gap question are marked `unverifiable` rather than rejected, and
   always surface for confirmation. Rejections are reported, never dropped silently.
 
-Not built yet: the document readers (PDF/DOCX/PPTX/image), the chunk-and-triage orchestration,
-the extraction pass and its prompts, context-document assembly, the gap report, conflict
-detection (`evidence.find_conflicts` raises `NotImplementedError` deliberately), and
-`draft-intake`.
+Also built:
+
+- **`ingest/readers.py`** — one reader per format behind `read_document`, each returning
+  *segments* with locators (page, slide, heading) rather than one block of text, because the
+  locator is what a citation later points at. Third-party parsers are imported inside the reader
+  that needs them, so a package missing from the internal mirror disables one format rather than
+  the tool. A file that yields no text — a scanned PDF, a deck of exported images — is refused
+  with a reason rather than contributing nothing silently.
+- **`ingest/extraction.py`** — map then check. Each passage goes to the model on the judgement
+  budget; every claim returned is put through the grounding check against that same passage
+  before it is kept. One unreadable document, or one failed call, costs that document or that
+  passage and not the run.
+- **`ingest/context_document.py`** — deterministic assembly of the cited context file, and
+  `open_questions`, which reads the record from the other side: categories nothing addressed, and
+  statements that could not be checked.
+- **Prompts** `ingest.system` and `ingest.extract`. The extraction prompt's load-bearing
+  instruction is that a quote must be copied character for character, because an approximated
+  quote fails the check and loses the claim.
+
+Not built yet: image/diagram reading (waiting on the vision check in §12), chunk-level triage to
+drop irrelevant passages before the expensive call, conflict detection between documents
+(`evidence.find_conflicts` raises `NotImplementedError` deliberately), and `draft-intake`.
 
 **Design decisions already fixed.** Ingestion produces three artifacts: the evidence record
 (machine-readable), a cited context document for `--context`, and a gap report phrased as
@@ -445,9 +464,24 @@ no `npm install` is one less thing to break on someone else's machine.
 - **`webapp/app.py`** — routes. Holds no pipeline logic; each stage calls the same functions the
   CLI calls, so the two front ends cannot drift and a workspace can move between them.
 
-Wired end to end today: intake upload → benchmark → issue, producing the same 43 scenarios as the
-CLI on the worked example. Stages with no runner render an explicit "not connected yet" panel
-rather than a button that silently does nothing.
+**All ten stages are wired.** Every runner reads what the previous stage left on disk, calls the
+same function the CLI calls, and writes its output back, so the registry is the hand-off between
+them and either front end can pick up where the other stopped.
+
+- **`webapp/graphview.py`** — the declared graph as an SVG, generated in Python rather than by a
+  drawing library so it renders offline with no script and no font download, and so hover detail
+  can be a native SVG `<title>` that works without JavaScript. Layered top-down by distance from
+  the start state: what a reader wants from the picture is how far a route runs and where it
+  ends, and depth read vertically answers both. Terminal states are coloured by outcome type.
+  A state nothing leads to is drawn dashed and named in a warning, since that is a defect in the
+  declaration rather than a quirk of the drawing.
+
+**Notes.** Every stage takes free text — anything the documents do not say that a later stage
+should know. Notes accumulate rather than replace, each carries the stage it was added at, and
+every stage that consults context receives all of them: a correction made while reading the
+evidence is just as relevant to the final review, and asking for it twice would be a good way to
+lose it. The CLI takes the same thing through a repeatable `--note`, assembled alongside
+`--context` in `core/context.py`.
 
 Fonts and colour: institutional palette built on Amex deep blue `#00175A` and bright blue
 `#006FCF`. Type is a system stack — `--font-sans` in `webapp/static/app.css` is a single

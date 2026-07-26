@@ -34,6 +34,8 @@ _CONTRACT = {
     "extractor.system": set(),
     "extractor.task": {"use_case", "decisions", "capabilities", "personas", "categories",
                        "scenarios"},
+    "ingest.system": set(),
+    "ingest.extract": {"facets", "document", "locator", "chunk"},
 }
 
 _INTAKE = IntakeData(

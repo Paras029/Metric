@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 {% set stage = view.stage %}
+{% set state = view.state %}
+{% set uploads = {'sources': 'documents', 'intake': 'workbook', 'coverage': 'owner'} %}
 {% block title %}{{ stage.title }} — {{ workspace.name }}{% endblock %}
 
 {% block body %}
@@ -28,6 +30,7 @@
         <li class="steps__item steps__item--{{ item.status }}
                    {% if item.stage.key == stage.key %}steps__item--active{% endif %}">
           <a class="steps__link" href="{{ url_for('stage', key=item.stage.key) }}"
+             title="{{ item.stage.blurb }}"
              {% if item.stage.key == stage.key %}aria-current="step"{% endif %}>
             <span class="steps__marker" aria-hidden="true">{{ item.number }}</span>
             <span class="steps__body">
@@ -36,10 +39,18 @@
                 {{ item.status | stage_status }}{% if item.stage.optional %} · optional{% endif %}
               </span>
             </span>
+            <span class="steps__mode steps__mode--{{ item.stage.mode }}"
+                  title="{{ item.stage.mode_label }}" aria-hidden="true"></span>
           </a>
         </li>
       {% endfor %}
     </ol>
+
+    <p class="rail__legend">
+      <span><i class="dot dot--computed"></i>Computed</span>
+      <span><i class="dot dot--judged"></i>Judged</span>
+      <span><i class="dot dot--review"></i>Yours</span>
+    </p>
   </nav>
 
   <main class="canvas">
@@ -65,7 +76,12 @@
       </div>
     </header>
 
-    {% set state = view.state %}
+    {% if stage.detail %}
+      <details class="about"{% if not view.has_output %} open{% endif %}>
+        <summary class="about__summary">What this stage does, and why</summary>
+        <p class="about__body">{{ stage.detail }}</p>
+      </details>
+    {% endif %}
 
     {% if state.status == 'failed' %}
       <div class="banner banner--failed" role="alert">
@@ -84,13 +100,65 @@
           {% for label, value in state.summary.items() %}
             <div class="figures__cell">
               <dt class="figures__label">{{ label }}</dt>
-              <dd class="figures__value mono">{{ value }}</dd>
+              {# Counts read as figures; names and other text would break the grid at that size. #}
+              <dd class="figures__value {% if value is number %}mono{% else %}figures__value--text{% endif %}">
+                {{ value }}
+              </dd>
             </div>
           {% endfor %}
         </dl>
         {% if state.updated_at %}
           <p class="panel__foot">Last run <span class="mono">{{ state.updated_at }}</span></p>
         {% endif %}
+      </section>
+    {% endif %}
+
+    {% if graph_svg %}
+      <section class="panel panel--graph">
+        <h2 class="panel__title">The declared graph</h2>
+        <p class="panel__body">
+          Boxes are states, arrows are decision outcomes. Hover anything for its detail. This is
+          the whole of what the benchmark can reach — a branch missing here is a branch that will
+          never be tested.
+        </p>
+        {% if graph_facts.unreachable %}
+          <p class="graph__warning">
+            Not reachable from the start state:
+            <span class="mono">{{ graph_facts.unreachable | join(', ') }}</span>.
+            A state nothing leads to is usually a gap in the intake rather than in the agent.
+          </p>
+        {% endif %}
+        <div class="graph__frame">{{ graph_svg | safe }}</div>
+        <p class="graph__facts">
+          <span class="mono">{{ graph_facts.states }}</span> states
+          (<span class="mono">{{ graph_facts.terminal }}</span> ending) ·
+          <span class="mono">{{ graph_facts.decisions }}</span> decisions with
+          <span class="mono">{{ graph_facts.outcomes }}</span> outcomes ·
+          longest run <span class="mono">{{ graph_facts.depth }}</span> deep
+        </p>
+      </section>
+    {% endif %}
+
+    {% if questions %}
+      <section class="panel">
+        <h2 class="panel__title">What is still unanswered</h2>
+        <p class="panel__body">
+          Answer what you can in the notes below. Anything left unanswered stays unknown rather
+          than being treated as something the agent does not do.
+        </p>
+        <ul class="questions">
+          {% for question in questions %}
+            <li class="questions__row questions__row--{{ question.kind }}">
+              <span class="questions__kind">
+                {{ 'Not covered' if question.kind == 'gap' else 'Confirm' }}
+              </span>
+              <span class="questions__body">
+                <span class="questions__text">{{ question.question }}</span>
+                <span class="questions__detail">{{ question.detail }}</span>
+              </span>
+            </li>
+          {% endfor %}
+        </ul>
       </section>
     {% endif %}
 
@@ -109,60 +177,102 @@
       </section>
     {% endif %}
 
-    <section class="panel panel--action">
-      {% if workspace.is_blocked(stage.key) %}
+    {% if workspace.is_blocked(stage.key) %}
+      <section class="panel panel--action">
         <h2 class="panel__title">Not yet available</h2>
         <p class="panel__body">
           Finish the stage before this one first. Every stage builds on what the last one
           produced.
         </p>
+      </section>
+    {% else %}
 
-      {% elif stage.key in ('sources', 'intake') %}
-        <h2 class="panel__title">
-          {% if stage.key == 'intake' %}Provide the intake workbook{% else %}Add documents{% endif %}
-        </h2>
-        <p class="panel__body">
-          {% if stage.key == 'intake' %}
-            Upload a completed intake workbook. Need a blank one?
-            <a class="link" href="{{ url_for('blank_template') }}">Download the template</a>.
-          {% else %}
-            PDF, Word, PowerPoint and images. Include the workflow diagram if there is one.
-          {% endif %}
-        </p>
-        <form class="upload" method="post" enctype="multipart/form-data"
-              action="{{ url_for('upload', key=stage.key) }}">
-          <input class="upload__input" type="file" name="files"
-                 {% if stage.key != 'intake' %}multiple{% endif %}
-                 accept=".pdf,.docx,.pptx,.png,.jpg,.jpeg,.md,.txt,.xlsx">
-          <button class="button button--primary" type="submit">Upload</button>
-        </form>
-
-      {% elif runnable %}
-        <h2 class="panel__title">
-          {% if view.has_output %}Run this stage again{% else %}Run this stage{% endif %}
-        </h2>
-        <p class="panel__body">
-          {% if view.has_output %}
-            Replaces the output above, and marks every later stage out of date so nothing
-            downstream is left claiming to reflect it.
-          {% else %}
-            Uses the output of stage
-            <span class="mono">{{ view.number - 1 }}</span> as it stands now.
-          {% endif %}
-        </p>
-        <form method="post" action="{{ url_for('run_stage', key=stage.key) }}">
-          <button class="button button--primary" type="submit">
-            {% if view.has_output %}Run again{% else %}Run{% endif %}
-          </button>
-        </form>
-
-      {% else %}
-        <h2 class="panel__title">Not connected yet</h2>
-        <p class="panel__body">
-          This stage runs from the command line today and is being brought into the interface.
-          Nothing here is doing anything invisible in the meantime.
-        </p>
+      {% if stage.key in uploads %}
+        <section class="panel panel--action">
+          <h2 class="panel__title">
+            {% if stage.key == 'intake' %}Provide the intake workbook
+            {% elif stage.key == 'coverage' %}Provide their scenario library
+            {% else %}Add documents{% endif %}
+          </h2>
+          <p class="panel__body">
+            {% if stage.key == 'intake' %}
+              Upload a completed intake workbook. Need a blank one?
+              <a class="link" href="{{ url_for('blank_template') }}">Download the template</a>.
+            {% elif stage.key == 'coverage' %}
+              A workbook of the model owner's own test scenarios, one per row.
+            {% else %}
+              PDF, Word, PowerPoint, notes and images. Include the workflow diagram if there is
+              one. A scanned PDF has no text to read and will be refused with a reason.
+            {% endif %}
+          </p>
+          <form class="upload" method="post" enctype="multipart/form-data"
+                action="{{ url_for('upload', key=stage.key) }}">
+            <input class="upload__input" type="file" name="files"
+                   {% if stage.key == 'sources' %}multiple{% endif %}
+                   accept=".pdf,.docx,.pptx,.png,.jpg,.jpeg,.md,.txt,.xlsx">
+            <button class="button button--primary" type="submit">Upload</button>
+          </form>
+        </section>
       {% endif %}
+
+      {% if runnable %}
+        <section class="panel panel--action">
+          <h2 class="panel__title">
+            {% if view.has_output %}Run this stage again{% else %}Run this stage{% endif %}
+          </h2>
+          <p class="panel__body">
+            {% if view.has_output %}
+              Replaces the output above, and marks every later stage out of date so nothing
+              downstream is left claiming to reflect it.
+            {% else %}
+              Uses what stage <span class="mono">{{ view.number - 1 }}</span> produced, together
+              with any notes added along the way.
+            {% endif %}
+          </p>
+          <form method="post" action="{{ url_for('run_stage', key=stage.key) }}">
+            <button class="button button--primary" type="submit">
+              {% if view.has_output %}Run again{% else %}Run{% endif %}
+            </button>
+          </form>
+        </section>
+      {% elif stage.key not in uploads %}
+        <section class="panel panel--action">
+          <h2 class="panel__title">Nothing to run here</h2>
+          <p class="panel__body">This stage is yours to read and decide on.</p>
+        </section>
+      {% endif %}
+    {% endif %}
+
+    <section class="panel panel--notes">
+      <h2 class="panel__title">Add what you know</h2>
+      <p class="panel__body">
+        Anything the documents do not say and a later stage should know — a correction, a
+        constraint, a risk the pack does not mention. Notes are kept for the rest of the run and
+        given to every stage that follows, each marked with where it was added.
+        {% if note_total %}
+          <span class="mono">{{ note_total }}</span> so far across all stages.
+        {% endif %}
+      </p>
+
+      {% if notes %}
+        <ul class="notes">
+          {% for note in notes %}
+            <li class="notes__row">
+              <p class="notes__text">{{ note.text }}</p>
+              <p class="notes__meta mono">{{ note.added_at }}</p>
+            </li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+
+      <form class="notes__form" method="post" action="{{ url_for('add_note', key=stage.key) }}">
+        <label class="field">
+          <span class="field__label">Note for this stage</span>
+          <textarea class="field__input field__input--area" name="note" rows="3"
+                    placeholder="Disputes over £500 always go to a person, which the model document does not mention."></textarea>
+        </label>
+        <button class="button button--quiet" type="submit">Add note</button>
+      </form>
     </section>
 
     {% if view.has_output %}

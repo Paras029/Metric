@@ -441,3 +441,202 @@ ol, ul { list-style: none; padding: 0; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
 }
+
+/* ------------------------------------------------------------------ stage explanation
+ * Open until the stage has been run, then collapsed: the explanation matters most to someone
+ * meeting the stage for the first time, and becomes noise once they know it.
+ */
+.about {
+  margin-top: 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, #FBFCFE, var(--paper));
+}
+.about__summary {
+  padding: .8rem 1.1rem;
+  font-size: .84rem;
+  font-weight: 600;
+  color: var(--deep);
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+.about__summary::-webkit-details-marker { display: none; }
+.about__summary::before {
+  content: "";
+  width: .42rem; height: .42rem;
+  border-right: 1.5px solid var(--blue);
+  border-bottom: 1.5px solid var(--blue);
+  transform: rotate(-45deg);
+  transition: transform .2s ease;
+}
+.about[open] .about__summary::before { transform: rotate(45deg); }
+.about__body {
+  padding: 0 1.1rem 1.1rem;
+  color: var(--ink-soft);
+  font-size: .9rem;
+  max-width: 48rem;
+}
+
+/* ------------------------------------------------------------------ mode markers in the rail */
+.steps__link { position: relative; }
+.steps__mode {
+  position: absolute;
+  right: 1.05rem;
+  top: 1rem;
+  width: .4rem; height: .4rem;
+  border-radius: 50%;
+  opacity: .85;
+}
+.steps__mode--computed { background: #4CC38A; }
+.steps__mode--judged   { background: #5AA9F7; }
+.steps__mode--review   { background: #F0B24A; }
+
+.rail__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .25rem .8rem;
+  margin: 1.4rem 1.4rem 0;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255,255,255,.11);
+  font-size: .68rem;
+  color: #7C93B8;
+}
+.rail__legend span { display: inline-flex; align-items: center; gap: .3rem; }
+.dot { width: .4rem; height: .4rem; border-radius: 50%; display: inline-block; }
+.dot--computed { background: #4CC38A; }
+.dot--judged   { background: #5AA9F7; }
+.dot--review   { background: #F0B24A; }
+
+/* ------------------------------------------------------------------ the declared graph */
+.panel--graph { padding-bottom: 1.1rem; }
+.graph__frame {
+  margin-top: 1.1rem;
+  padding: 1rem;
+  overflow-x: auto;
+  background:
+    linear-gradient(var(--line-soft) 1px, transparent 1px) 0 0 / 100% 22px,
+    linear-gradient(90deg, var(--line-soft) 1px, transparent 1px) 0 0 / 22px 100%,
+    var(--paper);
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+}
+.graph { display: block; width: 100%; height: auto; min-width: 30rem; }
+
+.graph__node rect {
+  fill: var(--paper);
+  stroke: #B9C7DC;
+  stroke-width: 1.2;
+  transition: stroke .15s ease, fill .15s ease;
+}
+.graph__node:hover rect { stroke: var(--blue); fill: #F5FAFF; }
+.graph__node text { font-family: var(--font-sans); pointer-events: none; }
+.graph__id {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  fill: var(--ink-faint);
+  letter-spacing: .02em;
+}
+.graph__caption { font-size: 11px; fill: var(--ink); text-anchor: middle; }
+
+.graph__node--terminal rect { stroke-width: 2; stroke-dasharray: none; }
+.graph__node--happy rect       { stroke: #1B7F5A; fill: #F2FBF7; }
+.graph__node--escalation rect  { stroke: #A56200; fill: #FEF9F0; }
+.graph__node--termination rect { stroke: #B3261E; fill: #FDF4F3; }
+.graph__node--fallback rect    { stroke: #6B4FBB; fill: #F8F6FE; }
+.graph__node--retry rect       { stroke: #006FCF; fill: #F3F9FF; }
+.graph__node--unreachable rect { stroke: #B3261E; stroke-dasharray: 4 3; fill: #FDF4F3; }
+
+.graph__edge path { fill: none; stroke: #A9B8CE; stroke-width: 1.3; }
+.graph__edge:hover path { stroke: var(--blue); stroke-width: 2; }
+.graph__arrow { fill: #A9B8CE; }
+
+.graph__label rect { fill: var(--paper); stroke: var(--line); stroke-width: 1; }
+.graph__label text {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  fill: var(--ink-soft);
+  pointer-events: none;
+}
+.graph__label:hover rect { stroke: var(--blue); }
+.graph__label:hover text { fill: var(--blue-dark); }
+
+.graph__facts { margin-top: .8rem; font-size: .8rem; color: var(--ink-faint); }
+.graph__warning {
+  margin-top: .8rem;
+  padding: .55rem .8rem;
+  background: #FDF4F3;
+  border-left: 3px solid var(--rejected);
+  border-radius: 0 4px 4px 0;
+  font-size: .83rem;
+  color: var(--ink-soft);
+}
+
+/* ------------------------------------------------------------------ open questions */
+.questions { margin-top: 1rem; border-top: 1px solid var(--line-soft); }
+.questions__row {
+  display: flex;
+  gap: .9rem;
+  padding: .75rem 0;
+  border-bottom: 1px solid var(--line-soft);
+  align-items: baseline;
+}
+.questions__kind {
+  flex: none;
+  width: 6.2rem;
+  font-size: .66rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.questions__row--gap .questions__kind { color: var(--attention); }
+.questions__row--confirm .questions__kind { color: var(--blue-dark); }
+.questions__text { display: block; }
+.questions__detail {
+  display: block;
+  font-size: .8rem;
+  color: var(--ink-faint);
+  margin-top: .15rem;
+}
+
+/* ------------------------------------------------------------------ notes */
+.panel--notes { border-style: dashed; background: linear-gradient(180deg, #FBFCFE, var(--paper)); }
+.notes { margin-top: 1rem; }
+.notes__row {
+  padding: .7rem .9rem;
+  background: var(--ground);
+  border-left: 2px solid var(--blue);
+  border-radius: 0 4px 4px 0;
+  margin-bottom: .5rem;
+}
+.notes__text { font-size: .89rem; }
+.notes__meta { margin-top: .25rem; font-size: .72rem; color: var(--ink-faint); }
+.notes__form { margin-top: 1rem; }
+.notes__form .button { margin-top: .7rem; }
+.field__input--area { resize: vertical; font-size: .89rem; line-height: 1.5; }
+
+/* ------------------------------------------------------------------ corrections
+ * The rail is sticky and one viewport tall, so on a long page the column beside it would end in
+ * bare background. Painting the column on the grid itself keeps it continuous however far the
+ * content runs.
+ */
+.shell {
+  background: linear-gradient(90deg, var(--deep) 0 var(--rail-width), var(--ground) var(--rail-width));
+}
+
+/* A summary cell holds either a count or a name. At the size a count wants, a name wraps into
+ * the cell beside it, so text takes its own treatment. */
+.figures { background: var(--paper); }
+.figures__cell { box-shadow: 0 0 0 1px var(--line-soft); }
+.figures__value--text {
+  font-size: .95rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--deep);
+}
+
+@media (max-width: 62rem) {
+  .shell { background: var(--ground); }
+}

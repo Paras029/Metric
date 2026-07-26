@@ -41,6 +41,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_refine.add_argument("--no-llm", action="store_true",
                           help="skip the LLM writer (deterministic text)")
     p_refine.add_argument("--context", help="optional business context file (txt or md)")
+    p_refine.add_argument("--note", action="append", metavar="TEXT",
+                        help="anything the documents do not say that this pass should know; repeatable")
 
     p_mat = sub.add_parser("assess-materiality",
                            help="stage: a separate LLM sweep assigning materiality on a registry")
@@ -50,6 +52,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_mat.add_argument("--no-llm", action="store_true",
                        help="skip the materiality sweep (leave existing values)")
     p_mat.add_argument("--context", help="optional business context file (txt or md)")
+    p_mat.add_argument("--note", action="append", metavar="TEXT",
+                        help="anything the documents do not say that this pass should know; repeatable")
 
     p_gen = sub.add_parser("generate",
                            help="one-shot: build-graph + refine + assess-materiality in memory")
@@ -60,6 +64,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_gen.add_argument("--with-probes", action="store_true",
                        help="also generate applicable adversarial probes")
     p_gen.add_argument("--context", help="optional business context file (txt or md)")
+    p_gen.add_argument("--note", action="append", metavar="TEXT",
+                        help="anything the documents do not say that this pass should know; repeatable")
 
     p_review = sub.add_parser("review",
                               help="final stage: whole-registry LLM sweep — revises materiality "
@@ -70,6 +76,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                           help="pass the same path as registry_input to update in place")
     p_review.add_argument("--no-llm", action="store_true", help="skip the review sweep")
     p_review.add_argument("--context", help="optional business context file (txt or md)")
+    p_review.add_argument("--note", action="append", metavar="TEXT",
+                        help="anything the documents do not say that this pass should know; repeatable")
     p_review.add_argument("--max-proposals", type=int, default=None,
                           help="cap on scenarios the review may add (default 15)")
     p_review.add_argument("--pack", help="also rebuild the challenge pack at this path")
@@ -107,19 +115,19 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.command == "refine":
         refine(args.intake, args.graph_input, args.output_prefix,
-              writer=NullWriter() if args.no_llm else None, context_path=args.context)
+              writer=NullWriter() if args.no_llm else None, context_path=args.context, notes=args.note)
         return 0
 
     if args.command == "assess-materiality":
         assess_materiality(args.intake, args.registry_input, args.registry_output,
                           assessor=NullMaterialityAssessor() if args.no_llm else None,
-                          context_path=args.context)
+                          context_path=args.context, notes=args.note)
         return 0
 
     if args.command == "review":
         review(args.intake, args.registry_input, args.registry_output,
               reviewer=NullReviewer() if args.no_llm else None,
-              context_path=args.context, proposal_limit=args.max_proposals,
+              context_path=args.context, notes=args.note, proposal_limit=args.max_proposals,
               owner_scenarios_path=args.owner_scenarios, pack_path=args.pack)
         return 0
 
@@ -134,5 +142,5 @@ def main(argv: Optional[List[str]] = None) -> int:
     generate(args.intake, args.output_prefix,
             writer=NullWriter() if args.no_llm else None,
             assessor=NullMaterialityAssessor() if args.no_llm else None,
-            with_probes=args.with_probes, context_path=args.context)
+            with_probes=args.with_probes, context_path=args.context, notes=args.note)
     return 0
