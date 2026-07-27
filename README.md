@@ -478,7 +478,7 @@ of runs.
 python -m unittest discover -s tests
 ```
 
-147 tests, standard library only. Beyond unit coverage of graph traversal, matching and parsing,
+153 tests, standard library only. Beyond unit coverage of graph traversal, matching and parsing,
 several tests exist to protect properties that would otherwise fail silently:
 
 - Changing a stage marks every later stage out of date, and out-of-date output is kept rather
@@ -494,6 +494,7 @@ several tests exist to protect properties that would otherwise fail silently:
 - A run where most model calls failed is abandoned rather than written, since a thin context file
   is indistinguishable from a document that genuinely said little.
 - One failed passage, or one unreadable diagram, costs that passage or diagram and not the run.
+- The interface uses no Flask API newer than 1.0, so it starts on whatever version is installed.
 - The drawn graph invents no edge the intake does not declare, and names any state nothing
   leads to.
 - Every stage of the interface runs to completion against stubbed model calls, so a stage nobody

@@ -13,4 +13,9 @@ Pillow
 
 # Local web interface. Flask bundles Jinja2 and Werkzeug; nothing else is needed, and there is
 # no Node or npm step -- the interface is server-rendered HTML with hand-written CSS.
+#
+# Deliberately unpinned, and the code stays on the Flask 1.x interface so that whatever version
+# an internal mirror already carries will run it. tests/test_flask_compatibility.py holds that
+# line: the development environment usually has a newer Flask than the machine this runs on, so
+# a 2.0-only convenience passes every test here and fails where it matters.
 flask

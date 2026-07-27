@@ -10,6 +10,11 @@ Run it with::
 
 It binds to localhost only. Nothing here is written for a shared deployment: there is no
 authentication, and workspaces are readable by anyone who can reach the port.
+
+Routes are declared with ``app.route(..., methods=[...])`` rather than the ``app.get`` and
+``app.post`` shortcuts, and files are sent by string path rather than by ``Path``. Both are
+Flask 2.0 conveniences, and the version installed here is whatever an internal mirror last
+approved -- writing to the older interface costs nothing and removes a dependency on that.
 """
 from __future__ import annotations
 
@@ -268,7 +273,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         return render_template("index.html",
                                workspaces=Workspace.list_all(app.config["WORKSPACE_ROOT"]))
 
-    @app.post("/workspaces")
+    @app.route("/workspaces", methods=["POST"])
     def create_workspace():
         name = (request.form.get("name") or "").strip()
         if not name:
@@ -277,13 +282,13 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         session["workspace"] = workspace.root.name
         return redirect(url_for("stage", key=STAGES[0].key))
 
-    @app.get("/workspaces/<slug>")
+    @app.route("/workspaces/<slug>", methods=["GET"])
     def open_workspace(slug: str):
         session["workspace"] = slug
         workspace = _workspace()
         return redirect(url_for("stage", key=workspace.current_stage().key))
 
-    @app.get("/stage/<key>")
+    @app.route("/stage/<key>", methods=["GET"])
     def stage(key: str):
         if key not in STAGE_BY_KEY:
             abort(404)
@@ -337,7 +342,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         record = _evidence_record(workspace)
         return open_questions(record) if record else []
 
-    @app.post("/stage/<key>/note")
+    @app.route("/stage/<key>/note", methods=["POST"])
     def add_note(key: str):
         """Record something the user knows that the documents did not say.
 
@@ -350,7 +355,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
                            question=request.form.get("question", ""))
         return redirect(url_for("stage", key=key))
 
-    @app.post("/stage/<key>/upload")
+    @app.route("/stage/<key>/upload", methods=["POST"])
     def upload(key: str):
         """Attach a file to a stage.
 
@@ -400,7 +405,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         return redirect(url_for("stage", key=key,
                                 invalidated=", ".join(s.title for s in invalidated)))
 
-    @app.post("/stage/<key>/run")
+    @app.route("/stage/<key>/run", methods=["POST"])
     def run_stage(key: str):
         """Start a stage. Work happens on a background thread and the page polls for progress.
 
@@ -420,7 +425,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         threading.Thread(target=_execute, args=(root, key), daemon=True).start()
         return redirect(url_for("stage", key=key))
 
-    @app.get("/stage/<key>/progress")
+    @app.route("/stage/<key>/progress", methods=["GET"])
     def stage_progress(key: str):
         """Where a running stage has got to, for the page to poll."""
         state = _workspace().state(key)
@@ -429,27 +434,27 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
                         "done": state.progress.get("done", 0),
                         "total": state.progress.get("total", 0)})
 
-    @app.post("/stage/<key>/reset")
+    @app.route("/stage/<key>/reset", methods=["POST"])
     def reset_stage(key: str):
         workspace = _workspace()
         workspace.reset_from(key)
         return redirect(url_for("stage", key=key))
 
-    @app.get("/stage/<key>/download/<name>")
+    @app.route("/stage/<key>/download/<name>", methods=["GET"])
     def download(key: str, name: str):
         workspace = _workspace()
         path = workspace.artifact_path(key, name)
         if not path:
             abort(404)
-        return send_file(path, as_attachment=True)
+        return send_file(str(path), as_attachment=True)
 
-    @app.get("/template")
+    @app.route("/template", methods=["GET"])
     def blank_template():
         """A blank intake workbook, for a use case being described by hand."""
         workspace = _workspace()
         path = workspace.root / "intake_template.xlsx"
         write_template(str(path))
-        return send_file(path, as_attachment=True)
+        return send_file(str(path), as_attachment=True)
 
     @app.template_filter("stage_number")
     def stage_number(key: str) -> int:

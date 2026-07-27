@@ -1,6 +1,6 @@
 # Handover — Agentic Scenario Generator v5
 
-**Status:** 147/147 tests passing. All eleven commands verified end to end with `--no-llm`.
+**Status:** 153/153 tests passing. All eleven commands verified end to end with `--no-llm`.
 Document ingestion (stage 0) and the local web interface are built; see §10 for what
 remains.
 **Supersedes:** all earlier handover documents. The code is the source of truth; this is
@@ -510,6 +510,22 @@ of honesty rather than of function.
 3. **Open questions were listed twice.** A facet with no answer produced both a `gap` entry and
    an `unknown` entry carrying the same sentence, doubling the list. Unknowns are now only raised
    for facets that *were* answered — those are the specific points a good answer could not settle.
+
+### 10.17 Flask version compatibility
+
+The interface would not start on the target machine: `@app.post` and `@app.get` are Flask 2.0
+shortcuts and the installed Flask was older. Routes now use `app.route(..., methods=[...])` and
+files are sent by string path rather than `Path`, both of which work from Flask 1.0 onwards.
+Flask stays unpinned in `requirements.txt` so whatever the internal mirror carries will run it.
+
+Worth understanding rather than just fixing: **every test passed while the interface was
+unusable.** The development environment had Flask 3.1, where the shortcut exists, so nothing
+locally could have caught it. `tests/test_flask_compatibility.py` closes that by asserting
+against the source directly — no `@app.post`/`@app.get`, no `send_file(path,` — alongside a check
+that the app builds and every expected route is registered with the expected method. The same
+reasoning applies to any other convenience added in a newer version of a dependency: if the
+target environment cannot choose its versions, the tests have to encode the older interface
+rather than trust the local one.
 
 ### 10.2 The interface
 
