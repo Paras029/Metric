@@ -22,16 +22,12 @@ COMPUTED = "computed"
 JUDGED = "judged"
 REVIEW = "review"
 
+# Shown beside the stage number rather than as a block of prose. The label is the whole point;
+# a reader who wants the reasoning has the stage's own write-up below it.
 MODE_LABELS = {
     COMPUTED: "Computed",
     JUDGED: "Model judgement",
-    REVIEW: "Your decision",
-}
-
-MODE_NOTES = {
-    COMPUTED: "Deterministic. The same inputs always produce this same output.",
-    JUDGED: "A model weighed this. Read the reasoning and overrule it where you disagree.",
-    REVIEW: "Nothing moves forward until you approve it.",
+    REVIEW: "Human decision",
 }
 
 # Stage status. A stage that has run and then had its inputs changed underneath it is stale
@@ -69,36 +65,25 @@ class Stage:
     def mode_label(self) -> str:
         return MODE_LABELS[self.mode]
 
-    @property
-    def mode_note(self) -> str:
-        return MODE_NOTES[self.mode]
-
 
 # The order here is the order of the pipeline, and the dependency chain is linear: each stage
 # depends on the one before it. Optional stages can be skipped without blocking what follows.
 STAGES: Tuple[Stage, ...] = (
-    Stage("sources", "Submitted documents", REVIEW,
-          "Add the model documentation, vendor material, workflow diagrams and decks the model "
-          "owner sent. Trim anything that has no bearing on how the agent behaves.",
-          "The benchmark can only test what is known about the agent, so this pack determines "
-          "the ceiling on what the validation can reach. Supporting material is read for what it "
-          "establishes about the agent's behaviour; approval histories, infrastructure detail "
-          "and change logs are passed over. A document that arrives without a text layer, such "
-          "as a scanned PDF, is refused with a reason rather than accepted and quietly ignored."),
-
-    Stage("evidence", "Extracted evidence", JUDGED,
-          "What the documents were found to say, each statement tied to the page it came from. "
-          "Anything that could not be traced to a source was dropped.",
-          "This runs in two passes because documentation does not answer the questions a "
-          "benchmark needs in any one place. The first reads each passage and brings back what it "
-          "establishes, paired with the words it was read from, which are then checked against "
-          "the document; an observation whose quote cannot be located is discarded, since an "
-          "unfounded citation is more damaging than no citation. The second takes one question at "
-          "a time and answers it from every observation bearing on it across every document at "
-          "once, assembling a process described in one section, its exception three pages later "
-          "and the threshold governing it in a table into a single account. Answers cite the "
-          "observations they rest on, and state what the documents left unsettled rather than "
-          "completing the picture from what such a system usually does."),
+    Stage("documents", "Documents", JUDGED,
+          "Add whatever the model owner sent, then read it. Model documentation, vendor material, "
+          "workflow diagrams and decks.",
+          "The benchmark can only test what is known about the agent, so this pack sets the "
+          "ceiling on what the validation can reach. Reading it runs in two passes, because "
+          "documentation does not answer the questions a benchmark needs in any one place. The "
+          "first reads each passage and brings back what it establishes, paired with the words it "
+          "was read from, which are then checked against the document; an observation whose quote "
+          "cannot be located is discarded, since an unfounded citation is more damaging than no "
+          "citation. The second takes one question at a time and answers it from every "
+          "observation bearing on it across every document at once, assembling a process "
+          "described in one section, its exception three pages later and the threshold governing "
+          "it in a table into a single account. Answers cite the observations they rest on, and "
+          "state what the documents left unsettled rather than completing the picture from what "
+          "such a system usually does."),
 
     Stage("questions", "Open questions", REVIEW,
           "What the documents did not cover. Your answers are recorded as evidence in their own "

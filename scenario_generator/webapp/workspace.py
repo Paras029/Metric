@@ -46,16 +46,26 @@ class StageState:
     note: str = ""
     artifacts: Dict[str, str] = field(default_factory=dict)
     summary: Dict[str, object] = field(default_factory=dict)
+    progress: Dict[str, object] = field(default_factory=dict)
+
+    @property
+    def percent(self) -> int:
+        """How far a running stage has got, as a whole number. Zero when it cannot be known."""
+        total = self.progress.get("total") or 0
+        done = self.progress.get("done") or 0
+        return int(min(100, round(done / total * 100))) if total else 0
 
     def to_dict(self) -> dict:
         return {"status": self.status, "updated_at": self.updated_at, "note": self.note,
-                "artifacts": dict(self.artifacts), "summary": dict(self.summary)}
+                "artifacts": dict(self.artifacts), "summary": dict(self.summary),
+                "progress": dict(self.progress)}
 
     @classmethod
     def from_dict(cls, data: dict) -> "StageState":
         return cls(status=data.get("status", LOCKED), updated_at=data.get("updated_at", ""),
                    note=data.get("note", ""), artifacts=dict(data.get("artifacts", {})),
-                   summary=dict(data.get("summary", {})))
+                   summary=dict(data.get("summary", {})),
+                   progress=dict(data.get("progress", {})))
 
 
 class Workspace:
@@ -73,7 +83,7 @@ class Workspace:
         self._settle()
 
     # ----------------------------------------------------------------- added context
-    def add_note(self, stage_key: str, text: str) -> None:
+    def add_note(self, stage_key: str, text: str, question: str = "") -> None:
         """Record something the user knows that the documents did not say.
 
         Notes accumulate rather than replace, and each carries the stage it was added at. Every
@@ -84,8 +94,14 @@ class Workspace:
         text = (text or "").strip()
         if not text:
             return
-        self.notes.append({"stage": stage_key, "text": text, "added_at": _now()})
+        self.notes.append({"stage": stage_key, "text": text, "added_at": _now(),
+                           "question": (question or "").strip()})
         self.save()
+
+    def answered_questions(self) -> Dict[str, str]:
+        """Every open question a person has answered, newest answer winning."""
+        return {note["question"]: note["text"]
+                for note in self.notes if note.get("question")}
 
     def notes_for(self, stage_key: str) -> List[dict]:
         return [note for note in self.notes if note["stage"] == stage_key]
@@ -102,7 +118,11 @@ class Workspace:
         lines = ["NOTES ADDED BY THE VALIDATION TEAM", ""]
         for note in self.notes:
             title = STAGE_BY_KEY[note["stage"]].title if note["stage"] in STAGE_BY_KEY else "General"
-            lines.append(f"- ({title}) {note['text']}")
+            if note.get("question"):
+                lines.append(f"- ({title}) Q: {note['question']}")
+                lines.append(f"  A: {note['text']}")
+            else:
+                lines.append(f"- ({title}) {note['text']}")
         return "\n".join(lines)
 
     # ----------------------------------------------------------------- persistence
@@ -161,9 +181,28 @@ class Workspace:
             satisfied = previous is None or self.stages[previous.key].status in (COMPLETE, STALE)
             current.status = READY if satisfied else LOCKED
 
+    def mark_running(self, key: str) -> None:
+        """A stage has started. Its progress is written to disk so the page can read it."""
+        state = self.stages[key]
+        state.status, state.updated_at = RUNNING, _now()
+        state.progress = {"message": "Starting", "done": 0, "total": 0}
+        self.save()
+
+    def report_progress(self, key: str, message: str, done: int = 0, total: int = 0) -> None:
+        """Record where a running stage has got to.
+
+        Written straight to disk rather than held in memory, because the page that displays it is
+        a different request -- often a different process after a restart -- and a progress bar
+        nobody can read is the same as no progress bar.
+        """
+        state = self.stages[key]
+        state.progress = {"message": message, "done": done, "total": total}
+        self.save()
+
     def mark_failed(self, key: str, note: str) -> None:
         state = self.stages[key]
         state.status, state.note, state.updated_at = FAILED, note, _now()
+        state.progress = {}
         self.save()
 
     def complete(self, key: str, artifacts: Optional[Dict[str, str]] = None,
@@ -177,6 +216,7 @@ class Workspace:
         state.status = COMPLETE
         state.updated_at = _now()
         state.note = note
+        state.progress = {}
         if artifacts:
             state.artifacts.update(artifacts)
         if summary is not None:

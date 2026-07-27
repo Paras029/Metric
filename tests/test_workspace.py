@@ -75,7 +75,7 @@ class TestInvalidation(unittest.TestCase):
         self._through(workspace, "issue")
         workspace.complete("benchmark")
         self.assertEqual(workspace.state("intake").status, COMPLETE)
-        self.assertEqual(workspace.state("sources").status, COMPLETE)
+        self.assertEqual(workspace.state("documents").status, COMPLETE)
 
     def test_out_of_date_output_is_kept_rather_than_deleted(self):
         workspace = _workspace()
@@ -112,11 +112,11 @@ class TestInvalidation(unittest.TestCase):
 class TestPersistence(unittest.TestCase):
     def test_a_workspace_survives_being_reopened(self):
         workspace = _workspace()
-        workspace.complete("sources", summary={"Files": 3})
+        workspace.complete("documents", summary={"Files": 3})
         reopened = Workspace.load(workspace.root)
         self.assertEqual(reopened.name, "Cardmember Disputes Assistant")
-        self.assertEqual(reopened.state("sources").summary["Files"], 3)
-        self.assertEqual(reopened.state("sources").status, COMPLETE)
+        self.assertEqual(reopened.state("documents").summary["Files"], 3)
+        self.assertEqual(reopened.state("documents").status, COMPLETE)
 
     def test_the_current_stage_is_the_first_needing_attention(self):
         workspace = _workspace()

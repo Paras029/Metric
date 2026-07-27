@@ -143,12 +143,29 @@ def _read_text(path: Path) -> List[Segment]:
     return segments or [Segment(body, "whole file")]
 
 
+# Images have no text layer, so they are not read here. They are collected by
+# :func:`image_documents` and described by a vision-capable model during ingestion; where vision
+# is unavailable the submitter is asked for a written description instead.
+IMAGE_MEDIA_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
+
+
 def _read_image(path: Path) -> List[Segment]:
-    """Images carry no text layer. Reading one needs a vision-capable model, which is a separate
-    decision, so this reports what was submitted rather than pretending to have read it."""
     raise UnreadableDocument(
-        "an image cannot be read as text. Diagrams need either a vision-capable model or a short "
-        "written description of the flow they show.")
+        "an image has no text to read. Diagrams are described by a vision-capable model where one "
+        "is available; otherwise supply a short written description of the flow it shows.")
+
+
+def is_image(path: Path) -> bool:
+    return Path(path).suffix.lower() in IMAGE_MEDIA_TYPES
+
+
+def load_image(path: Path):
+    """An image as (media_type, bytes), ready to attach to a model call."""
+    path = Path(path)
+    media_type = IMAGE_MEDIA_TYPES.get(path.suffix.lower())
+    if media_type is None:
+        raise UnreadableDocument(f"{path.suffix} is not an image format this reads.")
+    return media_type, path.read_bytes()
 
 
 READERS: Dict[str, Tuple[Callable[[Path], List[Segment]], str]] = {

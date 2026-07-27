@@ -13,6 +13,15 @@ IDAAS_URL = os.getenv("IDAAS_URL", "")
 # The chat-completions model reached through the gateway.
 LLM_ENDPOINT = os.getenv("LLM_ENDPOINT", "")
 LLM_MODEL_ID = os.getenv("LLM_MODEL_ID", "google/gemini-2.5-pro")
+
+# Whether the configured model accepts images alongside text. Set LLM_VISION=off where the
+# gateway rejects the multimodal request shape -- diagram reading then degrades to asking a
+# person to describe the flow, rather than the run failing.
+LLM_VISION = os.getenv("LLM_VISION", "on").strip().lower() not in ("0", "off", "false", "no")
+
+# Base64 inflates an image by about a third, and gateways cap the request body. Anything larger
+# is refused with a reason rather than sent and rejected.
+MAX_IMAGE_BYTES = int(os.getenv("LLM_MAX_IMAGE_BYTES", "4000000"))
 LLM_SCOPE = os.getenv("LLM_SCOPE", "/genai/google/v1/models/gemini-2.5-pro/**::post")
 
 DEFAULT_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.3"))

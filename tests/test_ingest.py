@@ -14,9 +14,10 @@ import unittest
 from pathlib import Path
 
 from scenario_generator.core.evidence import REJECTED, VERIFIED
-from scenario_generator.ingest import (UnreadableDocument, build_context_document, chunk,
-                                       extract_documents, open_questions, read_document,
-                                       record_from_json, record_to_json)
+from scenario_generator.ingest import (IngestionFailed, UnreadableDocument,
+                                       build_context_document, chunk, extract_documents,
+                                       open_questions, read_document, record_from_json,
+                                       record_to_json)
 
 # A document that describes one process across three separate sections, the way real
 # documentation does. No single section says what the whole flow is.
@@ -33,6 +34,14 @@ session is locked.
 
 A locked session is passed to a human agent, who takes over the conversation.
 """
+
+# Long enough to be split into several passages, so that a failure on one can be told apart
+# from a failure of the whole run.
+_LONG = "\n\n".join(
+    f"# Section {n}\n\n" + ("The assistant confirms identity before disclosing anything, and "
+                            "the session is locked and no further attempts are accepted after "
+                            "the third failure. " * 12)
+    for n in range(1, 8))
 
 _DOC = """# Identity verification
 
@@ -149,12 +158,77 @@ class TestSurvey(unittest.TestCase):
         self.assertEqual(kinds["empty.md"], "unreadable")
         self.assertEqual(kinds["notes.md"], "notes")
 
-    def test_a_failed_model_call_loses_the_passage_not_the_run(self):
+    def test_one_failed_passage_does_not_lose_the_rest_of_the_run(self):
+        """A gateway hiccup on one passage costs that passage, not the document."""
+        attempts = {"n": 0}
+
+        def flaky(system, user, **kwargs):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise RuntimeError("gateway hiccup")
+            return json.dumps({"observations": [{
+                "facet": "policy_constraints", "statement": "Sessions lock after three failures.",
+                "quote": "the session is locked and no further attempts are accepted",
+                "locator": "x"}]})
+
+        record = extract_documents([_write("long.md", _LONG)], synthesise=False, complete=flaky)
+        self.assertGreater(attempts["n"], 1, "the document should span several passages")
+        self.assertTrue(record.usable(), "later passages should still have contributed")
+
+    def test_a_run_that_mostly_failed_is_abandoned_rather_than_written(self):
+        """A thin context file is indistinguishable from a document that said little, so a run
+        that mostly did not happen must not leave one behind."""
         def broken(system, user, **kwargs):
-            raise RuntimeError("gateway down")
-        record = extract_documents([_write("notes.md", _DOC)], synthesise=False, complete=broken)
-        self.assertEqual(record.claims, [])
-        self.assertEqual(len(record.documents), 1)
+            raise RuntimeError("401 Unauthorized")
+
+        with self.assertRaises(IngestionFailed) as caught:
+            extract_documents([_write("notes.md", _DOC)], synthesise=False, complete=broken)
+        self.assertIn("failed", str(caught.exception))
+
+
+class TestDiagrams(unittest.TestCase):
+    """A diagram is often the clearest statement of the agent's branching, so it is read rather
+    than refused — but nothing read from one can be checked against text."""
+
+    def _png(self):
+        # A 1x1 PNG is enough: the reader is stubbed, only the plumbing is under test.
+        import base64
+        path = Path(tempfile.mkdtemp()) / "flow.png"
+        path.write_bytes(base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="))
+        return path
+
+    def test_a_diagram_is_read_and_its_observations_marked_for_confirmation(self):
+        def describe(system, user, images, **kwargs):
+            assert images and images[0][0] == "image/png"
+            return json.dumps({"observations": [{
+                "facet": "decisions", "statement": "Auth check branches to pass or fail.",
+                "quote": "Auth check", "locator": "top left"}]})
+
+        record = extract_documents([self._png()], synthesise=False,
+                                   complete=_stub([]), describe_images=describe)
+        self.assertEqual(record.documents[0].kind, "diagram")
+        claim = record.usable()[0]
+        self.assertTrue(claim.needs_confirmation)
+        self.assertEqual(claim.source.document, "flow.png")
+
+    def test_an_unreadable_diagram_asks_for_a_description_and_the_pack_still_reads(self):
+        """Vision being unavailable costs the diagram, not the documents beside it."""
+        def broken(system, user, images, **kwargs):
+            raise RuntimeError("vision not enabled")
+
+        record = extract_documents(
+            [_write("notes.md", _LONG), self._png()], synthesise=False,
+            complete=_stub([{"facet": "policy_constraints",
+                             "statement": "Sessions lock after three failures.",
+                             "quote": "the session is locked and no further attempts are accepted",
+                             "locator": "x"}]),
+            describe_images=broken)
+
+        diagram = next(d for d in record.documents if d.name == "flow.png")
+        self.assertEqual(diagram.kind, "unreadable")
+        self.assertIn("written description", diagram.note)
+        self.assertTrue(record.usable(), "the text document should still have been read")
 
 
 class TestSynthesis(unittest.TestCase):

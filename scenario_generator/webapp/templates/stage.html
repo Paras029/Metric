@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% set stage = view.stage %}
 {% set state = view.state %}
-{% set uploads = {'sources': 'documents', 'intake': 'workbook', 'coverage': 'owner'} %}
+{% set uploads = {'documents': 'documents', 'intake': 'workbook', 'coverage': 'owner'} %}
 {% block title %}{{ stage.title }} — {{ workspace.name }}{% endblock %}
 
 {% block body %}
@@ -65,15 +65,13 @@
     {% endif %}
 
     <header class="head">
-      <p class="eyebrow">Stage <span class="mono">{{ view.number }}</span> of
-        <span class="mono">{{ rail | length }}</span></p>
+      <p class="eyebrow">
+        Stage <span class="mono">{{ view.number }}</span> of
+        <span class="mono">{{ rail | length }}</span>
+        <span class="badge badge--{{ stage.mode }}">{{ stage.mode_label }}</span>
+      </p>
       <h1 class="head__title">{{ stage.title }}</h1>
       <p class="head__blurb">{{ stage.blurb }}</p>
-
-      <div class="mode mode--{{ stage.mode }}">
-        <span class="mode__label">{{ stage.mode_label }}</span>
-        <span class="mode__note">{{ stage.mode_note }}</span>
-      </div>
     </header>
 
     {% if stage.detail %}
@@ -81,6 +79,25 @@
         <summary class="about__summary">What this stage does, and why</summary>
         <p class="about__body">{{ stage.detail }}</p>
       </details>
+    {% endif %}
+
+    {% if state.status == 'running' %}
+      <section class="panel panel--running" id="running" data-stage="{{ stage.key }}">
+        <h2 class="panel__title">Running</h2>
+        <div class="meter meter--wide">
+          <span class="meter__fill" id="run-bar" style="width: {{ state.percent }}%"></span>
+        </div>
+        <p class="running__line">
+          <span id="run-message">{{ state.progress.message or 'Starting' }}</span>
+          <span class="mono" id="run-count">
+            {%- if state.progress.total %}{{ state.progress.done }}/{{ state.progress.total }}{% endif -%}
+          </span>
+        </p>
+        <p class="panel__foot">
+          This keeps running if you navigate away or close the tab. Reading a long document is
+          several minutes of model calls.
+        </p>
+      </section>
     {% endif %}
 
     {% if state.status == 'failed' %}
@@ -179,20 +196,35 @@
       <section class="panel">
         <h2 class="panel__title">What is still unanswered</h2>
         <p class="panel__body">
-          Answer what you can in the notes below. Anything left unanswered stays unknown rather
-          than being treated as something the agent does not do.
+          Answer what you can here. An answer is recorded against its question and given to every
+          stage that follows, so nothing needs re-running. What is left unanswered stays unknown
+          rather than being treated as something the agent does not do.
         </p>
         <ul class="questions">
           {% for question in questions %}
-            <li class="questions__row questions__row--{{ question.kind }}">
+            {% set given = answered.get(question.question) %}
+            <li class="questions__row questions__row--{{ question.kind }}
+                       {% if given %}questions__row--done{% endif %}">
               <span class="questions__kind">
-                {% if question.kind == 'gap' %}Not covered
+                {% if given %}Answered
+                {% elif question.kind == 'gap' %}Not covered
                 {% elif question.kind == 'unknown' %}Unsettled
                 {% else %}Confirm{% endif %}
               </span>
               <span class="questions__body">
                 <span class="questions__text">{{ question.question }}</span>
                 <span class="questions__detail">{{ question.detail }}</span>
+                {% if given %}
+                  <span class="questions__answer">{{ given }}</span>
+                {% else %}
+                  <form class="questions__form" method="post"
+                        action="{{ url_for('add_note', key=stage.key) }}">
+                    <input type="hidden" name="question" value="{{ question.question }}">
+                    <input class="field__input field__input--inline" type="text" name="note"
+                           placeholder="Answer this, or leave it for the model owner">
+                    <button class="button button--quiet" type="submit">Save</button>
+                  </form>
+                {% endif %}
               </span>
             </li>
           {% endfor %}
@@ -282,20 +314,17 @@
     {% endif %}
 
     <section class="panel panel--notes">
-      <h2 class="panel__title">Add what you know</h2>
+      <h2 class="panel__title">Additional information</h2>
       <p class="panel__body">
-        Anything the documents do not say and a later stage should know — a correction, a
-        constraint, a risk the pack does not mention. Notes are kept for the rest of the run and
-        given to every stage that follows, each marked with where it was added.
-        {% if note_total %}
-          <span class="mono">{{ note_total }}</span> so far across all stages.
-        {% endif %}
+        Anything the documents do not say that a later stage should know. Given to every stage
+        that follows.
       </p>
 
       {% if notes %}
         <ul class="notes">
           {% for note in notes %}
             <li class="notes__row">
+              {% if note.question %}<p class="notes__question">{{ note.question }}</p>{% endif %}
               <p class="notes__text">{{ note.text }}</p>
               <p class="notes__meta mono">{{ note.added_at }}</p>
             </li>
@@ -304,13 +333,21 @@
       {% endif %}
 
       <form class="notes__form" method="post" action="{{ url_for('add_note', key=stage.key) }}">
-        <label class="field">
-          <span class="field__label">Note for this stage</span>
-          <textarea class="field__input field__input--area" name="note" rows="3"
-                    placeholder="Disputes over £500 always go to a person, which the model document does not mention."></textarea>
-        </label>
-        <button class="button button--quiet" type="submit">Add note</button>
+        <textarea class="field__input field__input--area" name="note" rows="3"
+                  placeholder="Disputes over £500 always go to a person, which the model document does not mention."></textarea>
+        <button class="button button--quiet" type="submit">Add</button>
       </form>
+
+      {# The documents stage has its own uploader a few inches up; a second one there would just
+         be two ways to do the same thing. Every other stage needs this to attach a late arrival. #}
+      {% if stage.key != 'documents' %}
+        <form class="upload upload--extra" method="post" enctype="multipart/form-data"
+              action="{{ url_for('upload', key='documents') }}">
+          <input class="upload__input" type="file" name="files" multiple
+                 accept=".pdf,.docx,.pptx,.png,.jpg,.jpeg,.md,.txt">
+          <button class="button button--quiet" type="submit">Add a document</button>
+        </form>
+      {% endif %}
     </section>
 
     {% if view.has_output %}
@@ -322,4 +359,29 @@
     {% endif %}
   </main>
 </div>
+
+{% if state.status == 'running' %}
+<script>
+  // Polls the stage's own progress endpoint. A full page reload would lose scroll position and
+  // flicker, and this needs to run for several minutes.
+  (function () {
+    var stage = document.getElementById('running').dataset.stage;
+    var bar = document.getElementById('run-bar');
+    var message = document.getElementById('run-message');
+    var count = document.getElementById('run-count');
+
+    setInterval(function () {
+      fetch('/stage/' + stage + '/progress')
+        .then(function (r) { return r.json(); })
+        .then(function (p) {
+          if (p.status !== 'running') { window.location.reload(); return; }
+          bar.style.width = p.percent + '%';
+          message.textContent = p.message || 'Working';
+          count.textContent = p.total ? p.done + '/' + p.total : '';
+        })
+        .catch(function () { /* a dropped poll is not worth reporting; the next one will do */ });
+    }, 2000);
+  })();
+</script>
+{% endif %}
 {% endblock %}

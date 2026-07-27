@@ -672,3 +672,56 @@ ol, ul { list-style: none; padding: 0; }
 .answers__row--missing .answers__heading { color: var(--ink-faint); }
 
 .questions__row--unknown .questions__kind { color: var(--attention); }
+
+/* ------------------------------------------------------------------ mode badge
+ * The stage's mode reads beside its number rather than as a paragraph of its own. Someone who
+ * wants the reasoning opens the stage's write-up; everyone else needs one word.
+ */
+.badge {
+  display: inline-block;
+  margin-left: .5rem;
+  padding: .1rem .45rem;
+  border-radius: 3px;
+  font-size: .64rem;
+  font-weight: 700;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+.badge--computed { background: #E8F6F0; color: var(--verified); }
+.badge--judged   { background: #E8F2FC; color: var(--blue-dark); }
+.badge--review   { background: #FDF4E3; color: var(--attention); }
+
+/* ------------------------------------------------------------------ a running stage */
+.panel--running { border-color: #B7D4F2; background: linear-gradient(180deg, #F7FBFF, var(--paper)); }
+.meter--wide { height: 6px; margin-top: 1rem; background: var(--line-soft); }
+.panel--running .meter__fill { background: var(--blue); }
+.running__line {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: .6rem;
+  font-size: .86rem;
+  color: var(--ink-soft);
+}
+
+/* ------------------------------------------------------------------ answerable questions */
+.questions__form { display: flex; gap: .5rem; margin-top: .45rem; max-width: 34rem; }
+.field__input--inline { padding: .35rem .6rem; font-size: .85rem; }
+.questions__answer {
+  display: block;
+  margin-top: .35rem;
+  padding: .4rem .7rem;
+  background: #F2FBF7;
+  border-left: 2px solid var(--verified);
+  border-radius: 0 4px 4px 0;
+  font-size: .86rem;
+}
+.questions__row--done .questions__kind { color: var(--verified); }
+
+.notes__question {
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--ink-faint);
+  margin-bottom: .2rem;
+}
+.upload--extra { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--line-soft); }

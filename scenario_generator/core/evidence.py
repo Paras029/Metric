@@ -109,16 +109,24 @@ class FacetAnswer:
     nobody notices.
     """
 
-    facet: str
+    facet: str = ""
     answer: str = ""
     points: List[str] = field(default_factory=list)
     unknowns: List[str] = field(default_factory=list)
     sources: List[str] = field(default_factory=list)
     confidence: str = "Low"
+    failed: bool = False
 
     @property
     def is_answered(self) -> bool:
-        return bool(self.answer.strip() or self.points)
+        """Whether this question was actually answered.
+
+        A synthesis that failed keeps the raw observations under ``points`` so the material is not
+        lost, but it is not an answer and must not be counted as one. Reporting a failed run as
+        complete is worse than the failure: the failure is visible and fixable, and the false
+        success is neither.
+        """
+        return not self.failed and bool(self.answer.strip() or self.points)
 
 
 @dataclass

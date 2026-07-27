@@ -130,6 +130,7 @@ def open_questions(record: EvidenceRecord) -> List[dict]:
     could not be checked against text needs confirming before anything rests on it.
     """
     questions: List[dict] = []
+    unanswered = set(record.empty_facets())
 
     for facet in record.empty_facets():
         questions.append({
@@ -140,7 +141,15 @@ def open_questions(record: EvidenceRecord) -> List[dict]:
             "detail": "No submitted document settled this.",
         })
 
+    # An unanswered question already appears above as a gap, and the unknown it carries is the
+    # same question worded the same way -- listing both doubles the length of the list without
+    # adding anything to answer. Only a facet that *was* answered has unknowns worth raising
+    # separately, because those are the specific points a good answer could not settle.
+    seen = {q["question"].strip().lower() for q in questions}
     for facet, unknown in record.open_unknowns():
+        if facet in unanswered or unknown.strip().lower() in seen:
+            continue
+        seen.add(unknown.strip().lower())
         questions.append({
             "kind": "unknown",
             "facet": facet,

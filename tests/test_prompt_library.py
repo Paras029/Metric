@@ -37,6 +37,7 @@ _CONTRACT = {
     "ingest.system": set(),
     "ingest.survey": {"facets", "document", "locator", "chunk"},
     "ingest.synthesise": {"heading", "question", "observations"},
+    "ingest.diagram": {"facets", "document"},
 }
 
 _INTAKE = IntakeData(

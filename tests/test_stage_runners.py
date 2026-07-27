@@ -10,6 +10,7 @@ what the interface does and what the command line does cannot drift apart.
 """
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -84,13 +85,23 @@ class TestEveryStageRuns(unittest.TestCase):
         scratch = Path(tempfile.mkdtemp())
         (scratch / "notes.md").write_text(_SOURCE, encoding="utf-8")
 
-        for key, path in (("sources", scratch / "notes.md"),
+        for key, path in (("documents", scratch / "notes.md"),
                           ("intake", _intake_workbook(scratch)),
                           ("coverage", _owner_workbook(scratch))):
             with open(path, "rb") as handle:
                 self.client.post(f"/stage/{key}/upload",
                                  data={"files": (handle, path.name)},
                                  content_type="multipart/form-data")
+
+    def _settle(self, key, timeout=30.0):
+        """Stages run on a background thread; wait for this one to stop running."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            status = self.client.get(f"/stage/{key}/progress").get_json()["status"]
+            if status != "running":
+                return
+            time.sleep(0.05)
+        self.fail(f"{key} was still running after {timeout}s")
 
     def _failed(self, key):
         page = self.client.get(f"/stage/{key}").data.decode()
@@ -110,15 +121,13 @@ class TestEveryStageRuns(unittest.TestCase):
         self.addCleanup(lambda: [patch.stop() for patch in stack])
 
         for stage in STAGES:
-            if stage.key not in RUNNERS:
-                continue
             self.client.post(f"/stage/{stage.key}/run")
+            self._settle(stage.key)
             self.assertFalse(self._failed(stage.key), f"{stage.key} failed")
 
-    def test_a_runner_exists_for_every_stage_that_does_work(self):
-        """The two stages without one take their input from the user instead."""
-        without = {s.key for s in STAGES} - set(RUNNERS)
-        self.assertEqual(without, {"sources"})
+    def test_every_stage_has_a_runner(self):
+        """Adding a document and reading it are one job, so no stage is upload-only any more."""
+        self.assertEqual({s.key for s in STAGES} - set(RUNNERS), set())
 
 
 class TestCoverageReturnsItsResult(unittest.TestCase):

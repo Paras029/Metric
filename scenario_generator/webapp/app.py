@@ -16,10 +16,11 @@ from __future__ import annotations
 import logging
 from collections import Counter
 from pathlib import Path
+import threading
 from typing import Callable, Dict
 
-from flask import (Flask, abort, redirect, render_template, request, send_file, session,
-                   url_for)
+from flask import (Flask, abort, jsonify, redirect, render_template, request, send_file,
+                   session, url_for)
 from werkzeug.utils import secure_filename
 
 from ..core.evidence import FACETS
@@ -32,7 +33,7 @@ from ..io import read_scenarios, write_challenge_pack, write_registry
 from ..llm import MaterialityAssessor, ScenarioReviewer, ScenarioWriter
 from ..pipeline import build_scenarios, ingest_documents, map_coverage, render_questions
 from .graphview import graph_summary, render_svg
-from .stages import STAGE_BY_KEY, STAGES, STATUS_LABELS, index_of
+from .stages import RUNNING, STAGE_BY_KEY, STAGES, STATUS_LABELS, index_of
 from .workspace import Workspace, stage_view
 
 logger = logging.getLogger(__name__)
@@ -101,14 +102,15 @@ def _source_files(workspace: Workspace):
     return sorted(p for p in folder.glob("*") if p.is_file()) if folder.exists() else []
 
 
-def _run_evidence(workspace: Workspace) -> Dict[str, object]:
-    """Read the submitted documents into a verified evidence record, and write the context file."""
+def _run_documents(workspace: Workspace, progress=None) -> Dict[str, object]:
+    """Read every submitted document, then answer each question from all of them at once."""
     paths = _source_files(workspace)
     if not paths:
-        raise ValueError("No documents have been added at the submitted documents stage.")
+        raise ValueError("Add at least one document before reading them.")
 
-    result = ingest_documents([str(p) for p in paths], str(workspace.root / "ingest"))
-    workspace.state("evidence").artifacts.update({
+    result = ingest_documents([str(p) for p in paths], str(workspace.root / "ingest"),
+                              progress=progress)
+    workspace.state("documents").artifacts.update({
         "evidence": Path(result.evidence_path).name,
         "context": Path(result.context_path).name,
     })
@@ -233,8 +235,8 @@ def _run_coverage(workspace: Workspace) -> Dict[str, object]:
 
 # Every stage that does work has a runner. The two that only take input from the user -- the
 # document pack and the intake workbook -- are handled by the upload route instead.
-RUNNERS: Dict[str, Callable[[Workspace], Dict[str, object]]] = {
-    "evidence": _run_evidence,
+RUNNERS: Dict[str, Callable[..., Dict[str, object]]] = {
+    "documents": _run_documents,
     "questions": _run_questions,
     "intake": _run_intake,
     "benchmark": _run_benchmark,
@@ -309,7 +311,8 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             graph_svg=graph_svg,
             graph_facts=graph_facts,
             questions=_questions_for(workspace) if key == "questions" else [],
-            answers=_answers_for(workspace) if key == "evidence" else [],
+            answered=workspace.answered_questions(),
+            answers=_answers_for(workspace) if key == "documents" else [],
         )
 
     def _answers_for(workspace: Workspace):
@@ -336,20 +339,31 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.post("/stage/<key>/note")
     def add_note(key: str):
-        """Record something the user knows that the documents did not say."""
+        """Record something the user knows that the documents did not say.
+
+        An answer to one of the open questions carries that question with it, so a later stage
+        reads it as an answer rather than as a loose remark. Neither needs the stage re-run: the
+        note joins the context every following stage receives.
+        """
         workspace = _workspace()
-        workspace.add_note(key, request.form.get("note", ""))
-        return redirect(url_for("stage", key=key, added="1"))
+        workspace.add_note(key, request.form.get("note", ""),
+                           question=request.form.get("question", ""))
+        return redirect(url_for("stage", key=key))
 
     @app.post("/stage/<key>/upload")
     def upload(key: str):
-        """Attach a file to a stage. Intake takes a workbook; sources take the document pack."""
+        """Attach a file to a stage.
+
+        The documents stage takes the submitted pack, which lives in its own folder so that
+        reading it later means reading a directory rather than guessing which of the workspace's
+        files were the source material. The intake and coverage stages take one workbook each.
+        """
         workspace = _workspace()
         uploads = [f for f in request.files.getlist("files") if f and f.filename]
         if not uploads:
             return redirect(url_for("stage", key=key))
 
-        target = workspace.root / ("sources" if key == "sources" else ".")
+        target = workspace.root / ("sources" if key == "documents" else ".")
         target.mkdir(parents=True, exist_ok=True)
 
         stored = []
@@ -370,7 +384,14 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             workspace.state("coverage").artifacts["owner_scenarios"] = stored[0]
         else:
             for name in stored:
-                workspace.state(key).artifacts[name] = f"sources/{name}"
+                workspace.state("documents").artifacts[name] = f"sources/{name}"
+
+        # Uploading is not the same as having read them. The documents stage completes when its
+        # runner has actually read the pack, so adding a file leaves the stage ready rather than
+        # claiming a result nobody produced.
+        if key == "documents":
+            workspace.save()
+            return redirect(url_for("stage", key=key))
 
         invalidated = workspace.complete(
             key, summary={"Files": len(stored)},
@@ -381,20 +402,32 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.post("/stage/<key>/run")
     def run_stage(key: str):
+        """Start a stage. Work happens on a background thread and the page polls for progress.
+
+        Reading a sixty-page document is hundreds of model calls over several minutes. Running
+        that inside the request would leave the browser on a blank tab with no way to tell a slow
+        run from a dead one, which is the single worst thing this interface could do with the time
+        it takes.
+        """
         workspace = _workspace()
-        runner = RUNNERS.get(key)
-        if runner is None:
+        if RUNNERS.get(key) is None:
             abort(404)
-        try:
-            summary = runner(workspace)
-        except Exception as exc:                          # surfaced in the panel, not swallowed
-            logger.exception("Stage %s failed", key)
-            workspace.mark_failed(key, str(exc))
+        if workspace.state(key).status == RUNNING:
             return redirect(url_for("stage", key=key))
 
-        invalidated = workspace.complete(key, summary=summary)
-        return redirect(url_for("stage", key=key,
-                                invalidated=", ".join(s.title for s in invalidated)))
+        workspace.mark_running(key)
+        root = workspace.root
+        threading.Thread(target=_execute, args=(root, key), daemon=True).start()
+        return redirect(url_for("stage", key=key))
+
+    @app.get("/stage/<key>/progress")
+    def stage_progress(key: str):
+        """Where a running stage has got to, for the page to poll."""
+        state = _workspace().state(key)
+        return jsonify({"status": state.status, "percent": state.percent,
+                        "message": state.progress.get("message", ""),
+                        "done": state.progress.get("done", 0),
+                        "total": state.progress.get("total", 0)})
 
     @app.post("/stage/<key>/reset")
     def reset_stage(key: str):
@@ -438,3 +471,33 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+def _execute(root: Path, key: str) -> None:
+    """Run one stage on a background thread, reporting progress as it goes.
+
+    The workspace is re-read here rather than handed across the thread boundary, so the record on
+    disk stays the one source of truth for what has happened -- the same record the polling
+    request reads, and the same one the command line would read.
+    """
+    workspace = Workspace.load(root)
+
+    def report(message: str, done: int = 0, total: int = 0) -> None:
+        workspace.report_progress(key, message, done, total)
+
+    try:
+        summary = RUNNERS[key](workspace, report) if _takes_progress(key) \
+            else RUNNERS[key](workspace)
+    except Exception as exc:                              # surfaced in the panel, not swallowed
+        logger.exception("Stage %s failed", key)
+        Workspace.load(root).mark_failed(key, str(exc))
+        return
+
+    finished = Workspace.load(root)
+    finished.stages[key].artifacts.update(workspace.stages[key].artifacts)
+    finished.complete(key, summary=summary)
+
+
+def _takes_progress(key: str) -> bool:
+    """Only the long stages report progress; the rest finish before a bar would be drawn."""
+    return key in ("documents",)

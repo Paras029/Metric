@@ -413,6 +413,8 @@ LLM_MAX_TOKENS                           Default 16000.
 LLM_REASONING_EFFORT                     Default "minimal".
 LLM_JUDGEMENT_MAX_TOKENS                 Default 32000.
 LLM_JUDGEMENT_REASONING_EFFORT           Default "high".
+LLM_VISION                               "off" where the gateway rejects images.
+LLM_MAX_IMAGE_BYTES                      Default 4000000.
 ```
 
 Any gateway accepting a standard chat-completions request body will work.
@@ -476,7 +478,7 @@ of runs.
 python -m unittest discover -s tests
 ```
 
-144 tests, standard library only. Beyond unit coverage of graph traversal, matching and parsing,
+147 tests, standard library only. Beyond unit coverage of graph traversal, matching and parsing,
 several tests exist to protect properties that would otherwise fail silently:
 
 - Changing a stage marks every later stage out of date, and out-of-date output is kept rather
@@ -488,7 +490,10 @@ several tests exist to protect properties that would otherwise fail silently:
 - Facts stated in three separate sections are assembled into one answer, which is the thing a
   passage-at-a-time reading cannot do.
 - A synthesised answer cannot cite an observation that does not exist, and a failed synthesis
-  falls back to the raw observations rather than losing them.
+  falls back to the raw observations rather than losing them — without being counted as answered.
+- A run where most model calls failed is abandoned rather than written, since a thin context file
+  is indistinguishable from a document that genuinely said little.
+- One failed passage, or one unreadable diagram, costs that passage or diagram and not the run.
 - The drawn graph invents no edge the intake does not declare, and names any state nothing
   leads to.
 - Every stage of the interface runs to completion against stubbed model calls, so a stage nobody

@@ -1,6 +1,6 @@
 # Handover — Agentic Scenario Generator v5
 
-**Status:** 144/144 tests passing. All eleven commands verified end to end with `--no-llm`.
+**Status:** 147/147 tests passing. All eleven commands verified end to end with `--no-llm`.
 Document ingestion (stage 0) and the local web interface are built; see §10 for what
 remains.
 **Supersedes:** all earlier handover documents. The code is the source of truth; this is
@@ -484,6 +484,33 @@ provenance columns to the right and extra provenance sheets are both invisible t
 by reading the code, not assumed. The human reviews and corrects it in Excel and it feeds
 `build-graph` whether or not they edit it.
 
+### 10.15 Defects found on the first real run
+
+Run against a real 60-page Word document, and worth recording because two of them were failures
+of honesty rather than of function.
+
+1. **The token was assumed to live an hour.** `get_token` cached with a hardcoded `_TOKEN_TTL`
+   and ignored what IDaaS actually returned. When the real token expired sooner, every subsequent
+   call returned 401 and the cache never refreshed — a silent mid-run death, survey succeeding and
+   then everything after it failing. The lifetime now comes from the gateway's own `expires_in`,
+   and a 401 re-mints once and retries, because a token can be revoked or shortened server-side
+   whatever it claimed on issue. Connection resets and 5xx are retried with backoff; a 4xx that is
+   not 401 is raised immediately, since repeating a request the gateway rejected on its merits
+   only wastes time.
+
+2. **A completely failed run reported success.** The log read `Answered 11 of 11 questions` when
+   all eleven synthesis calls had failed. `FacetAnswer.is_answered` returned true whenever
+   `points` was non-empty, and the failure path fills `points` with the raw observations so the
+   material is not lost. It now carries `failed`, and a failed answer is never counted as
+   answered. Worse, the run wrote its files anyway: `MAX_FAILURE_RATE` now aborts with
+   `IngestionFailed` when over half the calls fail, because a thin context file is
+   indistinguishable from a document that genuinely said little, and the mistake resurfaces much
+   later as a thin benchmark.
+
+3. **Open questions were listed twice.** A facet with no answer produced both a `gap` entry and
+   an `unknown` entry carrying the same sentence, doubling the list. Unknowns are now only raised
+   for facets that *were* answered — those are the specific points a good answer could not settle.
+
 ### 10.2 The interface
 
 `python -m scenario_generator.webapp`, Flask, localhost only. Server-rendered HTML with
@@ -503,7 +530,26 @@ no `npm install` is one less thing to break on someone else's machine.
 - **`webapp/app.py`** — routes. Holds no pipeline logic; each stage calls the same functions the
   CLI calls, so the two front ends cannot drift and a workspace can move between them.
 
-**All ten stages are wired**, and both front ends reach the same capability. Every runner reads
+**Nine stages, all wired**, and both front ends reach the same capability. Submitted documents
+and extracted evidence used to be two stages; nothing happened between them, so the second only
+ever asked for a click. They are one stage that takes the pack and reads it.
+
+**Long stages run in the background and report progress.** Reading a sixty-page document is
+hundreds of calls over several minutes, and running that inside the request left the browser on a
+blank tab with no way to tell a slow run from a dead one. The runner reports through the same
+callback the CLI uses, progress is written to the workspace on disk so the polling request can
+read it, and the page polls a small JSON endpoint. Work continues if the tab is closed.
+
+**Open questions are answered in place.** Each carries a field; an answer is recorded as a note
+with its question attached and joins the context every following stage receives, so answering one
+does not mean re-running anything.
+
+**Diagrams are read where the gateway supports vision** (`LLM_VISION`, on by default since the
+configured model is multimodal). Images are inlined as base64 content parts by
+`ask_llm_with_images`, described by the `ingest.diagram` prompt, and every observation from one is
+marked unverifiable — there is no text to check it against — so it surfaces for confirmation.
+Where vision is unavailable the diagram is recorded as unreadable with a request for a written
+description, and the rest of the pack still reads. Every runner reads
 what the previous stage left on disk, calls the same `pipeline.py` function the CLI calls, and
 writes its output back, so the registry is the hand-off between them and either front end can
 pick up where the other stopped. `pipeline.py` owns the orchestration; `webapp/app.py` owns
