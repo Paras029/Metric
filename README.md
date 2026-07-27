@@ -120,7 +120,7 @@ the intake stage, or pass it straight to `generate`.
 | 5 | Scenario text | The benchmark | A description and tester script per scenario |
 | 6 | Materiality | The benchmark | A Low / Medium / High / Critical tier per scenario, driving run counts |
 | 7 | Final review | The whole benchmark | Settled materiality, flagged weaknesses, proposed additions |
-| 8 | Their coverage | Their scenario library | How much of the benchmark they already exercise |
+| 8 | Their coverage | Their scenario library | How much of the benchmark they already exercise, annotated onto each scenario |
 | 9 | Issue | The registry | The challenge pack to send, and the registry to keep |
 
 Stages 1, 2 and 8 are optional. Skip 1 and 2 if you already have an intake; skip 8 if the team
@@ -198,15 +198,25 @@ turn), `Scenario_Text` (the description and script as issued).
 
 ### Context document and evidence record
 
-Written by the documents stage. The context document is organised as answers to the eleven
-questions the benchmark depends on, each citing the observations it rests on. The evidence record
-is the machine-readable form of the same thing, with every observation tied to its document and
-page.
+Written by the documents stage. The documents are read whole — every submitted file is turned
+into one corpus and put to the model in a few calls, each answering a group of related questions
+across all of it at once. Questions the first reading leaves open are put back to the documents
+once more before they reach you, so what remains is genuinely absent from the pack rather than
+merely missed.
+
+The context document is organised as answers to the eleven questions, each citing verbatim quotes
+checked against the source. The evidence record is the machine-readable form of the same thing.
 
 ### Coverage report
 
 `Overlap` (each benchmark scenario and whether they covered it), `Owner_Incremental` (their
 scenarios falling outside the declared model), `Summary`.
+
+Each covered scenario is also annotated in the registry, under `Their Coverage`. It is an
+annotation and nothing more — no scenario is dropped. Whether running something they have already
+tested is duplicated effort or independent confirmation depends on how far their testing is
+trusted, which is your call rather than the tool's. The annotation never appears in the challenge
+pack.
 
 ---
 
@@ -288,7 +298,7 @@ the intake.
 python -m unittest discover -s tests
 ```
 
-168 tests, standard library only. Beyond unit coverage, several exist to protect properties that
+166 tests, standard library only. Beyond unit coverage, several exist to protect properties that
 would otherwise fail silently:
 
 - The challenge pack contains no expected outcomes or ground-truth columns.
@@ -300,6 +310,8 @@ would otherwise fail silently:
   the rest of the pack being read.
 - A run where most model calls failed is abandoned rather than written.
 - Facts stated in three separate sections are assembled into one answer.
+- A submitted pack is read in a handful of model calls rather than one per passage.
+- A quote invented from fragments scattered across the pack is rejected; the match must be local.
 - A drafted intake produces a working benchmark without being edited.
 - A scenario library is read from a workbook with unfamiliar headings, a semicolon CSV, or a
   numbered list with no table at all.

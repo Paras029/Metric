@@ -1,26 +1,22 @@
-"""Document ingestion: reading files, checking what was read, and assembling it into answers.
+"""Reading a submitted pack into answers about the agent.
 
-The test that matters most here is `test_scattered_facts_are_assembled_into_one_answer`. The
-earlier single-pass design could not do that at all — a fact stated nowhere in any single passage
-was structurally inexpressible — and that, rather than any prompt wording, is what made
-extraction thin on a real document.
+The documents are read whole rather than passage by passage, so the tests that matter are about
+what that buys and what it must not cost: a fact spread over three sections assembled into one
+answer, a citation checked against the source, and a small, predictable number of model calls.
 
-The rest guard the two failure directions around it: material invented (a quote that is not in
-the document) and material lost (a real quote rejected for crossing a passage boundary).
+`test_a_pack_is_read_in_a_handful_of_calls` is the one guarding the change. A per-passage reading
+cost roughly thirty calls for a sixty-page pack, and every one was a wait and a chance to fail.
 """
 import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from scenario_generator.core.evidence import REJECTED, VERIFIED
-from scenario_generator.ingest import (IngestionFailed, UnreadableDocument,
-                                       build_context_document, chunk, extract_documents,
-                                       open_questions, read_document, record_from_json,
-                                       record_to_json)
+from scenario_generator.ingest import (IngestionFailed, UnreadableDocument, build_context_document,
+                                       build_corpus, extract_documents, open_questions,
+                                       read_document, record_from_json, record_to_json)
 
-# A document that describes one process across three separate sections, the way real
-# documentation does. No single section says what the whole flow is.
+# One process described across three separate sections, the way real documentation does it.
 _SCATTERED = """# Handling a request
 
 The assistant first confirms who it is speaking to before anything else happens.
@@ -35,23 +31,17 @@ session is locked.
 A locked session is passed to a human agent, who takes over the conversation.
 """
 
-# Long enough to be split into several passages, so that a failure on one can be told apart
-# from a failure of the whole run.
-_LONG = "\n\n".join(
-    f"# Section {n}\n\n" + ("The assistant confirms identity before disclosing anything, and "
-                            "the session is locked and no further attempts are accepted after "
-                            "the third failure. " * 12)
-    for n in range(1, 8))
-
-_DOC = """# Identity verification
-
-The assistant must verify the cardmember's identity before any transaction detail is disclosed.
-Three consecutive failed attempts lock the session.
-
-# Out of scope
-
-The assistant does not offer legal advice and must hand any such request to a person.
-"""
+_ANSWER = {
+    "answer": "The agent confirms identity, retries up to three times, then locks and escalates.",
+    "points": ["Identity is confirmed first.", "Three attempts are allowed.",
+               "A locked session goes to a human agent."],
+    "unknowns": ["Which identifiers are accepted for confirmation?"],
+    "evidence": [{"quote": "The assistant first confirms who it is speaking to",
+                  "document": "notes.md", "locator": "under “Handling a request”"},
+                 {"quote": "A locked session is passed to a human agent",
+                  "document": "notes.md", "locator": "under “Escalation”"}],
+    "confidence": "High",
+}
 
 
 def _write(name, body):
@@ -60,290 +50,232 @@ def _write(name, body):
     return path
 
 
-def _stub(observations=None, answer=None):
-    """A completion that answers whichever pass it is being asked for.
-
-    The two passes are told apart by their prompt, which is how the real gateway sees them too.
-    """
-    observations = observations if observations is not None else []
-    answer = answer or {"answer": "", "points": [], "unknowns": [], "sources": [],
-                        "confidence": "Low"}
+def _stub(answer=None, facets=("decisions",), resolved=None, calls=None):
+    """A completion that answers whichever prompt it is handed."""
+    answer = answer if answer is not None else _ANSWER
 
     def complete(system, user, **kwargs):
-        if "WHAT TO RETURN FOR EACH OBSERVATION" in user:
-            return json.dumps({"observations": observations})
-        return json.dumps(answer)
+        if calls is not None:
+            calls.append(user)
+        if "THE OUTSTANDING QUESTIONS" in user:
+            return json.dumps({"resolved": resolved or []})
+        # A reading call names the questions it wants answered; reply only to those.
+        return json.dumps({facet: answer for facet in facets if f"- {facet}:" in user})
     return complete
 
 
-class TestReaders(unittest.TestCase):
-    def test_markdown_headings_become_locators(self):
-        reference, segments = read_document(_write("notes.md", _DOC))
-        self.assertEqual(reference.units, 2)
-        self.assertIn("Identity verification", segments[0].locator)
+class TestCorpus(unittest.TestCase):
+    def test_every_document_is_named_and_its_locators_kept(self):
+        corpus = build_corpus([_write("notes.md", _SCATTERED)])
+        self.assertIn("=== DOCUMENT: notes.md ===", corpus.text)
+        self.assertIn("[under “Escalation”]", corpus.text)
 
-    def test_an_empty_file_is_refused_with_a_reason(self):
-        with self.assertRaises(UnreadableDocument):
-            read_document(_write("empty.md", "   "))
+    def test_an_unreadable_file_is_recorded_and_the_rest_still_read(self):
+        corpus = build_corpus([_write("empty.md", "   "), _write("notes.md", _SCATTERED)])
+        kinds = {d.name: d.kind for d in corpus.documents}
+        self.assertEqual(kinds["empty.md"], "unreadable")
+        self.assertIn("notes.md", corpus.text)
 
-    def test_an_unsupported_format_is_refused_by_name(self):
-        with self.assertRaises(UnreadableDocument) as caught:
-            read_document(_write("thing.zip", "x"))
-        self.assertIn("not supported", str(caught.exception))
-
-    def test_chunking_never_splits_a_segment(self):
-        _, segments = read_document(_write("notes.md", _DOC))
-        for text, _ in chunk(segments, budget=10, overlap=0):
-            self.assertIn("[", text)                 # the locator travels with the text
-
-    def test_consecutive_chunks_overlap_so_nothing_falls_down_a_boundary(self):
-        _, segments = read_document(_write("notes.md", _SCATTERED))
-        spans = [span for _, span in chunk(segments, budget=10, overlap=1)]
-        self.assertGreater(len(spans), 1)
-        # Every chunk after the first carries the previous chunk's last section with it.
-        self.assertTrue(any("–" in span for span in spans[1:]))
+    def test_images_are_set_aside_for_the_vision_pass(self):
+        image = Path(tempfile.mkdtemp()) / "flow.png"
+        image.write_bytes(b"not really a png")
+        corpus = build_corpus([image])
+        self.assertEqual([p.name for p in corpus.diagrams], ["flow.png"])
 
 
-class TestSurvey(unittest.TestCase):
-    def test_a_supported_observation_survives(self):
-        record = extract_documents([_write("notes.md", _DOC)], synthesise=False, complete=_stub([{
-            "facet": "policy_constraints",
-            "statement": "Identity is verified before any transaction detail is disclosed.",
-            "quote": "The assistant must verify the cardmember's identity before any "
-                     "transaction detail is disclosed.",
-            "locator": "under “Identity verification”"}]))
-        kept = record.usable()
-        self.assertTrue(kept)
-        self.assertEqual(kept[0].status, VERIFIED)
-        self.assertEqual(kept[0].source.document, "notes.md")
+class TestReading(unittest.TestCase):
+    def test_a_pack_is_read_in_a_handful_of_calls(self):
+        """Three reading calls and one resolution sweep, however long the document is."""
+        calls = []
+        extract_documents([_write("notes.md", _SCATTERED)], complete=_stub(calls=calls))
+        self.assertLessEqual(len(calls), 4, f"expected a handful of calls, made {len(calls)}")
 
-    def test_every_observation_gets_an_id_so_an_answer_can_cite_it(self):
-        record = extract_documents([_write("notes.md", _DOC)], synthesise=False, complete=_stub([{
-            "facet": "policy_constraints", "statement": "x",
-            "quote": "Three consecutive failed attempts lock the session", "locator": "y"}]))
-        self.assertTrue(all(claim.id for claim in record.claims))
-        self.assertIn(record.claims[0].id, record.claims_by_id())
+    def test_scattered_facts_are_assembled_into_one_answer(self):
+        record = extract_documents([_write("notes.md", _SCATTERED)], complete=_stub())
+        answer = record.answer_for("decisions")
+        self.assertTrue(answer.is_answered)
+        self.assertIn("three times", answer.answer)
+        self.assertEqual(len(answer.points), 3)
 
-    def test_an_invented_quote_is_discarded(self):
-        record = extract_documents([_write("notes.md", _DOC)], synthesise=False, complete=_stub([{
-            "facet": "policy_constraints",
-            "statement": "Disputes may be raised within ninety days.",
-            "quote": "Cardmembers may raise a dispute within ninety days of the posting date "
-                     "provided the merchant has been contacted first.",
-            "locator": "under “Identity verification”"}]))
-        self.assertEqual(record.usable(), [])
-        self.assertEqual(record.rejected()[0].status, REJECTED)
+    def test_a_citation_found_in_the_documents_becomes_a_traceable_claim(self):
+        record = extract_documents([_write("notes.md", _SCATTERED)], complete=_stub())
+        self.assertTrue(record.claims)
+        self.assertTrue(record.answer_for("decisions").sources)
+        self.assertIn(record.answer_for("decisions").sources[0], record.claims_by_id())
 
-    def test_a_quote_is_checked_against_the_whole_document_not_one_passage(self):
-        """Passages overlap and a quote can straddle a boundary; that is not a fabrication."""
-        record = extract_documents([_write("notes.md", _DOC)], synthesise=False, complete=_stub([{
-            # This spans two sections, so it is in no single passage.
-            "facet": "scope_boundaries",
-            "statement": "Legal advice is out of scope.",
-            "quote": "Three consecutive failed attempts lock the session. Out of scope The "
-                     "assistant does not offer legal advice",
-            "locator": "under “Out of scope”"}]))
-        self.assertEqual(record.usable()[0].status, VERIFIED)
-
-    def test_a_facet_outside_the_vocabulary_is_ignored(self):
-        record = extract_documents([_write("notes.md", _DOC)], synthesise=False, complete=_stub([{
-            "facet": "invented_facet", "statement": "x",
-            "quote": "The assistant must verify the cardmember's identity", "locator": "x"}]))
+    def test_an_invented_citation_is_dropped(self):
+        answer = dict(_ANSWER, evidence=[{
+            "quote": "Cardmembers may raise a dispute within ninety days of the posting date.",
+            "document": "notes.md", "locator": "x"}])
+        record = extract_documents([_write("notes.md", _SCATTERED)],
+                                   complete=_stub(answer=answer))
         self.assertEqual(record.claims, [])
 
-    def test_an_unreadable_document_is_recorded_and_the_run_continues(self):
-        record = extract_documents([_write("empty.md", "  "), _write("notes.md", _DOC)],
-                                   synthesise=False, complete=_stub([]))
-        kinds = {d.name: d.kind for d in record.documents}
-        self.assertEqual(kinds["empty.md"], "unreadable")
-        self.assertEqual(kinds["notes.md"], "notes")
+    def test_an_answer_with_no_surviving_citation_is_flagged_rather_than_trusted(self):
+        answer = dict(_ANSWER, evidence=[{"quote": "Nothing like this appears anywhere at all.",
+                                          "document": "notes.md", "locator": "x"}])
+        record = extract_documents([_write("notes.md", _SCATTERED)],
+                                   complete=_stub(answer=answer))
+        self.assertTrue(any("None of the quotes" in u
+                            for u in record.answer_for("decisions").unknowns))
 
-    def test_one_failed_passage_does_not_lose_the_rest_of_the_run(self):
-        """A gateway hiccup on one passage costs that passage, not the document."""
-        attempts = {"n": 0}
-
-        def flaky(system, user, **kwargs):
-            attempts["n"] += 1
-            if attempts["n"] == 1:
-                raise RuntimeError("gateway hiccup")
-            return json.dumps({"observations": [{
-                "facet": "policy_constraints", "statement": "Sessions lock after three failures.",
-                "quote": "the session is locked and no further attempts are accepted",
-                "locator": "x"}]})
-
-        record = extract_documents([_write("long.md", _LONG)], synthesise=False, complete=flaky)
-        self.assertGreater(attempts["n"], 1, "the document should span several passages")
-        self.assertTrue(record.usable(), "later passages should still have contributed")
+    def test_a_question_nothing_answered_reports_itself_unanswered(self):
+        record = extract_documents([_write("notes.md", _SCATTERED)], complete=_stub())
+        self.assertIn("tools", record.empty_facets())
 
     def test_a_run_that_mostly_failed_is_abandoned_rather_than_written(self):
-        """A thin context file is indistinguishable from a document that said little, so a run
-        that mostly did not happen must not leave one behind."""
         def broken(system, user, **kwargs):
             raise RuntimeError("401 Unauthorized")
+        with self.assertRaises(IngestionFailed):
+            extract_documents([_write("notes.md", _SCATTERED)], complete=broken)
 
-        with self.assertRaises(IngestionFailed) as caught:
-            extract_documents([_write("notes.md", _DOC)], synthesise=False, complete=broken)
-        self.assertIn("failed", str(caught.exception))
+    def test_a_pack_where_nothing_could_be_read_fails_before_calling_anything(self):
+        with self.assertRaises(IngestionFailed):
+            extract_documents([_write("empty.md", "  ")], complete=_stub())
+
+
+class TestResolutionSweep(unittest.TestCase):
+    """Every question that survives to the modelling team costs days, so they are asked twice."""
+
+    def test_a_second_look_can_settle_what_the_first_reading_left_open(self):
+        resolved = [{"question": "Which identifiers are accepted for confirmation?",
+                     "status": "answered",
+                     "answer": "An account number and a postcode.",
+                     "evidence": [], "still_open": ""}]
+        record = extract_documents([_write("notes.md", _SCATTERED)],
+                                   complete=_stub(resolved=resolved))
+        answer = record.answer_for("decisions")
+        self.assertIn("An account number and a postcode.", answer.points)
+        self.assertNotIn("Which identifiers are accepted for confirmation?", answer.unknowns)
+
+    def test_a_question_the_documents_do_not_settle_stays_open(self):
+        resolved = [{"question": "Which identifiers are accepted for confirmation?",
+                     "status": "unanswered", "answer": "", "evidence": [], "still_open": ""}]
+        record = extract_documents([_write("notes.md", _SCATTERED)],
+                                   complete=_stub(resolved=resolved))
+        self.assertIn("Which identifiers are accepted for confirmation?",
+                      record.answer_for("decisions").unknowns)
+
+    def test_the_sweep_can_be_switched_off(self):
+        calls = []
+        extract_documents([_write("notes.md", _SCATTERED)], resolve=False,
+                          complete=_stub(calls=calls))
+        self.assertFalse(any("THE OUTSTANDING QUESTIONS" in c for c in calls))
 
 
 class TestDiagrams(unittest.TestCase):
-    """A diagram is often the clearest statement of the agent's branching, so it is read rather
-    than refused — but nothing read from one can be checked against text."""
-
     def _png(self):
-        # A 1x1 PNG is enough: the reader is stubbed, only the plumbing is under test.
         import base64
         path = Path(tempfile.mkdtemp()) / "flow.png"
         path.write_bytes(base64.b64decode(
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="))
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmM"
+            "IQAAAABJRU5ErkJggg=="))
         return path
 
-    def test_a_diagram_is_read_and_its_observations_marked_for_confirmation(self):
+    def test_a_diagram_is_read_and_marked_for_confirmation(self):
         def describe(system, user, images, **kwargs):
             assert images and images[0][0] == "image/png"
             return json.dumps({"observations": [{
                 "facet": "decisions", "statement": "Auth check branches to pass or fail.",
                 "quote": "Auth check", "locator": "top left"}]})
 
-        record = extract_documents([self._png()], synthesise=False,
-                                   complete=_stub([]), describe_images=describe)
-        self.assertEqual(record.documents[0].kind, "diagram")
-        claim = record.usable()[0]
-        self.assertTrue(claim.needs_confirmation)
-        self.assertEqual(claim.source.document, "flow.png")
+        record = extract_documents([_write("notes.md", _SCATTERED), self._png()],
+                                   complete=_stub(), describe_images=describe)
+        diagram_claims = [c for c in record.claims if c.source.kind == "image"]
+        self.assertTrue(diagram_claims)
+        self.assertTrue(diagram_claims[0].needs_confirmation)
 
     def test_an_unreadable_diagram_asks_for_a_description_and_the_pack_still_reads(self):
-        """Vision being unavailable costs the diagram, not the documents beside it."""
         def broken(system, user, images, **kwargs):
             raise RuntimeError("vision not enabled")
 
-        record = extract_documents(
-            [_write("notes.md", _LONG), self._png()], synthesise=False,
-            complete=_stub([{"facet": "policy_constraints",
-                             "statement": "Sessions lock after three failures.",
-                             "quote": "the session is locked and no further attempts are accepted",
-                             "locator": "x"}]),
-            describe_images=broken)
-
+        record = extract_documents([_write("notes.md", _SCATTERED), self._png()],
+                                   complete=_stub(), describe_images=broken)
         diagram = next(d for d in record.documents if d.name == "flow.png")
         self.assertEqual(diagram.kind, "unreadable")
         self.assertIn("written description", diagram.note)
-        self.assertTrue(record.usable(), "the text document should still have been read")
-
-
-class TestSynthesis(unittest.TestCase):
-    """The pass that exists because documentation does not answer a question in one place."""
-
-    def test_scattered_facts_are_assembled_into_one_answer(self):
-        observations = [
-            {"facet": "decisions",
-             "statement": "The assistant confirms identity before anything else.",
-             "quote": "The assistant first confirms who it is speaking to",
-             "locator": "under “Handling a request”"},
-            {"facet": "decisions",
-             "statement": "Confirmation may be retried, and locks after the third failure.",
-             "quote": "After the third unsuccessful attempt the session is locked",
-             "locator": "under “Verification”"},
-            {"facet": "decisions",
-             "statement": "A locked session goes to a human agent.",
-             "quote": "A locked session is passed to a human agent",
-             "locator": "under “Escalation”"},
-        ]
-        assembled = {
-            "answer": "The agent verifies identity, retries up to three times, then locks the "
-                      "session and hands it to a person.",
-            "points": ["Identity is confirmed first.",
-                       "Up to three attempts are allowed.",
-                       "A locked session is escalated to a human agent."],
-            "unknowns": ["What identifiers are accepted for confirmation?"],
-            "sources": ["O-001", "O-002", "O-003"],
-            "confidence": "High",
-        }
-        record = extract_documents([_write("notes.md", _SCATTERED)],
-                                   complete=_stub(observations, assembled))
-
-        answer = record.answer_for("decisions")
-        self.assertIsNotNone(answer)
-        self.assertTrue(answer.is_answered)
-        # The account states something no single passage of the document says.
-        self.assertIn("three times", answer.answer)
-        self.assertEqual(len(answer.points), 3)
-        self.assertEqual(answer.confidence, "High")
-
-    def test_an_answer_cannot_cite_an_observation_that_does_not_exist(self):
-        record = extract_documents([_write("notes.md", _DOC)], complete=_stub(
-            [{"facet": "decisions", "statement": "x",
-              "quote": "Three consecutive failed attempts lock the session", "locator": "y"}],
-            {"answer": "a", "points": [], "unknowns": [], "sources": ["O-001", "O-999"],
-             "confidence": "High"}))
-        self.assertEqual(record.answer_for("decisions").sources, ["O-001"])
-
-    def test_a_question_with_no_observations_reports_itself_as_unanswered(self):
-        record = extract_documents([_write("notes.md", _DOC)], complete=_stub([]))
-        self.assertIn("decisions", record.empty_facets())
-        self.assertTrue(record.answer_for("decisions").unknowns)
-
-    def test_a_failed_synthesis_falls_back_to_the_raw_observations(self):
-        """Losing the assembly is bad; losing the material as well would be worse."""
-        def survey_only(system, user, **kwargs):
-            if "WHAT TO RETURN FOR EACH OBSERVATION" in user:
-                return json.dumps({"observations": [{
-                    "facet": "decisions", "statement": "Identity is confirmed first.",
-                    "quote": "The assistant first confirms who it is speaking to",
-                    "locator": "x"}]})
-            raise RuntimeError("gateway down")
-
-        record = extract_documents([_write("notes.md", _SCATTERED)], complete=survey_only)
-        answer = record.answer_for("decisions")
-        self.assertTrue(answer.points)
-        self.assertIn("unassembled", " ".join(answer.unknowns))
+        self.assertTrue(record.answer_for("decisions").is_answered)
 
 
 class TestContextDocument(unittest.TestCase):
     def _record(self):
-        return extract_documents([_write("notes.md", _SCATTERED)], complete=_stub(
-            [{"facet": "decisions", "statement": "Identity is confirmed first.",
-              "quote": "The assistant first confirms who it is speaking to", "locator": "x"}],
-            {"answer": "The agent confirms identity, then retries, then escalates.",
-             "points": ["Identity is confirmed first."],
-             "unknowns": ["What identifiers are accepted?"],
-             "sources": ["O-001"], "confidence": "Medium"}))
+        return extract_documents([_write("notes.md", _SCATTERED)], complete=_stub())
 
-    def test_the_assembled_answer_is_what_the_document_leads_with(self):
-        document = build_context_document(self._record(), "Disputes assistant")
-        self.assertIn("The agent confirms identity, then retries, then escalates.", document)
-        self.assertIn("Where it branches", document)
+    def test_the_assembled_answer_leads_the_document(self):
+        text = build_context_document(self._record(), "Disputes assistant")
+        self.assertIn("retries up to three times", text)
+        self.assertIn("Where it branches", text)
 
-    def test_supporting_observations_are_traceable_to_a_page(self):
-        document = build_context_document(self._record())
-        self.assertIn("O-001", document)
-        self.assertIn("notes.md", document)
+    def test_supporting_quotes_are_traceable(self):
+        text = build_context_document(self._record())
+        self.assertIn("notes.md", text)
 
-    def test_what_an_answer_could_not_settle_is_stated_rather_than_omitted(self):
-        document = build_context_document(self._record())
-        self.assertIn("Not settled by the documents", document)
-        self.assertIn("What identifiers are accepted?", document)
-
-    def test_unanswered_questions_are_listed_separately(self):
+    def test_what_is_unanswered_is_stated_rather_than_omitted(self):
         self.assertIn("Not covered by the submitted documents",
                       build_context_document(self._record()))
 
-    def test_specific_unknowns_become_questions_alongside_whole_gaps(self):
-        questions = open_questions(self._record())
-        kinds = {q["kind"] for q in questions}
-        self.assertIn("gap", kinds)
-        self.assertIn("unknown", kinds)
-        self.assertTrue(any("identifiers" in q["question"] for q in questions))
+    def test_open_questions_are_listed_without_duplication(self):
+        questions = [q["question"] for q in open_questions(self._record())]
+        self.assertEqual(len(questions), len(set(questions)))
 
     def test_the_record_round_trips_through_json(self):
         record = self._record()
         target = Path(tempfile.mkdtemp()) / "evidence.json"
         record_to_json(record, target)
         restored = record_from_json(target)
-        self.assertEqual(len(restored.usable()), len(record.usable()))
         self.assertEqual(restored.answer_for("decisions").answer,
                          record.answer_for("decisions").answer)
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCoverageAnnotation(unittest.TestCase):
+    """Coverage is recorded against a scenario and shown to a person. It removes nothing."""
+
+    def test_the_annotation_round_trips_and_stays_out_of_the_pack(self):
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from openpyxl import load_workbook
+        from test_stage_runners import _intake_workbook
+        from scenario_generator.core.intake import read_intake
+        from scenario_generator.io import read_scenarios, write_challenge_pack, write_registry
+        from scenario_generator.pipeline import build_scenarios
+
+        directory = Path(tempfile.mkdtemp())
+        intake = read_intake(str(_intake_workbook(directory)))
+        scenarios = build_scenarios(intake, with_probes=True)
+        scenarios[0].owner_coverage = "Covered"
+        scenarios[0].owner_coverage_note = "Their TC-001"
+
+        write_registry(str(directory / "registry.xlsx"), intake, scenarios)
+        restored = read_scenarios(str(directory / "registry.xlsx"), intake)
+        self.assertEqual(restored[0].owner_coverage, "Covered")
+        self.assertEqual(restored[0].owner_coverage_note, "Their TC-001")
+
+        # The modelling team must not learn which scenarios they already cover -- that would tell
+        # them which ones the validation team considers already answered.
+        write_challenge_pack(str(directory / "pack.xlsx"), intake, scenarios)
+        book = load_workbook(directory / "pack.xlsx")
+        values = [str(v) for name in book.sheetnames
+                  for row in book[name].iter_rows(values_only=True) for v in row if v]
+        self.assertFalse(any("Covered" in v for v in values))
+
+    def test_nothing_is_removed_by_annotating(self):
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from test_stage_runners import _intake_workbook
+        from scenario_generator.core.intake import read_intake
+        from scenario_generator.io import read_scenarios, write_registry
+        from scenario_generator.pipeline import annotate_coverage, build_scenarios
+
+        directory = Path(tempfile.mkdtemp())
+        intake_path = _intake_workbook(directory)
+        intake = read_intake(str(intake_path))
+        scenarios = build_scenarios(intake, with_probes=True)
+        write_registry(str(directory / "registry.xlsx"), intake, scenarios)
+
+        annotate_coverage(str(directory / "registry.xlsx"), intake, [])
+        self.assertEqual(len(read_scenarios(str(directory / "registry.xlsx"), intake)),
+                         len(scenarios))

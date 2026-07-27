@@ -141,6 +141,14 @@ class Scenario:
     review_rationale: str = ""
     review_flag: str = ""                 # e.g. "Redundant", "Under-specified", "Mis-scoped"
 
+    # What the modelling team's own testing already covers, written by the coverage stage. An
+    # annotation and nothing more: it is recorded against the scenario and shown to a person, and
+    # never removes anything from the pack. Whether covering a scenario twice is waste or
+    # confirmation depends on how much their testing is trusted, and that is not a judgement this
+    # tool is in a position to make.
+    owner_coverage: str = ""              # "Covered", "Partially covered" or ""
+    owner_coverage_note: str = ""
+
     # Probe provenance. Empty for graph scenarios; MRMG-internal, never issued to the owner.
     probe_id: str = ""
     probe_family: str = ""

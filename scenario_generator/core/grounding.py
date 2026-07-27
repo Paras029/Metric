@@ -74,6 +74,32 @@ def coverage(quote: str, source: str) -> float:
     return sum(block.size for block in matcher.get_matching_blocks()) / len(quote)
 
 
+# The fuzzy match must be local. Checking a quote against a whole submitted pack rather than a
+# single passage means matching blocks can be gathered from anywhere in hundreds of thousands of
+# characters, and a sentence that appears nowhere can be assembled from fragments scattered
+# across the corpus. Both of these bound that: the match is scored inside a window around the
+# quote's best anchor, and that anchor must itself be a substantial run rather than a common word.
+_WINDOW_MULTIPLE = 2.5
+_MIN_ANCHOR_SHARE = 0.25
+
+
+def _best_window(quote: str, source: str) -> str:
+    """The stretch of source around the quote's longest verbatim run, or empty if there is none.
+
+    One pass finds where the quote most nearly appears; the score is then computed against that
+    neighbourhood alone, so a real quote broken up by extraction still matches while an invented
+    one cannot borrow from elsewhere in the corpus.
+    """
+    matcher = SequenceMatcher(None, quote, source, autojunk=False)
+    anchor = matcher.find_longest_match(0, len(quote), 0, len(source))
+    if anchor.size < max(MIN_QUOTE_CHARS // 2, int(len(quote) * _MIN_ANCHOR_SHARE)):
+        return ""
+
+    width = int(len(quote) * _WINDOW_MULTIPLE)
+    start = max(0, anchor.b - anchor.a - (width - len(quote)) // 2)
+    return source[start:start + width]
+
+
 def locate(quote: str, source: str, threshold: float = MATCH_THRESHOLD) -> Tuple[bool, str]:
     """Whether a quote is supported by a source text, and why not when it is not.
 
@@ -92,7 +118,11 @@ def locate(quote: str, source: str, threshold: float = MATCH_THRESHOLD) -> Tuple
     if normalised_quote in normalised_source:
         return True, ""
 
-    score = coverage(normalised_quote, normalised_source)
+    window = _best_window(normalised_quote, normalised_source)
+    if not window:
+        return False, "quote not found in the cited source"
+
+    score = coverage(normalised_quote, window)
     if score >= threshold:
         return True, ""
     return False, f"quote not found in the cited source (best match {score:.0%})"

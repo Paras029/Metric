@@ -171,7 +171,8 @@ def build_pack(intake_path: str, registry_path: str, pack_path: str) -> List[Sce
 
 
 def map_coverage(intake_path: str, registry_path: str, owner_path: str, report_path: str,
-                 extractor: Optional[MetadataExtractor] = None) -> "CoverageResult":
+                 extractor: Optional[MetadataExtractor] = None,
+                 annotate_registry: bool = True) -> "CoverageResult":
     """Stage: map a modeling team's own scenarios onto a generated registry, write the overlap
     report. The benchmark is loaded from the registry, so its category and materiality are
     whatever refine()/assess_materiality() already assigned — coverage never recomputes them.
@@ -189,6 +190,12 @@ def map_coverage(intake_path: str, registry_path: str, owner_path: str, report_p
     default_persona = next((p.id for p in intake.personas if p.is_default), intake.personas[0].id)
     matches = match_scenarios(owner_scenarios, extractor.extract(owner_scenarios, intake),
                               benchmark, default_persona)
+    if annotate_registry:
+        annotated = annotate_coverage(registry_path, intake, matches)
+        logger.info("Annotated %d scenario(s) in the registry with what their testing covers. "
+                    "Nothing was removed -- whether to drop a covered scenario is your call.",
+                    annotated)
+
     covered, gaps = write_overlap_report(report_path, intake, matches, benchmark)
     logger.info("Owner covered %d/%d benchmark scenarios; %d gap(s). Wrote %s",
                 covered, len(benchmark), gaps, report_path)
@@ -307,3 +314,39 @@ class DraftResult:
     @property
     def counts(self) -> dict:
         return self.draft.counts()
+
+
+def annotate_coverage(registry_path: str, intake: IntakeData, matches) -> int:
+    """Record against each scenario what the modelling team's own testing already covers.
+
+    An annotation, not a filter. A covered scenario stays in the pack: whether running it again is
+    duplicated effort or independent confirmation depends on how far their testing is trusted,
+    and that is a judgement for the person issuing the pack rather than for this tool. What the
+    tool can do is put the fact in front of them.
+    """
+    scenarios = read_scenarios(registry_path, intake)
+    verdicts = {}
+    for match in matches:
+        scenario_id = getattr(match, "benchmark_id", "") or getattr(match, "scenario_id", "")
+        verdict = str(getattr(match, "verdict", "") or "")
+        if scenario_id and verdict:
+            verdicts[scenario_id] = (verdict, str(getattr(match, "owner_id", "") or ""))
+
+    annotated = 0
+    for scenario in scenarios:
+        found = verdicts.get(scenario.id)
+        if not found:
+            continue
+        verdict, owner_id = found
+        lowered = verdict.strip().lower()
+        if lowered.startswith("match"):
+            scenario.owner_coverage = "Covered"
+        elif "partial" in lowered:
+            scenario.owner_coverage = "Partially covered"
+        else:
+            continue
+        scenario.owner_coverage_note = f"Their {owner_id}" if owner_id else verdict
+        annotated += 1
+
+    write_registry(registry_path, intake, scenarios)
+    return annotated

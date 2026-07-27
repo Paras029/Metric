@@ -116,6 +116,12 @@ class FacetAnswer:
     sources: List[str] = field(default_factory=list)
     confidence: str = "Low"
     failed: bool = False
+    citations: List[dict] = field(default_factory=list)
+    """Quotes the reading offered in support, before they are checked.
+
+    Replaced by ``sources`` -- the ids of the claims that survived the check -- once
+    verification has run, so what persists is only what was found in the documents.
+    """
 
     @property
     def is_answered(self) -> bool:
