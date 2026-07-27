@@ -249,26 +249,45 @@ the same files these commands produce. A use case can move between the two freel
 
 ## Configuration
 
+Calls run on one of three tiers, because the work genuinely differs. Each tier takes its own
+model, output cap and reasoning effort.
+
+| Tier | Used by | Output cap | Reasoning | Model |
+|---|---|---|---|---|
+| **Judgement** | reading documents, drafting the intake, materiality, review | 65,536 | high | `LLM_JUDGEMENT_MODEL_ID` |
+| **Standard** | writing scenario text | 16,000 | minimal | `LLM_MODEL_ID` |
+| **Fast** | mapping their scenarios onto the intake vocabulary | 8,000 | minimal | `LLM_FAST_MODEL_ID` |
+
+Every tier falls back to `LLM_MODEL_ID`, so nothing changes until you name a smaller model.
+Pointing the fast tier somewhere cheap is the first saving worth making: that pass is
+classification against a closed list, and anything outside the list is discarded by validation
+regardless.
+
 ```
 LLM_TEMPERATURE                 Default 0.3.
+LLM_JUDGEMENT_MAX_TOKENS        Default 65536.
+LLM_JUDGEMENT_REASONING_EFFORT  Default "high".
+LLM_JUDGEMENT_MODEL_ID          Defaults to LLM_MODEL_ID.
 LLM_MAX_TOKENS                  Default 16000.
 LLM_REASONING_EFFORT            Default "minimal".
-LLM_JUDGEMENT_MAX_TOKENS        Default 32000.
-LLM_JUDGEMENT_REASONING_EFFORT  Default "high".
+LLM_FAST_MAX_TOKENS             Default 8000.
+LLM_FAST_REASONING_EFFORT       Default "minimal".
+LLM_FAST_MODEL_ID               Defaults to LLM_MODEL_ID.
+LLM_MAX_CORPUS_CHARS            Default 2000000 (~500k tokens).
 LLM_VISION                      "off" where the gateway rejects images.
 LLM_MAX_IMAGE_BYTES             Default 4000000.
 ```
 
-There are two token budgets because the passes do different work. Writing descriptions is
-mechanical and bounded by the batch size. Reading documents, weighing materiality and reviewing
-the benchmark are not: those passes must reason and justify, so they need room.
+`max_tokens` is the **output** cap, not the context window. Reasoning tokens come out of the same
+budget as the reply, so a high reasoning effort against a small cap truncates the JSON rather
+than shortening the answer — which is why each tier sets both together.
 
-Reasoning tokens come out of the same budget as the reply, so a high reasoning effort against a
-small cap truncates the JSON rather than shortening the answer. The two judgement settings move
-together.
+`LLM_MAX_CORPUS_CHARS` decides how much submitted text goes into one reading call. A pack larger
+than this is split across calls, which reads worse than reading it whole, so raise it before
+accepting a split.
 
-**If you see truncation warnings**, reduce the batch size first. Raise the budgets only if that
-does not resolve it.
+**If you see truncation warnings**, reduce the batch size first. Raise the cap only if that does
+not resolve it.
 
 ---
 
@@ -298,7 +317,7 @@ the intake.
 python -m unittest discover -s tests
 ```
 
-166 tests, standard library only. Beyond unit coverage, several exist to protect properties that
+174 tests, standard library only. Beyond unit coverage, several exist to protect properties that
 would otherwise fail silently:
 
 - The challenge pack contains no expected outcomes or ground-truth columns.
@@ -317,6 +336,7 @@ would otherwise fail silently:
   numbered list with no table at all.
 - Changing a stage marks every later stage out of date, and out-of-date output is kept.
 - The interface uses no Flask API newer than 1.0.
+- Each pass runs on the tier its work needs, so a judgement call cannot be quietly demoted.
 
 ---
 

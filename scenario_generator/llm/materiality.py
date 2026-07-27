@@ -57,9 +57,7 @@ class MaterialityAssessor:
         """Judgement budgets: assigning a tier requires weighing a scenario against its peers."""
         system = prompt_loader.load(_SYSTEM_PROMPT)
         try:
-            return self._complete(system, user,
-                                  max_tokens=config.JUDGEMENT_MAX_TOKENS,
-                                  reasoning_effort=config.JUDGEMENT_REASONING_EFFORT)
+            return self._complete(system, user, tier=config.JUDGEMENT)
         except TypeError:                          # a stub completion without the keywords
             return self._complete(system, user)
 

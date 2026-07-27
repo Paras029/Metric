@@ -98,15 +98,20 @@ def get_token(force_refresh: bool = False) -> str:
 
 def ask_llm(system_prompt: str, user_message: str,
             temperature: float = None, max_tokens: int = None,
-            reasoning_effort: str = None) -> str:
+            reasoning_effort: str = None, tier: "config.Tier" = None,
+            model: str = None) -> str:
     """Send one system + user prompt to the gateway and return the reply text.
 
-    `max_tokens` and `reasoning_effort` override the configured defaults for a single call. The
-    judgement passes raise both together, since reasoning is drawn from the same budget as the
-    reply.
+    Pass a ``tier`` to take its model, output cap and reasoning effort together -- that is how a
+    pass says what kind of work it is doing rather than restating three numbers. The individual
+    arguments still override it, one call at a time.
     """
+    if tier is not None:
+        model = model or tier.model
+        max_tokens = tier.max_tokens if max_tokens is None else max_tokens
+        reasoning_effort = reasoning_effort or tier.reasoning_effort
     payload = {
-        "model": config.LLM_MODEL_ID,
+        "model": model or config.LLM_MODEL_ID,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
@@ -131,7 +136,8 @@ def ask_llm(system_prompt: str, user_message: str,
 
 def ask_llm_with_images(system_prompt: str, user_message: str, images: list,
                         temperature: float = None, max_tokens: int = None,
-                        reasoning_effort: str = None) -> str:
+                        reasoning_effort: str = None, tier: "config.Tier" = None,
+                        model: str = None) -> str:
     """Send a prompt with images attached, as content parts on the user message.
 
     ``images`` is a list of (media_type, raw_bytes). They are inlined as base64 data URIs, which
@@ -142,6 +148,11 @@ def ask_llm_with_images(system_prompt: str, user_message: str, images: list,
     """
     if not config.LLM_VISION:
         raise RuntimeError("Vision is disabled (LLM_VISION=off), so images cannot be sent.")
+
+    if tier is not None:
+        model = model or tier.model
+        max_tokens = tier.max_tokens if max_tokens is None else max_tokens
+        reasoning_effort = reasoning_effort or tier.reasoning_effort
 
     parts = [{"type": "text", "text": user_message}]
     for media_type, raw in images:
@@ -154,7 +165,7 @@ def ask_llm_with_images(system_prompt: str, user_message: str, images: list,
                       "image_url": {"url": f"data:{media_type};base64,{encoded}"}})
 
     payload = {
-        "model": config.LLM_MODEL_ID,
+        "model": model or config.LLM_MODEL_ID,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": parts},

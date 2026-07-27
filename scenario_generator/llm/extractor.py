@@ -12,7 +12,7 @@ from typing import Callable, Dict, List
 
 from ..core.models import CATEGORIES, ExtractedMeta, IntakeData, OwnerScenario
 from ..utils import chunks, parse_json_object
-from . import prompt_loader
+from . import config, prompt_loader
 from .context import describe_use_case
 from .gateway import ask_llm
 
@@ -51,12 +51,19 @@ class MetadataExtractor:
             scenarios=json.dumps(payload, indent=2),
         )
         try:
-            reply = parse_json_object(
-                self._complete(prompt_loader.load(_SYSTEM_PROMPT), user))
+            reply = parse_json_object(self._call(prompt_loader.load(_SYSTEM_PROMPT), user))
         except Exception as exc:
             logger.warning("Extraction call failed (%s): %s", ", ".join(s.id for s in chunk), exc)
             return {}
         return {s.id: self._validate(reply[s.id], intake) for s in chunk if reply.get(s.id)}
+
+    def _call(self, system: str, user: str) -> str:
+        """Mapping free text onto a closed vocabulary is classification, and anything outside that
+        vocabulary is discarded by validation regardless -- so this runs on the fast tier."""
+        try:
+            return self._complete(system, user, tier=config.FAST)
+        except TypeError:                                  # a stub without the keyword arguments
+            return self._complete(system, user)
 
     def _validate(self, entry: dict, intake: IntakeData) -> ExtractedMeta:
         """Keep only decisions, outcomes, capabilities and personas the intake declares."""

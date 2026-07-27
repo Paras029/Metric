@@ -53,10 +53,9 @@ _READ_PROMPT = "ingest.read"
 _RESOLVE_PROMPT = "ingest.resolve"
 _DIAGRAM_PROMPT = "ingest.diagram"
 
-# Roughly 150k tokens of text. Well inside a million-token window, and far enough inside that the
-# reply has room. A corpus past this is split, which is a worse reading, so the number is set to
-# make that rare rather than routine.
-MAX_CORPUS_CHARS = 600_000
+# How much text goes into one reading call, from LLM_MAX_CORPUS_CHARS. A pack past this is split,
+# which reads worse than reading it whole, so the number is set to make that rare.
+MAX_CORPUS_CHARS = config.MAX_CORPUS_CHARS
 
 # The eleven questions asked in three calls rather than eleven. Grouped by what they have in
 # common, so each call answers questions that draw on the same parts of the document, and each
@@ -224,9 +223,7 @@ class DocumentExtractor:
         self._calls += 1
         try:
             reply = parse_json_object(self._describe_images(
-                prompt_loader.load(_SYSTEM_PROMPT), user, images,
-                max_tokens=config.JUDGEMENT_MAX_TOKENS,
-                reasoning_effort=config.JUDGEMENT_REASONING_EFFORT))
+                prompt_loader.load(_SYSTEM_PROMPT), user, images, tier=config.JUDGEMENT))
         except Exception as exc:
             self._failures += 1
             logger.warning("Could not read the diagrams: %s", exc)
@@ -353,9 +350,7 @@ class DocumentExtractor:
         system = prompt_loader.load(_SYSTEM_PROMPT)
         try:
             try:
-                reply = self._complete(system, user,
-                                       max_tokens=config.JUDGEMENT_MAX_TOKENS,
-                                       reasoning_effort=config.JUDGEMENT_REASONING_EFFORT)
+                reply = self._complete(system, user, tier=config.JUDGEMENT)
             except TypeError:                              # a stub without the keyword arguments
                 reply = self._complete(system, user)
             return parse_json_object(reply)

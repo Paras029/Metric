@@ -96,8 +96,9 @@ class TestReviewSweep(unittest.TestCase):
         self.seen = []
 
     def _fake(self, revision=None, proposals=None):
-        def complete(system, user, max_tokens=None, reasoning_effort=None):
-            self.seen.append({"user": user, "effort": reasoning_effort,
+        def complete(system, user, max_tokens=None, reasoning_effort=None, tier=None,
+                     model=None):
+            self.seen.append({"user": user, "tier": tier, "effort": reasoning_effort,
                               "max_tokens": max_tokens})
             if '{"proposals"' in user:
                 return json.dumps({"proposals": proposals or []})
@@ -107,14 +108,17 @@ class TestReviewSweep(unittest.TestCase):
                                                 "flag": ""}) for i in ids})
         return complete
 
-    def test_review_uses_the_judgement_budgets(self):
-        """Reasoning is drawn from the reply budget, so both must be raised together."""
+    def test_review_runs_on_the_judgement_tier(self):
+        """This pass reads the whole benchmark and justifies every verdict, so it takes the
+        largest output budget and the highest reasoning effort. Reasoning is drawn from the reply
+        budget, so the two only make sense together -- which is why a tier carries both."""
         ScenarioReviewer(complete=self._fake(), batch_size=4).review(self.scenarios, _INTAKE)
         self.assertTrue(self.seen)
         for call in self.seen:
-            self.assertEqual(call["effort"], config.JUDGEMENT_REASONING_EFFORT)
-            self.assertEqual(call["max_tokens"], config.JUDGEMENT_MAX_TOKENS)
-            self.assertGreater(call["max_tokens"], config.DEFAULT_MAX_TOKENS)
+            self.assertIs(call["tier"], config.JUDGEMENT)
+        self.assertEqual(config.JUDGEMENT.reasoning_effort, "high")
+        self.assertGreater(config.JUDGEMENT.max_tokens, config.STANDARD.max_tokens)
+        self.assertGreaterEqual(config.STANDARD.max_tokens, config.FAST.max_tokens)
 
     def test_every_call_carries_the_whole_registry_digest(self):
         """Each batch is judged against the full set, not just its own rows."""

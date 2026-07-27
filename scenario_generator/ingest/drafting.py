@@ -77,8 +77,7 @@ def draft_intake(context: str, complete: Optional[Callable[..., str]] = None) ->
     system = prompt_loader.load(_SYSTEM_PROMPT)
 
     try:
-        reply = complete(system, user, max_tokens=config.JUDGEMENT_MAX_TOKENS,
-                         reasoning_effort=config.JUDGEMENT_REASONING_EFFORT)
+        reply = complete(system, user, tier=config.JUDGEMENT)
     except TypeError:                                      # a stub completion without the keywords
         reply = complete(system, user)
 

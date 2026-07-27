@@ -17,7 +17,7 @@ from typing import Callable, List
 
 from ..core.models import IntakeData, Scenario
 from ..utils import chunks, parse_json_object
-from . import prompt_loader
+from . import config, prompt_loader
 from .context import describe_use_case, supplementary_context
 from .gateway import ask_llm
 
@@ -77,6 +77,14 @@ class ScenarioWriter:
             "touches_state_changing_action": scenario.touches_state_change,
         }
 
+    def _call(self, system: str, user: str) -> str:
+        """Writing scenario text is mechanical, but it is read by the modelling team, so it stays
+        on the standard tier rather than the cheapest one."""
+        try:
+            return self._complete(system, user, tier=config.STANDARD)
+        except TypeError:                                  # a stub without the keyword arguments
+            return self._complete(system, user)
+
     def _write(self, chunk: List[Scenario], intake: IntakeData) -> set:
         """Call the model for these scenarios and apply the reply; return the IDs it filled."""
         name = _PROBE_PROMPT if chunk[0].is_probe else _GRAPH_PROMPT
@@ -87,8 +95,7 @@ class ScenarioWriter:
             house_style=prompt_loader.load("shared.house_style"),
             scenarios=json.dumps([self._payload(s) for s in chunk], indent=2))
         try:
-            reply = parse_json_object(
-                self._complete(prompt_loader.load(_SYSTEM_PROMPT), user))
+            reply = parse_json_object(self._call(prompt_loader.load(_SYSTEM_PROMPT), user))
         except Exception as exc:
             logger.warning("Writer call left as fallback (%s): %s",
                            ", ".join(s.id for s in chunk), exc)
