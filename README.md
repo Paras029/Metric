@@ -1,28 +1,24 @@
 # Agentic Scenario Generator
 
-Builds a test benchmark for a conversational AI agent from a structured description of that
-agent, issues it to the team that owns the agent as a workbook they fill in, and measures how
-much of the benchmark that team's own testing already covers.
+Builds an independent test benchmark for a conversational AI agent.
 
-Written for independent validation: the benchmark is generated from a declared model of the
-agent rather than from the owner's test cases, and the expected outcomes never leave the
-validating team.
+You give it the documentation a modelling team submitted about their agent. It reads that
+documentation, drafts a structured description of the agent, enumerates every distinct route
+through it, adds a library of adversarial probes, and produces two workbooks: a **challenge pack**
+you issue to the team, and a **registry** you keep.
+
+The challenge pack contains no expected outcomes. That separation is the point of the exercise.
 
 ---
 
 ## Contents
 
-- [The problem](#the-problem)
-- [How it works](#how-it-works)
-- [Installation](#installation)
-- [The interface](#the-interface)
-- [Quick start](#quick-start)
+- [Installing](#installing)
+- [Your first run](#your-first-run)
+- [The stages](#the-stages)
 - [The intake workbook](#the-intake-workbook)
-- [Commands](#commands)
-- [Outputs](#outputs)
-- [Probes](#probes)
-- [Materiality](#materiality)
-- [Coverage mapping](#coverage-mapping)
+- [What you get](#what-you-get)
+- [Command reference](#command-reference)
 - [Configuration](#configuration)
 - [Extending](#extending)
 - [Testing](#testing)
@@ -30,113 +26,114 @@ validating team.
 
 ---
 
-## The problem
+## Installing
 
-Testing a conversational agent is not like testing a model that returns a number. The agent
-decides what to do at each step, calls tools, and reaches an outcome through a route that varies
-between runs. Two things follow.
+Python 3.9 or later. There is no build step and nothing to add to your path.
 
-First, a test set assembled by hand drifts towards the paths its author already had in mind.
-Failure routes, rare branches and outcome combinations go untested, and nobody can say by how
-much.
-
-Second, when the team that built the agent also writes the tests, the tests inherit the same
-assumptions as the implementation. An independent reviewer needs a benchmark derived from a
-declared model of the agent, not from the tests that model already passes.
-
-This tool addresses both. It enumerates the agent's decision graph exhaustively, so coverage is
-a property of the graph rather than of anyone's imagination, and it keeps every expected outcome
-on the validating side.
-
----
-
-## How it works
-
-Documents in, benchmark out. The stages that decide *what* gets tested are deterministic; a
-language model is used only to describe, weigh and review what enumeration already found.
+**Windows**
 
 ```
-ingest  →  init-template  →  build-graph  →  build-probes  →  refine  →  assess-materiality
-                                                                                    │
-                                                                        review  ←───┘
-                                                                          │
-                                        build-pack  ←─────────────────────┤
-                                      map-coverage  ←─────────────────────┘
+git clone <repository-url>
+cd scenario_generator_pkg
+py -m venv .venv
+.venv\Scripts\activate
+py -m pip install -r requirements.txt
+py -m scenario_generator --help
 ```
 
-| Stage | LLM | What it does |
-|---|---|---|
-| `ingest` | yes | Reads submitted documents, answers the eleven questions the benchmark needs from all of them at once, and writes a cited context file and the open questions. |
-| `init-template` | no | Writes a blank intake workbook for the agent's owner to complete. |
-| `build-graph` | no | Walks the decision graph exhaustively; every distinct path becomes a scenario with its expected route recorded. |
-| `build-probes` | no | Adds adversarial and non-functional probes that apply to this agent. |
-| `refine` | yes | Writes each scenario's business description and tester script. |
-| `assess-materiality` | yes | Assigns Low / Medium / High / Critical using cross-scenario signals. |
-| `review` | yes | Final sweep over the whole benchmark: settles materiality, flags problems, proposes gaps. |
-| `build-pack` | no | Writes the challenge pack from a registry. |
-| `map-coverage` | yes | Matches the owner's own test scenarios against the benchmark. |
-
-`generate` runs build-graph, refine and assess-materiality in one pass without intermediate
-files, for when the staged workflow is not needed.
-
-**Why the split.** Enumeration is deterministic and auditable: given an intake, the same
-scenarios come out every time, and any scenario can be traced back to the path that produced it.
-Language models are used only where judgement is genuinely required — turning a path into
-readable instructions, weighing business consequence, and reviewing the finished set. No model
-call decides which scenarios exist.
-
----
-
-## Installation
-
-Python 3.9 or later.
+**macOS and Linux**
 
 ```bash
 git clone <repository-url>
 cd scenario_generator_pkg
-pip install -r requirements.txt
-python -m scenario_generator --help
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -r requirements.txt
+python3 -m scenario_generator --help
 ```
 
-No build or packaging step, and nothing to add to your path — run it from the repository root
-and the package is found where it sits.
+Substitute `py` or `python3` for `python` in every command below, to match your platform.
 
-For the stages that call a language model, copy `.env.example` to `.env` and fill in the
-gateway details. Every stage also runs with `--no-llm`, which substitutes deterministic
-placeholder text — useful for validating an intake before spending any model calls.
+### Connecting a model
+
+Copy `.env.example` to `.env` and fill in your gateway details. Six stages call a language model;
+the rest are deterministic and run without one.
+
+```
+IDAAS_APP_ID / IDAAS_KEY / IDAAS_URL     Gateway authentication.
+LLM_ENDPOINT / LLM_MODEL_ID / LLM_SCOPE  Chat-completions endpoint and model.
+```
+
+To check the connection:
+
+```bash
+python -c "from scenario_generator.llm.gateway import ask_llm; print(ask_llm('You are terse.', 'Say OK.'))"
+```
+
+Every model-using stage also accepts `--no-llm`, which substitutes placeholder text. Useful for
+checking an intake before spending any calls.
 
 ---
 
-## The interface
+## Your first run
 
-Everything below can also be driven from a local web interface, which is usually the easier way
-to take a use case through the pipeline for the first time.
+The interface is the easier way to start.
 
 ```bash
 python -m scenario_generator serve
 ```
 
-It serves on `http://127.0.0.1:5000` and binds to localhost only. There is no authentication and
-it is not written for shared deployment.
+Open `http://127.0.0.1:5000`, name your use case, and work down the stages on the left. It binds
+to localhost only and has no authentication.
 
-Each stage states how its output was produced — **computed** (deterministic, reproducible),
-**model judgement** (an opinion with reasons attached, to be overruled where you disagree), or
-**your decision** (nothing advances until you approve). Reading a materiality tier and a graph
-walk with the same level of trust would be a mistake, so the interface never presents them the
-same way.
+Everything it does is also available on the command line:
 
-Changing something early marks every later stage out of date rather than leaving it looking
-finished. Out-of-date output is kept and stays readable — it is a record of what was issued —
-but nothing presents it as current.
+```bash
+# Read what the modelling team sent.
+python -m scenario_generator ingest submitted_docs/ acme
 
-The declared graph is drawn wherever the intake is available — states as boxes, decision outcomes
-as the arrows between them, hover for detail. A branch missing from that picture is a branch the
-benchmark will never test, and a state nothing leads to is called out by name.
+# Draft an intake from what was read, then open it and correct it.
+python -m scenario_generator draft-intake acme_context.md acme_intake.xlsx
 
-Every stage takes notes. Anything the documents do not say and a later stage should know — a
-correction, a constraint, a risk the pack does not mention — can be added at any point, and is
-given to every stage that follows, marked with where it was added. The command line takes the
-same thing through `--note`, which is repeatable:
+# Build the benchmark and write it up.
+python -m scenario_generator generate acme_intake.xlsx acme --with-probes \
+    --context acme_context.md
+
+# Review it whole, and rebuild the pack with the result.
+python -m scenario_generator review acme_intake.xlsx acme_registry.xlsx acme_registry.xlsx \
+    --context acme_context.md --pack acme_challenge_pack.xlsx
+```
+
+**If you already have a completed intake workbook**, skip the first two commands. Upload it at
+the intake stage, or pass it straight to `generate`.
+
+---
+
+## The stages
+
+| # | Stage | Input | Output |
+|---|---|---|---|
+| 1 | Documents | The submitted pack: model documentation, their test scenarios, workflow diagrams, supporting material | A cited context document, and answers to eleven questions about the agent |
+| 2 | Open questions | The above | What the documents did not settle, as questions you can answer inline |
+| 3 | Intake | A drafted or completed intake workbook | The agent as a decision graph, confirmed by you |
+| 4 | Benchmark | The intake | Every distinct route through the graph, plus applicable probes |
+| 5 | Scenario text | The benchmark | A description and tester script per scenario |
+| 6 | Materiality | The benchmark | A Low / Medium / High / Critical tier per scenario, driving run counts |
+| 7 | Final review | The whole benchmark | Settled materiality, flagged weaknesses, proposed additions |
+| 8 | Their coverage | Their scenario library | How much of the benchmark they already exercise |
+| 9 | Issue | The registry | The challenge pack to send, and the registry to keep |
+
+Stages 1, 2 and 8 are optional. Skip 1 and 2 if you already have an intake; skip 8 if the team
+submitted no testing of their own.
+
+Each stage states how its output was produced — **computed**, **model judgement**, or **human
+decision** — because a materiality tier and a graph walk do not deserve the same trust.
+
+Changing an earlier stage marks the later ones out of date rather than leaving them looking
+finished. Their output is kept and stays downloadable.
+
+Any stage accepts free-text notes and extra files. Both are passed to every stage that follows.
+On the command line this is `--note`, which is repeatable:
 
 ```bash
 python -m scenario_generator review intake.xlsx registry.xlsx registry.xlsx \
@@ -144,82 +141,80 @@ python -m scenario_generator review intake.xlsx registry.xlsx registry.xlsx \
     --note "The vendor document is a version behind."
 ```
 
-Work is stored under `workspaces/`, one directory per use case, holding the same workbooks the
-commands below produce. A use case can be started in the interface and finished on the command
-line, or the other way round.
-
-## Quick start
-
-```bash
-# 1. Read whatever the model owner sent into cited evidence and a context file.
-python -m scenario_generator ingest submitted_docs/ acme
-
-# 2. Produce a blank intake and send it to the team that owns the agent.
-#    acme_questions.md lists what their documents did not cover.
-python -m scenario_generator init-template intake.xlsx
-
-# 3. With the intake returned, generate the benchmark.
-python -m scenario_generator generate intake.xlsx acme --with-probes \
-    --context acme_context.md
-
-# 4. Review the finished benchmark as a whole, rebuilding the pack with the result.
-python -m scenario_generator review intake.xlsx acme_registry.xlsx acme_registry.xlsx \
-    --context acme_context.md --pack acme_challenge_pack.xlsx
-```
-
-This produces `acme_challenge_pack.xlsx` — issued to the agent's owner — and
-`acme_registry.xlsx`, which stays with the validating team.
-
-Supply extracts from the agent's documentation with `--context notes.md` to ground the generated
-descriptions in real product and policy detail. It is optional; everything needed is otherwise
-derived from the intake.
-
-Once the owner returns their own scenario library:
-
-```bash
-python -m scenario_generator map-coverage intake.xlsx acme_registry.xlsx owner_scenarios.xlsx overlap.xlsx
-```
-
 ---
 
 ## The intake workbook
 
-The intake is the single source of truth for the agent's structure. It should correspond
-one-to-one with a diagram of the agent: anything absent from the intake is absent from the
-benchmark.
+The intake is the authoritative description of the agent, and the boundary of what can be
+tested. Anything absent from it is absent from the benchmark.
 
-| Sheet | Purpose |
+| Sheet | Holds |
 |---|---|
-| `Guide` | Field-by-field instructions with worked examples. |
-| `L1 Use Case` | Name, business objective, agent type, channel, handoff triggers, safety requirements, success criteria. |
-| `Personas` | The kinds of user the agent serves, and which outcomes each is associated with. |
-| `L2 Capabilities` | What the agent can do, each typed as Lookup, Transactional, Gating, Advisory or PII-handling. |
-| `L3 Decisions` | Branch points and their named outcomes. |
-| `L4 States` | Positions the interaction can occupy, and which decisions are available from each. |
-| `Tools` | Systems the agent calls, and whether each changes stored state. |
+| `Guide` | Field-by-field instructions with examples |
+| `L1 Use Case` | Name, objective, agent type, channel, handoff triggers, safety requirements, success criteria |
+| `Personas` | The kinds of user the agent serves |
+| `L2 Capabilities` | Each distinct thing the agent can do, typed |
+| `L3 Decisions` | Branch points and their named outcomes |
+| `L4 States` | Positions the interaction can occupy |
+| `Tools` | Systems the agent calls |
 
-Four fields carry more weight than their size suggests:
+Four fields carry more weight than their size suggests.
 
-**`L2 Capabilities.Type`** decides which probes apply. A closed vocabulary rather than free text.
+**`L2 Capabilities.Type`** — one of `Lookup`, `Transactional`, `Gating`, `Advisory`,
+`PII-handling`. Decides which probes apply. A blank type silently drops the probes that would
+have tested that capability.
 
 **`L3 Decisions.Input Source`** — `User`, `Tool`, `Memory-Session`, `Memory-CrossSession`,
-`System-Context` or `Document`. Only `User` steps become conversational turns. This is what
-allows agents that plan internally, or run without a conversation at all, to be described: a
-path with no user step is a single trigger rather than a multi-turn script.
+`System-Context` or `Document`. Only `User` steps become conversational turns, which is what
+allows agents that plan internally, or run without a conversation, to be described.
 
-**`L3 Decisions.Max Attempts`** bounds retry loops per decision. There is no global limit, so a
-decision that genuinely allows three attempts produces three-attempt paths.
+**`L3 Decisions.Max Attempts`** — the retry bound for that decision. There is no global limit, so
+a decision allowing three attempts produces three-attempt routes.
 
-**`L4 States.Outcome Type`** on a terminal state sets the category of every scenario ending
-there — Happy path, Retry, Fallback, Escalation or Termination. Declaring it is preferable to
-letting the wording of an outcome be interpreted.
+**`L4 States.Outcome Type`** — on a terminal state: `Happy path`, `Retry`, `Fallback`,
+`Escalation` or `Termination`. Sets the category of every scenario ending there.
+
+A drafted intake includes a **Review This** sheet giving a confidence per section and the specific
+points the draft could not settle. Read it before relying on the draft.
 
 ---
 
-## Commands
+## What you get
+
+### Challenge pack — issued to the modelling team
+
+Five sheets: `Instructions`, `Scenarios`, `Turn_Plan`, `Run_Log`, `Run_Summary`.
+
+`Run_Log` is pre-populated to the exact number of runs required, so the workload is a fixed
+request rather than something the team has to construct. Read in order it forms the transcript.
+
+**It contains no expected outcomes** — no decision path, no expected tool call, no category, no
+materiality. A test asserts this on every build.
+
+### Registry — kept by you
+
+`Scenario_Metadata` (full metadata and expected outcome), `Turn_Metadata` (expected outcome per
+turn), `Scenario_Text` (the description and script as issued).
+
+### Context document and evidence record
+
+Written by the documents stage. The context document is organised as answers to the eleven
+questions the benchmark depends on, each citing the observations it rests on. The evidence record
+is the machine-readable form of the same thing, with every observation tied to its document and
+page.
+
+### Coverage report
+
+`Overlap` (each benchmark scenario and whether they covered it), `Owner_Incremental` (their
+scenarios falling outside the declared model), `Summary`.
+
+---
+
+## Command reference
 
 ```
 ingest              SOURCES... OUTPUT_PREFIX
+draft-intake        CONTEXT_FILE OUTPUT
 init-template       OUTPUT
 build-graph         INTAKE GRAPH_OUTPUT [--with-probes]
 build-probes        INTAKE GRAPH_INPUT GRAPH_OUTPUT
@@ -234,241 +229,56 @@ map-coverage        INTAKE REGISTRY OWNER_SCENARIOS REPORT
 serve               [--port N] [--workspaces DIR]
 ```
 
-`--note` is repeatable and takes free text: anything the documents do not say that the pass
-should know. `ingest` accepts files or directories, and reads a directory one level deep.
+`ingest` accepts files or directories, and reads a directory one level deep. `generate` runs
+build-graph, refine and assess-materiality in one pass.
 
-Everything the interface does is available here, and both write the same files, so a use case
-can move between them at any point. The interface adds the drawn graph, the stage-by-stage
-record of what has run, and out-of-date marking; it does not add a capability the command line
-lacks.
-
-Passing the same path as input and output updates a registry in place. `build-probes` is
-idempotent: running it twice replaces the probes rather than duplicating them.
-
-**The challenge pack is derived from the registry and must be rebuilt whenever the registry
-changes.** `refine` and `generate` write one for convenience, but materiality drives the
-requested run count and the review pass can change it or add scenarios — so a pack written
-before the review is out of date. Either pass `--pack` to `review`, or run `build-pack`
-afterwards. `review` warns when it has changed something and no pack path was given.
-
----
-
-## Outputs
-
-### Challenge pack — issued to the agent's owner
-
-Five sheets. Two are reference, two are filled in, and one explains the exercise.
-
-| Sheet | Role |
-|---|---|
-| `Instructions` | What to run, what to record, what not to edit. |
-| `Scenarios` | One row per scenario: description, persona, starting situation, recommended turns, required runs. |
-| `Turn_Plan` | One row per scenario and turn: what the tester should induce. |
-| `Run_Log` | One row per scenario, run and turn, pre-filled with identifiers. |
-| `Run_Summary` | One row per scenario and run. |
-
-For a probe, the `Turn_Plan` rows are an approach to work through rather than a line-by-line
-script: a probe has no decision path to walk, so the tester pursues a line of attack and the
-stated turn count is a floor rather than a contract.
-
-`Run_Log` is pre-populated down to the exact number of runs required, so the workload is fixed
-rather than something the owner has to construct. Read in order it forms the transcript, so
-there is no separate transcript field to reconcile. Tool activity and reasoning traces are
-free-form: whatever the owner's framework already emits can be pasted in as-is.
-
-**The challenge pack contains no expected outcomes.** No decision path, no expected variant, no
-expected tool call, no category, no materiality. A test asserts this on every build.
-
-### Registry — retained by the validating team
-
-`Scenario_Metadata` (full metadata and the expected outcome), `Turn_Metadata` (expected outcome
-per turn), and `Scenario_Text` (the description and script as issued).
-
-### Overlap report
-
-`Overlap` (benchmark scenarios and whether the owner covered each), `Owner_Incremental` (owner
-scenarios falling outside the declared model), and `Summary`.
-
----
-
-## Probes
-
-Some failures have nothing to do with which route the agent takes. Whether it can be talked into
-revealing its instructions, or will invent a confident answer when it has no basis for one, is a
-property of the agent rather than of any path through it. Anchoring such tests to individual
-paths tests the same property repeatedly and calls it coverage.
-
-Probes are therefore standalone. `probe_library.yaml` holds 27 of them across seven families —
-instruction integrity, scope and authority, tool and action integrity, context and memory,
-information disclosure, truthfulness, and conduct and fairness — anchored to the OWASP Top 10
-for Agentic Applications where applicable.
-
-Four rules govern the library, and the test suite enforces two of them:
-
-1. **One property per probe.** A probe tests a single invariant, not a single attack. Where the
-   same property can be attacked through several delivery vectors — an override delivered
-   plainly, encoded, in another language, wrapped in fiction — those belong in one escalating
-   probe rather than several near-duplicates. Splitting them inflates the benchmark without
-   testing anything new, and tests persistence less well: an agent that deflects the first
-   vector and yields to the fourth is only caught when all four occur in one conversation.
-2. **Domain-neutral.** A probe states a property any conversational agent must hold, never a
-   scenario from a particular industry. Domain detail is supplied when the probe is written up
-   for a specific agent, which is why the same library serves every use case unchanged.
-3. **Assessable from the transcript.** A probe whose verdict depends on internal state the
-   validating team cannot observe does not belong here.
-4. **Objective applicability.** Which probes apply is decided by predicates over what the intake
-   declares — `has_tools`, `touches_state_change`, `has_authentication`, `handles_pii`,
-   `has_persistent_memory`, `ingests_user_content` — never by inference. An unrecognised
-   predicate excludes the probe rather than including it everywhere.
-
-Probes receive `NF-xxx` identifiers and carry their expected behaviour in the registry. The
-probe's family and expectation never appear in the challenge pack, for the same reason expected
-outcomes do not.
-
-Scope is bounded by what the owner can actually do. Threats requiring compromised dependencies,
-code execution, inter-agent interception or infrastructure faults cannot be induced by holding a
-conversation with the agent, and belong to architectural review rather than to this benchmark.
-
----
-
-## Materiality
-
-Each scenario carries a tier of Low, Medium, High or Critical, which determines how many times
-the owner is asked to run it.
-
-Assignment happens in its own pass rather than alongside the description, because it depends on
-comparison. Whether a scenario matters is partly a question of what else is in the benchmark: a
-shallow variant of a path already covered thoroughly warrants less attention than the same
-scenario would in isolation. Redundancy and relative depth are computed across the whole set
-before any model call, and supplied as evidence rather than left to be inferred.
-
-Two passes can assign it, and a human can override either. In precedence order:
-
-| Column | Set by | Wins over |
-|---|---|---|
-| `Materiality Override` | a human reviewer | everything |
-| `Reviewed Materiality` | the review pass, with the whole benchmark visible | the initial assessment |
-| `Materiality` | the materiality pass | — |
-
-`Effective Materiality` resolves the three and drives the run count. Earlier values are never
-overwritten, so the reasoning behind a tier remains visible.
-
-### The review pass
-
-`review` runs last and is the only stage that sees the benchmark whole. It receives the use
-case, the agent's full declared structure, a description of every registry field, and a digest
-of every scenario generated. It may:
-
-- **Settle** each scenario's materiality, with the deterministic redundancy evidence and the
-  whole benchmark in view, and a rationale giving the business consequence of failure. Running
-  `assess-materiality` first is therefore optional — it is useful when you want tiers before
-  reviewing, but `review` reaches its own verdict either way.
-- **Flag** a scenario as `Redundant`, `Under-specified` or `Mis-scoped`.
-- **Propose** additional scenarios, capped and validated against the intake's vocabulary, marked
-  `llm-proposed` with `LP-xxx` identifiers.
-
-Passing `--owner-scenarios` additionally shows it what the agent's own team already tests, as
-context for judging where attention has and has not gone.
-
-It cannot remove anything: a flag is a recommendation for a human. Proposals are aimed at what
-enumeration structurally cannot reach — a user changing intent partway through, abandoning a
-journey, contradicting themselves across turns, or a case sitting either side of a declared
-threshold.
-
----
-
-## Coverage mapping
-
-`map-coverage` takes the owner's own scenario library as free text and reports how much of the
-benchmark it covers.
-
-Each owner scenario is mapped onto the intake's vocabulary; anything outside that vocabulary is
-discarded rather than guessed at. Matching then applies a deliberately strict rule:
-
-**Decision path and persona form a single gate.** Both must match exactly, or the verdict is
-no match. A persona mismatch is not treated as a weaker match, because the same route walked by
-a different kind of user is a different test.
-
-Only after that gate passes does other metadata come into play, and only to demote a full match
-to partial — never to create a match. Every demotion and gate failure is recorded, so a verdict
-can always be explained.
-
-Extraction confidence is reported separately as `Confident` or `Watch-out`, because how well a
-scenario was understood is a different question from whether it matched.
-
-Coverage is measured against the functional benchmark only. Probes and proposals are excluded by
-origin.
+Work started in the interface is stored under `workspaces/`, one directory per use case, holding
+the same files these commands produce. A use case can move between the two freely.
 
 ---
 
 ## Configuration
 
-Copy `.env.example` to `.env`:
-
 ```
-IDAAS_APP_ID / IDAAS_KEY / IDAAS_URL     Gateway authentication.
-LLM_ENDPOINT / LLM_MODEL_ID / LLM_SCOPE  Chat-completions endpoint and model.
-LLM_TEMPERATURE                          Default 0.3.
-LLM_MAX_TOKENS                           Default 16000.
-LLM_REASONING_EFFORT                     Default "minimal".
-LLM_JUDGEMENT_MAX_TOKENS                 Default 32000.
-LLM_JUDGEMENT_REASONING_EFFORT           Default "high".
-LLM_VISION                               "off" where the gateway rejects images.
-LLM_MAX_IMAGE_BYTES                      Default 4000000.
+LLM_TEMPERATURE                 Default 0.3.
+LLM_MAX_TOKENS                  Default 16000.
+LLM_REASONING_EFFORT            Default "minimal".
+LLM_JUDGEMENT_MAX_TOKENS        Default 32000.
+LLM_JUDGEMENT_REASONING_EFFORT  Default "high".
+LLM_VISION                      "off" where the gateway rejects images.
+LLM_MAX_IMAGE_BYTES             Default 4000000.
 ```
 
-Any gateway accepting a standard chat-completions request body will work.
+There are two token budgets because the passes do different work. Writing descriptions is
+mechanical and bounded by the batch size. Reading documents, weighing materiality and reviewing
+the benchmark are not: those passes must reason and justify, so they need room.
 
-There are two budgets because the passes do different work. Writing descriptions and extracting
-metadata are mechanical: the answer follows from the input and the reply is bounded by the batch
-size. Assessing materiality and reviewing the benchmark are not — those passes weigh each
-scenario against the whole set and must justify the verdict, so they need room to reason and to
-write.
+Reasoning tokens come out of the same budget as the reply, so a high reasoning effort against a
+small cap truncates the JSON rather than shortening the answer. The two judgement settings move
+together.
 
-Reasoning tokens come out of the same budget as the reply. A high reasoning effort against a
-small cap truncates the JSON rather than producing a shorter answer, which is why the two
-judgement settings move together.
-
-Every model call is batched, and any record a batch omits is retried individually, so a single
-malformed reply cannot silently drop scenarios. Replies are parsed leniently — markdown fences,
-surrounding prose and unescaped newlines are all tolerated, and individual records are salvaged
-from a reply that will not parse as a whole.
-
-If you see truncation warnings, reduce the batch size first — a smaller batch usually resolves
-it and keeps replies easier to parse. Raise the token budgets only if that does not.
+**If you see truncation warnings**, reduce the batch size first. Raise the budgets only if that
+does not resolve it.
 
 ---
 
 ## Extending
 
-**Changing a prompt.** Every prompt lives in `scenario_generator/prompts` as its own file, one
-per prompt, named `<pass>.<purpose>.md`. Edit the wording and run the pipeline again — nothing is
-compiled and no Python changes.
-
-Anything in double braces, like `{{use_case}}`, is a slot the code fills in at run time. Leave
-those spelled exactly as they are; everything else is yours. Single braces are ordinary text, so
-the JSON examples in the prompts need no escaping. If a slot is renamed or removed, the run stops
-immediately with a message naming the file and the slot rather than sending a broken prompt, and
-`tests/test_prompt_library.py` catches the same mistake before it ever runs.
-
-Four files are shared rather than belonging to one pass: `shared.mission` (what the exercise is
-for), `shared.materiality_scale` (the tier definitions, used by both judgement passes),
-`shared.house_style` (the voice, and the rule that owner-facing text never reveals the expected
-outcome), and `reviewer.owner_block`.
+**Changing a prompt.** Every prompt is a file in `scenario_generator/prompts`, named
+`<pass>.<purpose>.md`. Edit the wording and run again — nothing is compiled. Anything in double
+braces, like `{{use_case}}`, is filled in at run time; leave those exactly as they are. If one is
+renamed or removed, the run stops with a message naming the file and the slot.
 
 **Adding a probe.** Append an entry to `probe_library.yaml` with an id, family, name, intent,
-expectation, applicability predicate and turn count. Nothing else needs to change. The test
-suite will reject an entry that names domain-specific objects or references an unknown
-predicate.
+expectation, applicability predicate and turn count. The test suite rejects an entry that names a
+domain-specific object or references an unknown predicate.
 
-**Adding an applicability predicate.** Add it to `PREDICATES` in `core/probes.py` as a function
-of the intake. It becomes available to `applies_when` immediately.
+**Adding an applicability predicate.** Add it to `PREDICATES` in `core/probes.py` as a function of
+the intake.
 
-**Changing terminology.** Probe family names live only in the library; scenario categories live
-in `core/models.py`.
+**Adding a document format.** Add a reader to `ingest/readers.py` and one entry to its registry.
 
-**Adjusting run counts.** `RUNS_BY_MATERIALITY` in `core/models.py` maps each tier to a number
-of runs.
+**Adjusting run counts.** `RUNS_BY_MATERIALITY` in `core/models.py`.
 
 ---
 
@@ -478,38 +288,23 @@ of runs.
 python -m unittest discover -s tests
 ```
 
-153 tests, standard library only. Beyond unit coverage of graph traversal, matching and parsing,
-several tests exist to protect properties that would otherwise fail silently:
+168 tests, standard library only. Beyond unit coverage, several exist to protect properties that
+would otherwise fail silently:
 
-- Changing a stage marks every later stage out of date, and out-of-date output is kept rather
-  than deleted.
-- A quote that was reworded rather than copied from the source document is rejected, while one
-  mangled by PDF extraction is still matched.
-- A document that cannot be read is refused with a reason rather than contributing nothing
-  silently, and one unreadable file does not stop the rest of the pack being read.
-- Facts stated in three separate sections are assembled into one answer, which is the thing a
-  passage-at-a-time reading cannot do.
-- A synthesised answer cannot cite an observation that does not exist, and a failed synthesis
-  falls back to the raw observations rather than losing them — without being counted as answered.
-- A run where most model calls failed is abandoned rather than written, since a thin context file
-  is indistinguishable from a document that genuinely said little.
-- One failed passage, or one unreadable diagram, costs that passage or diagram and not the run.
-- The interface uses no Flask API newer than 1.0, so it starts on whatever version is installed.
-- The drawn graph invents no edge the intake does not declare, and names any state nothing
-  leads to.
-- Every stage of the interface runs to completion against stubbed model calls, so a stage nobody
-  clicked through by hand cannot ship broken.
-
-- The challenge pack contains no expected outcomes, no probe expectations and no ground-truth
-  columns.
+- The challenge pack contains no expected outcomes or ground-truth columns.
 - The scenario writer is never given a scenario's terminal state, so the expected outcome cannot
   reach the pack through the text it writes.
-- Every prompt a pass loads exists, and its slots match what that pass supplies.
-- No probe names a domain-specific object.
-- No probe references an unknown applicability predicate.
-- A review revision never overwrites the original assessment, and a human override always wins.
-- A failed model call leaves the registry unchanged rather than partially written.
-- Exhausting a decision's retry limit is recorded as a path rather than silently dropped.
+- A quote that was reworded rather than copied from the source is rejected; one mangled by PDF
+  extraction is still matched.
+- A document that cannot be read is refused with a reason, and one unreadable file does not stop
+  the rest of the pack being read.
+- A run where most model calls failed is abandoned rather than written.
+- Facts stated in three separate sections are assembled into one answer.
+- A drafted intake produces a working benchmark without being edited.
+- A scenario library is read from a workbook with unfamiliar headings, a semicolon CSV, or a
+  numbered list with no table at all.
+- Changing a stage marks every later stage out of date, and out-of-date output is kept.
+- The interface uses no Flask API newer than 1.0.
 
 ---
 
@@ -517,32 +312,23 @@ several tests exist to protect properties that would otherwise fail silently:
 
 ```
 scenario_generator/
-    core/          Domain logic: intake parsing, decision graph, scenario
-                   generation, probes, proposals, coverage matching.
-                   No I/O beyond the intake workbook, no model calls.
-    llm/           Gateway client, prompt loader, the text built from intake
-                   data (context.py), and the four passes: writer,
-                   materiality, reviewer, extractor.
-    prompts/       The prompt library: one plain file per prompt. Editable
-                   without touching Python.
-    ingest/        Document ingestion: readers for each format, the
-                   extraction pass, and context-document assembly.
-    io/            Workbook reading and writing.
-    webapp/        Local web interface: stage definitions, workspace state,
-                   routes, templates and stylesheet. Presentation only —
-                   every stage calls the same pipeline functions the CLI does.
-    utils/         Text, JSON and batching helpers. No internal dependencies.
-    cli.py         Argument parsing.
-    pipeline.py    Stage orchestration.
-    probe_library.yaml
-tests/             Standard-library unittest suite.
-tools/             Developer utilities, not part of the pipeline.
-examples/          A worked intake, the business context that accompanies it,
-                   and a script that runs the full pipeline.
+    core/       Intake parsing, decision graph, scenario generation, probes,
+                proposals, coverage matching, evidence, grounding.
+    ingest/     Document readers, extraction, context assembly, intake
+                drafting, owner scenario library parsing.
+    llm/        Gateway client, prompt loader, and the passes.
+    prompts/    The prompt library, one file per prompt.
+    io/         Workbook reading and writing.
+    webapp/     The local interface.
+    utils/      Text, JSON and batching helpers.
+    cli.py      Argument parsing.
+    pipeline.py Stage orchestration.
+tests/          Test suite.
+tools/          Developer utilities.
+examples/       A worked intake and the context that accompanies it.
 ```
 
-Troubleshooting an unexpected command error: confirm which copy of the package is being
-imported.
+To confirm which copy of the package is being imported:
 
 ```bash
 python -c "import scenario_generator; print(scenario_generator.__file__)"

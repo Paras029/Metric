@@ -12,7 +12,8 @@ from .core import write_template
 from .ingest import SUPPORTED_EXTENSIONS
 from .llm import NullMaterialityAssessor, NullReviewer, NullWriter
 from .pipeline import (assess_materiality, build_graph, build_pack, build_probes_stage,
-                       generate, ingest_documents, map_coverage, refine, review)
+                       draft_intake_workbook, generate, ingest_documents, map_coverage, refine,
+                       review)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -109,6 +110,12 @@ def main(argv: Optional[List[str]] = None) -> int:
                           help="written as PREFIX_evidence.json, PREFIX_context.md and "
                                "PREFIX_questions.md")
 
+    p_draft = sub.add_parser(
+        "draft-intake",
+        help="draft an intake workbook from an ingested context document")
+    p_draft.add_argument("context", help="the PREFIX_context.md written by ingest")
+    p_draft.add_argument("output", help="where to write the drafted intake workbook")
+
     p_serve = sub.add_parser("serve", help="run the local web interface")
     p_serve.add_argument("--port", type=int, default=5000)
     p_serve.add_argument("--workspaces", default="workspaces",
@@ -162,6 +169,11 @@ def main(argv: Optional[List[str]] = None) -> int:
             print("No readable documents found in what you gave me.")
             return 1
         ingest_documents(paths, args.output_prefix, progress=_print_progress)
+        return 0
+
+    if args.command == "draft-intake":
+        draft_intake_workbook(args.context, args.output)
+        print(f"Drafted {args.output}. Read the 'Review This' sheet before relying on it.")
         return 0
 
     if args.command == "serve":

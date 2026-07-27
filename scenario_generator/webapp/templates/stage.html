@@ -89,9 +89,9 @@
         </div>
         <p class="running__line">
           <span id="run-message">{{ state.progress.message or 'Starting' }}</span>
-          <span class="mono" id="run-count">
-            {%- if state.progress.total %}{{ state.progress.done }}/{{ state.progress.total }}{% endif -%}
-          </span>
+          {# One number, not two. The message says where in a document it is; this says how far
+             through the whole run, which is the only thing the bar can mean. #}
+          <span class="mono" id="run-count">{{ state.percent }}%</span>
         </p>
         <p class="panel__foot">
           This keeps running if you navigate away or close the tab. Reading a long document is
@@ -127,6 +127,21 @@
         {% if state.updated_at %}
           <p class="panel__foot">Last run <span class="mono">{{ state.updated_at }}</span></p>
         {% endif %}
+      </section>
+    {% endif %}
+
+    {% if groups and produced %}
+      <section class="panel">
+        <h2 class="panel__title">What this stage produced</h2>
+        <ul class="files">
+          {% for name, path in produced.items() %}
+            <li class="files__row">
+              <span class="files__name mono">{{ path.rsplit('/', 1)[-1] }}</span>
+              <a class="button button--quiet"
+                 href="{{ url_for('download', key=stage.key, name=name) }}">Download</a>
+            </li>
+          {% endfor %}
+        </ul>
       </section>
     {% endif %}
 
@@ -232,7 +247,7 @@
       </section>
     {% endif %}
 
-    {% if state.artifacts %}
+    {% if state.artifacts and not groups %}
       <section class="panel">
         <h2 class="panel__title">Files</h2>
         <ul class="files">
@@ -257,29 +272,64 @@
       </section>
     {% else %}
 
-      {% if stage.key in uploads %}
+      {% if groups %}
+        <section class="panel panel--action">
+          <h2 class="panel__title">What the model owner sent</h2>
+          <p class="panel__body">
+            Keep the kinds apart. Each is read differently, and their scenario library is used to
+            measure coverage rather than to describe the agent.
+          </p>
+
+          {% for row in groups %}
+            <div class="dropzone">
+              <div class="dropzone__head">
+                <span class="dropzone__title">{{ row.group.title }}</span>
+                {% if row.files %}
+                  <span class="dropzone__count mono">{{ row.files | length }}</span>
+                {% endif %}
+              </div>
+              <p class="dropzone__blurb">{{ row.group.blurb }}</p>
+
+              {% if row.files %}
+                <ul class="dropzone__files">
+                  {% for name in row.files %}
+                    <li class="mono">{{ name }}</li>
+                  {% endfor %}
+                </ul>
+              {% endif %}
+              {% if row.note %}<p class="dropzone__note">{{ row.note }}</p>{% endif %}
+
+              <form class="upload" method="post" enctype="multipart/form-data"
+                    action="{{ url_for('upload', key='documents') }}">
+                <input type="hidden" name="group" value="{{ row.group.key }}">
+                <input class="upload__input" type="file" name="files"
+                       {% if row.group.multiple %}multiple{% endif %}
+                       accept="{{ row.group.accept_attribute }}">
+                <button class="button button--quiet" type="submit">Add</button>
+              </form>
+            </div>
+          {% endfor %}
+        </section>
+
+      {% elif stage.key in uploads %}
         <section class="panel panel--action">
           <h2 class="panel__title">
             {% if stage.key == 'intake' %}Provide the intake workbook
-            {% elif stage.key == 'coverage' %}Provide their scenario library
-            {% else %}Add documents{% endif %}
+            {% else %}Provide their scenario library{% endif %}
           </h2>
           <p class="panel__body">
             {% if stage.key == 'intake' %}
-              Upload a completed intake workbook. Need a blank one?
+              Upload a completed intake workbook, or run this stage to have one drafted from the
+              documents. Need a blank one?
               <a class="link" href="{{ url_for('blank_template') }}">Download the template</a>.
-            {% elif stage.key == 'coverage' %}
-              A workbook of the model owner's own test scenarios, one per row.
             {% else %}
-              PDF, Word, PowerPoint, notes and images. Include the workflow diagram if there is
-              one. A scanned PDF has no text to read and will be refused with a reason.
+              A workbook, CSV or document listing the model owner's own test scenarios.
             {% endif %}
           </p>
           <form class="upload" method="post" enctype="multipart/form-data"
                 action="{{ url_for('upload', key=stage.key) }}">
             <input class="upload__input" type="file" name="files"
-                   {% if stage.key == 'sources' %}multiple{% endif %}
-                   accept=".pdf,.docx,.pptx,.png,.jpg,.jpeg,.md,.txt,.xlsx">
+                   accept=".xlsx,.xlsm,.csv,.docx,.pdf,.md,.txt">
             <button class="button button--primary" type="submit">Upload</button>
           </form>
         </section>
@@ -294,9 +344,11 @@
             {% if view.has_output %}
               Replaces the output above, and marks every later stage out of date so nothing
               downstream is left claiming to reflect it.
-            {% else %}
+            {% elif view.number > 1 %}
               Uses what stage <span class="mono">{{ view.number - 1 }}</span> produced, together
               with any notes added along the way.
+            {% else %}
+              Reads everything added above, together with any notes.
             {% endif %}
           </p>
           <form method="post" action="{{ url_for('run_stage', key=stage.key) }}">
@@ -377,7 +429,7 @@
           if (p.status !== 'running') { window.location.reload(); return; }
           bar.style.width = p.percent + '%';
           message.textContent = p.message || 'Working';
-          count.textContent = p.total ? p.done + '/' + p.total : '';
+          count.textContent = p.percent + '%';
         })
         .catch(function () { /* a dropped poll is not worth reporting; the next one will do */ });
     }, 2000);

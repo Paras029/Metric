@@ -725,3 +725,50 @@ ol, ul { list-style: none; padding: 0; }
   margin-bottom: .2rem;
 }
 .upload--extra { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--line-soft); }
+
+/* ------------------------------------------------------------------ submitted material
+ * One box per kind of thing the model owner sends. Keeping them apart is not tidiness: each is
+ * read a different way, and what has arrived under each heading is the clearest statement of
+ * what is still missing from the pack.
+ */
+.dropzone {
+  margin-top: 1rem;
+  padding: .9rem 1rem 1rem;
+  border: 1px dashed #C3D2E6;
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, #FBFCFE, var(--paper));
+}
+.dropzone__head { display: flex; align-items: baseline; gap: .6rem; }
+.dropzone__title { font-weight: 620; font-size: .9rem; color: var(--deep); }
+.dropzone__count {
+  font-size: .7rem;
+  padding: .08rem .4rem;
+  border-radius: 10px;
+  background: #E8F6F0;
+  color: var(--verified);
+}
+.dropzone__blurb { margin-top: .25rem; font-size: .84rem; color: var(--ink-soft); max-width: 42rem; }
+.dropzone__files { margin-top: .6rem; }
+.dropzone__files li {
+  font-size: .82rem;
+  color: var(--ink-soft);
+  padding: .18rem 0 .18rem .9rem;
+  position: relative;
+}
+.dropzone__files li::before {
+  content: "";
+  position: absolute;
+  left: 0; top: .62rem;
+  width: .3rem; height: .3rem;
+  border-radius: 50%;
+  background: var(--verified);
+}
+.dropzone__note {
+  margin-top: .5rem;
+  font-size: .8rem;
+  color: var(--ink-faint);
+  padding: .35rem .6rem;
+  background: var(--ground);
+  border-radius: 4px;
+}
+.dropzone .upload { margin-top: .75rem; }

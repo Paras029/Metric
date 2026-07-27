@@ -18,8 +18,8 @@ from .io import (read_registry, read_scenarios, write_challenge_pack, write_over
 from .llm import (MaterialityAssessor, MetadataExtractor, ScenarioReviewer,
                   ScenarioWriter)
 from .llm.reviewer import DEFAULT_PROPOSAL_LIMIT
-from .ingest import (DocumentExtractor, build_context_document, open_questions,
-                     rejection_summary)
+from .ingest import (DocumentExtractor, build_context_document, draft_intake, open_questions,
+                     read_owner_library, rejection_summary, write_drafted_intake)
 
 logger = logging.getLogger("scenario_generator")
 
@@ -178,7 +178,12 @@ def map_coverage(intake_path: str, registry_path: str, owner_path: str, report_p
     """
     intake = read_intake(intake_path)
     benchmark = read_registry(registry_path)
-    owner_scenarios = read_owner_scenarios(owner_path)
+
+    # Read whatever shape the owner sent rather than demanding one layout; how it was read is
+    # logged, because a misread column is the kind of thing that quietly halves a coverage figure.
+    owner_scenarios, how = read_owner_library(Path(owner_path))
+    logger.info("Read %d scenario(s) from %s (%s).",
+                len(owner_scenarios), Path(owner_path).name, how)
 
     extractor = extractor or MetadataExtractor()
     default_persona = next((p.id for p in intake.personas if p.is_default), intake.personas[0].id)
@@ -188,7 +193,8 @@ def map_coverage(intake_path: str, registry_path: str, owner_path: str, report_p
     logger.info("Owner covered %d/%d benchmark scenarios; %d gap(s). Wrote %s",
                 covered, len(benchmark), gaps, report_path)
     return CoverageResult(covered=covered, gaps=gaps, benchmark=len(benchmark),
-                          owner_scenarios=len(owner_scenarios), report_path=report_path)
+                          owner_scenarios=len(owner_scenarios), report_path=report_path,
+                          how_read=how)
 
 
 # --------------------------------------------------------------------------- results
@@ -202,6 +208,7 @@ class CoverageResult:
     benchmark: int
     owner_scenarios: int
     report_path: str
+    how_read: str = ""
 
 
 @dataclass
@@ -269,3 +276,34 @@ def render_questions(questions: List[dict]) -> str:
         lines.append("Nothing outstanding: every category was addressed and every statement was "
                      "checkable.")
     return "\n".join(lines)
+
+
+def draft_intake_workbook(context_path: str, output_path: str,
+                          complete: Optional[Callable[..., str]] = None) -> "DraftResult":
+    """Draft an intake workbook from an ingested context document.
+
+    The result is a real intake in the shape ``init-template`` produces, plus a "Review This"
+    sheet saying where the draft is weak. It is a starting point for a person to correct, not an
+    authority -- but correcting a draft is an afternoon and writing one is a week.
+    """
+    context = Path(context_path).read_text(encoding="utf-8")
+    draft = draft_intake(context, complete=complete)
+    write_drafted_intake(Path(output_path), draft)
+
+    counts = draft.counts()
+    logger.info("Drafted an intake: %d capabilities, %d decision points, %d states, %d personas, "
+                "%d tools.", counts["capabilities"], counts["decisions"], counts["states"],
+                counts["personas"], counts["tools"])
+    logger.info("%d point(s) flagged for review. Wrote %s",
+                len(draft.review_notes), output_path)
+    return DraftResult(draft=draft, path=output_path)
+
+
+@dataclass
+class DraftResult:
+    draft: object
+    path: str
+
+    @property
+    def counts(self) -> dict:
+        return self.draft.counts()

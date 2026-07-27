@@ -38,6 +38,7 @@ _CONTRACT = {
     "ingest.survey": {"facets", "document", "locator", "chunk"},
     "ingest.synthesise": {"heading", "question", "observations"},
     "ingest.diagram": {"facets", "document"},
+    "intake.draft": {"context"},
 }
 
 _INTAKE = IntakeData(

@@ -72,95 +72,79 @@ STAGES: Tuple[Stage, ...] = (
     Stage("documents", "Documents", JUDGED,
           "Add whatever the model owner sent, then read it. Model documentation, vendor material, "
           "workflow diagrams and decks.",
-          "The benchmark can only test what is known about the agent, so this pack sets the "
-          "ceiling on what the validation can reach. Reading it runs in two passes, because "
-          "documentation does not answer the questions a benchmark needs in any one place. The "
-          "first reads each passage and brings back what it establishes, paired with the words it "
-          "was read from, which are then checked against the document; an observation whose quote "
-          "cannot be located is discarded, since an unfounded citation is more damaging than no "
-          "citation. The second takes one question at a time and answers it from every "
-          "observation bearing on it across every document at once, assembling a process "
-          "described in one section, its exception three pages later and the threshold governing "
-          "it in a table into a single account. Answers cite the observations they rest on, and "
-          "state what the documents left unsettled rather than completing the picture from what "
-          "such a system usually does."),
+          "Takes the submitted pack and reads it. Every passage is read for what it establishes, "
+          "then each question is answered from everything found across all documents at once — "
+          "documentation rarely answers them in one place. Statements are kept only where the "
+          "quote supporting them is found in the source, and what the documents leave unsettled "
+          "is recorded rather than filled in.",
+          optional=True),
 
     Stage("questions", "Open questions", REVIEW,
           "What the documents did not cover. Your answers are recorded as evidence in their own "
           "right, attributed to you rather than to a document.",
-          "Two kinds of question arrive here. Where no submitted document addressed a category "
-          "at all, the gap is raised against the pack. Where a statement could not be checked "
-          "against text, because it was read from a diagram or supplied by a person, it is "
-          "raised for confirmation. Both are treated as unknown rather than as absent from the "
-          "agent, since a silent gap and a declared exclusion have very different consequences "
-          "for a benchmark."),
+          "Two kinds. A question no document addressed at all, and a specific point an otherwise "
+          "good answer could not settle. Answer what you can here; each answer is passed to "
+          "every later stage, so nothing needs re-running. What is left unanswered stays "
+          "unknown rather than being treated as something the agent does not do.",
+          optional=True),
 
     Stage("intake", "Intake", REVIEW,
           "The agent described as a decision graph. Drafted from the evidence, corrected by you. "
           "Nothing reaches the benchmark that is not here.",
-          "The intake is the authoritative description of the agent and the boundary of what can "
-          "be tested. It is drafted from the evidence so that the work is one of correction "
-          "rather than transcription, but it is not authoritative until it has been reviewed. "
-          "The declared graph is shown alongside it so that a missing branch or an unreachable "
-          "outcome is visible as a shape rather than buried in a spreadsheet row."),
+          "The authoritative description of the agent, and the boundary of what can be tested. It "
+          "is drafted from the documents so the work is correction rather than transcription, "
+          "but it is not authoritative until you have read it — the Review This sheet says where "
+          "the draft is weakest. Upload a completed intake instead if you already have one."),
 
     Stage("benchmark", "Benchmark", COMPUTED,
           "Every distinct route through the decision graph, plus the adversarial probes that "
           "apply to this agent. Enumerated, not chosen.",
-          "Routes are enumerated exhaustively by walking the declared graph, so coverage of the "
-          "declared design is demonstrable rather than asserted, and every scenario traces back "
-          "to the path that produced it. Adversarial and non-functional probes are applied "
-          "separately, since they test properties of the agent rather than routes through it, "
-          "and which of them apply is determined mechanically from what the intake declares. No "
-          "model decides which scenarios exist."),
+          "Walks the declared graph and turns every distinct route into a scenario, so coverage of "
+          "the declared design is demonstrable rather than asserted. Adversarial probes are "
+          "added separately, since they test properties of the agent rather than routes through "
+          "it. No model decides which scenarios exist."),
 
     Stage("text", "Scenario text", JUDGED,
           "The description and tester script for each scenario, written in business language. "
           "This is what the model owner reads.",
-          "Each scenario is written up as instructions a competent tester can follow without "
-          "knowing how the agent was built. The expected outcome is deliberately withheld from "
-          "this step: what is produced here is issued to the team that owns the agent, and text "
-          "that revealed the expected result would leave the exercise measuring nothing."),
+          "Writes each scenario as instructions a tester can follow without knowing how the agent "
+          "was built. The expected outcome is withheld from this step: what it produces is "
+          "issued to the modelling team, and text that revealed the answer would leave the "
+          "exercise measuring nothing."),
 
     Stage("materiality", "Materiality", JUDGED,
           "What it would cost the business if the agent handled each scenario badly, and how "
           "many runs that justifies.",
-          "Materiality is assessed as business consequence rather than abstract severity, and "
-          "across the set rather than scenario by scenario, because whether a scenario matters "
-          "depends partly on what else the benchmark already covers. Redundancy and relative "
-          "depth are computed before any assessment and supplied as evidence. The resulting tier "
-          "determines how many runs each scenario is issued with, so it governs the size of the "
-          "request made of the model owner."),
+          "Assigns each scenario a tier by business consequence rather than abstract severity, "
+          "judged across the set — whether a scenario matters depends partly on what else the "
+          "benchmark covers. The tier decides how many runs each scenario is issued with, so it "
+          "governs the size of the request you make."),
 
     Stage("review", "Final review", JUDGED,
           "One pass over the whole benchmark: settles materiality with everything in view, "
           "flags weak scenarios, and proposes what enumeration could not reach.",
-          "This is the only step that sees the benchmark whole. Enumeration is exhaustive over "
-          "what was declared but bounded by it, and the probe library cannot know what this "
-          "particular business makes risky; the review exists to work at that boundary. It may "
-          "settle materiality, flag a scenario as redundant, under-specified or mis-scoped, and "
-          "propose additions validated against the intake's own vocabulary. It cannot remove "
-          "anything: a flag is a recommendation to a person."),
+          "The only step that sees the benchmark whole. Enumeration is exhaustive over what was "
+          "declared but bounded by it, so this works at that boundary: it settles materiality, "
+          "flags scenarios that are redundant, under-specified or mis-scoped, and proposes "
+          "additions. It cannot remove anything — a flag is a recommendation to you."),
+
+    Stage("coverage", "Their coverage", JUDGED,
+          "What the model owner's own testing already covers, matched against this benchmark. "
+          "Skip it if they submitted none.",
+          "Matches the modelling team's own scenarios against the benchmark, in whatever format "
+          "they sent them. Reading this before the pack is issued is what lets it concentrate "
+          "on what they have not covered. Route and persona must both match, because the same "
+          "route walked by a different user is a different test.",
+          optional=True),
 
     Stage("issue", "Issue", COMPUTED,
           "The challenge pack to send the model owner, and the registry you keep. The pack "
           "carries no expected outcomes.",
-          "Two workbooks are produced and the separation between them is the point of the "
-          "exercise. The challenge pack is issued to the team that owns the agent and contains "
-          "no expected outcome, no decision path and no materiality. The registry is retained "
-          "and holds the full ground truth. The pack is derived from the registry rather than "
-          "authored, so it must be rebuilt after anything that changes the registry."),
-
-    Stage("coverage", "Coverage", JUDGED,
-          "How much of this benchmark the model owner's own testing already covers.",
-          "The owner's own scenario library is mapped onto the intake's vocabulary and matched "
-          "against the benchmark. Route and persona together form a single strict gate, because "
-          "the same route walked by a different kind of user is a different test. How well a "
-          "scenario was understood is reported separately from whether it matched, so a weak "
-          "match and a weak reading are not confused.",
-          optional=True),
+          "Writes the two workbooks. The challenge pack goes to the modelling team and carries no "
+          "expected outcome, decision path or materiality. The registry stays with you and holds "
+          "the ground truth. The pack is derived from the registry, so rebuild it after anything "
+          "that changes the registry."),
 )
-
 
 STAGE_BY_KEY: Dict[str, Stage] = {stage.key: stage for stage in STAGES}
 STAGE_KEYS: Tuple[str, ...] = tuple(stage.key for stage in STAGES)
@@ -175,9 +159,18 @@ def index_of(key: str) -> int:
 
 
 def predecessor(key: str) -> Optional[Stage]:
-    """The stage that must be complete before this one can run, or None for the first."""
+    """The stage immediately before this one, or None for the first."""
     position = index_of(key)
     return STAGES[position - 1] if position else None
+
+
+def required_before(key: str) -> List[Stage]:
+    """The stages that must have produced something before this one can run.
+
+    Optional stages are excluded, which is what lets a team that already has a completed intake
+    workbook start at the intake stage and never open the document stages at all.
+    """
+    return [stage for stage in STAGES[:index_of(key)] if not stage.optional]
 
 
 def downstream_of(key: str) -> List[Stage]:

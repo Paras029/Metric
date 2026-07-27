@@ -37,20 +37,35 @@ class TestStageOrder(unittest.TestCase):
 
 
 class TestReachability(unittest.TestCase):
-    def test_only_the_first_stage_starts_available(self):
-        workspace = _workspace()
-        self.assertEqual(workspace.state(STAGES[0].key).status, READY)
-        self.assertEqual(workspace.state(STAGES[1].key).status, LOCKED)
+    """Optional stages do not gate what follows them, which is what allows a cold start."""
 
-    def test_completing_a_stage_unlocks_the_next(self):
+    def test_a_team_that_already_has_an_intake_can_start_at_it(self):
         workspace = _workspace()
-        workspace.complete(STAGES[0].key)
-        self.assertEqual(workspace.state(STAGES[1].key).status, READY)
+        self.assertEqual(workspace.state("intake").status, READY)
+        self.assertFalse(workspace.is_blocked("intake"))
 
-    def test_a_locked_stage_cannot_be_run(self):
+    def test_the_document_stages_are_open_but_not_required(self):
         workspace = _workspace()
-        self.assertTrue(workspace.is_blocked(STAGES[2].key))
-        self.assertFalse(workspace.can_run(STAGES[2].key))
+        for key in ("documents", "questions"):
+            self.assertEqual(workspace.state(key).status, READY)
+
+    def test_a_stage_behind_a_required_one_is_locked(self):
+        workspace = _workspace()
+        self.assertTrue(workspace.is_blocked("benchmark"))
+        self.assertFalse(workspace.can_run("benchmark"))
+
+    def test_the_intake_alone_unlocks_the_benchmark(self):
+        """Reading documents is a way to produce an intake, not a precondition for having one."""
+        workspace = _workspace()
+        workspace.complete("intake")
+        self.assertEqual(workspace.state("benchmark").status, READY)
+
+    def test_skipping_an_optional_stage_does_not_strand_the_run(self):
+        workspace = _workspace()
+        for key in ("intake", "benchmark", "text", "materiality", "review"):
+            workspace.complete(key)
+        self.assertEqual(workspace.state("issue").status, READY)
+        self.assertEqual(workspace.state("coverage").status, READY)
 
 
 class TestInvalidation(unittest.TestCase):
@@ -123,6 +138,11 @@ class TestPersistence(unittest.TestCase):
         self.assertEqual(workspace.current_stage().key, STAGES[0].key)
         workspace.complete(STAGES[0].key)
         self.assertEqual(workspace.current_stage().key, STAGES[1].key)
+
+    def test_coverage_is_read_before_the_pack_is_issued(self):
+        """What the owner already covers changes what is worth issuing, so it comes first."""
+        keys = [s.key for s in STAGES]
+        self.assertLess(keys.index("coverage"), keys.index("issue"))
 
     def test_artifacts_outside_the_workspace_do_not_resolve(self):
         workspace = _workspace()

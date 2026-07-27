@@ -32,11 +32,14 @@ from ..core.evidence import FACETS
 from ..core.generation import required_runs
 from ..core.intake import read_intake, write_template
 from ..core.models import MATERIALITY, IntakeData
-from ..ingest import open_questions, record_from_json
+from ..ingest import open_questions, read_owner_library, record_from_json
 from ..ingest.context_document import FACET_HEADINGS
+from ..ingest.groups import (ALL_EXTENSIONS, GROUP_BY_KEY, GROUPS, OWNER_SCENARIOS,
+                             evidence_files, folder_for, files_in, owner_scenario_file)
 from ..io import read_scenarios, write_challenge_pack, write_registry
 from ..llm import MaterialityAssessor, ScenarioReviewer, ScenarioWriter
-from ..pipeline import build_scenarios, ingest_documents, map_coverage, render_questions
+from ..pipeline import (build_scenarios, draft_intake_workbook, ingest_documents, map_coverage,
+                        render_questions)
 from .graphview import graph_summary, render_svg
 from .stages import RUNNING, STAGE_BY_KEY, STAGES, STATUS_LABELS, index_of
 from .workspace import Workspace, stage_view
@@ -44,7 +47,8 @@ from .workspace import Workspace, stage_view
 logger = logging.getLogger(__name__)
 
 WORKSPACE_ROOT = Path.cwd() / "workspaces"
-UPLOAD_EXTENSIONS = {".pdf", ".docx", ".pptx", ".png", ".jpg", ".jpeg", ".md", ".txt", ".xlsx"}
+UPLOAD_EXTENSIONS = set(ALL_EXTENSIONS) | {".xlsx", ".xlsm", ".csv"}
+DRAFT_INTAKE = "drafted_intake.xlsx"
 
 
 # --------------------------------------------------------------------------- stage runners
@@ -103,8 +107,13 @@ def _evidence_record(workspace: Workspace):
 
 
 def _source_files(workspace: Workspace):
-    folder = workspace.root / "sources"
-    return sorted(p for p in folder.glob("*") if p.is_file()) if folder.exists() else []
+    """Every submitted file that describes the agent, across all groups that do.
+
+    The owner's own scenarios are excluded: they describe the owner's testing rather than the
+    agent, and reading them as evidence would let their blind spots into the benchmark by the
+    back door -- which is the thing an independent benchmark exists to avoid.
+    """
+    return [path for paths in evidence_files(workspace.root).values() for path in paths]
 
 
 def _run_documents(workspace: Workspace, progress=None) -> Dict[str, object]:
@@ -149,7 +158,22 @@ def _run_questions(workspace: Workspace) -> Dict[str, object]:
 
 
 def _run_intake(workspace: Workspace) -> Dict[str, object]:
-    """Read the intake workbook and report the shape of what it declares."""
+    """Read the intake workbook and report the shape of what it declares.
+
+    Where no workbook has been provided but the documents have been read, one is drafted from
+    them first. Correcting a draft is an afternoon; writing one from a sixty-page document is a
+    week, and the stage exists so a person does the correcting either way.
+    """
+    if not workspace.artifact_path("intake", "workbook"):
+        context = workspace.root / CONTEXT
+        if not context.exists():
+            raise ValueError(
+                "No intake workbook, and no documents have been read to draft one from. Either "
+                "upload a completed intake here, or add documents on the first stage.")
+        result = draft_intake_workbook(str(context), str(workspace.root / DRAFT_INTAKE))
+        workspace.state("intake").artifacts["workbook"] = DRAFT_INTAKE
+        logger.info("Drafted an intake from the context document.")
+
     intake = _intake(workspace)
     return {"Use case": intake.name, "Capabilities": len(intake.capabilities),
             "Decision points": len(intake.decisions), "States": len(intake.states),
@@ -223,9 +247,12 @@ def _run_issue(workspace: Workspace) -> Dict[str, object]:
 
 def _run_coverage(workspace: Workspace) -> Dict[str, object]:
     """Match the model owner's own scenario library against this benchmark."""
-    owner = workspace.artifact_path("coverage", "owner_scenarios")
+    owner = owner_scenario_file(workspace.root) or workspace.artifact_path(
+        "coverage", "owner_scenarios")
     if not owner:
-        raise ValueError("Upload the model owner's own scenario library first.")
+        raise ValueError(
+            "No scenario library from the model owner. Add one on the documents stage under "
+            "'Their own test scenarios', or skip this stage if they submitted none.")
 
     intake_path = workspace.artifact_path("intake", "workbook")
     result = map_coverage(str(intake_path), str(workspace.root / REGISTRY), str(owner),
@@ -235,7 +262,8 @@ def _run_coverage(workspace: Workspace) -> Dict[str, object]:
     return {"Benchmark scenarios": result.benchmark,
             "Covered by their testing": result.covered,
             "Not covered": result.gaps,
-            "Their scenarios read": result.owner_scenarios}
+            "Their scenarios read": result.owner_scenarios,
+            "Read as": result.how_read}
 
 
 # Every stage that does work has a runner. The two that only take input from the user -- the
@@ -318,7 +346,28 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             questions=_questions_for(workspace) if key == "questions" else [],
             answered=workspace.answered_questions(),
             answers=_answers_for(workspace) if key == "documents" else [],
+            groups=_group_rows(workspace) if key == "documents" else [],
+            produced={n: p for n, p in workspace.state(key).artifacts.items()
+                      if not str(p).startswith("sources/")},
         )
+
+    def _group_rows(workspace: Workspace):
+        """What has been submitted under each heading, so gaps in the pack are visible."""
+        rows = []
+        for group in GROUPS:
+            files = files_in(workspace.root, group.key)
+            row = {"group": group, "files": [f.name for f in files], "note": ""}
+            if group.key == OWNER_SCENARIOS and files:
+                # Say how it was read now rather than at the coverage stage, while there is still
+                # time to send a clearer file.
+                try:
+                    found, how = read_owner_library(files[0])
+                    plural = "" if len(found) == 1 else "s"
+                    row["note"] = f"{len(found)} scenario{plural} found — {how}"
+                except Exception as exc:
+                    row["note"] = f"Could not be read as a scenario list: {exc}"
+            rows.append(row)
+        return rows
 
     def _answers_for(workspace: Workspace):
         """One row per question, so the reader can see coverage at a glance."""
@@ -368,7 +417,11 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         if not uploads:
             return redirect(url_for("stage", key=key))
 
-        target = workspace.root / ("sources" if key == "documents" else ".")
+        group = request.form.get("group", "")
+        if key == "documents" and group in GROUP_BY_KEY:
+            target = folder_for(workspace.root, group)
+        else:
+            target = workspace.root / "."
         target.mkdir(parents=True, exist_ok=True)
 
         stored = []
@@ -387,9 +440,9 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             workspace.state("intake").artifacts["workbook"] = stored[0]
         elif key == "coverage":
             workspace.state("coverage").artifacts["owner_scenarios"] = stored[0]
-        else:
+        elif key == "documents" and group in GROUP_BY_KEY:
             for name in stored:
-                workspace.state("documents").artifacts[name] = f"sources/{name}"
+                workspace.state("documents").artifacts[name] = f"sources/{group}/{name}"
 
         # Uploading is not the same as having read them. The documents stage completes when its
         # runner has actually read the pack, so adding a file leaves the stage ready rather than

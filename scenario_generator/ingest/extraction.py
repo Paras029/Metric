@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence
 
@@ -51,6 +53,12 @@ _DIAGRAM_PROMPT = "ingest.diagram"
 # of source survives truncation ahead of repetition from one place.
 MAX_OBSERVATIONS_PER_FACET = 160
 
+# Documents are read concurrently. Each passage is an independent call that spends almost all of
+# its time waiting on the gateway, so reading four documents at once finishes in roughly the time
+# the longest one takes rather than the sum of all of them. Kept modest: the gateway is shared,
+# and a burst of requests is what provokes the throttling the client then has to back off from.
+MAX_PARALLEL_DOCUMENTS = 4
+
 # A run where most calls failed produces an artifact that looks like evidence and is not. Past
 # this share of failures the run is abandoned rather than written, because a thin context file is
 # indistinguishable from a document that genuinely said little, and the mistake surfaces much
@@ -77,6 +85,7 @@ class DocumentExtractor:
         self._progress = progress or (lambda *args, **kwargs: None)
         self._done = 0
         self._total = 0
+        self._lock = threading.Lock()
         self._synthesise = synthesise
         self._calls = 0
         self._failures = 0
@@ -85,26 +94,19 @@ class DocumentExtractor:
     def run(self, paths: Sequence[Path]) -> EvidenceRecord:
         """Survey every document, then answer every question from what the survey found."""
         record = EvidenceRecord()
+        paths = [Path(p) for p in paths]
         self._total = self._estimate_calls(paths)
 
-        for path in paths:
-            path = Path(path)
-            self._progress(f"Opening {path.name}", self._done, self._total)
+        # Reading one document does not depend on any other, so they go in parallel. Results are
+        # collected in the order the documents were given, not the order they happened to finish,
+        # so observation ids stay stable between runs of the same pack.
+        workers = min(MAX_PARALLEL_DOCUMENTS, max(len(paths), 1))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            results = list(pool.map(self._read_one_document, paths))
 
-            if is_image(path):
-                record.documents.append(self._read_diagram(path, record))
-                continue
-
-            try:
-                reference, segments = read_document(path)
-            except UnreadableDocument as exc:
-                logger.warning("%s could not be read: %s", path.name, exc)
-                record.documents.append(
-                    DocumentRef(name=path.name, kind="unreadable", units=0, note=str(exc)))
-                continue
-
+        for reference, claims in results:
             record.documents.append(reference)
-            record.claims.extend(self._survey_document(reference, segments))
+            record.claims.extend(claims)
 
         _assign_ids(record.claims)
         logger.info("Survey found %d observation(s) across %d document(s); %d were kept.",
@@ -137,8 +139,35 @@ class DocumentExtractor:
         return passages + (len(FACETS) if self._synthesise else 0)
 
     def _step(self, message: str) -> None:
-        self._done += 1
-        self._progress(message, self._done, self._total)
+        """Advance the run by one call and report it.
+
+        The message carries the detail -- which document, which passage -- and the counts carry
+        the whole run. Earlier both tried to carry both, so a document with nineteen passages
+        showed "passage 7 of 19" beside "7/30", the second number silently including the eleven
+        synthesis calls still to come. Two denominators for one bar is a reading puzzle, not
+        progress.
+        """
+        with self._lock:
+            self._done += 1
+            done = self._done
+        self._progress(message, done, self._total)
+
+    def _read_one_document(self, path: Path):
+        """Read one submitted file into (what it was, what it said). Never raises."""
+        self._progress(f"Opening {path.name}", self._done, self._total)
+
+        if is_image(path):
+            claims: List[Claim] = []
+            reference = self._read_diagram(path, claims)
+            return reference, claims
+
+        try:
+            reference, segments = read_document(path)
+        except UnreadableDocument as exc:
+            logger.warning("%s could not be read: %s", path.name, exc)
+            return DocumentRef(name=path.name, kind="unreadable", units=0, note=str(exc)), []
+
+        return reference, self._survey_document(reference, segments)
 
     def _stop_if_mostly_failing(self, phase: str) -> None:
         """Abandon a run that mostly did not happen, rather than writing its remains."""
@@ -201,7 +230,7 @@ class DocumentExtractor:
                                  kind=reference.kind)))
         return found
 
-    def _read_diagram(self, path: Path, record: EvidenceRecord) -> DocumentRef:
+    def _read_diagram(self, path: Path, into: List[Claim]) -> DocumentRef:
         """Describe a submitted diagram with a vision-capable model.
 
         Nothing read from an image can be checked against a span of text, so every observation is
@@ -219,14 +248,16 @@ class DocumentExtractor:
             return DocumentRef(name=path.name, kind="unreadable", note=str(exc))
 
         user = prompt_loader.render(_DIAGRAM_PROMPT, facets=_facet_guide(), document=path.name)
-        self._calls += 1
+        with self._lock:
+            self._calls += 1
         try:
             reply = parse_json_object(self._describe_images(
                 prompt_loader.load(_SYSTEM_PROMPT), user, [(media_type, raw)],
                 max_tokens=config.JUDGEMENT_MAX_TOKENS,
                 reasoning_effort=config.JUDGEMENT_REASONING_EFFORT))
         except Exception as exc:
-            self._failures += 1
+            with self._lock:
+                self._failures += 1
             logger.warning("Could not read the diagram %s: %s", path.name, exc)
             return DocumentRef(
                 name=path.name, kind="unreadable",
@@ -250,15 +281,15 @@ class DocumentExtractor:
         # Run these through the same check as everything else. It has no text to match against
         # and so marks them unverifiable rather than verified, which is the point: a statement
         # read off a picture must reach a person before anything is built on it.
-        record.claims.extend(verify(found, ""))
+        into.extend(verify(found, ""))
         return DocumentRef(name=path.name, kind="diagram", units=1)
 
     # ------------------------------------------------------------------ pass two
     def _answer_all(self, record: EvidenceRecord) -> List[FacetAnswer]:
         answers = []
         for number, facet in enumerate(FACETS, start=1):
-            self._step(f"Answering {FACET_HEADINGS.get(facet, facet)} "
-                       f"({number} of {len(FACETS)})")
+            self._step(f"Answering: {FACET_HEADINGS.get(facet, facet)} "
+                       f"— question {number} of {len(FACETS)}")
             answers.append(self._answer_one(facet, record.by_facet(facet)))
 
         answered = sum(1 for a in answers if a.is_answered)
@@ -320,7 +351,8 @@ class DocumentExtractor:
         exactly, and assembling scattered material into one account all degrade badly when the
         model is hurried."""
         system = prompt_loader.load(_SYSTEM_PROMPT)
-        self._calls += 1
+        with self._lock:
+            self._calls += 1
         try:
             try:
                 return self._complete(system, user,
@@ -329,7 +361,8 @@ class DocumentExtractor:
             except TypeError:                              # a stub completion without the keywords
                 return self._complete(system, user)
         except Exception:
-            self._failures += 1
+            with self._lock:
+                self._failures += 1
             raise
 
 

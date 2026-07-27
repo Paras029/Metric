@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from .stages import (COMPLETE, FAILED, LOCKED, READY, RUNNING, STAGE_BY_KEY, STAGE_KEYS,
-                     STALE, STAGES, Stage, downstream_of, index_of, predecessor)
+                     STALE, STAGES, Stage, downstream_of, index_of, required_before)
 
 STATE_FILE = "workspace.json"
 _SAFE_NAME = re.compile(r"[^a-z0-9]+")
@@ -169,16 +169,20 @@ class Workspace:
         """Recompute which stages are reachable.
 
         Only locked and ready are derived; anything that has actually run keeps the status it
-        earned. A stage is ready when the stage before it has produced something -- complete or
-        out of date both count, since an out-of-date input is still an input, and refusing to let
-        the user proceed on one would strand the workspace rather than protect it.
+        earned. A stage is ready once every *required* stage before it has produced something.
+        Complete and out of date both count, since an out-of-date input is still an input and
+        refusing to proceed on one would strand the workspace rather than protect it.
+
+        Optional stages do not gate anything. That is what lets a team that already has a
+        completed intake workbook open the intake stage on a fresh workspace and work forward
+        from there, without pretending to read documents they were never sent.
         """
         for stage in STAGES:
             current = self.stages[stage.key]
             if current.status in (COMPLETE, STALE, RUNNING, FAILED):
                 continue
-            previous = predecessor(stage.key)
-            satisfied = previous is None or self.stages[previous.key].status in (COMPLETE, STALE)
+            satisfied = all(self.stages[earlier.key].status in (COMPLETE, STALE)
+                            for earlier in required_before(stage.key))
             current.status = READY if satisfied else LOCKED
 
     def mark_running(self, key: str) -> None:

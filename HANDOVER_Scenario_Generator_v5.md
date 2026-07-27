@@ -1,6 +1,6 @@
 # Handover — Agentic Scenario Generator v5
 
-**Status:** 153/153 tests passing. All eleven commands verified end to end with `--no-llm`.
+**Status:** 168/168 tests passing. All eleven commands verified end to end with `--no-llm`.
 Document ingestion (stage 0) and the local web interface are built; see §10 for what
 remains.
 **Supersedes:** all earlier handover documents. The code is the source of truth; this is
@@ -526,6 +526,45 @@ that the app builds and every expected route is registered with the expected met
 reasoning applies to any other convenience added in a newer version of a dependency: if the
 target environment cannot choose its versions, the tests have to encode the older interface
 rather than trust the local one.
+
+### 10.19 Changes from the second round of real use
+
+**Submitted material is grouped by kind** (`ingest/groups.py`): model documentation, their own
+test scenarios, workflow diagrams, supporting material. Each is read the right way and sent to the
+stage that needs it. The owner's scenarios are deliberately *excluded* from evidence extraction —
+they describe the owner's testing rather than the agent, and reading them as evidence would let
+their blind spots into the benchmark through the back door.
+
+**Documents are read in parallel** (`MAX_PARALLEL_DOCUMENTS = 4`). Each passage is an independent
+call that spends almost all its time waiting, so four documents finish in roughly the time the
+longest takes. Kept modest because a burst is what provokes the throttling the client then has to
+back off from. Results are collected in submission order so observation ids stay stable.
+
+**Progress showed two denominators.** A nineteen-passage document displayed "passage 7 of 19"
+beside "7/30", the second silently including the eleven synthesis calls still to come. The
+message now carries the detail and the bar carries the run; the figure beside it is a percentage.
+
+**The intake is drafted rather than left blank** (`ingest/drafting.py`, `intake.draft` prompt).
+The prompt is explicitly instructed to commit: fill what the evidence supports, complete partial
+fields as far as it allows and flag them, and leave a field empty only where the evidence says
+nothing. A draft that declines everything uncertain is a blank form with extra steps. Confidence
+per section and specific review points are written into a **Review This** sheet in the workbook.
+Values outside the intake's vocabulary — a capability type, an outcome type — are dropped rather
+than kept, since an invented one silently changes which probes apply.
+
+**Stage order and gating.** Coverage now runs *before* Issue: what the owner already covers is
+what lets the issued pack concentrate on what they have not. Stages carry `optional`, and
+`required_before()` excludes them from gating, so a team holding a completed intake opens the
+intake stage on a fresh workspace and works forward without pretending to read documents they
+were never sent.
+
+**The owner's scenario library is read from whatever shape it arrived in**
+(`ingest/owner_library.py`): workbooks with a cover sheet and a title row, unfamiliar headings,
+semicolon CSVs, Word tables, numbered lists in a PDF. It finds the sheet that looks like a
+scenario list and the column that holds the description, falling back to the widest column. How
+it was read is reported at upload time, while there is still time to send a clearer file.
+Refusing all but one layout would have put the coverage measurement out of reach of most
+submissions, which is the same as not having it.
 
 ### 10.2 The interface
 
