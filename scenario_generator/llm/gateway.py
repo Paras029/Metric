@@ -1,160 +1,143 @@
-"""Authenticated calls to the LLM gateway using a standard chat-completions request body.
+"""Model calls, built as LangChain chains and run through SafeChain.
 
-One public function: ask_llm(system_prompt, user_message) -> str. The bearer token is minted on
-demand and cached until shortly before it expires.
+SafeChain owns authentication, token refresh and the request body each model expects, and hands
+back a LangChain chat model. That removes the three things that used to fail mid-run and had to
+be handled here: a token expiring in the middle of a long ingestion, a gateway rejecting a payload
+shaped for a different provider, and a 401 that meant "stale" rather than "wrong". None of that is
+this module's business any more, and the code for it is gone rather than kept as a fallback --
+two paths to the same call is how they drift apart.
 
-Two things here exist because of how long a run can be. Ingesting a sixty-page document is
-hundreds of calls over many minutes, which is long enough to outlive a token and long enough to
-be throttled, and both failures arrive mid-run rather than at the start:
+What is left is small: turn a system prompt and a user message into a chain, and invoke it.
 
-- The cached token's lifetime comes from what the gateway said, not from an assumption. A 401 is
-  also treated as a stale token and retried once against a freshly minted one, because a token
-  can be revoked or shortened server-side regardless of what it claimed on issue.
-- Connection resets and 5xx replies are retried with backoff. A gateway closing the connection
-  under load is not the same as a request being wrong, and giving up on the first one loses a
-  passage that would have succeeded a second later.
+    prompt | model  ->  invoke  ->  text
+
+**Prompts are passed as messages rather than as templates, deliberately.** LangChain's tuple form
+-- ``("system", text)`` -- runs the text through an f-string parser, and every prompt in this
+package ends with a JSON output specification. ``{"resolved": [{"question": "..."}]}`` is not a
+template variable, and handing it to that parser raises before a single call is made. Substitution
+happens in :mod:`scenario_generator.llm.prompt_loader`, which uses a doubled-brace form precisely
+so that literal braces survive, and what arrives here is finished text.
 """
+from __future__ import annotations
+
 import base64
-import hashlib
-import hmac
-import json
 import logging
 import threading
-import time
-
-import requests
-import urllib3
+from typing import Any, Dict, List, Optional, Tuple
 
 from . import config
+from .calling import accepts
 
 logger = logging.getLogger(__name__)
 
-urllib3.disable_warnings()
+# Transient failures are the gateway being busy rather than the request being wrong, so they are
+# retried with backoff. Anything the model rejects on its merits is raised: repeating a malformed
+# request only wastes the time it takes to fail again.
+MAX_ATTEMPTS = 4
 
-_token = {"value": None, "expires_at": 0.0}
-_token_lock = threading.Lock()
-
-# Used only when the gateway does not say how long the token is good for.
-_TOKEN_TTL = 3600
-_REFRESH_BUFFER = 300
-
-# Retries apply to failures that are about the connection or the gateway's load, never to a
-# request the gateway rejected on its merits -- repeating a malformed request just wastes time.
-_MAX_ATTEMPTS = 4
-_BACKOFF_SECONDS = 2.0
-_RETRYABLE_STATUS = (429, 500, 502, 503, 504)
+_models: Dict[Tuple, Any] = {}
+_lock = threading.Lock()
 
 
-def _mint_token() -> str:
-    """Sign an IDaaS request and exchange it for a bearer token."""
-    if not config.IDAAS_APP_ID or not config.IDAAS_KEY:
-        raise ValueError("IDAAS_APP_ID and IDAAS_KEY must be set in the environment.")
-
-    secret = base64.b64decode(config.IDAAS_KEY.strip() + "=")
-    timestamp = str(int(time.time() * 1000))
-    message = f"{config.IDAAS_APP_ID.strip()}-2-{timestamp}"
-    mac = hmac.new(secret, message.encode("utf-8"), hashlib.sha256).digest()
-    signature = base64.urlsafe_b64encode(mac).decode("utf-8").rstrip("=")
-
-    headers = {
-        "Content-Type": "application/json",
-        "X-Auth-AppID": config.IDAAS_APP_ID.strip(),
-        "X-Auth-Signature": signature,
-        "X-Auth-Version": "2",
-        "X-Auth-Timestamp": timestamp,
-        "Accept": "application/json",
-    }
-    response = requests.post(config.IDAAS_URL, headers=headers,
-                             data=json.dumps({"scope": [config.LLM_SCOPE]}), verify=False)
-    if response.status_code != 200:
-        raise RuntimeError(f"IDaaS token request failed: {response.status_code} - {response.text}")
-
-    body = response.json()
-    # Prefer the lifetime the gateway states. Assuming an hour when the real token lives for
-    # fifteen minutes means every call after the fifteenth minute fails with a 401 and the cache
-    # never refreshes, which is a silent, mid-run death.
-    lifetime = _TOKEN_TTL
-    for field in ("expires_in", "expiresIn", "expires_in_seconds"):
-        try:
-            stated = int(body[field])
-        except (KeyError, TypeError, ValueError):
-            continue
-        if stated > 0:
-            lifetime = stated
-            break
-    return body["authorization_token"], lifetime
+class ModelUnavailable(RuntimeError):
+    """SafeChain could not be loaded or could not build the requested model."""
 
 
-def get_token(force_refresh: bool = False) -> str:
-    """Return a cached bearer token, minting a new one when it is stale or on demand."""
-    with _token_lock:
-        now = time.time()
-        if force_refresh or _token["value"] is None or now >= _token["expires_at"]:
-            value, lifetime = _mint_token()
-            _token["value"] = value
-            _token["expires_at"] = now + max(lifetime - _REFRESH_BUFFER, 60)
-        return _token["value"]
+def _load_safechain():
+    """Import SafeChain, with the environment prepared first.
 
-
-def ask_llm(system_prompt: str, user_message: str,
-            temperature: float = None, max_tokens: int = None,
-            reasoning_effort: str = None, tier: "config.Tier" = None,
-            model: str = None) -> str:
-    """Send one system + user prompt to the gateway and return the reply text.
-
-    Pass a ``tier`` to take its model, output cap and reasoning effort together -- that is how a
-    pass says what kind of work it is doing rather than restating three numbers. The individual
-    arguments still override it, one call at a time.
+    Imported here rather than at module load so that the command line, the tests and the interface
+    all start without it. Only a pass that actually calls a model needs it, which keeps a missing
+    or unapproved package from taking down the whole tool.
     """
-    if tier is not None:
-        model = model or tier.model
-        max_tokens = tier.max_tokens if max_tokens is None else max_tokens
-        reasoning_effort = reasoning_effort or tier.reasoning_effort
-    payload = {
-        "model": model or config.LLM_MODEL_ID,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message},
-        ],
+    config.prepare_environment()
+    missing = config.missing_credentials()
+    if missing:
+        raise ModelUnavailable(
+            f"{' and '.join(missing)} not set. SafeChain reads these from the environment; put "
+            f"them in .env beside the config.yml that names your models.")
+
+    try:
+        from safechain.core_model import model
+    except ImportError as exc:                             # pragma: no cover - environment issue
+        raise ModelUnavailable(
+            f"SafeChain could not be imported ({exc}). Install it from the internal index and "
+            f"check the interpreter is Python 3.12.") from exc
+    return model
+
+
+def _generation_parameters(tier: Optional["config.Tier"], temperature: Optional[float],
+                           max_tokens: Optional[int],
+                           reasoning_effort: Optional[str]) -> Dict[str, Any]:
+    """What the model should be built with. Set at construction, not per call."""
+    parameters: Dict[str, Any] = {
         "temperature": config.DEFAULT_TEMPERATURE if temperature is None else temperature,
-        "max_tokens": config.DEFAULT_MAX_TOKENS if max_tokens is None else max_tokens,
-        "top_p": 0.5,
+        "max_tokens": (max_tokens if max_tokens is not None
+                       else tier.max_tokens if tier else config.DEFAULT_MAX_TOKENS),
     }
-    effort = reasoning_effort or config.REASONING_EFFORT
+    effort = reasoning_effort or (tier.reasoning_effort if tier else config.REASONING_EFFORT)
     if effort:
-        payload["reasoning_effort"] = effort
-
-    response = _post_with_retry(payload)
-    choice = response.json()["choices"][0]
-    if choice.get("finish_reason") == "length":
-        logging.getLogger(__name__).warning(
-            "Reply hit the %d-token limit and was truncated. Lower the batch size first; if that "
-            "does not resolve it, raise LLM_MAX_TOKENS / LLM_JUDGEMENT_MAX_TOKENS.",
-            payload["max_tokens"])
-    return choice["message"]["content"]
+        parameters["reasoning_effort"] = effort
+    return parameters
 
 
-def ask_llm_with_images(system_prompt: str, user_message: str, images: list,
-                        temperature: float = None, max_tokens: int = None,
-                        reasoning_effort: str = None, tier: "config.Tier" = None,
-                        model: str = None) -> str:
-    """Send a prompt with images attached, as content parts on the user message.
+def _construct(build, model_id: str, parameters: Dict[str, Any]):
+    """Ask SafeChain for a model, however this version of it takes its parameters.
 
-    ``images`` is a list of (media_type, raw_bytes). They are inlined as base64 data URIs, which
-    is what a chat-completions gateway accepts without a separate upload step.
-
-    Raises if vision is switched off, so a caller that reaches here has already decided images are
-    worth sending; silently dropping them would produce an answer about nothing.
+    The generation parameters go in at construction rather than at call time. Which argument
+    carries them has varied between SafeChain releases, so the signature is asked rather than
+    assumed, and ``bind`` -- LangChain's own way of fixing call arguments on a runnable -- is the
+    last resort. Guessing wrong here would be silent: the model would build, run, and quietly
+    ignore the token cap.
     """
-    if not config.LLM_VISION:
-        raise RuntimeError("Vision is disabled (LLM_VISION=off), so images cannot be sent.")
+    if accepts(build, "model_kwargs"):
+        return build(model_id, model_kwargs=parameters)
+    for name in ("parameters", "params", "generation_config", "config"):
+        if accepts(build, name):
+            return build(model_id, **{name: parameters})
 
-    if tier is not None:
-        model = model or tier.model
-        max_tokens = tier.max_tokens if max_tokens is None else max_tokens
-        reasoning_effort = reasoning_effort or tier.reasoning_effort
+    built = build(model_id)
+    if hasattr(built, "bind"):
+        return built.bind(**parameters)
 
-    parts = [{"type": "text", "text": user_message}]
+    logger.warning("SafeChain's model() took no generation parameters, so %s is running on its "
+                   "configured defaults rather than this tier's.", model_id)
+    return built
+
+
+def chat_model(tier: Optional["config.Tier"] = None, model: Optional[str] = None,
+               temperature: Optional[float] = None, max_tokens: Optional[int] = None,
+               reasoning_effort: Optional[str] = None):
+    """A LangChain chat model for this tier, built once and reused.
+
+    Construction reads a config file and sets up credentials, so doing it per call would repeat
+    that work on every batch of every pass. The cache is keyed on everything that can change the
+    model, so an override still gets its own.
+    """
+    model_id = model or (tier.model if tier else config.LLM_MODEL_ID)
+    parameters = _generation_parameters(tier, temperature, max_tokens, reasoning_effort)
+    key = (model_id,) + tuple(sorted(parameters.items()))
+
+    with _lock:
+        if key not in _models:
+            build = _load_safechain()
+            try:
+                built = _construct(build, model_id, parameters)
+            except ModelUnavailable:
+                raise
+            except Exception as exc:
+                raise ModelUnavailable(
+                    f"SafeChain could not build '{model_id}' ({exc}). The name has to match one "
+                    f"declared in the config.yml at CONFIG_PATH.") from exc
+            _models[key] = built.with_retry(stop_after_attempt=MAX_ATTEMPTS,
+                                            wait_exponential_jitter=True) \
+                if hasattr(built, "with_retry") else built
+        return _models[key]
+
+
+def _image_parts(images: List[Tuple[str, bytes]]) -> List[dict]:
+    """Images as content parts, inlined as data URIs so no separate upload step is needed."""
+    parts = []
     for media_type, raw in images:
         if len(raw) > config.MAX_IMAGE_BYTES:
             raise ValueError(
@@ -163,65 +146,80 @@ def ask_llm_with_images(system_prompt: str, user_message: str, images: list,
         encoded = base64.b64encode(raw).decode("ascii")
         parts.append({"type": "image_url",
                       "image_url": {"url": f"data:{media_type};base64,{encoded}"}})
-
-    payload = {
-        "model": model or config.LLM_MODEL_ID,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": parts},
-        ],
-        "temperature": config.DEFAULT_TEMPERATURE if temperature is None else temperature,
-        "max_tokens": config.DEFAULT_MAX_TOKENS if max_tokens is None else max_tokens,
-    }
-    effort = reasoning_effort or config.REASONING_EFFORT
-    if effort:
-        payload["reasoning_effort"] = effort
-
-    return _post_with_retry(payload).json()["choices"][0]["message"]["content"]
+    return parts
 
 
-def _headers(force_refresh: bool = False) -> dict:
-    return {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {get_token(force_refresh)}",
-        "Accept": "application/json",
-        "cache-control": "no-cache",
-    }
+def build_prompt(system_prompt: str, user_message: str,
+                 images: Optional[List[Tuple[str, bytes]]] = None):
+    """The two messages as a LangChain prompt, with no template variables.
 
-
-def _post_with_retry(payload: dict) -> requests.Response:
-    """Send the request, re-minting the token on a 401 and backing off on transport failures.
-
-    A 401 partway through a run almost always means the token expired or was revoked rather than
-    that the credentials are wrong, so the first one triggers a fresh token and one more attempt.
-    A second 401 against a newly minted token is a real authentication problem and is raised.
+    See the module docstring: the text arriving here is already substituted, and passing it as
+    messages rather than as ``("system", text)`` tuples is what stops LangChain reading the JSON
+    examples in it as placeholders.
     """
-    last_error = None
-    refreshed = False
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from langchain_core.prompts import ChatPromptTemplate
 
-    for attempt in range(1, _MAX_ATTEMPTS + 1):
-        try:
-            response = requests.post(config.LLM_ENDPOINT, headers=_headers(refreshed),
-                                     data=json.dumps(payload), verify=False)
-        except requests.RequestException as exc:
-            last_error = f"connection failed: {exc}"
-        else:
-            if response.status_code == 200:
-                return response
+    content: Any = user_message
+    if images:
+        content = [{"type": "text", "text": user_message}] + _image_parts(images)
 
-            if response.status_code == 401 and not refreshed:
-                logger.info("Gateway returned 401; the token has gone stale. Re-authenticating.")
-                refreshed = True
-                continue
+    return ChatPromptTemplate.from_messages([
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=content),
+    ])
 
-            last_error = f"LLM call failed: {response.status_code} - {response.text}"
-            if response.status_code not in _RETRYABLE_STATUS:
-                raise RuntimeError(last_error)
 
-        if attempt < _MAX_ATTEMPTS:
-            delay = _BACKOFF_SECONDS * (2 ** (attempt - 1))
-            logger.info("%s — retrying in %.0fs (attempt %d of %d).",
-                        last_error, delay, attempt + 1, _MAX_ATTEMPTS)
-            time.sleep(delay)
+def _text(reply: Any) -> str:
+    """The reply as a string, whichever shape the model returned it in.
 
-    raise RuntimeError(f"{last_error} (gave up after {_MAX_ATTEMPTS} attempts)")
+    A chat model returns a message; some return content as a list of parts. Both are unwrapped
+    here so no caller has to know which it got.
+    """
+    content = getattr(reply, "content", reply)
+    if isinstance(content, list):
+        return "".join(part.get("text", "") if isinstance(part, dict) else str(part)
+                       for part in content)
+    return content if isinstance(content, str) else str(content)
+
+
+def ask_llm(system_prompt: str, user_message: str,
+            temperature: float = None, max_tokens: int = None,
+            reasoning_effort: str = None, tier: "config.Tier" = None,
+            model: str = None) -> str:
+    """Send one system + user prompt and return the reply text.
+
+    Pass a ``tier`` to take its model, output cap and reasoning effort together -- that is how a
+    pass says what kind of work it is doing rather than restating three numbers. The individual
+    arguments still override it, one call at a time.
+    """
+    chain = build_prompt(system_prompt, user_message) | chat_model(
+        tier=tier, model=model, temperature=temperature, max_tokens=max_tokens,
+        reasoning_effort=reasoning_effort)
+    return _text(chain.invoke({}))
+
+
+def ask_llm_with_images(system_prompt: str, user_message: str, images: list,
+                        temperature: float = None, max_tokens: int = None,
+                        reasoning_effort: str = None, tier: "config.Tier" = None,
+                        model: str = None) -> str:
+    """Send a prompt with images attached, as content parts on the user message.
+
+    ``images`` is a list of (media_type, raw_bytes).
+
+    Raises if vision is switched off, so a caller that reaches here has already decided images are
+    worth sending; silently dropping them would produce an answer about nothing.
+    """
+    if not config.LLM_VISION:
+        raise RuntimeError("Vision is disabled (LLM_VISION=off), so images cannot be sent.")
+
+    chain = build_prompt(system_prompt, user_message, images) | chat_model(
+        tier=tier, model=model, temperature=temperature, max_tokens=max_tokens,
+        reasoning_effort=reasoning_effort)
+    return _text(chain.invoke({}))
+
+
+def reset_models() -> None:
+    """Drop the built models, so a configuration change takes effect without a restart."""
+    with _lock:
+        _models.clear()

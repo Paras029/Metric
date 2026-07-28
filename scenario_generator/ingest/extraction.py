@@ -464,7 +464,8 @@ class DocumentExtractor:
             raise IngestionFailed(
                 f"{self._failures} of {self._calls} model calls failed during {phase}. The output "
                 f"would not be a usable reading of these documents, so nothing was written. "
-                f"Check the gateway credentials and try again.")
+                f"Check that SafeChain can reach the model named in your config.yml, and run it "
+                f"again.")
 
 
 def _facet_guide() -> str:

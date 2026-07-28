@@ -20,7 +20,8 @@ from typing import Dict, List, Tuple
 CANDIDATES: Dict[str, List[Tuple[str, str]]] = {
     "In use today": [
         ("openpyxl", "reading and writing every workbook"),
-        ("requests", "the LLM gateway client"),
+        ("safechain", "model calls, authentication and token refresh"),
+        ("langchain_core", "building each call as a prompt piped into a model"),
         ("python-dotenv", "loading .env"),
         ("PyYAML", "the probe library"),
     ],

@@ -1,4 +1,5 @@
-"""Full pipeline against a live gateway. Requires a completed .env (see .env.example).
+"""Full pipeline against a live model. Requires a completed .env and a config.yml
+(see .env.example).
 
     python examples/build_claims_intake.py claims_intake.xlsx
     python examples/llm_demo.py

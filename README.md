@@ -28,7 +28,7 @@ The challenge pack contains no expected outcomes. That separation is the point o
 
 ## Installing
 
-Python 3.9 or later. There is no build step and nothing to add to your path.
+**Python 3.12.** SafeChain requires it. There is no build step and nothing to add to your path.
 
 **Windows**
 
@@ -56,13 +56,25 @@ Substitute `py` or `python3` for `python` in every command below, to match your 
 
 ### Connecting a model
 
-Copy `.env.example` to `.env` and fill in your gateway details. Six stages call a language model;
-the rest are deterministic and run without one.
+Calls go through **SafeChain**, which owns authentication, token refresh and the request body each
+model expects, and hands back a LangChain chat model. Nothing in this package talks HTTP to a
+model or holds a token.
 
-```
-IDAAS_APP_ID / IDAAS_KEY / IDAAS_URL     Gateway authentication.
-LLM_ENDPOINT / LLM_MODEL_ID / LLM_SCOPE  Chat-completions endpoint and model.
-```
+You need two things beside the code:
+
+1. **`.env`** — copy `.env.example` and fill in your credentials.
+
+   ```
+   CIBIS_CONSUMER_SECRET            From the portal. Paste it exactly as given; the
+                                    base64 padding it arrives without is restored for you.
+   CIBIS_CONSUMER_INTEGRATION_ID    Your application id.
+   CONFIG_PATH                      Path to the YAML below. Defaults to config.yml.
+   LLM_MODEL_ID                     Which model to use, named as your config.yml names it.
+   ```
+
+2. **`config.yml`** — declares the models available and the request body each one expects. Most
+   teams share a template; ask on the SafeChain channel if you do not have one. `LLM_MODEL_ID` and
+   the per-tier model variables must name models this file declares.
 
 To check the connection:
 
@@ -70,8 +82,12 @@ To check the connection:
 python -c "from scenario_generator.llm.gateway import ask_llm; print(ask_llm('You are terse.', 'Say OK.'))"
 ```
 
-Every model-using stage also accepts `--no-llm`, which substitutes placeholder text. Useful for
-checking an intake before spending any calls.
+A missing credential or a model name your `config.yml` does not declare is reported before any
+work starts, naming what is wrong.
+
+Six stages call a model; the rest are deterministic and run without one. Every model-using stage
+also accepts `--no-llm`, which substitutes placeholder text — useful for checking an intake before
+spending any calls.
 
 ---
 
@@ -312,7 +328,7 @@ LLM_MAX_CORPUS_CHARS            Default 2000000 (~500k tokens).
 LLM_INGEST_RESOLVE_PASSES       Default 2. How many times an open question is put
                                 back to the documents before it is put to a person.
 LLM_MAX_OPEN_QUESTIONS          Default 6. How many questions are shown at once.
-LLM_VISION                      "off" where the gateway rejects images.
+LLM_VISION                      "off" where the model does not accept images.
 LLM_MAX_IMAGE_BYTES             Default 4000000.
 ```
 
@@ -333,7 +349,11 @@ branch can be enumerated. An unstated threshold does not: knowing that escalatio
 enough to test escalation. Everything else is recorded in the context document without being put
 to anybody. Set it to 0 to skip the sweep, which is faster and asks considerably more.
 
-**If you see truncation warnings**, reduce the batch size first. Raise the cap only if that does
+Every tier's model name has to be one your `config.yml` declares. Pointing the fast tier at a
+smaller model is the first saving worth making: that pass is classification against a closed list,
+and anything outside the list is discarded by validation regardless.
+
+**If a reply comes back truncated**, reduce the batch size first. Raise the cap only if that does
 not resolve it.
 
 ---
@@ -395,7 +415,7 @@ scenario_generator/
                 proposals, coverage matching, evidence, grounding.
     ingest/     Document readers, extraction, context assembly, intake
                 drafting, owner scenario library parsing.
-    llm/        Gateway client, prompt loader, and the passes.
+    llm/        SafeChain wiring, prompt loader, and the passes.
     prompts/    The prompt library, one file per prompt.
     io/         Workbook reading and writing.
     webapp/     The local interface.

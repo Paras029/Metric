@@ -1,6 +1,16 @@
+# Python 3.12. SafeChain requires it, and the pipeline is run on it.
+#
+# Install from the internal index:
+#     pip install -r requirements.txt
+
+# Model calls. SafeChain owns authentication, token refresh and the request body each model
+# expects, and returns a LangChain chat model. langchain-core comes with it and is listed because
+# this package imports it directly to build prompts; nothing here talks HTTP to a model.
+safechain
+langchain-core
+
 # Core pipeline.
 openpyxl
-requests
 python-dotenv
 pyyaml
 

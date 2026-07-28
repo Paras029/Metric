@@ -1,4 +1,10 @@
-"""LLM gateway configuration. Everything sensitive comes from the environment (.env).
+"""Model configuration. Everything sensitive comes from the environment (.env).
+
+Calls go through SafeChain, which owns authentication, token refresh and the request shape each
+model expects. Nothing here mints a token or builds a payload: SafeChain reads its credentials
+from the environment and the per-model payload structures from the YAML at ``CONFIG_PATH``, and
+hands back a LangChain chat model. What is left for this file is which model each kind of work
+should use and how much room to give it.
 
 Calls are grouped into three tiers, and each tier picks its own model, output cap and reasoning
 effort. The tiers exist because the work is genuinely different, not to save money for its own
@@ -16,15 +22,49 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# IDaaS auth
-IDAAS_APP_ID = os.getenv("IDAAS_APP_ID", "")
-IDAAS_KEY = os.getenv("IDAAS_KEY", "")
-IDAAS_URL = os.getenv("IDAAS_URL", "")
+# --------------------------------------------------------------------------- SafeChain
+#
+# Three variables and a YAML file, all read by SafeChain itself rather than by anything here.
+CONSUMER_SECRET = "CIBIS_CONSUMER_SECRET"
+CONSUMER_INTEGRATION_ID = "CIBIS_CONSUMER_INTEGRATION_ID"
+CONFIG_PATH = "CONFIG_PATH"
 
-# The chat-completions model reached through the gateway.
-LLM_ENDPOINT = os.getenv("LLM_ENDPOINT", "")
-LLM_MODEL_ID = os.getenv("LLM_MODEL_ID", "google/gemini-2.5-pro")
-LLM_SCOPE = os.getenv("LLM_SCOPE", "/genai/google/v1/models/gemini-2.5-pro/**::post")
+DEFAULT_CONFIG_PATH = "config.yml"
+
+
+def _pad_base64(secret: str) -> str:
+    """Restore the padding a base64 secret needs to decode.
+
+    The portal issues the consumer secret with its trailing ``=`` stripped, and the decoder will
+    not accept it in that state. Padding it back out to a multiple of four is the whole fix, and
+    doing it here means nobody has to remember to paste the padding in by hand -- a mistake that
+    surfaces as an authentication failure with nothing to suggest the cause.
+    """
+    secret = (secret or "").strip()
+    return secret + "=" * (-len(secret) % 4) if secret else ""
+
+
+def prepare_environment() -> None:
+    """Put the credentials where SafeChain expects to find them.
+
+    Called before SafeChain is imported. It reads these straight out of the process environment,
+    so the padding fix has to land there rather than being passed as an argument.
+    """
+    secret = _pad_base64(os.getenv(CONSUMER_SECRET, ""))
+    if secret:
+        os.environ[CONSUMER_SECRET] = secret
+    os.environ.setdefault(CONFIG_PATH, DEFAULT_CONFIG_PATH)
+
+
+def missing_credentials() -> list:
+    """Which required variables are unset, so a run can say so before it starts calling."""
+    return [name for name in (CONSUMER_SECRET, CONSUMER_INTEGRATION_ID)
+            if not os.getenv(name, "").strip()]
+
+
+# The model each tier asks SafeChain for. These are the names SafeChain knows, which are the keys
+# in the config.yml the team shares -- not a provider's own path-style identifier.
+LLM_MODEL_ID = os.getenv("LLM_MODEL_ID", "gemini-2.5-pro")
 
 # Whether the configured model accepts images alongside text. Set LLM_VISION=off where the
 # gateway rejects the multimodal request shape -- diagram reading then degrades to asking a
