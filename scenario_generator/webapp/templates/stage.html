@@ -1,8 +1,27 @@
 {% extends "base.html" %}
 {% set stage = view.stage %}
 {% set state = view.state %}
-{% set uploads = {'documents': 'documents', 'intake': 'workbook', 'coverage': 'owner'} %}
 {% block title %}{{ stage.title }} — {{ workspace.name }}{% endblock %}
+
+{# One line-art glyph per kind of submitted material. Inline because a build step and a webfont
+   are both more machinery than four icons are worth. #}
+{% macro icon(name) %}
+<svg class="drop__glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  {%- if name == 'document' -%}
+    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>
+    <path d="M9 13h6"/><path d="M9 17h4"/>
+  {%- elif name == 'checklist' -%}
+    <path d="M9 5h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2z"/>
+    <path d="M9 3h6v4H9z"/><path d="M8.5 12.5l1.5 1.5 3-3"/><path d="M8.5 17.5l1.5 1.5 3-3"/>
+  {%- elif name == 'diagram' -%}
+    <rect x="9" y="2.5" width="6" height="4.5" rx="1"/><rect x="2.5" y="16" width="6.5" height="5" rx="1"/>
+    <rect x="15" y="16" width="6.5" height="5" rx="1"/><path d="M12 7v4"/><path d="M5.75 16v-2.5h12.5V16"/>
+  {%- else -%}
+    <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4L11 8.5h8.5A1.5 1.5 0 0 1 21 10v7.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/>
+  {%- endif -%}
+</svg>
+{% endmacro %}
 
 {% block body %}
 <div class="shell">
@@ -171,6 +190,127 @@
       </section>
     {% endif %}
 
+    {% if benchmark %}
+      <section class="panel panel--benchmark">
+        <h2 class="panel__title">The benchmark so far</h2>
+        <p class="panel__body">
+          What each scenario asks the agent to do, and what it is judged to be worth. Routes,
+          expected outcomes and per-turn detail are in the registry workbook — this is the reading,
+          and that is the record.
+        </p>
+
+        <div class="switch" role="group" aria-label="Which scenarios to show">
+          {% for key, label in benchmark.views %}
+            <a class="switch__option {% if benchmark.view == key %}switch__option--on{% endif %}"
+               href="{{ url_for('stage', key=stage.key, view=key) }}">{{ label }}</a>
+          {% endfor %}
+          <span class="switch__count">
+            Showing <span class="mono">{{ benchmark.shown }}</span> of
+            <span class="mono">{{ benchmark.total }}</span>
+            {%- if benchmark.selected > benchmark.shown %}
+              — <span class="mono">{{ benchmark.selected - benchmark.shown }}</span> more in the
+              workbook
+            {%- endif %}
+          </span>
+        </div>
+
+        <ul class="cards">
+          {% for row in benchmark.rows %}
+            <li class="card" id="{{ row.id }}">
+              <details class="card__body">
+                <summary class="card__head">
+                  <span class="card__id mono">{{ row.id }}</span>
+                  <span class="card__title">{{ row.title }}</span>
+                  <span class="card__marks">
+                    {% if row.flag %}
+                      <span class="mark mark--flag">{{ row.flag }}</span>
+                    {% endif %}
+                    {% if row.is_proposed %}<span class="mark mark--new">Proposed</span>{% endif %}
+                    {% if row.coverage %}
+                      <span class="mark mark--covered">{{ row.coverage }}</span>
+                    {% endif %}
+                    <span class="mark mark--tier mark--tier-{{ row.materiality | lower }}">
+                      {{ row.materiality }}
+                    </span>
+                  </span>
+                </summary>
+
+                <div class="card__detail">
+                  <p class="card__text">{{ row.description or 'Not yet written.' }}</p>
+
+                  {% if row.turn_plan %}
+                    <p class="card__label">What the tester does</p>
+                    <p class="card__text card__text--plan">{{ row.turn_plan }}</p>
+                  {% endif %}
+
+                  <p class="card__facts">
+                    <span>{{ row.origin }}</span>
+                    <span>{{ row.persona }}</span>
+                    <span>{{ row.turns }} turn{{ '' if row.turns == 1 else 's' }}</span>
+                    {% if row.category %}<span>{{ row.category }}</span>{% endif %}
+                    <span>{{ row.runs }} run{{ '' if row.runs == 1 else 's' }} requested</span>
+                  </p>
+
+                  {% if row.materiality_reason %}
+                    <p class="card__why">
+                      <strong>{{ row.materiality }}</strong>, from {{ row.materiality_source }} —
+                      {{ row.materiality_reason }}
+                    </p>
+                  {% elif row.overridden %}
+                    <p class="card__why"><strong>{{ row.materiality }}</strong> — your override.</p>
+                  {% endif %}
+                  {% if row.flag_reason %}
+                    <p class="card__why card__why--flag">
+                      <strong>{{ row.flag }}</strong> — {{ row.flag_reason }}
+                    </p>
+                  {% endif %}
+                  {% if row.proposal_reason %}
+                    <p class="card__why">
+                      <strong>Proposed</strong> — {{ row.proposal_reason }}
+                    </p>
+                  {% endif %}
+                  {% if row.coverage_note %}
+                    <p class="card__why">
+                      <strong>{{ row.coverage }}</strong> by their own testing
+                      ({{ row.coverage_note }}). Left in the pack — whether to run it again is
+                      yours to decide.
+                    </p>
+                  {% endif %}
+
+                  <form class="card__rule" method="post"
+                        action="{{ url_for('rule_on_scenario', key=stage.key, scenario_id=row.id) }}">
+                    <input type="hidden" name="view" value="{{ benchmark.view }}">
+                    <label class="card__rule-label" for="tier-{{ row.id }}">Set materiality</label>
+                    <select class="card__select" id="tier-{{ row.id }}" name="materiality">
+                      <option value="">Leave as judged</option>
+                      {% for tier in materiality_tiers %}
+                        <option value="{{ tier }}"
+                          {% if row.overridden and row.materiality == tier %}selected{% endif %}>
+                          {{ tier }}
+                        </option>
+                      {% endfor %}
+                      {% if row.overridden %}<option value="Clear">Remove my override</option>{% endif %}
+                    </select>
+                    {% if row.flag %}
+                      <label class="card__check">
+                        <input type="checkbox" name="clear_flag" value="1">
+                        Dismiss the flag
+                      </label>
+                    {% endif %}
+                    <button class="button button--quiet" type="submit">Save</button>
+                  </form>
+                </div>
+              </details>
+            </li>
+          {% endfor %}
+        </ul>
+
+        {% if not benchmark.rows %}
+          <p class="card__empty">No scenarios match this view.</p>
+        {% endif %}
+      </section>
+    {% endif %}
+
     {% if answers %}
       <section class="panel">
         <h2 class="panel__title">What the documents answered</h2>
@@ -274,67 +414,93 @@
 
       {% if groups %}
         <section class="panel panel--action">
-          <h2 class="panel__title">What the model owner sent</h2>
-          <p class="panel__body">
-            Keep the kinds apart. Each is read differently, and their scenario library is used to
-            measure coverage rather than to describe the agent.
-          </p>
-
-          {% for row in groups %}
-            <div class="dropzone">
-              <div class="dropzone__head">
-                <span class="dropzone__title">{{ row.group.title }}</span>
-                {% if row.files %}
-                  <span class="dropzone__count mono">{{ row.files | length }}</span>
-                {% endif %}
-              </div>
-              <p class="dropzone__blurb">{{ row.group.blurb }}</p>
-
-              {% if row.files %}
-                <ul class="dropzone__files">
-                  {% for name in row.files %}
-                    <li class="mono">{{ name }}</li>
-                  {% endfor %}
-                </ul>
-              {% endif %}
-              {% if row.note %}<p class="dropzone__note">{{ row.note }}</p>{% endif %}
-
-              <form class="upload" method="post" enctype="multipart/form-data"
-                    action="{{ url_for('upload', key='documents') }}">
-                <input type="hidden" name="group" value="{{ row.group.key }}">
-                <input class="upload__input" type="file" name="files"
-                       {% if row.group.multiple %}multiple{% endif %}
-                       accept="{{ row.group.accept_attribute }}">
-                <button class="button button--quiet" type="submit">Add</button>
-              </form>
-            </div>
-          {% endfor %}
-        </section>
-
-      {% elif stage.key in uploads %}
-        <section class="panel panel--action">
           <h2 class="panel__title">
-            {% if stage.key == 'intake' %}Provide the intake workbook
-            {% else %}Provide their scenario library{% endif %}
+            {% if stage.key == 'coverage' %}Their scenario library
+            {% else %}What the model owner sent{% endif %}
           </h2>
           <p class="panel__body">
-            {% if stage.key == 'intake' %}
-              Upload a completed intake workbook, or run this stage to have one drafted from the
-              documents. Need a blank one?
-              <a class="link" href="{{ url_for('blank_template') }}">Download the template</a>.
+            {% if stage.key == 'coverage' %}
+              Whatever shape they sent it in. It is read to measure coverage and never as a
+              description of the agent — their blind spots must not become the benchmark's.
             {% else %}
-              A workbook, CSV or document listing the model owner's own test scenarios.
+              Keep the kinds apart. Each is read differently, and their scenario library is used to
+              measure coverage rather than to describe the agent.
             {% endif %}
+          </p>
+
+          <div class="drops">
+            {% for row in groups %}
+              <div class="drop {% if row.files %}drop--filled{% endif %}
+                          {% if row.problem %}drop--problem{% endif %}"
+                   data-drop="{{ row.group.key }}">
+                <form class="drop__form" method="post" enctype="multipart/form-data"
+                      action="{{ url_for('upload', key='documents') }}">
+                  <input type="hidden" name="group" value="{{ row.group.key }}">
+                  <label class="drop__target">
+                    <input class="drop__input" type="file" name="files"
+                           {% if row.group.multiple %}multiple{% endif %}
+                           accept="{{ row.group.accept_attribute }}">
+                    {{ icon(row.group.icon) }}
+                    <span class="drop__title">{{ row.group.title }}</span>
+                    <span class="drop__blurb">{{ row.group.blurb }}</span>
+                    <span class="drop__hint">
+                      {% if row.files %}
+                        {{ row.files | length }} file{{ '' if row.files | length == 1 else 's' }} —
+                        drop or choose more
+                      {% else %}
+                        Drop files here, or choose
+                      {% endif %}
+                    </span>
+                    <span class="drop__types mono">{{ row.group.accepts | join(' ') }}</span>
+                  </label>
+                  <button class="drop__submit button button--quiet" type="submit">Add</button>
+                </form>
+
+                {% if row.files %}
+                  <ul class="drop__files">
+                    {% for name in row.files %}
+                      <li class="drop__file">
+                        <span class="mono">{{ name }}</span>
+                        <form method="post" action="{{ url_for('remove_upload', key=stage.key) }}">
+                          <input type="hidden" name="group" value="{{ row.group.key }}">
+                          <input type="hidden" name="name" value="{{ name }}">
+                          <button class="drop__remove" type="submit"
+                                  title="Remove {{ name }}">Remove</button>
+                        </form>
+                      </li>
+                    {% endfor %}
+                  </ul>
+                {% endif %}
+                {% if row.note %}
+                  <p class="drop__note {% if row.problem %}drop__note--problem{% endif %}">
+                    {{ row.note }}
+                  </p>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        </section>
+      {% endif %}
+
+      {% if stage.key == 'intake' %}
+        <section class="panel panel--action">
+          <h2 class="panel__title">Provide the intake workbook</h2>
+          <p class="panel__body">
+            Upload a completed intake workbook, or run this stage to have one drafted from the
+            documents. Uploading does not finish the stage — running it reads the workbook back and
+            reports what it declares, which is the check worth having. Need a blank one?
+            <a class="link" href="{{ url_for('blank_template') }}">Download the template</a>.
           </p>
           <form class="upload" method="post" enctype="multipart/form-data"
                 action="{{ url_for('upload', key=stage.key) }}">
-            <input class="upload__input" type="file" name="files"
-                   accept=".xlsx,.xlsm,.csv,.docx,.pdf,.md,.txt">
+            <input class="upload__input" type="file" name="files" accept=".xlsx,.xlsm">
             <button class="button button--primary" type="submit">Upload</button>
           </form>
         </section>
       {% endif %}
 
+      {# Every stage has something to run: adding material and reading it are one job, and the
+         stages that only take a file still confirm it by reading it back. #}
       {% if runnable %}
         <section class="panel panel--action">
           <h2 class="panel__title">
@@ -356,11 +522,6 @@
               {% if view.has_output %}Run again{% else %}Run{% endif %}
             </button>
           </form>
-        </section>
-      {% elif stage.key not in uploads %}
-        <section class="panel panel--action">
-          <h2 class="panel__title">Nothing to run here</h2>
-          <p class="panel__body">This stage is yours to read and decide on.</p>
         </section>
       {% endif %}
     {% endif %}
@@ -391,13 +552,18 @@
       </form>
 
       {# The documents stage has its own uploader a few inches up; a second one there would just
-         be two ways to do the same thing. Every other stage needs this to attach a late arrival. #}
+         be two ways to do the same thing. Every other stage needs this to attach a late arrival,
+         which lands under supporting material and is read the next time the documents stage runs. #}
       {% if stage.key != 'documents' %}
         <form class="upload upload--extra" method="post" enctype="multipart/form-data"
               action="{{ url_for('upload', key='documents') }}">
+          <input type="hidden" name="group" value="supporting">
           <input class="upload__input" type="file" name="files" multiple
-                 accept=".pdf,.docx,.pptx,.png,.jpg,.jpeg,.md,.txt">
+                 accept=".pdf,.docx,.pptx,.xlsx,.xlsm,.csv,.png,.jpg,.jpeg,.md,.txt">
           <button class="button button--quiet" type="submit">Add a document</button>
+          <span class="upload__note">
+            Filed under supporting material. Run the documents stage again to read it.
+          </span>
         </form>
       {% endif %}
     </section>
@@ -411,6 +577,48 @@
     {% endif %}
   </main>
 </div>
+
+{% if groups %}
+<script>
+  // Drag-and-drop onto each card, and submit as soon as files are chosen. Both are conveniences
+  // over a form that already works without them: with scripting off, the card is still a file
+  // input with an Add button beside it, and nothing here is the only way to do anything.
+  (function () {
+    Array.prototype.forEach.call(document.querySelectorAll('.drop'), function (card) {
+      var form = card.querySelector('.drop__form');
+      var input = card.querySelector('.drop__input');
+      if (!form || !input) { return; }
+
+      form.className += ' drop__form--auto';
+      input.addEventListener('change', function () {
+        if (input.files && input.files.length) { form.submit(); }
+      });
+
+      ['dragenter', 'dragover'].forEach(function (name) {
+        card.addEventListener(name, function (event) {
+          event.preventDefault();
+          card.classList.add('drop--over');
+        });
+      });
+      ['dragleave', 'drop'].forEach(function (name) {
+        card.addEventListener(name, function (event) {
+          event.preventDefault();
+          if (name === 'dragleave' && card.contains(event.relatedTarget)) { return; }
+          card.classList.remove('drop--over');
+        });
+      });
+
+      card.addEventListener('drop', function (event) {
+        if (!event.dataTransfer || !event.dataTransfer.files.length) { return; }
+        // Assigning the dropped list to the input is what lets the ordinary form post carry
+        // them, so the server sees a drop and a click as exactly the same request.
+        input.files = event.dataTransfer.files;
+        form.submit();
+      });
+    });
+  })();
+</script>
+{% endif %}
 
 {% if state.status == 'running' %}
 <script>

@@ -120,6 +120,83 @@ def _read_pptx(path: Path) -> List[Segment]:
     return segments
 
 
+def _rows_to_segments(rows: List[List[str]], sheet: str, per_segment: int) -> List[Segment]:
+    """Turn rows into readable passages, keeping the header on each one.
+
+    A spreadsheet read row by row loses the only thing that makes a row mean anything, which is
+    the column it sits under. Repeating the header at the top of every passage costs a few lines
+    and keeps each passage self-describing, so a fact read out of row 400 still knows what its
+    third column was called.
+    """
+    rows = [[str(cell).strip() if cell is not None else "" for cell in row] for row in rows]
+    rows = [row for row in rows if any(row)]
+    if not rows:
+        return []
+
+    header, body = rows[0], rows[1:]
+    if not body:                                           # a single row is its own content
+        return [Segment(" | ".join(header), f"sheet “{sheet}”")]
+
+    heading = " | ".join(header)
+    segments = []
+    for start in range(0, len(body), per_segment):
+        block = body[start:start + per_segment]
+        first, last = start + 2, start + len(block) + 1    # 1-based, and the header is row 1
+        text = "\n".join([heading, "-" * min(len(heading), 80)]
+                         + [" | ".join(row) for row in block])
+        segments.append(Segment(text, f"sheet “{sheet}”, rows {first}–{last}"))
+    return segments
+
+
+# Rows per passage. Small enough that a locator points at a findable part of the sheet, large
+# enough that a table of thresholds is not split across a dozen of them.
+ROWS_PER_SEGMENT = 40
+
+
+def _read_spreadsheet(path: Path) -> List[Segment]:
+    """Read a workbook sheet by sheet, or a delimited file as a single table.
+
+    Spreadsheets carry a lot of what a benchmark needs -- decision tables, routing rules, policy
+    matrices, term glossaries -- and a team that keeps its rules in one will send it. Reading the
+    values rather than the formulae is deliberate: the computed result is the behaviour, and the
+    formula is how it happens to be worked out.
+    """
+    if path.suffix.lower() == ".csv":
+        import csv
+
+        with path.open(newline="", encoding="utf-8", errors="replace") as handle:
+            sample = handle.read(8192)
+            handle.seek(0)
+            try:
+                dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+            except csv.Error:
+                dialect = csv.excel
+            rows = [list(row) for row in csv.reader(handle, dialect)]
+        segments = _rows_to_segments(rows, path.stem, ROWS_PER_SEGMENT)
+        if not segments:
+            raise UnreadableDocument("the file has no rows.")
+        return segments
+
+    from openpyxl import load_workbook
+
+    try:
+        book = load_workbook(str(path), data_only=True, read_only=True)
+    except Exception as exc:
+        raise UnreadableDocument(f"could not open the workbook ({exc})") from exc
+
+    segments = []
+    try:
+        for name in book.sheetnames:
+            rows = [list(row) for row in book[name].iter_rows(values_only=True)]
+            segments.extend(_rows_to_segments(rows, name, ROWS_PER_SEGMENT))
+    finally:
+        book.close()
+
+    if not segments:
+        raise UnreadableDocument("every sheet in the workbook is empty.")
+    return segments
+
+
 def _read_text(path: Path) -> List[Segment]:
     body = path.read_text(encoding="utf-8", errors="replace")
     if not body.strip():
@@ -172,6 +249,9 @@ READERS: Dict[str, Tuple[Callable[[Path], List[Segment]], str]] = {
     ".pdf": (_read_pdf, "PDF"),
     ".docx": (_read_docx, "Word document"),
     ".pptx": (_read_pptx, "presentation"),
+    ".xlsx": (_read_spreadsheet, "spreadsheet"),
+    ".xlsm": (_read_spreadsheet, "spreadsheet"),
+    ".csv": (_read_spreadsheet, "spreadsheet"),
     ".md": (_read_text, "notes"),
     ".txt": (_read_text, "notes"),
     ".png": (_read_image, "image"),

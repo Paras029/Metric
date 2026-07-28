@@ -14,7 +14,9 @@ data loss -- but the interface stops presenting them as current.
 from __future__ import annotations
 
 import json
+import os
 import re
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -131,11 +133,27 @@ class Workspace:
         return self.root / STATE_FILE
 
     def save(self) -> None:
+        """Write the record, atomically.
+
+        A running stage saves its progress every few seconds from a background thread while the
+        page polls for it from a request thread. Writing in place means truncating the file first,
+        and a reader arriving in that instant gets an empty file and a workspace that appears not
+        to exist. Writing beside it and renaming means a reader sees either the old record or the
+        new one, never a half-written one -- ``os.replace`` is atomic on both platforms this runs
+        on.
+        """
         self.root.mkdir(parents=True, exist_ok=True)
         payload = {"name": self.name, "created_at": self.created_at,
                    "notes": list(self.notes),
                    "stages": {k: v.to_dict() for k, v in self.stages.items()}}
-        self.state_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+        pending = self.state_path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
+        try:
+            pending.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            os.replace(str(pending), str(self.state_path))
+        finally:
+            if pending.exists():
+                pending.unlink()
 
     @classmethod
     def load(cls, root: Path) -> "Workspace":

@@ -30,7 +30,7 @@ skim: tables, appendices, footnotes, configuration listings, glossaries, screens
 captions, sections whose headings do not suggest they are relevant.
 
 An answer may combine what several passages say, and may draw on what was already established
-above. What it may not do is go past the evidence. Three outcomes are allowed:
+above. What it may not do is go past the evidence:
 
 - `answered` — the documents settle it. Give the answer and quote what settles it.
 - `partial` — the documents narrow it without settling it. Say what is now known and what remains
@@ -42,15 +42,17 @@ Do not resolve a question by inference from how such systems usually work. A que
 marked answered is worse than one left open, because the open one gets asked and the wrong one
 gets built on.
 
+{{triage}}
+
 WHAT TO RETURN
 
 For each question, in the order given:
 
 - `question`: the question, copied exactly as it appears above.
-- `status`: `answered`, `partial` or `unanswered`.
-- `answer`: what the documents establish. Empty for `unanswered`.
+- `status`: one of the values listed above.
+- `answer`: what the documents establish. Empty where they do not.
 - `evidence`: list of `{"quote": "...", "document": "...", "locator": "..."}` supporting it.
-  Empty for `unanswered`.
+  Empty where there is none.
 - `still_open`: for `partial`, what remains to be asked. Empty otherwise.
 
 OUTPUT

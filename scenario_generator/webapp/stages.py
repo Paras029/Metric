@@ -61,6 +61,16 @@ class Stage:
     detail: str = ""
     optional: bool = False
 
+    requires: Tuple[str, ...] = ()
+    """What must have produced something before this stage can run.
+
+    Empty means every required stage before it, which is the ordinary case: the pipeline is mostly
+    a chain and each step consumes the last one's output. Stating it explicitly is for the stages
+    that are not — measuring what the modelling team's own testing covers needs the benchmark and
+    nothing after it, and gating it on the review as well would mean their file could not be
+    submitted until the last model pass had finished, for no reason.
+    """
+
     @property
     def mode_label(self) -> str:
         return MODE_LABELS[self.mode]
@@ -135,7 +145,7 @@ STAGES: Tuple[Stage, ...] = (
           "they sent them. Reading this before the pack is issued is what lets it concentrate "
           "on what they have not covered. Route and persona must both match, because the same "
           "route walked by a different user is a different test.",
-          optional=True),
+          optional=True, requires=("intake", "benchmark")),
 
     Stage("issue", "Issue", COMPUTED,
           "The challenge pack to send the model owner, and the registry you keep. The pack "
@@ -167,10 +177,15 @@ def predecessor(key: str) -> Optional[Stage]:
 def required_before(key: str) -> List[Stage]:
     """The stages that must have produced something before this one can run.
 
-    Optional stages are excluded, which is what lets a team that already has a completed intake
-    workbook start at the intake stage and never open the document stages at all.
+    A stage naming its own dependencies is taken at its word; otherwise it is every required stage
+    ahead of it in the pipeline. Optional stages are never a prerequisite either way, which is what
+    lets a team that already has a completed intake workbook start at the intake stage and never
+    open the document stages at all.
     """
-    return [stage for stage in STAGES[:index_of(key)] if not stage.optional]
+    stage = STAGE_BY_KEY[key]
+    if stage.requires:
+        return [STAGE_BY_KEY[k] for k in stage.requires if not STAGE_BY_KEY[k].optional]
+    return [earlier for earlier in STAGES[:index_of(key)] if not earlier.optional]
 
 
 def downstream_of(key: str) -> List[Stage]:

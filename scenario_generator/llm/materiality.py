@@ -14,6 +14,7 @@ from typing import Callable, Dict, List
 from ..core.models import IntakeData, Scenario
 from ..utils import chunks, parse_json_object
 from . import config, prompt_loader
+from .calling import call
 from .context import describe_use_case, supplementary_context
 from .gateway import ask_llm
 from ..core.generation import peer_signals
@@ -21,6 +22,7 @@ from ..core.generation import peer_signals
 logger = logging.getLogger(__name__)
 
 CompletionFn = Callable[[str, str], str]
+ProgressFn = Callable[..., None]
 
 _SYSTEM_PROMPT = "materiality.system"
 _TASK_PROMPT = "materiality.task"
@@ -39,27 +41,29 @@ class MaterialityAssessor:
     those signals attached, so each call can reason about redundancy beyond its own batch."""
 
     def __init__(self, complete: CompletionFn = None, batch_size: int = 10,
-                 context: str = "") -> None:
+                 context: str = "", progress: ProgressFn = None) -> None:
         self._complete = complete or ask_llm
         self._batch = batch_size
         self._context = context
+        self._progress = progress or (lambda *args, **kwargs: None)
 
     def assess(self, scenarios: List[Scenario], intake: IntakeData) -> List[Scenario]:
         peers = peer_signals(scenarios)
+        done_count = 0
         for chunk in chunks(scenarios, self._batch):
             done = self._assess(chunk, intake, peers)
             for scenario in chunk:
                 if scenario.id not in done:                # refill anything the batch dropped
                     self._assess([scenario], intake, peers)
+            done_count += len(chunk)
+            self._progress(f"Assessed {done_count} of {len(scenarios)} scenarios",
+                           done_count, len(scenarios))
         return scenarios
 
     def _call(self, user: str) -> str:
         """Judgement budgets: assigning a tier requires weighing a scenario against its peers."""
-        system = prompt_loader.load(_SYSTEM_PROMPT)
-        try:
-            return self._complete(system, user, tier=config.JUDGEMENT)
-        except TypeError:                          # a stub completion without the keywords
-            return self._complete(system, user)
+        return call(self._complete, prompt_loader.load(_SYSTEM_PROMPT), user,
+                    tier=config.JUDGEMENT)
 
     def _assess(self, chunk: List[Scenario], intake: IntakeData, peers: Dict[str, dict]) -> set:
         payload = [{

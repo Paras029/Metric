@@ -126,11 +126,27 @@ the intake stage, or pass it straight to `generate`.
 Stages 1, 2 and 8 are optional. Skip 1 and 2 if you already have an intake; skip 8 if the team
 submitted no testing of their own.
 
+Stage 1 reads `.pdf`, `.docx`, `.pptx`, `.xlsx`, `.xlsm`, `.csv`, `.md` and `.txt`, and describes
+`.png`, `.jpg` and `.jpeg` diagrams with a vision-capable model. Spreadsheets are read sheet by
+sheet with the header repeated on each passage, because a rules table is where the thresholds
+usually live. A scanned PDF has no text layer and is reported as unreadable rather than read as
+empty — ask for a text-based copy.
+
+Every submitted document is named in the reading prompt and the result says which ones any answer
+actually rested on. A file that informed nothing is reported: it is either irrelevant or it was
+passed over, and those need different responses.
+
 Each stage states how its output was produced — **computed**, **model judgement**, or **human
 decision** — because a materiality tier and a graph walk do not deserve the same trust.
 
 Changing an earlier stage marks the later ones out of date rather than leaving them looking
 finished. Their output is kept and stays downloadable.
+
+From stage 5 onward the page shows the benchmark itself: what each scenario asks the agent to do,
+what it is judged to be worth and why, and anything the review flagged. Materiality can be
+overridden and a flag dismissed from there, straight into the registry. Routes, expected outcomes
+and per-turn detail stay in the workbook — the screen carries the reading, the workbook carries
+the record.
 
 Any stage accepts free-text notes and extra files. Both are passed to every stage that follows.
 On the command line this is `--note`, which is repeatable:
@@ -274,6 +290,8 @@ LLM_FAST_MAX_TOKENS             Default 8000.
 LLM_FAST_REASONING_EFFORT       Default "minimal".
 LLM_FAST_MODEL_ID               Defaults to LLM_MODEL_ID.
 LLM_MAX_CORPUS_CHARS            Default 2000000 (~500k tokens).
+LLM_INGEST_RESOLVE_PASSES       Default 2. How many times an open question is put
+                                back to the documents before it is put to a person.
 LLM_VISION                      "off" where the gateway rejects images.
 LLM_MAX_IMAGE_BYTES             Default 4000000.
 ```
@@ -285,6 +303,12 @@ than shortening the answer — which is why each tier sets both together.
 `LLM_MAX_CORPUS_CHARS` decides how much submitted text goes into one reading call. A pack larger
 than this is split across calls, which reads worse than reading it whole, so raise it before
 accepting a split.
+
+`LLM_INGEST_RESOLVE_PASSES` decides how hard the tool tries to answer its own questions. Each pass
+is one more call over the whole corpus, and each question it settles is one the modelling team
+never has to answer. The last pass also rules on what is left: the points only a person can settle
+are asked, and the rest are recorded in the context document without being put to anybody. Set it
+to 0 to skip the sweep, which is faster and asks considerably more.
 
 **If you see truncation warnings**, reduce the batch size first. Raise the cap only if that does
 not resolve it.

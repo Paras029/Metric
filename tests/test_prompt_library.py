@@ -35,8 +35,9 @@ _CONTRACT = {
     "extractor.task": {"use_case", "decisions", "capabilities", "personas", "categories",
                        "scenarios"},
     "ingest.system": set(),
-    "ingest.read": {"questions", "corpus"},
-    "ingest.resolve": {"established", "questions", "corpus"},
+    "ingest.read": {"questions", "corpus", "documents"},
+    "ingest.resolve": {"established", "questions", "corpus", "triage"},
+    "ingest.triage": set(),
     "ingest.diagram": {"facets", "document"},
     "intake.draft": {"context"},
 }

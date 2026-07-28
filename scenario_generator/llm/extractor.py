@@ -13,6 +13,7 @@ from typing import Callable, Dict, List
 from ..core.models import CATEGORIES, ExtractedMeta, IntakeData, OwnerScenario
 from ..utils import chunks, parse_json_object
 from . import config, prompt_loader
+from .calling import call
 from .context import describe_use_case
 from .gateway import ask_llm
 
@@ -60,10 +61,7 @@ class MetadataExtractor:
     def _call(self, system: str, user: str) -> str:
         """Mapping free text onto a closed vocabulary is classification, and anything outside that
         vocabulary is discarded by validation regardless -- so this runs on the fast tier."""
-        try:
-            return self._complete(system, user, tier=config.FAST)
-        except TypeError:                                  # a stub without the keyword arguments
-            return self._complete(system, user)
+        return call(self._complete, system, user, tier=config.FAST)
 
     def _validate(self, entry: dict, intake: IntakeData) -> ExtractedMeta:
         """Keep only decisions, outcomes, capabilities and personas the intake declares."""

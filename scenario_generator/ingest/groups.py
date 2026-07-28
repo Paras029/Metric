@@ -20,6 +20,14 @@ SUPPORTING = "supporting"
 DIAGRAMS = "diagrams"
 
 
+# Written material, in every shape a team sends it. Kept as one tuple because the distinction
+# between a group is what the file is *about*, not what format it happens to be in -- a decision
+# table is as likely to arrive as a spreadsheet as a Word table, and refusing it for its extension
+# is refusing the content.
+_DOCUMENTS: Tuple[str, ...] = (".pdf", ".docx", ".pptx", ".xlsx", ".xlsm", ".csv", ".md", ".txt")
+_IMAGES: Tuple[str, ...] = (".png", ".jpg", ".jpeg")
+
+
 @dataclass(frozen=True)
 class Group:
     """One kind of submitted material, as the person uploading it thinks of it."""
@@ -28,6 +36,7 @@ class Group:
     title: str
     blurb: str
     accepts: Tuple[str, ...]
+    icon: str = "document"
     multiple: bool = True
 
     @property
@@ -40,25 +49,32 @@ GROUPS: Tuple[Group, ...] = (
     Group(MODEL_DOC, "Model documentation",
           "The document describing the agent: what it does, where it branches, what it must not "
           "do. The main source for everything downstream.",
-          (".pdf", ".docx", ".md", ".txt")),
+          _DOCUMENTS, icon="document"),
 
     Group(OWNER_SCENARIOS, "Their own test scenarios",
           "Whatever testing the model owner has already done, in whatever shape they sent it. "
           "Used to measure how much of the benchmark they already cover.",
-          (".xlsx", ".xlsm", ".csv", ".docx", ".pdf", ".md", ".txt")),
+          (".xlsx", ".xlsm", ".csv", ".docx", ".pdf", ".md", ".txt"), icon="checklist"),
 
     Group(DIAGRAMS, "Workflow diagrams",
           "Screenshots or exports of the agent's flow. Several images of one long flow are read "
           "together as a sequence.",
-          (".png", ".jpg", ".jpeg")),
+          _IMAGES, icon="diagram"),
 
     Group(SUPPORTING, "Supporting material",
-          "Vendor documentation, decks, policy extracts, anything else that bears on how the "
-          "agent behaves.",
-          (".pdf", ".docx", ".pptx", ".md", ".txt")),
+          "Vendor documentation, decks, policy extracts, rule tables, anything else that bears on "
+          "how the agent behaves.",
+          _DOCUMENTS + _IMAGES, icon="folder"),
 )
 
 GROUP_BY_KEY: Dict[str, Group] = {group.key: group for group in GROUPS}
+
+# Where a file lands when it arrives without a stated kind -- from the "add a document" form that
+# sits on every stage, for the thing that turns up after the pack has been read. Supporting
+# material is the right default because it is the group with no assumptions attached: it is read
+# as evidence, which is what the person adding a late document wants, and it does not overwrite
+# the claim that some particular file is *the* model documentation.
+DEFAULT_GROUP = SUPPORTING
 
 # The groups ingestion reads for evidence. The owner's scenarios are not among them: they
 # describe the owner's testing rather than the agent, and reading them as evidence about the
@@ -89,3 +105,17 @@ def owner_scenario_file(root: Path) -> Path:
     """The owner's scenario library, if one was submitted."""
     found = files_in(root, OWNER_SCENARIOS)
     return found[0] if found else None
+
+
+def remove_file(root: Path, group_key: str, name: str) -> bool:
+    """Delete one submitted file. Returns whether there was one to delete.
+
+    The name is resolved inside the group's own folder and checked to be there afterwards, so a
+    name carrying a path cannot reach anything outside it.
+    """
+    folder = folder_for(root, group_key).resolve()
+    target = (folder / Path(name).name).resolve()
+    if folder not in target.parents or not target.is_file():
+        return False
+    target.unlink()
+    return True

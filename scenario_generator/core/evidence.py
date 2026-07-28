@@ -116,6 +116,20 @@ class FacetAnswer:
     sources: List[str] = field(default_factory=list)
     confidence: str = "Low"
     failed: bool = False
+
+    must_ask: List[str] = field(default_factory=list)
+    """The subset of ``unknowns`` that only a person can settle.
+
+    Set by the resolution sweep once it has finished putting these back to the documents. What is
+    left over at that point divides in two, and the division is worth making: a threshold nobody
+    wrote down has to be asked, and a detail that would not change which scenarios exist should
+    not be. Both stay under ``unknowns`` so the context document still records the whole of what
+    was not settled; only this list is put in front of a person.
+    """
+
+    triaged: bool = False
+    """Whether the division above has been made. Where it has not, every unknown is asked."""
+
     citations: List[dict] = field(default_factory=list)
     """Quotes the reading offered in support, before they are checked.
 
@@ -143,6 +157,14 @@ class DocumentRef:
     kind: str
     units: int = 0
     note: str = ""
+
+    drawn_on: bool = False
+    """Whether any answer actually rested on this document.
+
+    A pack is submitted as a whole and read as a whole, which makes it easy for one long document
+    to answer everything and the rest to contribute nothing without anyone noticing. Recording it
+    per document turns that into a number a person can see and challenge.
+    """
 
 
 @dataclass
@@ -191,6 +213,23 @@ class EvidenceRecord:
         return [(answer.facet, unknown)
                 for answer in self.answers for unknown in answer.unknowns]
 
+    def questions_for_people(self) -> List[Tuple[str, str]]:
+        """The unknowns worth putting to a person, as (facet, question).
+
+        Where an answer has been triaged this is the subset that needs a human; where it has not
+        -- an older record, or a run whose resolution sweep did not complete -- it is everything,
+        because the alternative is quietly dropping questions nobody has judged.
+        """
+        questions = []
+        for answer in self.answers:
+            questions += [(answer.facet, q)
+                          for q in (answer.must_ask if answer.triaged else answer.unknowns)]
+        return questions
+
+    def set_aside(self) -> int:
+        """How many unknowns triage judged not worth asking. Reported rather than hidden."""
+        return sum(len(a.unknowns) - len(a.must_ask) for a in self.answers if a.triaged)
+
     def to_dict(self) -> dict:
         return {"documents": [asdict(d) for d in self.documents],
                 "claims": [asdict(c) for c in self.claims],
@@ -226,4 +265,8 @@ def summarise(record: EvidenceRecord) -> Dict[str, int]:
         "empty_facets": len(record.empty_facets()),
         "answered": sum(1 for a in record.answers if a.is_answered),
         "unknowns": len(record.open_unknowns()),
+        "to_ask": len(record.questions_for_people()),
+        "set_aside": record.set_aside(),
+        "readable": sum(1 for d in record.documents if d.kind != "unreadable"),
+        "drawn_on": sum(1 for d in record.documents if d.drawn_on),
     }

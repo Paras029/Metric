@@ -18,12 +18,14 @@ from typing import Callable, List
 from ..core.models import IntakeData, Scenario
 from ..utils import chunks, parse_json_object
 from . import config, prompt_loader
+from .calling import call
 from .context import describe_use_case, supplementary_context
 from .gateway import ask_llm
 
 logger = logging.getLogger(__name__)
 
 CompletionFn = Callable[[str, str], str]
+ProgressFn = Callable[..., None]
 
 _SYSTEM_PROMPT = "writer.system"
 _GRAPH_PROMPT = "writer.graph_scenario"
@@ -39,13 +41,15 @@ class NullWriter:
 
 class ScenarioWriter:
     def __init__(self, complete: CompletionFn = None, batch_size: int = 8,
-                 context: str = "") -> None:
+                 context: str = "", progress: ProgressFn = None) -> None:
         self._complete = complete or ask_llm
         self._batch = batch_size
         self._context = context
+        self._progress = progress or (lambda *args, **kwargs: None)
 
     def write(self, scenarios: List[Scenario], intake: IntakeData) -> List[Scenario]:
         """Graph scenarios and probes are written by separate prompts, so batch them separately."""
+        written = 0
         for group in ([s for s in scenarios if not s.is_probe],
                       [s for s in scenarios if s.is_probe]):
             for chunk in chunks(group, self._batch):
@@ -53,6 +57,9 @@ class ScenarioWriter:
                 for scenario in chunk:                     # refill anything the batch dropped
                     if scenario.id not in done:
                         self._write([scenario], intake)
+                written += len(chunk)
+                self._progress(f"Written {written} of {len(scenarios)} scenarios",
+                               written, len(scenarios))
         return scenarios
 
     def _payload(self, scenario: Scenario) -> dict:
@@ -80,10 +87,7 @@ class ScenarioWriter:
     def _call(self, system: str, user: str) -> str:
         """Writing scenario text is mechanical, but it is read by the modelling team, so it stays
         on the standard tier rather than the cheapest one."""
-        try:
-            return self._complete(system, user, tier=config.STANDARD)
-        except TypeError:                                  # a stub without the keyword arguments
-            return self._complete(system, user)
+        return call(self._complete, system, user, tier=config.STANDARD)
 
     def _write(self, chunk: List[Scenario], intake: IntakeData) -> set:
         """Call the model for these scenarios and apply the reply; return the IDs it filled."""

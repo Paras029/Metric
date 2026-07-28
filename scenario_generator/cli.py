@@ -109,6 +109,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_ingest.add_argument("output_prefix",
                           help="written as PREFIX_evidence.json, PREFIX_context.md and "
                                "PREFIX_questions.md")
+    p_ingest.add_argument("--resolve-passes", type=int, default=None, metavar="N",
+                          help="how many times a question the first reading left open is put "
+                               "back to the documents before it is put to the model owner "
+                               "(default from LLM_INGEST_RESOLVE_PASSES). 0 skips the sweep and "
+                               "asks everything.")
 
     p_draft = sub.add_parser(
         "draft-intake",
@@ -168,7 +173,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         if not paths:
             print("No readable documents found in what you gave me.")
             return 1
-        ingest_documents(paths, args.output_prefix, progress=_print_progress)
+        ingest_documents(paths, args.output_prefix, progress=_print_progress,
+                         resolve_passes=args.resolve_passes)
         return 0
 
     if args.command == "draft-intake":

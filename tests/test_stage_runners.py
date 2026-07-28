@@ -74,7 +74,7 @@ def _owner_workbook(directory: Path) -> Path:
 
 
 class TestEveryStageRuns(unittest.TestCase):
-    """Drive all ten stages through the interface and assert none of them fail."""
+    """Drive every stage through the interface and assert none of them fail."""
 
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())

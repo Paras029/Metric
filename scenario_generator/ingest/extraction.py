@@ -18,9 +18,12 @@ Grounding. Every answer cites verbatim quotes, and each is checked against the c
 that cannot be found is dropped, and an answer that loses all of its evidence is marked for
 confirmation rather than trusted.
 
-The resolution sweep. Questions the first reading left open are put back to the documents once,
-directly. A question asked directly is often answered by material a general reading had no reason
-to connect, and every question that survives to the modelling team costs days.
+The resolution sweep. Questions the first reading left open are put back to the documents,
+directly, more than once. A question asked directly is often answered by material a general
+reading had no reason to connect, and every question that survives to the modelling team costs
+days. The last sweep also divides what is still open in two: the things only a person can settle,
+which are worth asking, and the things that would not change which scenarios exist, which are
+not. Only the first kind reaches the interface; both are recorded.
 
 Splitting, but only as a fallback. A corpus past ``MAX_CORPUS_CHARS`` is divided and the parts
 merged, with a warning. That is the exception now rather than the rule.
@@ -29,15 +32,17 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
 
-from ..core.evidence import (FACETS, KIND_HUMAN, KIND_IMAGE, Claim, DocumentRef, EvidenceRecord,
+from ..core.evidence import (FACETS, KIND_IMAGE, Claim, DocumentRef, EvidenceRecord,
                              FacetAnswer, SourceRef)
 from ..core.grounding import locate
 from ..llm import config, prompt_loader
+from ..llm.calling import call
 from ..llm.gateway import ask_llm, ask_llm_with_images
 from ..utils import parse_json_object
 from .context_document import FACET_HEADINGS, FACET_QUESTIONS
@@ -56,6 +61,10 @@ _DIAGRAM_PROMPT = "ingest.diagram"
 # How much text goes into one reading call, from LLM_MAX_CORPUS_CHARS. A pack past this is split,
 # which reads worse than reading it whole, so the number is set to make that rare.
 MAX_CORPUS_CHARS = config.MAX_CORPUS_CHARS
+
+# What the resolution sweep may conclude about a question it could not answer from the documents.
+ASK_THE_TEAM = "ask_the_team"
+NOT_MATERIAL = "not_material"
 
 # The eleven questions asked in three calls rather than eleven. Grouped by what they have in
 # common, so each call answers questions that draw on the same parts of the document, and each
@@ -125,15 +134,20 @@ class DocumentExtractor:
 
     def __init__(self, complete: Optional[CompletionFn] = None,
                  progress: Optional[ProgressFn] = None, resolve: bool = True,
-                 describe_images: Optional[Callable[..., str]] = None) -> None:
+                 describe_images: Optional[Callable[..., str]] = None,
+                 resolve_passes: Optional[int] = None) -> None:
         self._complete = complete or ask_llm
         self._describe_images = describe_images or ask_llm_with_images
         self._progress = progress or (lambda *args, **kwargs: None)
         self._resolve = resolve
+        self._passes = (config.INGEST_RESOLVE_PASSES if resolve_passes is None
+                        else max(0, int(resolve_passes)))
         self._calls = 0
         self._failures = 0
         self._done = 0
         self._total = 0
+        self._drawn_on: Set[str] = set()
+        self._lock = threading.Lock()                      # the reading calls run in parallel
 
     # ------------------------------------------------------------------ entry point
     def run(self, paths: Sequence[Path]) -> EvidenceRecord:
@@ -147,8 +161,9 @@ class DocumentExtractor:
 
         # Reading the text and reading the diagrams are independent, so they go together.
         chunks = self._split(corpus.text)
+        inventory = _inventory(corpus)
         with ThreadPoolExecutor(max_workers=MAX_PARALLEL_CALLS) as pool:
-            futures = [pool.submit(self._read_group, label, facets, chunks)
+            futures = [pool.submit(self._read_group, label, facets, chunks, inventory)
                        for label, facets in FACET_GROUPS]
             diagram_future = (pool.submit(self._read_diagrams, corpus.diagrams, record)
                               if corpus.diagrams else None)
@@ -160,32 +175,42 @@ class DocumentExtractor:
 
         record.answers = [answers.get(facet) or _unanswered(facet) for facet in FACETS]
         self._attach_evidence(record, corpus.text)
+        self._mark_documents_drawn_on(record)
         self._stop_if_mostly_failing("reading")
 
-        if self._resolve:
+        if self._resolve and self._passes:
             self._resolve_unknowns(record, corpus.text)
 
         answered = sum(1 for a in record.answers if a.is_answered)
+        readable = [d for d in record.documents if d.kind != "unreadable"]
         logger.info("Read %d document(s) in %d model call(s). Answered %d of %d questions.",
-                    len([d for d in record.documents if d.kind != "unreadable"]),
-                    self._calls, answered, len(FACETS))
+                    len(readable), self._calls, answered, len(FACETS))
+
+        ignored = [d.name for d in readable if not d.drawn_on]
+        if ignored:
+            logger.warning(
+                "%d of %d submitted document(s) did not inform any answer: %s. Either they do not "
+                "bear on the agent's behaviour, or they were read and passed over -- worth "
+                "checking before the intake is drafted from this.",
+                len(ignored), len(readable), ", ".join(ignored))
         return record
 
     # ------------------------------------------------------------------ reading
     def _split(self, text: str) -> List[str]:
         """One part unless the corpus is too large to send, which should be uncommon."""
-        if len(text) <= MAX_CORPUS_CHARS:
+        limit = config.max_corpus_chars()
+        if len(text) <= limit:
             return [text]
 
-        parts = [text[i:i + MAX_CORPUS_CHARS] for i in range(0, len(text), MAX_CORPUS_CHARS)]
+        parts = [text[i:i + limit] for i in range(0, len(text), limit)]
         logger.warning(
             "The submitted pack is %d characters and was split into %d parts to be read. Reading "
             "it whole gives a better result; consider trimming what does not bear on the agent's "
             "behaviour.", len(text), len(parts))
         return parts
 
-    def _read_group(self, label: str, facets: Sequence[str],
-                    chunks: List[str]) -> Dict[str, FacetAnswer]:
+    def _read_group(self, label: str, facets: Sequence[str], chunks: List[str],
+                    inventory: str) -> Dict[str, FacetAnswer]:
         """Answer one group of questions from the whole corpus."""
         questions = "\n".join(
             f"- {facet}: {FACET_HEADINGS.get(facet, facet)} — {FACETS[facet]}"
@@ -195,14 +220,37 @@ class DocumentExtractor:
         for number, chunk in enumerate(chunks, start=1):
             self._step(f"Reading the documents for {label}"
                        + (f" (part {number} of {len(chunks)})" if len(chunks) > 1 else ""))
-            reply = self._ask(_READ_PROMPT, questions=questions, corpus=chunk)
+            reply = self._ask(_READ_PROMPT, questions=questions, corpus=chunk,
+                              documents=inventory)
             if reply is None:
                 continue
+            self._note_documents_used(reply.get("documents_used"))
             for facet in facets:
                 answer = _to_answer(facet, reply.get(facet))
                 if answer:
                     merged[facet] = _merge(merged.get(facet), answer)
         return merged
+
+    def _note_documents_used(self, names) -> None:
+        """Record which documents a reading call said it drew on. Called from three threads."""
+        if not isinstance(names, list):
+            return
+        with self._lock:
+            self._drawn_on.update(str(n).strip().lower() for n in names if str(n).strip())
+
+    def _mark_documents_drawn_on(self, record: EvidenceRecord) -> None:
+        """Flag each document as used or not.
+
+        A citation that survived verification is the stronger signal, because it was checked; what
+        the reading *said* it used is taken as well, since a document can inform an answer without
+        being the source of the sentence quoted from it.
+        """
+        cited = {claim.source.document.strip().lower() for claim in record.claims
+                 if claim.source.document}
+        for document in record.documents:
+            name = document.name.strip().lower()
+            document.drawn_on = name in cited or name in self._drawn_on or any(
+                name in mentioned for mentioned in cited | self._drawn_on)
 
     def _read_diagrams(self, paths: List[Path], record: EvidenceRecord) -> None:
         """Describe submitted diagrams. Several images of one flow are read as a sequence."""
@@ -222,8 +270,9 @@ class DocumentExtractor:
 
         self._calls += 1
         try:
-            reply = parse_json_object(self._describe_images(
-                prompt_loader.load(_SYSTEM_PROMPT), user, images, tier=config.JUDGEMENT))
+            reply = parse_json_object(call(
+                self._describe_images, prompt_loader.load(_SYSTEM_PROMPT), user,
+                tier=config.JUDGEMENT, images=images))
         except Exception as exc:
             self._failures += 1
             logger.warning("Could not read the diagrams: %s", exc)
@@ -289,55 +338,100 @@ class DocumentExtractor:
 
     # ------------------------------------------------------------------ resolution sweep
     def _resolve_unknowns(self, record: EvidenceRecord, corpus: str) -> None:
-        """Put what is still open back to the documents once, directly."""
-        outstanding = [(facet, unknown) for facet, unknown in record.open_unknowns()]
+        """Put what is still open back to the documents, then triage what survives.
+
+        Each pass takes only what the pass before it left open, so the questions narrow and the
+        prompt shortens. The final pass is told to rule on anything it still cannot answer:
+        whether a person has to settle it, or whether it would not change which scenarios exist.
+        That ruling is what keeps the list at the end of this short enough to be worked through.
+        """
+        for number in range(1, self._passes + 1):
+            outstanding = self._outstanding(record)
+            if not outstanding:
+                break
+            last = number == self._passes
+            self._settle_pass(record, corpus, outstanding, number, last)
+
+        if not any(a.triaged for a in record.answers):     # every sweep failed; ask everything
+            return
+        for answer in record.answers:
+            if not answer.triaged:
+                answer.must_ask = list(answer.unknowns)
+                answer.triaged = True
+
+    def _outstanding(self, record: EvidenceRecord) -> List[Tuple[str, str]]:
+        """What is still open: every unsettled point, plus every question with no answer at all."""
+        outstanding = list(record.open_unknowns())
         for facet in record.empty_facets():
             outstanding.append((facet, FACET_QUESTIONS.get(facet, "")))
-        outstanding = [(f, q) for f, q in outstanding if q.strip()]
-        if not outstanding:
-            return
+        seen, unique = set(), []
+        for facet, question in outstanding:
+            key = question.strip().lower()
+            if key and key not in seen:
+                seen.add(key)
+                unique.append((facet, question))
+        return unique
 
-        self._step(f"Looking again for {len(outstanding)} unanswered point(s)")
+    def _settle_pass(self, record: EvidenceRecord, corpus: str,
+                     outstanding: List[Tuple[str, str]], number: int, last: bool) -> None:
+        """One sweep: answer what the documents settle, and on the last pass rule on the rest."""
+        self._step(f"Looking again for {len(outstanding)} unanswered point(s)"
+                   + (f" (pass {number} of {self._passes})" if self._passes > 1 else ""))
         established = "\n\n".join(
             f"## {FACET_HEADINGS.get(a.facet, a.facet)}\n{a.answer}"
             for a in record.answers if a.is_answered and a.answer)
 
         reply = self._ask(_RESOLVE_PROMPT, established=established or "Nothing yet.",
                           questions="\n".join(f"- {q}" for _, q in outstanding),
-                          corpus=corpus)
+                          corpus=corpus,
+                          triage=prompt_loader.load("ingest.triage") if last else "")
         if reply is None:
             return
 
         by_question = {str(r.get("question", "")).strip().lower(): r
                        for r in (reply.get("resolved") or []) if isinstance(r, dict)}
-        settled = 0
+        settled, to_ask, set_aside = 0, 0, 0
 
         for facet, question in outstanding:
-            found = by_question.get(question.strip().lower())
-            if not found or str(found.get("status", "")).strip() != "answered":
-                continue
-            answer_text = str(found.get("answer", "")).strip()
-            if not answer_text:
-                continue
-
             target = record.answer_for(facet)
             if target is None:
                 continue
-            target.points = list(target.points) + [answer_text]
-            target.unknowns = [u for u in target.unknowns if u.strip().lower() != question.strip().lower()]
-            if not target.answer:
-                target.answer = answer_text
-            settled += 1
+            found = by_question.get(question.strip().lower())
+            status = str(found.get("status", "")).strip() if found else ""
 
-        if settled:
-            logger.info("A second look at the documents settled %d of %d outstanding point(s).",
-                        settled, len(outstanding))
+            if status == "answered" and str(found.get("answer", "")).strip():
+                answer_text = str(found["answer"]).strip()
+                target.points = list(target.points) + [answer_text]
+                target.unknowns = [u for u in target.unknowns
+                                   if u.strip().lower() != question.strip().lower()]
+                if not target.answer:
+                    target.answer = answer_text
+                settled += 1
+            elif last:
+                # Nothing settled it, so it is one of two kinds of leftover. Anything the sweep
+                # did not rule on is asked: an unjudged question quietly dropped is the one
+                # failure this whole arrangement exists to avoid.
+                if status == NOT_MATERIAL:
+                    set_aside += 1
+                else:
+                    target.must_ask = list(target.must_ask) + [question]
+                    to_ask += 1
+
+        if last:
+            for answer in record.answers:
+                answer.triaged = True
+
+        logger.info("Pass %d of %d settled %d of %d outstanding point(s) from the documents.",
+                    number, self._passes, settled, len(outstanding))
+        if last and (to_ask or set_aside):
+            logger.info("%d point(s) need a person; %d were judged not to change what gets "
+                        "tested and are recorded but not asked.", to_ask, set_aside)
 
     # ------------------------------------------------------------------ shared
     def _estimate_calls(self, corpus: Corpus) -> int:
-        parts = max(1, -(-len(corpus.text) // MAX_CORPUS_CHARS))
-        return len(FACET_GROUPS) * parts + (1 if corpus.diagrams else 0) + (1 if self._resolve
-                                                                            else 0)
+        parts = max(1, -(-len(corpus.text) // config.max_corpus_chars()))
+        sweeps = self._passes if self._resolve else 0
+        return len(FACET_GROUPS) * parts + (1 if corpus.diagrams else 0) + sweeps
 
     def _step(self, message: str) -> None:
         self._done += 1
@@ -349,11 +443,8 @@ class DocumentExtractor:
         user = prompt_loader.render(prompt, **values)
         system = prompt_loader.load(_SYSTEM_PROMPT)
         try:
-            try:
-                reply = self._complete(system, user, tier=config.JUDGEMENT)
-            except TypeError:                              # a stub without the keyword arguments
-                reply = self._complete(system, user)
-            return parse_json_object(reply)
+            return parse_json_object(
+                call(self._complete, system, user, tier=config.JUDGEMENT))
         except Exception as exc:
             self._failures += 1
             logger.warning("A reading call failed: %s", exc)
@@ -369,6 +460,19 @@ class DocumentExtractor:
 
 def _facet_guide() -> str:
     return "\n".join(f"- {key}: {description}" for key, description in FACETS.items())
+
+
+def _inventory(corpus: Corpus) -> str:
+    """The submitted pack listed by name, for the reading prompt.
+
+    Naming them makes the reading accountable for each one. A pack is otherwise read as a single
+    wall of text in which the longest document answers everything, and a vendor appendix that
+    contradicts the main document contributes nothing because nothing drew attention to it.
+    """
+    lines = [f"- {d.name} ({d.kind}, {d.units} sections)" if d.units else f"- {d.name} ({d.kind})"
+             for d in corpus.documents if d.kind != "unreadable"]
+    lines += [f"- {p.name} (diagram, read separately)" for p in corpus.diagrams]
+    return "\n".join(lines) or "- none"
 
 
 def _unanswered(facet: str) -> FacetAnswer:
@@ -409,10 +513,12 @@ def _merge(existing: Optional[FacetAnswer], addition: FacetAnswer) -> FacetAnswe
 
 def extract_documents(paths: Sequence[Path], complete: Optional[CompletionFn] = None,
                       progress: Optional[ProgressFn] = None, resolve: bool = True,
-                      describe_images: Optional[Callable[..., str]] = None) -> EvidenceRecord:
+                      describe_images: Optional[Callable[..., str]] = None,
+                      resolve_passes: Optional[int] = None) -> EvidenceRecord:
     """Read a submitted pack into a verified evidence record."""
     return DocumentExtractor(complete=complete, progress=progress, resolve=resolve,
-                             describe_images=describe_images).run(paths)
+                             describe_images=describe_images,
+                             resolve_passes=resolve_passes).run(paths)
 
 
 def record_to_json(record: EvidenceRecord, path: Path) -> None:

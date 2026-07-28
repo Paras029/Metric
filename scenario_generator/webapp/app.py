@@ -34,15 +34,21 @@ from ..core.intake import read_intake, write_template
 from ..core.models import MATERIALITY, IntakeData
 from ..ingest import open_questions, read_owner_library, record_from_json
 from ..ingest.context_document import FACET_HEADINGS
-from ..ingest.groups import (ALL_EXTENSIONS, GROUP_BY_KEY, GROUPS, OWNER_SCENARIOS,
-                             evidence_files, folder_for, files_in, owner_scenario_file)
+from ..ingest.groups import (ALL_EXTENSIONS, DEFAULT_GROUP, GROUP_BY_KEY, GROUPS, OWNER_SCENARIOS,
+                             evidence_files, folder_for, files_in, owner_scenario_file,
+                             remove_file)
+from ..ingest.owner_library import UnreadableLibrary
 from ..io import read_scenarios, write_challenge_pack, write_registry
 from ..llm import MaterialityAssessor, ScenarioReviewer, ScenarioWriter
 from ..pipeline import (build_scenarios, draft_intake_workbook, ingest_documents, map_coverage,
                         render_questions)
 from .graphview import graph_summary, render_svg
+from .scenarios import build_rows
 from .stages import RUNNING, STAGE_BY_KEY, STAGES, STATUS_LABELS, index_of
 from .workspace import Workspace, stage_view
+
+# Stages whose output is a set of scenarios, so the page shows them rather than only counts.
+SCENARIO_STAGES = ("text", "materiality", "review", "coverage", "issue")
 
 logger = logging.getLogger(__name__)
 
@@ -130,13 +136,16 @@ def _run_documents(workspace: Workspace, progress=None) -> Dict[str, object]:
     })
 
     counts = result.summary
-    unreadable = sum(1 for d in result.record.documents if d.kind == "unreadable")
-    return {"Documents read": counts["documents"] - unreadable,
+    unreadable = counts["documents"] - counts["readable"]
+    return {"Documents read": counts["readable"],
+            # Read and drawn on are different things, and the difference is the interesting one:
+            # a document that contributed to nothing was either irrelevant or passed over.
+            "Documents drawn on": f"{counts['drawn_on']} of {counts['readable']}",
             "Questions answered": f"{counts['answered']} of {len(FACETS)}",
             "Observations kept": counts["usable"],
             "Discarded as unsupported": counts["rejected"],
-            "Points left unsettled": counts["unknowns"],
-            "Questions unanswered": counts["empty_facets"],
+            "To put to the model owner": counts["to_ask"],
+            "Minor points, recorded not asked": counts["set_aside"],
             "Unreadable files": unreadable}
 
 
@@ -170,7 +179,7 @@ def _run_intake(workspace: Workspace) -> Dict[str, object]:
             raise ValueError(
                 "No intake workbook, and no documents have been read to draft one from. Either "
                 "upload a completed intake here, or add documents on the first stage.")
-        result = draft_intake_workbook(str(context), str(workspace.root / DRAFT_INTAKE))
+        draft_intake_workbook(str(context), str(workspace.root / DRAFT_INTAKE))
         workspace.state("intake").artifacts["workbook"] = DRAFT_INTAKE
         logger.info("Drafted an intake from the context document.")
 
@@ -192,11 +201,11 @@ def _run_benchmark(workspace: Workspace) -> Dict[str, object]:
             "Probes": probes}
 
 
-def _run_text(workspace: Workspace) -> Dict[str, object]:
+def _run_text(workspace: Workspace, progress=None) -> Dict[str, object]:
     """Write each scenario up for the team that owns the agent."""
     intake = _intake(workspace)
     scenarios = _scenarios(workspace, intake)
-    ScenarioWriter(context=_context(workspace)).write(scenarios, intake)
+    ScenarioWriter(context=_context(workspace), progress=progress).write(scenarios, intake)
     write_registry(str(workspace.root / REGISTRY), intake, scenarios)
     workspace.state("text").artifacts["registry"] = REGISTRY
 
@@ -204,11 +213,11 @@ def _run_text(workspace: Workspace) -> Dict[str, object]:
     return {"Scenarios written": written, "Turns scripted": sum(s.turn_count for s in scenarios)}
 
 
-def _run_materiality(workspace: Workspace) -> Dict[str, object]:
+def _run_materiality(workspace: Workspace, progress=None) -> Dict[str, object]:
     """Assign a tier to every scenario, with the redundancy signals in view."""
     intake = _intake(workspace)
     scenarios = _scenarios(workspace, intake)
-    MaterialityAssessor(context=_context(workspace)).assess(scenarios, intake)
+    MaterialityAssessor(context=_context(workspace), progress=progress).assess(scenarios, intake)
     write_registry(str(workspace.root / REGISTRY), intake, scenarios)
     workspace.state("materiality").artifacts["registry"] = REGISTRY
 
@@ -216,11 +225,11 @@ def _run_materiality(workspace: Workspace) -> Dict[str, object]:
     return {tier: tiers.get(tier, 0) for tier in MATERIALITY}
 
 
-def _run_review(workspace: Workspace) -> Dict[str, object]:
+def _run_review(workspace: Workspace, progress=None) -> Dict[str, object]:
     """One pass over the whole benchmark, then rebuild the pack so its verdict actually lands."""
     intake = _intake(workspace)
     scenarios = _scenarios(workspace, intake)
-    reviewer = ScenarioReviewer(context=_context(workspace))
+    reviewer = ScenarioReviewer(context=_context(workspace), progress=progress)
     scenarios, proposals = reviewer.review(scenarios, intake)
     scenarios = list(scenarios) + list(proposals)
 
@@ -246,18 +255,38 @@ def _run_issue(workspace: Workspace) -> Dict[str, object]:
 
 
 def _run_coverage(workspace: Workspace) -> Dict[str, object]:
-    """Match the model owner's own scenario library against this benchmark."""
+    """Match the model owner's own scenario library against this benchmark.
+
+    The file may have arrived on either stage -- with the rest of the pack, or here on its own --
+    so both places are checked before the stage refuses to run.
+    """
     owner = owner_scenario_file(workspace.root) or workspace.artifact_path(
         "coverage", "owner_scenarios")
     if not owner:
         raise ValueError(
-            "No scenario library from the model owner. Add one on the documents stage under "
-            "'Their own test scenarios', or skip this stage if they submitted none.")
+            "No scenario library from the model owner. Upload one here, or add it on the documents "
+            "stage under 'Their own test scenarios'. Skip this stage if they submitted none.")
 
     intake_path = workspace.artifact_path("intake", "workbook")
-    result = map_coverage(str(intake_path), str(workspace.root / REGISTRY), str(owner),
-                          str(workspace.root / OVERLAP))
+    if not intake_path:
+        raise ValueError("No intake workbook yet. Provide one at the intake stage.")
+    if not (workspace.root / REGISTRY).exists():
+        raise ValueError("Build the benchmark first — there is nothing to match their scenarios "
+                         "against.")
+
+    try:
+        result = map_coverage(str(intake_path), str(workspace.root / REGISTRY), str(owner),
+                              str(workspace.root / OVERLAP))
+    except UnreadableLibrary as exc:
+        # Their file, not our pipeline. Say which file and what was wrong with it, because the
+        # fix is to ask them for a clearer one rather than to change anything here.
+        raise ValueError(
+            f"'{Path(owner).name}' could not be read as a list of scenarios: {exc} Their file "
+            f"needs one row or numbered line per scenario, with a description of at least a few "
+            f"words. Send it back and ask for that, or attach a tidied copy here.") from exc
+
     workspace.state("coverage").artifacts["report"] = OVERLAP
+    workspace.state("coverage").artifacts["registry"] = REGISTRY
 
     return {"Benchmark scenarios": result.benchmark,
             "Covered by their testing": result.covered,
@@ -346,28 +375,53 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             questions=_questions_for(workspace) if key == "questions" else [],
             answered=workspace.answered_questions(),
             answers=_answers_for(workspace) if key == "documents" else [],
-            groups=_group_rows(workspace) if key == "documents" else [],
+            groups=_group_rows(workspace, key),
+            benchmark=_benchmark_for(workspace, key),
+            materiality_tiers=MATERIALITY,
             produced={n: p for n, p in workspace.state(key).artifacts.items()
                       if not str(p).startswith("sources/")},
         )
 
-    def _group_rows(workspace: Workspace):
-        """What has been submitted under each heading, so gaps in the pack are visible."""
+    def _group_rows(workspace: Workspace, key: str):
+        """What has been submitted under each heading, so gaps in the pack are visible.
+
+        The coverage stage shows only the model owner's own scenarios: it is the one thing that
+        stage consumes, and the rest of the pack is not its business.
+        """
+        if key == "documents":
+            wanted = GROUPS
+        elif key == "coverage":
+            wanted = tuple(g for g in GROUPS if g.key == OWNER_SCENARIOS)
+        else:
+            return []
+
         rows = []
-        for group in GROUPS:
+        for group in wanted:
             files = files_in(workspace.root, group.key)
-            row = {"group": group, "files": [f.name for f in files], "note": ""}
+            row = {"group": group, "files": [f.name for f in files], "note": "", "problem": False}
             if group.key == OWNER_SCENARIOS and files:
-                # Say how it was read now rather than at the coverage stage, while there is still
-                # time to send a clearer file.
+                # Say how it was read now rather than when coverage runs, while there is still
+                # time to ask them for a clearer file.
                 try:
                     found, how = read_owner_library(files[0])
                     plural = "" if len(found) == 1 else "s"
                     row["note"] = f"{len(found)} scenario{plural} found — {how}"
                 except Exception as exc:
-                    row["note"] = f"Could not be read as a scenario list: {exc}"
+                    row["note"] = f"This cannot be read as a scenario list: {exc}"
+                    row["problem"] = True
             rows.append(row)
         return rows
+
+    def _benchmark_for(workspace: Workspace, key: str):
+        """The scenarios as the page shows them, once there are any."""
+        if key not in SCENARIO_STAGES or not (workspace.root / REGISTRY).exists():
+            return None
+        try:
+            scenarios = _scenarios(workspace, _intake(workspace))
+        except Exception as exc:                           # never blank the page over this
+            logger.warning("Could not read the benchmark for display: %s", exc)
+            return None
+        return build_rows(scenarios, request.args.get("view", "attention"))
 
     def _answers_for(workspace: Workspace):
         """One row per question, so the reader can see coverage at a glance."""
@@ -406,57 +460,104 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/<key>/upload", methods=["POST"])
     def upload(key: str):
-        """Attach a file to a stage.
+        """Attach files to a stage.
 
-        The documents stage takes the submitted pack, which lives in its own folder so that
-        reading it later means reading a directory rather than guessing which of the workspace's
-        files were the source material. The intake and coverage stages take one workbook each.
+        Everything the model owner sent lands in ``sources/<group>/``, whichever stage it was
+        added from, so reading the pack later means reading a directory rather than guessing which
+        of the workspace's files were source material. A file submitted without a stated kind goes
+        to supporting material: the alternative was dropping it in the workspace root, where
+        nothing ever looked for it again.
+
+        Uploading is never the same as having produced a result. The stage stays ready and its
+        runner is what completes it -- for the intake that means the workbook is read and its
+        shape reported, and for coverage it means the match has actually run.
         """
         workspace = _workspace()
         uploads = [f for f in request.files.getlist("files") if f and f.filename]
         if not uploads:
             return redirect(url_for("stage", key=key))
 
-        group = request.form.get("group", "")
-        if key == "documents" and group in GROUP_BY_KEY:
-            target = folder_for(workspace.root, group)
+        group = request.form.get("group", "") or (
+            OWNER_SCENARIOS if key == "coverage" else DEFAULT_GROUP)
+        if key == "intake":
+            target = workspace.root
         else:
-            target = workspace.root / "."
+            group = group if group in GROUP_BY_KEY else DEFAULT_GROUP
+            target = folder_for(workspace.root, group)
         target.mkdir(parents=True, exist_ok=True)
 
-        stored = []
+        stored, refused = [], []
         for upload_file in uploads:
             name = secure_filename(upload_file.filename)
             if Path(name).suffix.lower() not in UPLOAD_EXTENSIONS:
+                refused.append(upload_file.filename)
                 continue
-            upload_file.save(target / name)
+            upload_file.save(str(target / name))
             stored.append(name)
 
         if not stored:
-            workspace.mark_failed(key, "No file with a supported extension was uploaded.")
+            workspace.mark_failed(key, _refusal(refused))
             return redirect(url_for("stage", key=key))
 
         if key == "intake":
             workspace.state("intake").artifacts["workbook"] = stored[0]
-        elif key == "coverage":
-            workspace.state("coverage").artifacts["owner_scenarios"] = stored[0]
-        elif key == "documents" and group in GROUP_BY_KEY:
+        else:
             for name in stored:
                 workspace.state("documents").artifacts[name] = f"sources/{group}/{name}"
 
-        # Uploading is not the same as having read them. The documents stage completes when its
-        # runner has actually read the pack, so adding a file leaves the stage ready rather than
-        # claiming a result nobody produced.
-        if key == "documents":
-            workspace.save()
-            return redirect(url_for("stage", key=key))
-
-        invalidated = workspace.complete(
-            key, summary={"Files": len(stored)},
-            note=f"{len(stored)} file{'s' if len(stored) != 1 else ''} added.")
+        # Adding source material invalidates whatever was built from the material before it.
+        invalidated = workspace.invalidate_after("documents" if key != "intake" else "intake")
         workspace.save()
         return redirect(url_for("stage", key=key,
                                 invalidated=", ".join(s.title for s in invalidated)))
+
+    @app.route("/stage/<key>/remove", methods=["POST"])
+    def remove_upload(key: str):
+        """Take a submitted file back out of the pack.
+
+        A file uploaded to the wrong group, or superseded by a corrected copy, otherwise stays in
+        the corpus for the rest of the workspace's life with no way to withdraw it.
+        """
+        workspace = _workspace()
+        group, name = request.form.get("group", ""), request.form.get("name", "")
+        if group in GROUP_BY_KEY and remove_file(workspace.root, group, name):
+            workspace.state("documents").artifacts.pop(Path(name).name, None)
+            workspace.invalidate_after("documents")
+            workspace.save()
+        return redirect(url_for("stage", key=key))
+
+    @app.route("/stage/<key>/scenario/<scenario_id>", methods=["POST"])
+    def rule_on_scenario(key: str, scenario_id: str):
+        """Record the reviewer's ruling on one scenario, straight into the registry.
+
+        Two rulings, both already columns the registry carries. An override sets materiality and
+        outranks every model pass, which is what makes the tiers a recommendation rather than a
+        verdict. Clearing a flag says the review's concern has been considered and dismissed --
+        the concern was never able to remove anything, so dismissing it removes only the marker.
+        """
+        workspace = _workspace()
+        intake = _intake(workspace)
+        scenarios = _scenarios(workspace, intake)
+        scenario = next((s for s in scenarios if s.id == scenario_id), None)
+        if scenario is None:
+            abort(404)
+
+        ruling = (request.form.get("materiality") or "").strip().title()
+        if ruling in MATERIALITY:
+            scenario.materiality_override = ruling
+        elif ruling == "Clear":
+            scenario.materiality_override = ""
+        if request.form.get("clear_flag"):
+            scenario.review_flag = ""
+
+        write_registry(str(workspace.root / REGISTRY), intake, scenarios)
+
+        # The pack's run counts come from materiality, so a pack written before this ruling no
+        # longer reflects it. Saying so beats letting a stale workbook look current.
+        workspace.invalidate_after("review")
+        workspace.save()
+        return redirect(url_for("stage", key=key, view=request.form.get("view", "attention"),
+                                _anchor=scenario_id))
 
     @app.route("/stage/<key>/run", methods=["POST"])
     def run_stage(key: str):
@@ -557,5 +658,19 @@ def _execute(root: Path, key: str) -> None:
 
 
 def _takes_progress(key: str) -> bool:
-    """Only the long stages report progress; the rest finish before a bar would be drawn."""
-    return key in ("documents",)
+    """Which stages report progress: the ones that make many model calls.
+
+    Reading documents was the only long stage while benchmarks were small. Writing, weighing and
+    reviewing three hundred scenarios is dozens of batched calls each, and a stage that shows
+    nothing for four minutes is indistinguishable from one that has died.
+    """
+    return key in ("documents", "text", "materiality", "review")
+
+
+def _refusal(names) -> str:
+    """Why nothing was stored, named precisely enough to act on."""
+    if not names:
+        return "No file was uploaded."
+    supported = ", ".join(sorted(UPLOAD_EXTENSIONS))
+    return (f"Nothing was stored. {', '.join(names)} — this reads {supported}. A .doc or .xls from "
+            f"an older Office version needs saving as .docx or .xlsx first.")

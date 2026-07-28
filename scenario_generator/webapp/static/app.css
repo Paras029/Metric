@@ -727,48 +727,228 @@ ol, ul { list-style: none; padding: 0; }
 .upload--extra { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--line-soft); }
 
 /* ------------------------------------------------------------------ submitted material
- * One box per kind of thing the model owner sends. Keeping them apart is not tidiness: each is
- * read a different way, and what has arrived under each heading is the clearest statement of
- * what is still missing from the pack.
+ * One card per kind of thing the model owner sends. Keeping them apart is not tidiness: each is
+ * read a different way, and what has arrived under each heading is the clearest statement of what
+ * is still missing from the pack. Two to a row, so the whole pack is one glance rather than a
+ * scroll, and each card is its own drop target because dragging four files onto a heading is what
+ * the person doing this actually has in their hand.
  */
-.dropzone {
-  margin-top: 1rem;
-  padding: .9rem 1rem 1rem;
-  border: 1px dashed #C3D2E6;
+.drops {
+  margin-top: 1.1rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  gap: 1rem;
+}
+.drop {
+  border: 1px solid var(--line);
   border-radius: var(--radius);
+  background: var(--paper);
+  overflow: hidden;
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+.drop--filled { border-color: #C7E3D6; }
+.drop--problem { border-color: #F0C9C6; }
+.drop__form { margin: 0; }
+
+.drop__target {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: .3rem;
+  padding: 1.5rem 1.1rem 1.25rem;
+  border-bottom: 1px dashed var(--line);
   background: linear-gradient(180deg, #FBFCFE, var(--paper));
+  cursor: pointer;
 }
-.dropzone__head { display: flex; align-items: baseline; gap: .6rem; }
-.dropzone__title { font-weight: 620; font-size: .9rem; color: var(--deep); }
-.dropzone__count {
-  font-size: .7rem;
-  padding: .08rem .4rem;
-  border-radius: 10px;
-  background: #E8F6F0;
-  color: var(--verified);
-}
-.dropzone__blurb { margin-top: .25rem; font-size: .84rem; color: var(--ink-soft); max-width: 42rem; }
-.dropzone__files { margin-top: .6rem; }
-.dropzone__files li {
-  font-size: .82rem;
-  color: var(--ink-soft);
-  padding: .18rem 0 .18rem .9rem;
-  position: relative;
-}
-.dropzone__files li::before {
-  content: "";
+.drop__target:hover { background: #F7FAFE; }
+.drop--over .drop__target { background: #EAF4FE; }
+.drop--over { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(0, 111, 207, .12); }
+
+/* The input is the drop target and the click target; hiding it visually rather than with
+   display:none keeps it reachable from the keyboard. */
+.drop__input {
   position: absolute;
-  left: 0; top: .62rem;
-  width: .3rem; height: .3rem;
-  border-radius: 50%;
-  background: var(--verified);
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
-.dropzone__note {
-  margin-top: .5rem;
+.drop__input:focus-visible + .drop__glyph { outline: 2px solid var(--blue); outline-offset: 3px; }
+
+.drop__glyph { width: 2rem; height: 2rem; color: var(--blue); }
+.drop--filled .drop__glyph { color: var(--verified); }
+.drop--problem .drop__glyph { color: var(--rejected); }
+.drop__title { font-weight: 620; font-size: .92rem; color: var(--deep); }
+.drop__blurb {
   font-size: .8rem;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  max-width: 26rem;
+}
+.drop__hint { margin-top: .35rem; font-size: .8rem; font-weight: 600; color: var(--blue); }
+.drop--filled .drop__hint { color: var(--verified); }
+.drop__types { font-size: .68rem; color: var(--ink-faint); letter-spacing: .02em; }
+
+/* Only needed where the browser blocks a form submitting on its own; otherwise choosing a file
+   submits, and this is the fallback that keeps the card usable either way. */
+.drop__submit { margin: .75rem 1.1rem; }
+.drop__form--auto .drop__submit { display: none; }
+
+.drop__files { padding: .35rem 1.1rem .2rem; }
+.drop__file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem;
+  padding: .3rem 0;
+  font-size: .8rem;
+  color: var(--ink-soft);
+  border-bottom: 1px solid var(--line-soft);
+}
+.drop__file:last-child { border-bottom: 0; }
+.drop__file form { margin: 0; }
+.drop__file span { overflow-wrap: anywhere; }
+.drop__remove {
+  font: inherit;
+  font-size: .72rem;
   color: var(--ink-faint);
-  padding: .35rem .6rem;
+  background: none;
+  border: 0;
+  padding: .1rem .3rem;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.drop__remove:hover { color: var(--rejected); background: #FCEDEC; }
+
+.drop__note {
+  margin: .2rem 1.1rem 1rem;
+  font-size: .78rem;
+  color: var(--ink-faint);
+  padding: .4rem .6rem;
   background: var(--ground);
   border-radius: 4px;
 }
-.dropzone .upload { margin-top: .75rem; }
+.drop__note--problem { background: #FCEDEC; color: var(--rejected); }
+
+.upload__note { font-size: .78rem; color: var(--ink-faint); }
+
+/* ------------------------------------------------------------------ the benchmark on screen
+ * A benchmark of three hundred scenarios is triaged, not read, so the default view is whatever
+ * is asking for a decision. Each row is one line until opened. What is deliberately absent is
+ * the route, the seeded state and the expected outcome: those belong in the registry, and a page
+ * that puts the answer beside the question is a page somebody eventually forwards.
+ */
+.switch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .4rem;
+  margin-top: 1.1rem;
+  padding-bottom: .8rem;
+  border-bottom: 1px solid var(--line-soft);
+}
+.switch__option {
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  text-decoration: none;
+  padding: .28rem .7rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+}
+.switch__option:hover { border-color: var(--blue); color: var(--blue); }
+.switch__option--on { background: var(--deep); border-color: var(--deep); color: #fff; }
+.switch__count { margin-left: auto; font-size: .78rem; color: var(--ink-faint); }
+
+.cards { margin-top: .3rem; }
+.card { border-bottom: 1px solid var(--line-soft); }
+.card__body > summary { list-style: none; }
+.card__body > summary::-webkit-details-marker { display: none; }
+
+.card__head {
+  display: flex;
+  align-items: baseline;
+  gap: .7rem;
+  padding: .65rem .2rem;
+  cursor: pointer;
+}
+.card__head:hover { background: #F9FBFE; }
+.card__id { font-size: .76rem; color: var(--ink-faint); flex: none; }
+.card__title {
+  font-size: .88rem;
+  color: var(--ink);
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.card__marks { display: flex; flex-wrap: wrap; gap: .3rem; flex: none; }
+
+.mark {
+  font-size: .68rem;
+  font-weight: 650;
+  letter-spacing: .03em;
+  padding: .1rem .42rem;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.mark--flag { background: #FDF0D8; color: var(--attention); }
+.mark--new { background: #E7F1FC; color: var(--blue-dark); }
+.mark--covered { background: #E8F6F0; color: var(--verified); }
+.mark--tier { background: var(--ground); color: var(--ink-soft); }
+.mark--tier-critical { background: #FCEDEC; color: var(--rejected); }
+.mark--tier-high { background: #FDF0D8; color: var(--attention); }
+
+.card__detail { padding: .2rem .2rem 1.1rem; max-width: 52rem; }
+.card__label {
+  margin-top: .8rem;
+  font-size: .72rem;
+  font-weight: 650;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.card__text { font-size: .88rem; color: var(--ink-soft); line-height: 1.6; }
+.card__text--plan { white-space: pre-line; }
+.card__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  margin-top: .8rem;
+  font-size: .76rem;
+  color: var(--ink-faint);
+}
+.card__facts span::after { content: " ·"; }
+.card__facts span:last-child::after { content: ""; }
+
+.card__why {
+  margin-top: .6rem;
+  padding: .5rem .75rem;
+  font-size: .82rem;
+  color: var(--ink-soft);
+  background: var(--ground);
+  border-left: 2px solid var(--line);
+  border-radius: 0 4px 4px 0;
+}
+.card__why--flag { background: #FDF6E7; border-color: var(--attention); }
+
+.card__rule {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .6rem;
+  margin-top: .9rem;
+  padding-top: .8rem;
+  border-top: 1px solid var(--line-soft);
+}
+.card__rule-label { font-size: .78rem; color: var(--ink-faint); }
+.card__select {
+  font: inherit;
+  font-size: .82rem;
+  padding: .28rem .5rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+}
+.card__check { display: flex; align-items: center; gap: .3rem; font-size: .8rem; color: var(--ink-soft); }
+.card__empty { margin-top: 1rem; font-size: .86rem; color: var(--ink-faint); }

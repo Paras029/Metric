@@ -7,6 +7,16 @@ you miss is a fact nobody tests, and nobody finds out.
 You have the complete documentation the modelling team submitted, below. Read all of it and
 answer the questions in this section.
 
+WHAT WAS SUBMITTED
+
+{{documents}}
+
+Every one of these was sent because someone thought it bore on the agent. Read all of them, not
+only the longest. The main document describes the intended design; the rest is where the
+exceptions live — a vendor limitation, a policy extract that overrides the general rule, a
+spreadsheet of thresholds, a deck that states what the prose only implies. A pack read as though
+it were its largest file misses exactly the material that makes a benchmark worth having.
+
 THE QUESTIONS
 
 {{questions}}
@@ -59,16 +69,39 @@ An object keyed by the question ids given above. For each:
 - `points`: the same substance as itemised, self-contained statements — one fact, rule, step,
   branch or threshold each. This is what the intake is built from, so favour precision and
   granularity: a dozen exact points beats three broad ones.
-- `unknowns`: specific things this question needs and the documents did not settle. Write each as
-  the question you would put to the team that submitted them.
+- `unknowns`: at most three per question, and only where the missing fact would change which
+  scenarios get written or how one of them is judged. Write each as the question you would put to
+  the team that submitted the documents.
 - `evidence`: list of `{"quote": "...", "document": "...", "locator": "..."}`.
 - `confidence`: `High`, `Medium` or `Low` — how completely the documents answer the question.
+
+WHAT COUNTS AS AN UNKNOWN
+
+A high bar, because every one of these ends up in front of a person who has to chase it. Raise it
+only where not knowing changes the testing:
+
+- a branch whose outcomes are not stated, so the routes through it cannot be enumerated
+- a threshold or limit that decides between two behaviours
+- a rule the agent must honour where the documents say it exists but not what it says
+- a hand-off to a person where the trigger is not stated
+
+Do not raise a missing detail that would not change a scenario: an internal implementation choice,
+a version number, who owns a system, wording the documents merely paraphrase. Where the documents
+are simply thinner on a question than you would like, say so through `confidence` — that is what
+it is for.
+
+ACCOUNTING FOR THE PACK
+
+Return `documents_used`: the names, exactly as listed above, of every document any part of your
+answers rests on. Judge it honestly. A document listed there and not actually used is worse than
+one honestly omitted, because the omission gets investigated and the false entry does not.
 
 OUTPUT
 
 Return ONLY a JSON object of the form:
 
-{"question_id": {"answer": "...", "points": ["..."], "unknowns": ["..."],
+{"documents_used": ["..."],
+"question_id": {"answer": "...", "points": ["..."], "unknowns": ["..."],
 "evidence": [{"quote": "...", "document": "...", "locator": "..."}], "confidence": "Medium"}}
 
 Include every question id, even where the answer is empty and the unknowns say what is needed. No

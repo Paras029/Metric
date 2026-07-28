@@ -28,12 +28,14 @@ from ..core.models import (CATEGORIES, MATERIALITY, IntakeData, OwnerScenario, S
 from ..core.proposals import instantiate_proposals
 from ..utils import chunks, parse_json_object
 from . import config, prompt_loader
+from .calling import call
 from .context import describe_graph, describe_use_case, digest, supplementary_context
 from .gateway import ask_llm
 
 logger = logging.getLogger(__name__)
 
 CompletionFn = Callable[..., str]
+ProgressFn = Callable[..., None]
 
 DEFAULT_PROPOSAL_LIMIT = 15
 DEFAULT_BATCH_SIZE = 6
@@ -84,11 +86,13 @@ class NullReviewer:
 
 class ScenarioReviewer:
     def __init__(self, complete: CompletionFn = None, batch_size: int = DEFAULT_BATCH_SIZE,
-                 context: str = "", proposal_limit: int = DEFAULT_PROPOSAL_LIMIT) -> None:
+                 context: str = "", proposal_limit: int = DEFAULT_PROPOSAL_LIMIT,
+                 progress: ProgressFn = None) -> None:
         self._complete = complete or ask_llm
         self._batch = batch_size
         self._context = context
         self._limit = proposal_limit
+        self._progress = progress or (lambda *args, **kwargs: None)
 
     def review(self, scenarios: List[Scenario], intake: IntakeData,
                owner_scenarios: Optional[List[OwnerScenario]] = None
@@ -99,9 +103,20 @@ class ScenarioReviewer:
         shared = {"total": len(scenarios), "digest": digest(scenarios),
                   "owner": _owner_block(owner_scenarios)}
 
+        # One step per batch plus one for the proposal call, so the bar reflects the whole pass
+        # rather than reaching the end and then sitting there through the longest single call.
+        total = len(list(chunks(scenarios, self._batch))) + 1
+        done = 0
         for chunk in chunks(scenarios, self._batch):
             self._assess_batch(chunk, preamble, shared, signals)
-        return scenarios, self._propose(intake, preamble, shared)
+            done += 1
+            self._progress(f"Reviewed {min(done * self._batch, len(scenarios))} of "
+                           f"{len(scenarios)} scenarios", done, total)
+
+        self._progress("Looking for what enumeration could not reach", done, total)
+        proposals = self._propose(intake, preamble, shared)
+        self._progress("Review complete", total, total)
+        return scenarios, proposals
 
     def _preamble(self, intake: IntakeData) -> str:
         """Everything needed before a single scenario is seen. Built from the intake, so a
@@ -124,11 +139,8 @@ class ScenarioReviewer:
 
     def _call(self, user: str) -> str:
         """Judgement budgets: this pass reasons at length and must justify every verdict."""
-        system = prompt_loader.load(_SYSTEM_PROMPT)
-        try:
-            return self._complete(system, user, tier=config.JUDGEMENT)
-        except TypeError:                          # a stub completion without the keywords
-            return self._complete(system, user)
+        return call(self._complete, prompt_loader.load(_SYSTEM_PROMPT), user,
+                    tier=config.JUDGEMENT)
 
     def _assess_batch(self, chunk: List[Scenario], preamble: str, shared: dict,
                       signals: dict) -> None:

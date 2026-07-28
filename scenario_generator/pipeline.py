@@ -238,7 +238,8 @@ class IngestResult:
 
 def ingest_documents(source_paths: Sequence[str], output_prefix: str,
                      extractor: Optional[DocumentExtractor] = None,
-                     progress: Optional[Callable[[str], None]] = None) -> IngestResult:
+                     progress: Optional[Callable[[str], None]] = None,
+                     resolve_passes: Optional[int] = None) -> IngestResult:
     """Stage 0: read submitted documents into verified evidence, context and open questions.
 
     Writes three files under ``output_prefix``: the evidence record, the cited context document
@@ -246,7 +247,7 @@ def ingest_documents(source_paths: Sequence[str], output_prefix: str,
     Every claim in the record was checked against the passage it cites; anything unsupported was
     discarded before it got here.
     """
-    extractor = extractor or DocumentExtractor(progress=progress)
+    extractor = extractor or DocumentExtractor(progress=progress, resolve_passes=resolve_passes)
     record = extractor.run([Path(p) for p in source_paths])
 
     evidence_path = f"{output_prefix}_evidence.json"
@@ -327,10 +328,8 @@ def annotate_coverage(registry_path: str, intake: IntakeData, matches) -> int:
     scenarios = read_scenarios(registry_path, intake)
     verdicts = {}
     for match in matches:
-        scenario_id = getattr(match, "benchmark_id", "") or getattr(match, "scenario_id", "")
-        verdict = str(getattr(match, "verdict", "") or "")
-        if scenario_id and verdict:
-            verdicts[scenario_id] = (verdict, str(getattr(match, "owner_id", "") or ""))
+        if match.scenario_id and match.verdict:
+            verdicts[match.scenario_id] = (match.verdict, match.owner.id)
 
     annotated = 0
     for scenario in scenarios:

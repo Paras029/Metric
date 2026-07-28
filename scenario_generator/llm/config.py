@@ -83,6 +83,22 @@ FAST = _tier("fast", "LLM_FAST", 8_000, "minimal")
 # worse, so the number is set to make that rare.
 MAX_CORPUS_CHARS = int(os.getenv("LLM_MAX_CORPUS_CHARS", "2000000"))
 
+
+def max_corpus_chars() -> int:
+    """The corpus limit, read at the point of use.
+
+    A function rather than the constant above because the interface runs for hours and a value
+    fixed at import cannot be changed without a restart.
+    """
+    return int(os.getenv("LLM_MAX_CORPUS_CHARS", str(MAX_CORPUS_CHARS)))
+
+
+# How many times a question the first reading left open is put back to the documents before it is
+# put to the modelling team. Each pass is one call over the whole corpus, and each one that lands
+# saves the team a question. The last pass also triages what is left: a question only a person can
+# answer is worth asking, and one that does not change what gets tested is not worth anyone's time.
+INGEST_RESOLVE_PASSES = int(os.getenv("LLM_INGEST_RESOLVE_PASSES", "2"))
+
 # Kept for callers that still read the older names.
 DEFAULT_MAX_TOKENS = STANDARD.max_tokens
 JUDGEMENT_MAX_TOKENS = JUDGEMENT.max_tokens

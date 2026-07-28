@@ -85,10 +85,15 @@ class TestCorpus(unittest.TestCase):
 
 class TestReading(unittest.TestCase):
     def test_a_pack_is_read_in_a_handful_of_calls(self):
-        """Three reading calls and one resolution sweep, however long the document is."""
+        """Three reading calls and two resolution sweeps, however long the document is.
+
+        The number matters because it used to be roughly thirty, one per passage. It is fixed by
+        how many groups of questions there are and how many times what is still open is put back
+        to the documents -- not by the length of the pack.
+        """
         calls = []
         extract_documents([_write("notes.md", _SCATTERED)], complete=_stub(calls=calls))
-        self.assertLessEqual(len(calls), 4, f"expected a handful of calls, made {len(calls)}")
+        self.assertLessEqual(len(calls), 5, f"expected a handful of calls, made {len(calls)}")
 
     def test_scattered_facts_are_assembled_into_one_answer(self):
         record = extract_documents([_write("notes.md", _SCATTERED)], complete=_stub())

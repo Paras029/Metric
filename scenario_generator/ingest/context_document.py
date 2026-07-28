@@ -71,6 +71,10 @@ def build_context_document(record: EvidenceRecord, use_case_name: str = "") -> s
             detail = (f"{document.kind}, {document.units} sections" if document.units
                       else document.kind)
             note = f" — {document.note}" if document.note else ""
+            # Said per document rather than only in aggregate: a submitted file that informed
+            # nothing is either irrelevant or overlooked, and which of the two it is matters.
+            if document.kind != "unreadable" and not document.drawn_on:
+                note += " — *nothing below rests on this document*"
             lines.append(f"- **{document.name}** ({detail}){note}")
     else:
         lines.append("- none")
@@ -128,6 +132,10 @@ def open_questions(record: EvidenceRecord) -> List[dict]:
     answer could not settle is a gap inside an otherwise good answer, and is usually the more
     useful of the two, since it is precise enough to be answered in a sentence. A statement that
     could not be checked against text needs confirming before anything rests on it.
+
+    Only the unknowns the resolution sweep judged to need a person appear here. The rest stay in
+    the evidence record and in the context document, where they are a note on how complete the
+    documentation is rather than a task for anybody.
     """
     questions: List[dict] = []
     unanswered = set(record.empty_facets())
@@ -146,7 +154,7 @@ def open_questions(record: EvidenceRecord) -> List[dict]:
     # adding anything to answer. Only a facet that *was* answered has unknowns worth raising
     # separately, because those are the specific points a good answer could not settle.
     seen = {q["question"].strip().lower() for q in questions}
-    for facet, unknown in record.open_unknowns():
+    for facet, unknown in record.questions_for_people():
         if facet in unanswered or unknown.strip().lower() in seen:
             continue
         seen.add(unknown.strip().lower())
