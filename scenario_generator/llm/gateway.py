@@ -1,22 +1,31 @@
-"""Model calls, built as LangChain chains and run through SafeChain.
+"""Model calls, built as LangChain chains.
 
-SafeChain owns authentication, token refresh and the request body each model expects, and hands
-back a LangChain chat model. That removes the three things that used to fail mid-run and had to
-be handled here: a token expiring in the middle of a long ingestion, a gateway rejecting a payload
-shaped for a different provider, and a 401 that meant "stale" rather than "wrong". None of that is
-this module's business any more, and the code for it is gone rather than kept as a fallback --
-two paths to the same call is how they drift apart.
+SafeChain does one thing for this package: given a model name, it returns a LangChain chat model,
+already authenticated and already knowing the request body that model expects. That is the whole
+of its surface here — one call, ``model(name)``. Everything after it is LangChain, and everything
+after it is written to LangChain's documented interfaces rather than to anything SafeChain adds on
+top. A wrapper's conveniences change between releases; the Runnable interface underneath does not.
 
-What is left is small: turn a system prompt and a user message into a chain, and invoke it.
+So each call is an ordinary LCEL chain:
 
-    prompt | model  ->  invoke  ->  text
+    prompt | model | StrOutputParser()
 
-**Prompts are passed as messages rather than as templates, deliberately.** LangChain's tuple form
--- ``("system", text)`` -- runs the text through an f-string parser, and every prompt in this
-package ends with a JSON output specification. ``{"resolved": [{"question": "..."}]}`` is not a
-template variable, and handing it to that parser raises before a single call is made. Substitution
-happens in :mod:`scenario_generator.llm.prompt_loader`, which uses a doubled-brace form precisely
-so that literal braces survive, and what arrives here is finished text.
+with the pieces doing exactly what their documentation says. ``bind`` fixes the generation
+parameters on the model. ``with_retry`` handles a gateway that is busy rather than a request that
+is wrong. ``StrOutputParser`` turns the reply message into text, including the case where a model
+returns its content as a list of parts. None of that is reimplemented here.
+
+Taking SafeChain's authentication also removed the three failures that used to be this module's
+problem: a token expiring in the middle of a long ingestion, a gateway rejecting a payload shaped
+for a different provider, and a 401 that meant "stale" rather than "wrong". The code for those is
+deleted rather than kept as a fallback, because two paths to the same call is how they drift.
+
+**Prompts are passed as messages, not as templates.** LangChain's tuple form -- ``("system",
+text)`` -- runs the text through an f-string parser, and nine of the prompts in this package end
+with a JSON output specification. ``{"resolved": [{"question": "..."}]}`` is not a template
+variable, and handing it to that parser raises before a single call is made. Substitution happens
+in :mod:`scenario_generator.llm.prompt_loader`, which uses a doubled-brace form precisely so that
+literal braces survive, and what arrives here is finished text.
 """
 from __future__ import annotations
 
@@ -26,13 +35,11 @@ import threading
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import config
-from .calling import accepts
 
 logger = logging.getLogger(__name__)
 
-# Transient failures are the gateway being busy rather than the request being wrong, so they are
-# retried with backoff. Anything the model rejects on its merits is raised: repeating a malformed
-# request only wastes the time it takes to fail again.
+# Retries cover a gateway that is busy or briefly unreachable. Anything the model rejects on its
+# merits is raised: repeating a malformed request only wastes the time it takes to fail again.
 MAX_ATTEMPTS = 4
 
 _models: Dict[Tuple, Any] = {}
@@ -40,15 +47,15 @@ _lock = threading.Lock()
 
 
 class ModelUnavailable(RuntimeError):
-    """SafeChain could not be loaded or could not build the requested model."""
+    """SafeChain could not be loaded, or did not return a usable LangChain model."""
 
 
 def _load_safechain():
-    """Import SafeChain, with the environment prepared first.
+    """Import SafeChain's ``model`` factory, with the environment prepared first.
 
-    Imported here rather than at module load so that the command line, the tests and the interface
-    all start without it. Only a pass that actually calls a model needs it, which keeps a missing
-    or unapproved package from taking down the whole tool.
+    Imported here rather than at module load so the command line, the tests and the interface all
+    start without it. Only a pass that actually calls a model needs it, which keeps a missing or
+    unapproved package from taking down the whole tool.
     """
     config.prepare_environment()
     missing = config.missing_credentials()
@@ -69,7 +76,7 @@ def _load_safechain():
 def _generation_parameters(tier: Optional["config.Tier"], temperature: Optional[float],
                            max_tokens: Optional[int],
                            reasoning_effort: Optional[str]) -> Dict[str, Any]:
-    """What the model should be built with. Set at construction, not per call."""
+    """What the model should generate with. Bound to the model rather than passed per call."""
     parameters: Dict[str, Any] = {
         "temperature": config.DEFAULT_TEMPERATURE if temperature is None else temperature,
         "max_tokens": (max_tokens if max_tokens is not None
@@ -81,57 +88,41 @@ def _generation_parameters(tier: Optional["config.Tier"], temperature: Optional[
     return parameters
 
 
-def _construct(build, model_id: str, parameters: Dict[str, Any]):
-    """Ask SafeChain for a model, however this version of it takes its parameters.
-
-    The generation parameters go in at construction rather than at call time. Which argument
-    carries them has varied between SafeChain releases, so the signature is asked rather than
-    assumed, and ``bind`` -- LangChain's own way of fixing call arguments on a runnable -- is the
-    last resort. Guessing wrong here would be silent: the model would build, run, and quietly
-    ignore the token cap.
-    """
-    if accepts(build, "model_kwargs"):
-        return build(model_id, model_kwargs=parameters)
-    for name in ("parameters", "params", "generation_config", "config"):
-        if accepts(build, name):
-            return build(model_id, **{name: parameters})
-
-    built = build(model_id)
-    if hasattr(built, "bind"):
-        return built.bind(**parameters)
-
-    logger.warning("SafeChain's model() took no generation parameters, so %s is running on its "
-                   "configured defaults rather than this tier's.", model_id)
-    return built
-
-
 def chat_model(tier: Optional["config.Tier"] = None, model: Optional[str] = None,
                temperature: Optional[float] = None, max_tokens: Optional[int] = None,
                reasoning_effort: Optional[str] = None):
     """A LangChain chat model for this tier, built once and reused.
 
-    Construction reads a config file and sets up credentials, so doing it per call would repeat
-    that work on every batch of every pass. The cache is keyed on everything that can change the
-    model, so an override still gets its own.
+    ``bind`` and ``with_retry`` are LangChain's own, and are the reason nothing here needs to know
+    how SafeChain passes parameters or handles failures. Building reads a config file and sets up
+    credentials, so doing it per call would repeat that work on every batch of every pass; the
+    cache is keyed on everything that can change the model, so an override still gets its own.
     """
+    from langchain_core.runnables import Runnable
+
     model_id = model or (tier.model if tier else config.LLM_MODEL_ID)
     parameters = _generation_parameters(tier, temperature, max_tokens, reasoning_effort)
     key = (model_id,) + tuple(sorted(parameters.items()))
 
     with _lock:
-        if key not in _models:
-            build = _load_safechain()
-            try:
-                built = _construct(build, model_id, parameters)
-            except ModelUnavailable:
-                raise
-            except Exception as exc:
-                raise ModelUnavailable(
-                    f"SafeChain could not build '{model_id}' ({exc}). The name has to match one "
-                    f"declared in the config.yml at CONFIG_PATH.") from exc
-            _models[key] = built.with_retry(stop_after_attempt=MAX_ATTEMPTS,
-                                            wait_exponential_jitter=True) \
-                if hasattr(built, "with_retry") else built
+        if key in _models:
+            return _models[key]
+
+        build = _load_safechain()
+        try:
+            built = build(model_id)
+        except Exception as exc:
+            raise ModelUnavailable(
+                f"SafeChain could not build '{model_id}' ({exc}). The name has to match one "
+                f"declared in the config.yml at CONFIG_PATH.") from exc
+
+        if not isinstance(built, Runnable):
+            raise ModelUnavailable(
+                f"SafeChain returned {type(built).__name__} for '{model_id}' rather than a "
+                f"LangChain runnable. Everything here is built on that interface.")
+
+        _models[key] = built.bind(**parameters).with_retry(
+            stop_after_attempt=MAX_ATTEMPTS, wait_exponential_jitter=True)
         return _models[key]
 
 
@@ -170,17 +161,17 @@ def build_prompt(system_prompt: str, user_message: str,
     ])
 
 
-def _text(reply: Any) -> str:
-    """The reply as a string, whichever shape the model returned it in.
+def build_chain(system_prompt: str, user_message: str,
+                images: Optional[List[Tuple[str, bytes]]] = None,
+                tier: Optional["config.Tier"] = None, model: Optional[str] = None,
+                temperature: Optional[float] = None, max_tokens: Optional[int] = None,
+                reasoning_effort: Optional[str] = None):
+    """One call as an LCEL chain: prompt, model, and the reply as text."""
+    from langchain_core.output_parsers import StrOutputParser
 
-    A chat model returns a message; some return content as a list of parts. Both are unwrapped
-    here so no caller has to know which it got.
-    """
-    content = getattr(reply, "content", reply)
-    if isinstance(content, list):
-        return "".join(part.get("text", "") if isinstance(part, dict) else str(part)
-                       for part in content)
-    return content if isinstance(content, str) else str(content)
+    return build_prompt(system_prompt, user_message, images) | chat_model(
+        tier=tier, model=model, temperature=temperature, max_tokens=max_tokens,
+        reasoning_effort=reasoning_effort) | StrOutputParser()
 
 
 def ask_llm(system_prompt: str, user_message: str,
@@ -193,10 +184,9 @@ def ask_llm(system_prompt: str, user_message: str,
     pass says what kind of work it is doing rather than restating three numbers. The individual
     arguments still override it, one call at a time.
     """
-    chain = build_prompt(system_prompt, user_message) | chat_model(
-        tier=tier, model=model, temperature=temperature, max_tokens=max_tokens,
-        reasoning_effort=reasoning_effort)
-    return _text(chain.invoke({}))
+    return build_chain(system_prompt, user_message, tier=tier, model=model,
+                       temperature=temperature, max_tokens=max_tokens,
+                       reasoning_effort=reasoning_effort).invoke({})
 
 
 def ask_llm_with_images(system_prompt: str, user_message: str, images: list,
@@ -213,10 +203,9 @@ def ask_llm_with_images(system_prompt: str, user_message: str, images: list,
     if not config.LLM_VISION:
         raise RuntimeError("Vision is disabled (LLM_VISION=off), so images cannot be sent.")
 
-    chain = build_prompt(system_prompt, user_message, images) | chat_model(
-        tier=tier, model=model, temperature=temperature, max_tokens=max_tokens,
-        reasoning_effort=reasoning_effort)
-    return _text(chain.invoke({}))
+    return build_chain(system_prompt, user_message, images, tier=tier, model=model,
+                       temperature=temperature, max_tokens=max_tokens,
+                       reasoning_effort=reasoning_effort).invoke({})
 
 
 def reset_models() -> None:

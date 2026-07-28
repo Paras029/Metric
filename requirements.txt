@@ -3,9 +3,10 @@
 # Install from the internal index:
 #     pip install -r requirements.txt
 
-# Model calls. SafeChain owns authentication, token refresh and the request body each model
-# expects, and returns a LangChain chat model. langchain-core comes with it and is listed because
-# this package imports it directly to build prompts; nothing here talks HTTP to a model.
+# Model calls. SafeChain returns a LangChain chat model, already authenticated and already knowing
+# the request body that model expects -- that one call is the whole of its surface here.
+# Everything after it is LangChain, written to LangChain's own documented interfaces, which is why
+# langchain-core is listed in its own right rather than left as a transitive dependency.
 safechain
 langchain-core
 

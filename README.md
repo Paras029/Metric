@@ -56,9 +56,23 @@ Substitute `py` or `python3` for `python` in every command below, to match your 
 
 ### Connecting a model
 
-Calls go through **SafeChain**, which owns authentication, token refresh and the request body each
-model expects, and hands back a LangChain chat model. Nothing in this package talks HTTP to a
-model or holds a token.
+**SafeChain** does one thing here: given a model name, it returns a LangChain chat model, already
+authenticated and already knowing the request body that model expects. Nothing in this package
+talks HTTP to a model or holds a token.
+
+Everything after that call is LangChain, and is written to LangChain's documented interfaces
+rather than to anything SafeChain adds on top — a wrapper's conveniences change between releases,
+the Runnable interface underneath does not. Each call is an ordinary LCEL chain:
+
+```python
+prompt | model | StrOutputParser()
+```
+
+with each piece doing what its own documentation says: `bind` fixes the generation parameters on
+the model, `with_retry` covers a gateway that is busy rather than a request that is wrong, and
+`StrOutputParser` turns the reply into text. If you want to know how a call behaves, the
+[LangChain documentation](https://python.langchain.com/docs/concepts/lcel/) is the reference —
+there is nothing bespoke in between.
 
 You need two things beside the code:
 
@@ -82,8 +96,9 @@ To check the connection:
 python -c "from scenario_generator.llm.gateway import ask_llm; print(ask_llm('You are terse.', 'Say OK.'))"
 ```
 
-A missing credential or a model name your `config.yml` does not declare is reported before any
-work starts, naming what is wrong.
+A missing credential, a model name your `config.yml` does not declare, or a SafeChain that hands
+back something other than a LangChain runnable are each reported before any work starts, naming
+what is wrong.
 
 Six stages call a model; the rest are deterministic and run without one. Every model-using stage
 also accepts `--no-llm`, which substitutes placeholder text — useful for checking an intake before
@@ -332,6 +347,9 @@ LLM_VISION                      "off" where the model does not accept images.
 LLM_MAX_IMAGE_BYTES             Default 4000000.
 ```
 
+Each tier's values are bound to its model with LangChain's `bind`, so a chain carries its own cap
+and effort wherever it is used.
+
 `max_tokens` is the **output** cap, not the context window. Reasoning tokens come out of the same
 budget as the reply, so a high reasoning effort against a small cap truncates the JSON rather
 than shortening the answer — which is why each tier sets both together.
@@ -415,7 +433,7 @@ scenario_generator/
                 proposals, coverage matching, evidence, grounding.
     ingest/     Document readers, extraction, context assembly, intake
                 drafting, owner scenario library parsing.
-    llm/        SafeChain wiring, prompt loader, and the passes.
+    llm/        LangChain chain building, prompt loader, and the passes.
     prompts/    The prompt library, one file per prompt.
     io/         Workbook reading and writing.
     webapp/     The local interface.

@@ -1,58 +1,56 @@
-"""Building a call as a LangChain chain and running it through SafeChain.
+"""Building a call as a LangChain chain.
 
-SafeChain is not importable outside the corporate network, so it is stubbed here. What that
-leaves is exactly what these tests are for: the chain this package builds, and the two things
-about it that would break silently.
+SafeChain is not importable outside the corporate network, so it is stubbed — but the stub is a
+real LangChain chat model rather than a duck-typed object, because that is the whole contract this
+package relies on. SafeChain returns a Runnable; everything after that is LangChain, and if the
+stub were looser these tests would pass while the real thing failed.
 
-The first is braces. Every prompt in this package ends with a JSON output specification, and
-LangChain's tuple form -- ``("system", text)`` -- runs its text through an f-string parser, which
-reads ``{"resolved": [...]}`` as a malformed placeholder and raises. Passing messages instead is
-what makes the prompts survive, and there is nothing in the type system to stop someone
-"tidying" it back to tuples.
+Three things are pinned, all of which would otherwise break quietly.
 
-The second is generation parameters. SafeChain takes them at construction rather than at call
-time, and which argument carries them has moved between releases. Passing them the wrong way
-fails silently: the model builds, runs, and quietly ignores the token cap.
+Braces. Every prompt in this package ends with a JSON output specification, and LangChain's tuple
+form -- ``("system", text)`` -- runs its text through an f-string parser, which reads
+``{"resolved": [...]}`` as a malformed placeholder and raises. Passing messages instead is what
+makes the prompts survive, and there is nothing in the type system to stop someone "tidying" it
+back to tuples.
+
+Generation parameters. They are bound to the model with ``bind``, so a chain built once carries
+its own cap and effort. Losing the bind would leave the model running on its configured defaults
+while every tier looked correctly configured.
+
+The chain shape. ``prompt | model | StrOutputParser()`` — the parser is what turns a reply message
+into text, including the case where content comes back as a list of parts.
 """
+import itertools
 import sys
 import types
 import unittest
 from unittest import mock
 
+from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable
 
 from scenario_generator.llm import config, gateway
 
 
-class _Reply:
-    def __init__(self, content):
-        self.content = content
+class _FakeChatModel(GenericFakeChatModel):
+    """A real LangChain chat model standing in for what SafeChain returns.
 
-
-class _FakeModel(Runnable):
-    """Stands in for what SafeChain returns: a LangChain runnable.
-
-    A real Runnable rather than a duck-typed object, because ``prompt | model`` refuses anything
-    else -- which is the thing being tested.
+    Records what it was invoked with, so a test can look at the messages that actually reached the
+    model rather than at the prompt that was meant to.
     """
 
-    def __init__(self, model_id, parameters=None):
-        self.model_id = model_id
-        self.parameters = dict(parameters or {})
-        self.seen = []
-        self.retry = {}
+    model_id: str = ""
+    seen: list = []
 
-    def invoke(self, value, config=None, **kwargs):
-        self.seen.append(value)
-        return _Reply("the reply")
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        self.seen.append((messages, kwargs))
+        return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
 
-    def bind(self, **kwargs):
-        self.parameters.update(kwargs)
-        return self
 
-    def with_retry(self, **kwargs):
-        self.retry = kwargs
-        return self
+def _model(model_id="stub", reply="the reply"):
+    return _FakeChatModel(messages=itertools.cycle([AIMessage(content=reply)]),
+                          model_id=model_id, seen=[])
 
 
 def _install(build):
@@ -69,13 +67,17 @@ def _install(build):
 
 
 class _WithSafeChain(unittest.TestCase):
-    build = staticmethod(lambda model_id, model_kwargs=None: _FakeModel(model_id, model_kwargs))
-
     def setUp(self):
+        self.built = []
+
+        def build(model_id):
+            self.built.append(_model(model_id))
+            return self.built[-1]
+
         self.env = mock.patch.dict("os.environ", {
             config.CONSUMER_SECRET: "c2VjcmV0", config.CONSUMER_INTEGRATION_ID: "app-1"})
         self.env.start()
-        self.patch = _install(type(self).build)
+        self.patch = _install(build)
         self.addCleanup(gateway.reset_models)
         self.addCleanup(self.patch.stop)
         self.addCleanup(self.env.stop)
@@ -86,22 +88,20 @@ class TestThePromptSurvives(_WithSafeChain):
 
     def test_a_json_output_specification_is_not_read_as_a_placeholder(self):
         """The failure this guards raises before a single call is made."""
-        prompt = gateway.build_prompt("You judge.", self._JSON)
-        self.assertEqual(prompt.input_variables, [])
+        self.assertEqual(gateway.build_prompt("You judge.", self._JSON).input_variables, [])
 
     def test_the_prompt_reaches_the_model_exactly_as_written(self):
-        messages = gateway.build_prompt("You judge.", self._JSON).invoke({}).to_messages()
+        gateway.ask_llm("You judge.", self._JSON)
+        messages, _ = self.built[0].seen[0]
+
         self.assertEqual(messages[0].content, "You judge.")
         self.assertEqual(messages[1].content, self._JSON)
 
     def test_doubled_braces_are_left_alone_too(self):
         """Substitution happens in the prompt loader; anything left here is literal."""
-        messages = gateway.build_prompt("s", "a {{placeholder}} and a {brace}").invoke({}) \
-            .to_messages()
+        gateway.ask_llm("s", "a {{placeholder}} and a {brace}")
+        messages, _ = self.built[0].seen[0]
         self.assertEqual(messages[1].content, "a {{placeholder}} and a {brace}")
-
-    def test_a_call_returns_the_reply_text(self):
-        self.assertEqual(gateway.ask_llm("You judge.", self._JSON), "the reply")
 
 
 class TestTheWholePromptLibrarySurvives(_WithSafeChain):
@@ -124,10 +124,32 @@ class TestTheWholePromptLibrarySurvives(_WithSafeChain):
             self.assertEqual(prompt.invoke({}).to_messages()[1].content, text, name)
 
 
+class TestTheChain(_WithSafeChain):
+    def test_a_call_returns_the_reply_as_text(self):
+        self.assertEqual(gateway.ask_llm("s", "u"), "the reply")
+
+    def test_the_chain_is_prompt_then_model_then_parser(self):
+        steps = gateway.build_chain("s", "u").steps
+        self.assertEqual([type(step).__name__ for step in [steps[0], steps[-1]]],
+                         ["ChatPromptTemplate", "StrOutputParser"])
+        self.assertIsInstance(steps[1], Runnable)
+
+    def test_a_reply_returned_as_content_parts_is_still_text(self):
+        """Some models answer with a list of parts; StrOutputParser is what flattens it."""
+        parts = AIMessage(content=[{"type": "text", "text": "part one "},
+                                   {"type": "text", "text": "part two"}])
+        patch = _install(lambda model_id: _FakeChatModel(
+            messages=itertools.cycle([parts]), model_id=model_id, seen=[]))
+        self.addCleanup(patch.stop)
+
+        self.assertEqual(gateway.ask_llm("s", "u"), "part one part two")
+
+
 class TestImages(_WithSafeChain):
     def test_an_image_is_attached_as_a_content_part(self):
-        prompt = gateway.build_prompt("s", "describe this", [("image/png", b"not-really-a-png")])
-        content = prompt.invoke({}).to_messages()[1].content
+        gateway.ask_llm_with_images("s", "describe this", [("image/png", b"not-really-a-png")])
+        messages, _ = self.built[0].seen[0]
+        content = messages[1].content
 
         self.assertEqual(content[0], {"type": "text", "text": "describe this"})
         self.assertTrue(content[1]["image_url"]["url"].startswith("data:image/png;base64,"))
@@ -146,19 +168,30 @@ class TestImages(_WithSafeChain):
 
 
 class TestGenerationParameters(_WithSafeChain):
-    def test_a_tier_sets_the_cap_and_the_effort_at_construction(self):
-        gateway.ask_llm("s", "u", tier=config.JUDGEMENT)
-        built = next(iter(gateway._models.values()))
+    """Bound to the model with LangChain's own bind, rather than passed per call.
 
-        self.assertEqual(built.model_id, config.JUDGEMENT.model)
-        self.assertEqual(built.parameters["max_tokens"], config.JUDGEMENT.max_tokens)
-        self.assertEqual(built.parameters["reasoning_effort"], config.JUDGEMENT.reasoning_effort)
+    Every assertion here is on what actually arrived at the model. Checking the binding's own
+    attributes instead would pin a private shape -- ``with_retry`` wraps a binding in a way that
+    moves them -- and would pass while the parameters went nowhere.
+    """
+
+    def _received(self, index=0):
+        _, kwargs = self.built[index].seen[0]
+        return kwargs
+
+    def test_a_tier_sends_its_cap_and_its_effort(self):
+        gateway.ask_llm("s", "u", tier=config.JUDGEMENT)
+
+        self.assertEqual(self.built[0].model_id, config.JUDGEMENT.model)
+        self.assertEqual(self._received()["max_tokens"], config.JUDGEMENT.max_tokens)
+        self.assertEqual(self._received()["reasoning_effort"],
+                         config.JUDGEMENT.reasoning_effort)
 
     def test_an_explicit_argument_overrides_the_tier(self):
         gateway.ask_llm("s", "u", tier=config.FAST, max_tokens=99, temperature=0.9)
-        built = next(iter(gateway._models.values()))
-        self.assertEqual(built.parameters["max_tokens"], 99)
-        self.assertEqual(built.parameters["temperature"], 0.9)
+
+        self.assertEqual(self._received()["max_tokens"], 99)
+        self.assertEqual(self._received()["temperature"], 0.9)
 
     def test_each_tier_gets_its_own_model(self):
         """Two tiers can name the same model and still need different caps."""
@@ -166,55 +199,28 @@ class TestGenerationParameters(_WithSafeChain):
         gateway.ask_llm("s", "u", tier=config.FAST)
 
         self.assertEqual(len(gateway._models), 2)
-        caps = {m.parameters["max_tokens"] for m in gateway._models.values()}
-        self.assertEqual(caps, {config.JUDGEMENT.max_tokens, config.FAST.max_tokens})
+        self.assertEqual({self._received(0)["max_tokens"], self._received(1)["max_tokens"]},
+                         {config.JUDGEMENT.max_tokens, config.FAST.max_tokens})
 
     def test_the_same_tier_is_built_once_and_reused(self):
-        """Construction reads a config file and sets up credentials; doing it per batch is waste."""
+        """Building reads a config file and sets up credentials; doing it per batch is waste."""
         gateway.ask_llm("s", "u", tier=config.STANDARD)
         gateway.ask_llm("s", "u", tier=config.STANDARD)
+
         self.assertEqual(len(gateway._models), 1)
-
-    def test_retries_are_asked_for_where_the_runnable_supports_them(self):
-        gateway.ask_llm("s", "u", tier=config.STANDARD)
-        built = next(iter(gateway._models.values()))
-        self.assertEqual(built.retry["stop_after_attempt"], gateway.MAX_ATTEMPTS)
-
-
-class TestHowParametersAreHandedOver(unittest.TestCase):
-    """Which argument carries them has moved between SafeChain releases, so it is asked for."""
-
-    def setUp(self):
-        self.env = mock.patch.dict("os.environ", {
-            config.CONSUMER_SECRET: "c2VjcmV0", config.CONSUMER_INTEGRATION_ID: "app-1"})
-        self.env.start()
-        self.addCleanup(self.env.stop)
-        self.addCleanup(gateway.reset_models)
-
-    def _built(self, build):
-        patch = _install(build)
-        self.addCleanup(patch.stop)
-        gateway.ask_llm("s", "u", tier=config.FAST)
-        return next(iter(gateway._models.values()))
-
-    def test_model_kwargs_is_used_where_it_exists(self):
-        built = self._built(lambda model_id, model_kwargs=None: _FakeModel(model_id, model_kwargs))
-        self.assertEqual(built.parameters["max_tokens"], config.FAST.max_tokens)
-
-    def test_another_name_for_the_same_thing_is_found(self):
-        built = self._built(lambda model_id, parameters=None: _FakeModel(model_id, parameters))
-        self.assertEqual(built.parameters["max_tokens"], config.FAST.max_tokens)
-
-    def test_a_model_taking_none_of_them_is_bound_instead(self):
-        """LangChain's own way of fixing call arguments on a runnable."""
-        built = self._built(lambda model_id: _FakeModel(model_id))
-        self.assertEqual(built.parameters["max_tokens"], config.FAST.max_tokens)
+        self.assertEqual(len(self.built), 1)
 
 
 class TestFailingBeforeItWastesTime(unittest.TestCase):
     def setUp(self):
         gateway.reset_models()
         self.addCleanup(gateway.reset_models)
+
+    def _configured(self):
+        env = mock.patch.dict("os.environ", {config.CONSUMER_SECRET: "c2VjcmV0",
+                                             config.CONSUMER_INTEGRATION_ID: "app-1"})
+        env.start()
+        self.addCleanup(env.stop)
 
     def test_missing_credentials_are_named_rather_than_left_to_a_401(self):
         with mock.patch.dict("os.environ", {config.CONSUMER_SECRET: "",
@@ -224,20 +230,25 @@ class TestFailingBeforeItWastesTime(unittest.TestCase):
         self.assertIn(config.CONSUMER_SECRET, str(raised.exception))
 
     def test_a_model_safechain_does_not_know_says_where_to_look(self):
-        env = mock.patch.dict("os.environ", {config.CONSUMER_SECRET: "c2VjcmV0",
-                                             config.CONSUMER_INTEGRATION_ID: "app-1"})
-        env.start()
-        self.addCleanup(env.stop)
+        self._configured()
 
-        def build(model_id, model_kwargs=None):
+        def build(model_id):
             raise KeyError(model_id)
 
-        patch = _install(build)
-        self.addCleanup(patch.stop)
+        self.addCleanup(_install(build).stop)
 
         with self.assertRaises(gateway.ModelUnavailable) as raised:
             gateway.ask_llm("s", "u", model="not-in-the-config")
         self.assertIn("config.yml", str(raised.exception))
+
+    def test_something_that_is_not_a_langchain_model_is_refused(self):
+        """Everything here is built on that interface, so it is checked rather than assumed."""
+        self._configured()
+        self.addCleanup(_install(lambda model_id: object()).stop)
+
+        with self.assertRaises(gateway.ModelUnavailable) as raised:
+            gateway.ask_llm("s", "u")
+        self.assertIn("runnable", str(raised.exception).lower())
 
 
 class TestTheSecretIsPaddedBeforeUse(unittest.TestCase):
@@ -246,20 +257,20 @@ class TestTheSecretIsPaddedBeforeUse(unittest.TestCase):
     def test_a_stripped_secret_is_padded_back_out(self):
         with mock.patch.dict("os.environ", {config.CONSUMER_SECRET: "YWJjZA",
                                             config.CONSUMER_INTEGRATION_ID: "app-1"}):
-            config.prepare_environment()
             import os
+            config.prepare_environment()
             self.assertEqual(os.environ[config.CONSUMER_SECRET], "YWJjZA==")
 
     def test_a_secret_that_is_already_padded_is_left_alone(self):
         with mock.patch.dict("os.environ", {config.CONSUMER_SECRET: "YWJjZA==",
                                             config.CONSUMER_INTEGRATION_ID: "app-1"}):
-            config.prepare_environment()
             import os
+            config.prepare_environment()
             self.assertEqual(os.environ[config.CONSUMER_SECRET], "YWJjZA==")
 
     def test_the_config_path_defaults_rather_than_being_required(self):
         with mock.patch.dict("os.environ", {config.CONSUMER_SECRET: "YWJjZA==",
-                                            config.CONSUMER_INTEGRATION_ID: "app-1"}, clear=False):
+                                            config.CONSUMER_INTEGRATION_ID: "app-1"}):
             import os
             os.environ.pop(config.CONFIG_PATH, None)
             config.prepare_environment()
