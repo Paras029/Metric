@@ -512,18 +512,46 @@ ol, ul { list-style: none; padding: 0; }
 
 /* ------------------------------------------------------------------ the declared graph */
 .panel--graph { padding-bottom: 1.1rem; }
-.graph__frame {
+.graph__tools {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
   margin-top: 1.1rem;
+}
+.graph__zoom {
+  font: inherit;
+  font-size: .84rem;
+  line-height: 1;
+  min-width: 2rem;
+  padding: .35rem .6rem;
+  color: var(--deep);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.graph__zoom:hover { border-color: var(--blue); color: var(--blue); }
+.graph__level { font-size: .78rem; color: var(--ink-soft); margin-left: .3rem; }
+.graph__hint { margin-left: auto; font-size: .76rem; color: var(--ink-faint); }
+
+.graph__frame {
+  margin-top: .55rem;
   padding: 1rem;
-  overflow-x: auto;
+  overflow: auto;
+  max-height: 34rem;
   background:
     linear-gradient(var(--line-soft) 1px, transparent 1px) 0 0 / 100% 22px,
     linear-gradient(90deg, var(--line-soft) 1px, transparent 1px) 0 0 / 22px 100%,
     var(--paper);
   border: 1px solid var(--line-soft);
   border-radius: 4px;
+  cursor: grab;
 }
-.graph { display: block; width: 100%; height: auto; min-width: 30rem; }
+.graph__frame--dragging { cursor: grabbing; }
+.graph__canvas { transform-origin: 0 0; }
+/* Without scripting there is no wrapper sizing, so the drawing falls back to fitting the frame. */
+.graph { display: block; max-width: none; }
+.graph__canvas:not([style]) .graph { width: 100%; height: auto; }
 
 .graph__node rect {
   fill: var(--paper);
@@ -548,6 +576,14 @@ ol, ul { list-style: none; padding: 0; }
 .graph__node--fallback rect    { stroke: #6B4FBB; fill: #F8F6FE; }
 .graph__node--retry rect       { stroke: #006FCF; fill: #F3F9FF; }
 .graph__node--unreachable rect { stroke: #B3261E; stroke-dasharray: 4 3; fill: #FDF4F3; }
+
+/* Where the interaction opens, and anything sketched but not yet committed. A sketch is drawn
+   dashed so the picture never lets a proposal pass for a declaration. */
+.graph__node--start rect { fill: var(--deep); stroke: var(--deep); }
+.graph__node--start .graph__id { fill: rgba(255, 255, 255, .7); }
+.graph__node--start .graph__caption { fill: #fff; }
+.graph__node--pending rect { stroke: var(--blue); stroke-dasharray: 5 3; fill: #F3F9FF; }
+.graph__edge--pending path { stroke: var(--blue); stroke-dasharray: 5 3; }
 
 .graph__edge path { fill: none; stroke: #A9B8CE; stroke-width: 1.3; }
 .graph__edge:hover path { stroke: var(--blue); stroke-width: 2; }
@@ -952,3 +988,107 @@ ol, ul { list-style: none; padding: 0; }
 }
 .card__check { display: flex; align-items: center; gap: .3rem; font-size: .8rem; color: var(--ink-soft); }
 .card__empty { margin-top: 1rem; font-size: .86rem; color: var(--ink-faint); }
+
+
+/* ------------------------------------------------------------------ what the intake leaves out */
+.problems { margin-top: 1rem; }
+.problems__row {
+  padding: .6rem 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.problems__row:last-child { border-bottom: 0; }
+.problems__what { display: block; font-size: .87rem; font-weight: 600; color: var(--deep); }
+.problems__why { display: block; margin-top: .15rem; font-size: .82rem; color: var(--ink-soft); }
+
+/* ------------------------------------------------------------------ sketching the intake
+ * Additions live here before they reach the workbook, so a branch can be tried in the picture
+ * before anyone commits to it. Something with nowhere to sit is shown as loose rather than
+ * hidden -- that is the state it is actually in, and pretending otherwise is how a half-made
+ * edit gets written.
+ */
+.sketch { margin-top: 1rem; }
+.sketch__row {
+  padding: .65rem .8rem;
+  margin-bottom: .5rem;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--blue);
+  border-radius: 4px;
+  background: #FBFCFE;
+}
+.sketch__row--loose { border-left-color: var(--attention); background: #FEFBF4; }
+.sketch__head { display: flex; align-items: baseline; flex-wrap: wrap; gap: .5rem; }
+.sketch__id { font-size: .76rem; color: var(--ink-faint); }
+.sketch__name { font-size: .88rem; font-weight: 600; color: var(--deep); }
+.sketch__kind {
+  font-size: .68rem;
+  font-weight: 650;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.sketch__detail { display: block; margin-top: .2rem; font-size: .8rem; color: var(--ink-soft); }
+.sketch__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem;
+  margin-top: .55rem;
+}
+.sketch__actions form { display: flex; align-items: center; gap: .4rem; margin: 0; }
+
+.sketch__commit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .75rem;
+  margin: 1rem 0 1.4rem;
+  padding-top: .9rem;
+  border-top: 1px solid var(--line-soft);
+}
+.sketch__note { font-size: .8rem; color: var(--ink-faint); flex: 1; min-width: 16rem; }
+
+.sketch__forms {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+.sketch__form {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  padding: 1rem;
+  border: 1px dashed #C3D2E6;
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, #FBFCFE, var(--paper));
+}
+.sketch__form-title { font-size: .88rem; font-weight: 620; color: var(--deep); }
+.sketch__form .button { align-self: flex-start; margin-top: .2rem; }
+.tag--draft { background: #E7F1FC; color: var(--blue-dark); }
+
+/* ------------------------------------------------------------------ answering in one pass */
+.questions__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .9rem;
+  margin-top: 1.1rem;
+  padding-top: .9rem;
+  border-top: 1px solid var(--line-soft);
+}
+.questions__progress { font-size: .8rem; color: var(--ink-faint); }
+.questions__blocks { color: var(--attention); font-style: normal; font-weight: 600; }
+.questions__more { margin-top: 1rem; }
+.questions__more-summary {
+  font-size: .82rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+  padding: .4rem 0;
+}
+.questions__more-summary:hover { color: var(--blue); }
+.questions__form { display: none; }
+
+/* ------------------------------------------------------------------ clearing work */
+.reset { margin-top: 2.25rem; display: grid; gap: .9rem; }
+.reset form { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; }
+.reset__note { font-size: .78rem; color: var(--ink-faint); flex: 1; min-width: 18rem; }

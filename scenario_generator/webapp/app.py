@@ -30,7 +30,7 @@ from werkzeug.utils import secure_filename
 
 from ..core.evidence import FACETS
 from ..core.generation import required_runs
-from ..core.intake import read_intake, write_template
+from ..core.intake import append_rows, read_intake, write_template
 from ..core.models import MATERIALITY, IntakeData
 from ..ingest import open_questions, read_owner_library, record_from_json
 from ..ingest.context_document import FACET_HEADINGS
@@ -39,12 +39,13 @@ from ..ingest.groups import (ALL_EXTENSIONS, DEFAULT_GROUP, GROUP_BY_KEY, GROUPS
                              remove_file)
 from ..ingest.owner_library import UnreadableLibrary
 from ..io import read_scenarios, write_challenge_pack, write_registry
-from ..llm import MaterialityAssessor, ScenarioReviewer, ScenarioWriter
+from ..llm import MaterialityAssessor, ScenarioReviewer, ScenarioWriter, config
 from ..pipeline import (build_scenarios, draft_intake_workbook, ingest_documents, map_coverage,
                         render_questions)
-from .graphview import graph_summary, render_svg
+from .draft import DECISION, STATE, PendingEdits, PendingItem, next_id
+from .graphview import completeness, graph_summary, render_svg
 from .scenarios import build_rows
-from .stages import RUNNING, STAGE_BY_KEY, STAGES, STATUS_LABELS, index_of
+from .stages import RUNNING, STAGE_BY_KEY, STAGES, STATUS_LABELS, downstream_of, index_of
 from .workspace import Workspace, stage_view
 
 # Stages whose output is a set of scenarios, so the page shows them rather than only counts.
@@ -70,6 +71,21 @@ CONTEXT = "ingest_context.md"
 QUESTIONS = "open_questions.md"
 PACK = "challenge_pack.xlsx"
 OVERLAP = "coverage.xlsx"
+
+# What each stage puts on disk, so clearing a stage can actually clear it. Listed against the
+# stage that *creates* the file rather than every stage that rewrites it: clearing the scenario
+# text does not mean throwing away the registry the benchmark stage built.
+#
+# Submitted documents appear nowhere here. They are input rather than output, and each already has
+# its own remove -- deleting the pack because a later stage was re-run would be a rout.
+STAGE_OUTPUTS: Dict[str, tuple] = {
+    "documents": (EVIDENCE, CONTEXT, "ingest_questions.md"),
+    "questions": (QUESTIONS,),
+    "intake": (DRAFT_INTAKE,),
+    "benchmark": (REGISTRY,),
+    "coverage": (OVERLAP,),
+    "issue": (PACK,),
+}
 
 
 def _intake(workspace: Workspace) -> IntakeData:
@@ -352,12 +368,30 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         workspace = _workspace()
 
         # The graph is drawn wherever the intake is available, since it is the clearest reading
-        # of what the benchmark will and will not be able to reach.
-        graph_svg, graph_facts = "", {}
+        # of what the benchmark will and will not be able to reach. On the intake stage it is
+        # drawn over the sketch buffer, so an addition can be seen in place before it is committed.
+        graph_svg, graph_facts, sketch, problems = "", {}, None, []
         if key in ("intake", "benchmark") and workspace.artifact_path("intake", "workbook"):
             try:
                 intake = _intake(workspace)
-                graph_svg, graph_facts = render_svg(intake), graph_summary(intake)
+                pending = PendingEdits.from_list(workspace.pending)
+                drawn = pending.merged(intake) if key == "intake" and pending else intake
+                graph_svg = render_svg(drawn, pending.ids(DECISION), pending.ids(STATE))
+                graph_facts = graph_summary(drawn, pending.ids(DECISION), pending.ids(STATE))
+                if key == "intake":
+                    sketch = {
+                        "rows": pending.rows(intake), "count": len(pending),
+                        "unattached": pending.unattached(intake),
+                        # Only states the interaction can continue from. Nothing follows a state
+                        # that ends the conversation, so offering one would let a person attach a
+                        # decision nothing could ever reach.
+                        "states": [s.id for s in intake.states if not s.is_terminal],
+                        "decisions": [d.id for d in intake.decisions],
+                        # Outcomes that no state already claims: a state is defined by the outcome
+                        # that produces it, so an outcome already taken has nothing to attach.
+                        "outcomes": _free_outcomes(intake),
+                        "capabilities": [c.id for c in intake.capabilities]}
+                    problems = completeness(intake)
             except Exception as exc:                       # a malformed intake must not blank it
                 logger.warning("Could not draw the graph: %s", exc)
 
@@ -372,6 +406,8 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             note_total=len(workspace.notes),
             graph_svg=graph_svg,
             graph_facts=graph_facts,
+            sketch=sketch,
+            problems=problems,
             questions=_questions_for(workspace) if key == "questions" else [],
             answered=workspace.answered_questions(),
             answers=_answers_for(workspace) if key == "documents" else [],
@@ -442,8 +478,20 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         return rows
 
     def _questions_for(workspace: Workspace):
+        """The open questions, most blocking first, with the tail held back.
+
+        A list long enough to be daunting is a list nobody works through, so only the ones that
+        most clearly stop the intake being filled in are put in front of the reader; the rest are
+        still there behind a toggle rather than dropped, because a question nobody sees is a
+        question nobody can decide about.
+        """
         record = _evidence_record(workspace)
-        return open_questions(record) if record else []
+        if not record:
+            return []
+        questions = open_questions(record)
+        for index, question in enumerate(questions):
+            question["deferred"] = index >= config.MAX_OPEN_QUESTIONS
+        return questions
 
     @app.route("/stage/<key>/note", methods=["POST"])
     def add_note(key: str):
@@ -456,6 +504,27 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         workspace = _workspace()
         workspace.add_note(key, request.form.get("note", ""),
                            question=request.form.get("question", ""))
+        return redirect(url_for("stage", key=key))
+
+    @app.route("/stage/<key>/answers", methods=["POST"])
+    def save_answers(key: str):
+        """Save several answers at once, and accept a partial pass.
+
+        The open questions are a list, and a list answered one item at a time is a page reload per
+        item. Everything filled in is saved together; everything left blank is left open, so a
+        person can settle what they know now and come back for the rest. What has been answered
+        stays editable -- a second thought about an answer is worth more than the first one.
+        """
+        workspace = _workspace()
+        entries = []
+        for field in request.form:
+            if not field.startswith("answer-"):
+                continue
+            question = request.form.get(f"question-{field[len('answer-'):]}", "")
+            entries.append((question, request.form.get(field, "")))
+
+        saved = workspace.add_notes(entries, key)
+        logger.info("Recorded %d answer(s) at the %s stage.", saved, key)
         return redirect(url_for("stage", key=key))
 
     @app.route("/stage/<key>/upload", methods=["POST"])
@@ -526,6 +595,115 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             workspace.save()
         return redirect(url_for("stage", key=key))
 
+    # ----------------------------------------------------------------- sketching the intake
+    #
+    # Additions are held against the workspace and merged into the intake for display only, so the
+    # graph can be tried out before the workbook is touched. The workbook stays the one authority
+    # for what the benchmark is built from; this is a sketch pad in front of it.
+
+    @app.route("/stage/intake/sketch", methods=["POST"])
+    def sketch_intake():
+        """Add a decision or a state to the sketch buffer."""
+        workspace = _workspace()
+        intake = _intake(workspace)
+        pending = PendingEdits.from_list(workspace.pending)
+
+        kind = request.form.get("kind", DECISION)
+        if kind == STATE:
+            identifier = next_id("S", [s.id for s in intake.states] + pending.ids(STATE))
+            item = PendingItem(
+                kind=STATE, id=identifier,
+                name=(request.form.get("name") or "").strip(),
+                reached_via=(request.form.get("reached_via") or "").strip(),
+                next_decisions=[d.strip() for d in
+                                request.form.getlist("next_decisions") if d.strip()],
+                is_terminal=bool(request.form.get("is_terminal")),
+                outcome_type=(request.form.get("outcome_type") or "").strip())
+        else:
+            identifier = next_id("DEC", [d.id for d in intake.decisions] + pending.ids(DECISION))
+            item = PendingItem(
+                kind=DECISION, id=identifier,
+                name=(request.form.get("name") or "").strip(),
+                capability=(request.form.get("capability") or "").strip(),
+                outcomes=[o.strip() for o in
+                          (request.form.get("outcomes") or "").split("/") if o.strip()],
+                input_source=(request.form.get("input_source") or "User").strip())
+
+        if not item.name:
+            workspace.state("intake").note = "Give the new element a name before adding it."
+            workspace.save()
+            return redirect(url_for("stage", key="intake"))
+
+        pending.add(item)
+        workspace.pending = pending.to_list()
+        workspace.save()
+        return redirect(url_for("stage", key="intake", _anchor="sketch"))
+
+    @app.route("/stage/intake/sketch/<item_id>/attach", methods=["POST"])
+    def attach_sketch(item_id: str):
+        """Give a sketched element somewhere to sit, so it moves into the flow."""
+        workspace = _workspace()
+        pending = PendingEdits.from_list(workspace.pending)
+        item = next((i for i in pending.items if i.id == item_id), None)
+        if item is None:
+            abort(404)
+
+        target = (request.form.get("target") or "").strip()
+        if item.kind == STATE:
+            # A state is defined by the outcome that produces it, so attaching one is naming that.
+            item.reached_via = target
+        else:
+            # A decision is reached *from* a state, so attaching one means that state has to name
+            # it as a next step. Where the state is itself a sketch the change lands on it now;
+            # where it is already declared, it is recorded against the decision and the commit
+            # amends the declared row.
+            sketched = next((i for i in pending.items
+                             if i.kind == STATE and i.id == target), None)
+            if sketched is not None:
+                if item.id not in sketched.next_decisions:
+                    sketched.next_decisions.append(item.id)
+            else:
+                item.reached_from = target
+
+        workspace.pending = pending.to_list()
+        workspace.save()
+        return redirect(url_for("stage", key="intake", _anchor="sketch"))
+
+    @app.route("/stage/intake/sketch/<item_id>/remove", methods=["POST"])
+    def remove_sketch(item_id: str):
+        workspace = _workspace()
+        pending = PendingEdits.from_list(workspace.pending)
+        pending.remove(item_id)
+        workspace.pending = pending.to_list()
+        workspace.save()
+        return redirect(url_for("stage", key="intake", _anchor="sketch"))
+
+    @app.route("/stage/intake/sketch/commit", methods=["POST"])
+    def commit_sketch():
+        """Write the sketched additions into the intake workbook and empty the buffer.
+
+        Rows are appended, so everything else in the workbook -- including anything edited there by
+        hand -- survives. Once written, the benchmark and everything after it no longer reflect
+        the intake, so they are marked out of date.
+        """
+        workspace = _workspace()
+        path = workspace.artifact_path("intake", "workbook")
+        if not path:
+            raise ValueError("No intake workbook to write these into.")
+
+        pending = PendingEdits.from_list(workspace.pending)
+        decisions, states = pending.as_workbook_rows()
+        added = append_rows(str(path), decisions=decisions, states=states,
+                            links=pending.links())
+
+        pending.clear()
+        workspace.pending = pending.to_list()
+        invalidated = workspace.invalidate_after("intake")
+        workspace.save()
+        logger.info("Wrote %d sketched row(s) into %s.", added, path.name)
+        return redirect(url_for("stage", key="intake",
+                                invalidated=", ".join(s.title for s in invalidated)))
+
     @app.route("/stage/<key>/scenario/<scenario_id>", methods=["POST"])
     def rule_on_scenario(key: str, scenario_id: str):
         """Record the reviewer's ruling on one scenario, straight into the registry.
@@ -590,8 +768,23 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/<key>/reset", methods=["POST"])
     def reset_stage(key: str):
+        """Clear a stage and everything after it, optionally deleting what they produced.
+
+        Two behaviours because there are two intentions. Clearing the status alone keeps the old
+        workbooks readable, which is what you want when comparing a rerun against what came
+        before. Starting from scratch has to delete them, because several stages read what they
+        need straight off disk and a status-only reset leaves the old work to come straight back.
+        """
         workspace = _workspace()
-        workspace.reset_from(key)
+        purge = bool(request.form.get("purge"))
+        delete = []
+        if purge:
+            for stage in [STAGE_BY_KEY[key]] + downstream_of(key):
+                delete.extend(STAGE_OUTPUTS.get(stage.key, ()))
+
+        removed = workspace.reset_from(key, delete=delete)
+        if purge:
+            logger.info("Cleared %s onward and deleted %d file(s).", key, len(removed))
         return redirect(url_for("stage", key=key))
 
     @app.route("/stage/<key>/download/<name>", methods=["GET"])
@@ -665,6 +858,18 @@ def _takes_progress(key: str) -> bool:
     nothing for four minutes is indistinguishable from one that has died.
     """
     return key in ("documents", "text", "materiality", "review")
+
+
+def _free_outcomes(intake: IntakeData) -> list:
+    """Declared outcomes that no state is reached by yet.
+
+    These are exactly the loose ends in the declaration: a branch the documents named but whose
+    destination nobody wrote down. Offering them as the place to attach a new state turns the
+    completeness report into something a person can act on in one click.
+    """
+    taken = {s.reached_via.strip().lower().replace(" ", "") for s in intake.states}
+    return [f"{d.id}={v}" for d in intake.decisions for v in d.variants
+            if f"{d.id}={v}".lower().replace(" ", "") not in taken]
 
 
 def _refusal(names) -> str:

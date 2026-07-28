@@ -102,6 +102,83 @@ def _positive_int(value, default: int = 1) -> int:
     return number if number >= 1 else default
 
 
+# A persona is a person arriving with an objective, and only two objectives are universal: to use
+# the service as intended, and to make it do something it should not. Anything past those has to
+# earn its place by changing what the agent does.
+MAX_PERSONAS = 4
+
+COOPERATIVE = {"id": "P1", "name": "Cooperative user",
+               "applies_to": "Wants the service to work and is honestly trying to use it",
+               "is_default": True}
+ADVERSARIAL = {"id": "P-ADV", "name": "Adversarial user",
+               "applies_to": "Trying to make the agent act outside its remit",
+               "is_default": False}
+
+# Words that describe how someone behaves rather than what they came to do. A persona named only
+# by one of these is the same objective in a different tone, and enumerating tones tests the same
+# route repeatedly while the routes that matter go untested.
+_MANNER_ONLY = ("impatient", "confused", "frustrated", "angry", "polite", "rude", "verbose",
+                "terse", "hurried", "novice", "expert", "first-time", "returning", "elderly",
+                "young", "casual", "formal", "chatty", "brief")
+
+
+def _is_adversarial(persona: dict) -> bool:
+    text = f"{persona['name']} {persona['applies_to']}".lower()
+    return any(word in text for word in
+               ("adversar", "malicious", "attacker", "abus", "hostile", "bad actor",
+                "non-cooperative", "noncooperative", "fraud"))
+
+
+def _earns_its_place(persona: dict) -> bool:
+    """Whether an extra persona describes a different objective rather than a different manner.
+
+    An extra persona has to say what the agent does differently for it. One that says nothing, or
+    that is named only for a manner of speaking, is a variation on a persona already present --
+    and every one of those multiplies the benchmark without widening it.
+    """
+    difference = persona["applies_to"].strip()
+    if len(difference) < 12:
+        return False
+    name = persona["name"].strip().lower()
+    return not any(name.startswith(word) or name == word for word in _MANNER_ONLY)
+
+
+def _personas(data: dict) -> List[dict]:
+    """The people who arrive, as objectives rather than temperaments.
+
+    Two are guaranteed because two objectives are always in play: someone using the service as
+    intended, and someone trying to turn it against its owner. The rest are admitted only where
+    the draft says what the agent itself does differently, and never more than a handful -- every
+    persona multiplies the whole benchmark, so a loose one costs a run of the entire pack.
+    """
+    drafted = []
+    for entry in _objects(data, "personas"):
+        identifier = _text(entry, "id") or f"P{len(drafted) + 1}"
+        drafted.append({"id": identifier, "name": _text(entry, "name") or identifier,
+                        "applies_to": _text(entry, "applies_to"),
+                        "is_default": bool(entry.get("is_default"))})
+
+    adversarial = [p for p in drafted if _is_adversarial(p)]
+    others = [p for p in drafted if not _is_adversarial(p)]
+
+    cooperative = next((p for p in others if p["is_default"]), None) or (
+        others[0] if others else dict(COOPERATIVE))
+    cooperative["is_default"] = True
+
+    extras = [p for p in others if p is not cooperative and _earns_its_place(p)]
+    kept = [cooperative, adversarial[0] if adversarial else dict(ADVERSARIAL)]
+    for persona in extras[:max(0, MAX_PERSONAS - len(kept))]:
+        persona["is_default"] = False
+        kept.append(persona)
+
+    dropped = len(drafted) - len([p for p in kept if p in drafted])
+    if dropped > 0:
+        logger.info("Kept %d persona(s) of %d drafted. The rest described how someone speaks "
+                    "rather than what they came to do, which is not a persona.",
+                    len(kept), len(drafted))
+    return kept
+
+
 def _validate(data: dict) -> dict:
     """Keep the parts that fit the intake's vocabulary and drop what does not.
 
@@ -112,14 +189,7 @@ def _validate(data: dict) -> dict:
     """
     use_case = data.get("use_case") if isinstance(data.get("use_case"), dict) else {}
 
-    personas = []
-    for entry in _objects(data, "personas"):
-        identifier = _text(entry, "id") or f"P{len(personas) + 1}"
-        personas.append({"id": identifier, "name": _text(entry, "name") or identifier,
-                         "applies_to": _text(entry, "applies_to"),
-                         "is_default": bool(entry.get("is_default"))})
-    if personas and not any(p["is_default"] for p in personas):
-        personas[0]["is_default"] = True                   # read_intake needs exactly one default
+    personas = _personas(data)
 
     capabilities = []
     for entry in _objects(data, "capabilities"):

@@ -102,18 +102,42 @@ class TestTheResolutionLoop(unittest.TestCase):
 
 class TestTriage(unittest.TestCase):
     def _record(self, rulings):
-        resolutions = [{"question": q, "status": s, "answer": "", "evidence": []}
-                       for q, s in rulings.items()]
+        """`rulings` maps a question to its status, or to (status, blocked intake part)."""
+        resolutions = []
+        for question, ruling in rulings.items():
+            status, blocks = ruling if isinstance(ruling, tuple) else (ruling, "")
+            resolutions.append({"question": question, "status": status, "answer": "",
+                                "evidence": [], "blocks": blocks})
         return extract_documents([_write()], complete=_stub(resolutions), resolve_passes=1)
 
-    def test_only_what_needs_a_person_is_put_to_one(self):
-        record = self._record({_UNKNOWNS[0]: ASK_THE_TEAM,
-                               _UNKNOWNS[1]: ASK_THE_TEAM,
+    def test_only_what_blocks_the_intake_is_put_to_a_person(self):
+        record = self._record({_UNKNOWNS[0]: (ASK_THE_TEAM, "decisions"),
+                               _UNKNOWNS[1]: (ASK_THE_TEAM, "states"),
                                _UNKNOWNS[2]: NOT_MATERIAL})
         asked = [q["question"] for q in open_questions(record)]
         self.assertIn(_UNKNOWNS[0], asked)
         self.assertIn(_UNKNOWNS[1], asked)
         self.assertNotIn(_UNKNOWNS[2], asked)
+
+    def test_a_question_that_cannot_name_what_it_blocks_is_not_asked(self):
+        """Documentation is always incomplete; wanting to be sure is not a blocked intake."""
+        record = self._record({_UNKNOWNS[0]: (ASK_THE_TEAM, ""),
+                               _UNKNOWNS[1]: (ASK_THE_TEAM, "who owns it"),
+                               _UNKNOWNS[2]: (ASK_THE_TEAM, "decisions")})
+        asked = [q["question"] for q in open_questions(record)]
+        self.assertEqual([q for q in _UNKNOWNS if q in asked], [_UNKNOWNS[2]])
+
+    def test_the_question_says_what_it_blocks_and_why(self):
+        record = self._record({_UNKNOWNS[0]: (ASK_THE_TEAM, "decisions")})
+        asked = {q["question"]: q for q in open_questions(record)}
+        self.assertEqual(asked[_UNKNOWNS[0]]["blocks"], "decisions")
+        self.assertIn("branch cannot be enumerated", asked[_UNKNOWNS[0]]["detail"])
+
+    def test_the_most_blocking_questions_come_first(self):
+        record = self._record({_UNKNOWNS[0]: (ASK_THE_TEAM, "tools"),
+                               _UNKNOWNS[1]: (ASK_THE_TEAM, "decisions")})
+        unknowns = [q for q in open_questions(record) if q["kind"] == "unknown"]
+        self.assertEqual(unknowns[0]["question"], _UNKNOWNS[1])
 
     def test_what_is_set_aside_is_still_recorded(self):
         """Not asked is not the same as thrown away; the context document still says it."""
@@ -136,8 +160,8 @@ class TestTriage(unittest.TestCase):
         self.assertEqual(record.questions_for_people(), [("decisions", "What is the limit?")])
 
     def test_the_counts_separate_what_is_asked_from_what_is_not(self):
-        record = self._record({_UNKNOWNS[0]: ASK_THE_TEAM, _UNKNOWNS[1]: NOT_MATERIAL,
-                               _UNKNOWNS[2]: NOT_MATERIAL})
+        record = self._record({_UNKNOWNS[0]: (ASK_THE_TEAM, "decisions"),
+                               _UNKNOWNS[1]: NOT_MATERIAL, _UNKNOWNS[2]: NOT_MATERIAL})
         counts = summarise(record)
         self.assertEqual(counts["unknowns"], counts["to_ask"] + counts["set_aside"])
 

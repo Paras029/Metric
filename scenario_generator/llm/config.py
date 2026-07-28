@@ -99,6 +99,11 @@ def max_corpus_chars() -> int:
 # answer is worth asking, and one that does not change what gets tested is not worth anyone's time.
 INGEST_RESOLVE_PASSES = int(os.getenv("LLM_INGEST_RESOLVE_PASSES", "2"))
 
+# How many questions are put in front of a person at once. The rest are kept and shown on request
+# rather than thrown away, but a list long enough to be daunting is a list nobody works through,
+# and the questions that mattered are lost among the ones that did not.
+MAX_OPEN_QUESTIONS = int(os.getenv("LLM_MAX_OPEN_QUESTIONS", "6"))
+
 # Kept for callers that still read the older names.
 DEFAULT_MAX_TOKENS = STANDARD.max_tokens
 JUDGEMENT_MAX_TOKENS = JUDGEMENT.max_tokens

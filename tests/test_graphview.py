@@ -1,13 +1,18 @@
 """Drawing the declared graph.
 
-The picture is only worth having if it tells the truth about the declaration, so the tests here
-are mostly about the two things a reader would be misled by: an edge that does not exist, and a
+Boxes are decisions and arrows are the states between them, which is how the intake is authored:
+a state's `reached_via` is written as `DEC-01=Pass`, so a state is defined by the outcome that
+produces it. Drawing it the other way round asks the reader to translate.
+
+The picture is only worth having if it tells the truth about the declaration, so most of what is
+pinned here is the two things a reader would be misled by: an arrow that does not exist, and a
 state quietly left out because nothing leads to it.
 """
 import unittest
 
 from scenario_generator.core.models import Decision, IntakeData, Persona, State, Tool
-from scenario_generator.webapp.graphview import build_layout, graph_summary, render_svg
+from scenario_generator.webapp.graphview import (DECISION, START, TERMINAL, build_layout,
+                                                 completeness, graph_summary, render_svg)
 
 _INTAKE = IntakeData(
     use_case={"Use case name": "Test", "Business objective": "Objective"},
@@ -34,22 +39,47 @@ _ORPHANED = IntakeData(
 )
 
 
-class TestLayout(unittest.TestCase):
-    def test_depth_counts_from_the_start_state(self):
+class TestWhatIsABoxAndWhatIsAnArrow(unittest.TestCase):
+    def test_every_decision_is_a_box(self):
+        nodes = build_layout(_INTAKE).nodes
+        for decision in _INTAKE.decisions:
+            self.assertEqual(nodes[decision.id].kind, DECISION)
+
+    def test_each_way_the_interaction_ends_is_a_box(self):
+        nodes = build_layout(_INTAKE).nodes
+        self.assertEqual(nodes["S-02"].kind, TERMINAL)
+        self.assertEqual(nodes["S-03"].kind, TERMINAL)
+
+    def test_a_state_the_interaction_passes_through_is_an_arrow_not_a_box(self):
+        """S-01 is a position on the way somewhere, so it belongs on the arrow into DEC-02."""
         layout = build_layout(_INTAKE)
-        self.assertEqual(layout.nodes["S-00"].depth, 0)
-        self.assertEqual(layout.nodes["S-01"].depth, 1)
-        self.assertEqual(layout.nodes["S-03"].depth, 2)
+        self.assertNotIn("S-01", layout.nodes)
+        carried = [e for e in layout.edges if e.target == "DEC-02"]
+        self.assertEqual([e.state_label for e in carried], ["Authenticated"])
 
-    def test_an_edge_exists_for_every_declared_outcome_that_leads_somewhere(self):
-        edges = {(e.source, e.decision_id, e.variant, e.target) for e in build_layout(_INTAKE).edges}
-        self.assertIn(("S-00", "DEC-01", "Pass", "S-01"), edges)
-        self.assertIn(("S-00", "DEC-01", "Fail", "S-02"), edges)
-        self.assertIn(("S-01", "DEC-02", "Found", "S-03"), edges)
+    def test_there_is_somewhere_for_the_interaction_to_open(self):
+        starts = [n for n in build_layout(_INTAKE).nodes.values() if n.kind == START]
+        self.assertEqual(len(starts), 1)
+        self.assertIn("Session begins", starts[0].caption)
 
-    def test_no_edge_is_invented_for_an_outcome_nothing_declares(self):
+    def test_an_arrow_carries_the_outcome_that_took_it(self):
+        edges = {(e.source, e.outcome, e.target) for e in build_layout(_INTAKE).edges}
+        self.assertIn(("DEC-01", "Pass", "DEC-02"), edges)
+        self.assertIn(("DEC-01", "Fail", "S-02"), edges)
+        self.assertIn(("DEC-02", "Found", "S-03"), edges)
+
+    def test_no_arrow_is_invented_for_an_outcome_nothing_declares(self):
+        declared = {d.id for d in _INTAKE.decisions} | {s.id for s in _INTAKE.states}
         for edge in build_layout(_INTAKE).edges:
-            self.assertIn(edge.target, {s.id for s in _INTAKE.states})
+            self.assertIn(edge.target, declared)
+
+
+class TestLayout(unittest.TestCase):
+    def test_depth_counts_from_where_the_interaction_opens(self):
+        layout = build_layout(_INTAKE)
+        self.assertEqual(layout.nodes["DEC-01"].depth, 1)
+        self.assertEqual(layout.nodes["DEC-02"].depth, 2)
+        self.assertEqual(layout.nodes["S-03"].depth, 3)
 
     def test_a_state_nothing_leads_to_is_reported_rather_than_hidden(self):
         layout = build_layout(_ORPHANED)
@@ -66,29 +96,60 @@ class TestLayout(unittest.TestCase):
         self.assertEqual(render_svg(empty), "")
 
 
+class TestSketchedEdits(unittest.TestCase):
+    """Additions made in the interface are drawn, and marked as not yet committed."""
+
+    def test_a_sketched_decision_is_marked_as_pending(self):
+        layout = build_layout(_INTAKE, pending_decisions=["DEC-02"])
+        self.assertTrue(layout.nodes["DEC-02"].pending)
+        self.assertFalse(layout.nodes["DEC-01"].pending)
+
+    def test_a_sketched_element_is_drawn_differently(self):
+        self.assertIn("graph__node--pending", render_svg(_INTAKE, pending_decisions=["DEC-02"]))
+
+    def test_an_arrow_touching_a_sketched_element_is_marked_too(self):
+        layout = build_layout(_INTAKE, pending_states=["S-02"])
+        touching = [e for e in layout.edges if e.target == "S-02"]
+        self.assertTrue(touching and all(e.pending for e in touching))
+
+    def test_nothing_is_pending_when_nothing_was_sketched(self):
+        self.assertNotIn("graph__node--pending", render_svg(_INTAKE))
+
+
 class TestRendering(unittest.TestCase):
-    def test_every_state_appears_in_the_drawing(self):
+    def test_every_decision_and_ending_appears_in_the_drawing(self):
         svg = render_svg(_INTAKE)
-        for state in _INTAKE.states:
-            self.assertIn(state.id, svg)
+        for identifier in ("DEC-01", "DEC-02", "S-02", "S-03"):
+            self.assertIn(identifier, svg)
 
     def test_terminal_states_are_marked_by_their_outcome_type(self):
         svg = render_svg(_INTAKE)
         self.assertIn("graph__node--termination", svg)
         self.assertIn("graph__node--happy", svg)
 
-    def test_hover_detail_names_the_decision_and_its_outcome(self):
-        self.assertIn("outcome “Pass”", render_svg(_INTAKE))
+    def test_an_arrow_is_labelled_with_the_state_it_leads_to(self):
+        self.assertIn("Pass → Authenticated", render_svg(_INTAKE))
+
+    def test_hover_detail_names_the_decision_the_outcome_and_the_state(self):
+        svg = render_svg(_INTAKE)
+        self.assertIn("Auth → Pass → S-01: Authenticated", svg)
+
+    def test_the_drawing_states_its_own_size_so_it_can_be_zoomed(self):
+        self.assertIn('width="', render_svg(_INTAKE))
+        self.assertIn('viewBox="', render_svg(_INTAKE))
 
     def test_unreachable_states_are_drawn_differently(self):
         self.assertIn("graph__node--unreachable", render_svg(_ORPHANED))
 
     def test_descriptions_are_escaped_rather_than_injected(self):
         intake = IntakeData(
-            use_case={}, personas=[], capabilities=[], decisions=[],
-            states=[State("S-00", "Start", "<script>alert(1)</script>", [], True)], tools=[])
+            use_case={}, personas=[], capabilities=[],
+            decisions=[Decision("DEC-01", "<img src=x>", "", "", ["Pass"])],
+            states=[State("S-00", "Start", "<script>alert(1)</script>", ["DEC-01"], False)],
+            tools=[])
         svg = render_svg(intake)
         self.assertNotIn("<script>", svg)
+        self.assertNotIn("<img src=x>", svg)
         self.assertIn("&lt;script&gt;", svg)
 
 
@@ -100,6 +161,57 @@ class TestSummary(unittest.TestCase):
         self.assertEqual(facts["decisions"], 2)
         self.assertEqual(facts["outcomes"], 3)
         self.assertEqual(facts["unreachable"], [])
+
+
+class TestCompleteness(unittest.TestCase):
+    """What is wrong with the declaration, said as something a person can go and fix."""
+
+    def test_a_well_formed_intake_has_nothing_to_report(self):
+        intake = IntakeData(
+            use_case={}, personas=[], capabilities=[],
+            decisions=[Decision("DEC-01", "Auth", "", "", ["Pass", "Fail"])],
+            states=[State("S-00", "Start", "Opens", ["DEC-01"], False),
+                    State("S-01", "DEC-01=Pass", "In", [], True, "Happy path"),
+                    State("S-02", "DEC-01=Fail", "Out", [], True, "Termination")],
+            tools=[])
+        self.assertEqual(completeness(intake), [])
+
+    def test_the_sample_intake_reports_its_one_dead_branch(self):
+        """DEC-02 declares a single outcome, so it contributes no route."""
+        self.assertEqual([p["id"] for p in completeness(_INTAKE)], ["DEC-02"])
+
+    def test_a_decision_with_one_outcome_is_reported(self):
+        """It adds no branch, so nothing on it is ever tested."""
+        problems = completeness(_ORPHANED)
+        self.assertTrue(any("only one named outcome" in p["what"] for p in problems))
+
+    def test_an_outcome_leading_nowhere_is_reported(self):
+        intake = IntakeData(
+            use_case={}, personas=[], capabilities=[],
+            decisions=[Decision("DEC-01", "Auth", "", "", ["Pass", "Fail"])],
+            states=[State("S-00", "Start", "Opens", ["DEC-01"], False),
+                    State("S-01", "DEC-01=Pass", "In", [], True, "Happy path")],
+            tools=[])
+        problems = completeness(intake)
+        self.assertTrue(any("Fail lead nowhere" in p["what"] for p in problems))
+
+    def test_a_capability_nothing_branches_on_is_reported(self):
+        from scenario_generator.core.models import Capability
+
+        intake = IntakeData(
+            use_case={}, personas=[], capabilities=[Capability("CAP-09", "Unused", "Lookup")],
+            decisions=[Decision("DEC-01", "Auth", "CAP-01", "", ["Pass", "Fail"])],
+            states=[State("S-00", "Start", "Opens", ["DEC-01"], False),
+                    State("S-01", "DEC-01=Pass", "In", [], True, "Happy path"),
+                    State("S-02", "DEC-01=Fail", "Out", [], True, "Termination")],
+            tools=[])
+        self.assertTrue(any("CAP-09 has no decisions" in p["what"] for p in completeness(intake)))
+
+    def test_an_intake_with_no_start_is_reported(self):
+        intake = IntakeData(use_case={}, personas=[], capabilities=[], decisions=[],
+                            states=[], tools=[])
+        self.assertTrue(any("No state is marked as the start" in p["what"]
+                            for p in completeness(intake)))
 
 
 if __name__ == "__main__":

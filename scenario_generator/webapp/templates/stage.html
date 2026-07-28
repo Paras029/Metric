@@ -23,6 +23,31 @@
 </svg>
 {% endmacro %}
 
+{# One open question. Everything on the page shares a single form, so each row carries the
+   question it answers alongside the field, and blanks are simply not saved. #}
+{% macro question_row(question, index, given) %}
+<li class="questions__row questions__row--{{ question.kind }}
+           {% if given %}questions__row--done{% endif %}">
+  <span class="questions__kind">
+    {% if given %}Answered
+    {% elif question.kind == 'gap' %}Not covered
+    {% elif question.kind == 'unknown' %}Blocking
+    {% else %}Confirm{% endif %}
+  </span>
+  <span class="questions__body">
+    <span class="questions__text">{{ question.question }}</span>
+    <span class="questions__detail">
+      {% if question.blocks %}<em class="questions__blocks">Blocks {{ question.blocks }}.</em>{% endif %}
+      {{ question.detail }}
+    </span>
+    <input type="hidden" name="question-{{ index }}" value="{{ question.question }}">
+    <input class="field__input field__input--inline" type="text" name="answer-{{ index }}"
+           value="{{ given or '' }}"
+           placeholder="{% if given %}Change this answer{% else %}Answer this, or leave it for the model owner{% endif %}">
+  </span>
+</li>
+{% endmacro %}
+
 {% block body %}
 <div class="shell">
 
@@ -168,25 +193,172 @@
       <section class="panel panel--graph">
         <h2 class="panel__title">The declared graph</h2>
         <p class="panel__body">
-          Boxes are states, arrows are decision outcomes. Hover anything for its detail. This is
-          the whole of what the benchmark can reach — a branch missing here is a branch that will
-          never be tested.
+          <strong>Boxes are decisions</strong> — the points where the agent branches.
+          <strong>Arrows are the states between them</strong>, each labelled with the outcome that
+          took it there. Rounded boxes are the ways an interaction can end. Hover anything for its
+          detail. This is the whole of what the benchmark can reach — a branch missing here is a
+          branch that will never be tested.
         </p>
+
         {% if graph_facts.unreachable %}
           <p class="graph__warning">
-            Not reachable from the start state:
+            Not reachable from the start:
             <span class="mono">{{ graph_facts.unreachable | join(', ') }}</span>.
             A state nothing leads to is usually a gap in the intake rather than in the agent.
           </p>
         {% endif %}
-        <div class="graph__frame">{{ graph_svg | safe }}</div>
+
+        <div class="graph__tools">
+          <button class="graph__zoom" type="button" data-zoom="out" title="Zoom out">−</button>
+          <button class="graph__zoom" type="button" data-zoom="in" title="Zoom in">+</button>
+          <button class="graph__zoom" type="button" data-zoom="fit" title="Fit to width">Fit</button>
+          <span class="graph__level mono" data-zoom-level>100%</span>
+          <span class="graph__hint">Drag to pan · scroll to move</span>
+        </div>
+        <div class="graph__frame" data-graph>
+          <div class="graph__canvas" data-graph-canvas>{{ graph_svg | safe }}</div>
+        </div>
         <p class="graph__facts">
-          <span class="mono">{{ graph_facts.states }}</span> states
-          (<span class="mono">{{ graph_facts.terminal }}</span> ending) ·
           <span class="mono">{{ graph_facts.decisions }}</span> decisions with
           <span class="mono">{{ graph_facts.outcomes }}</span> outcomes ·
+          <span class="mono">{{ graph_facts.states }}</span> states
+          (<span class="mono">{{ graph_facts.terminal }}</span> ending) ·
           longest run <span class="mono">{{ graph_facts.depth }}</span> deep
         </p>
+      </section>
+    {% endif %}
+
+    {% if problems %}
+      <section class="panel">
+        <h2 class="panel__title">What this declaration leaves out</h2>
+        <p class="panel__body">
+          None of these stop the benchmark being built. Each one quietly narrows it, which is why
+          they are worth a minute: a branch that adds no routes is a part of the agent nothing
+          will ever test.
+        </p>
+        <ul class="problems">
+          {% for problem in problems %}
+            <li class="problems__row">
+              <span class="problems__what">{{ problem.what }}</span>
+              <span class="problems__why">{{ problem.why }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+
+    {% if sketch %}
+      <section class="panel panel--action" id="sketch">
+        <h2 class="panel__title">
+          Try a change before committing it
+          {% if sketch.count %}<span class="tag tag--draft">{{ sketch.count }} not yet saved</span>{% endif %}
+        </h2>
+        <p class="panel__body">
+          Add a decision or a state here and it appears in the graph above, dashed. Anything not
+          yet connected to something sits in a row underneath until you give it somewhere to go.
+          Nothing reaches the intake workbook — or the benchmark — until you press
+          <em>Write these into the intake</em>. For edits to what is already declared, change the
+          workbook itself and upload it again.
+        </p>
+
+        {% if sketch.rows %}
+          <ul class="sketch">
+            {% for row in sketch.rows %}
+              <li class="sketch__row {% if not row.attached %}sketch__row--loose{% endif %}">
+                <span class="sketch__head">
+                  <span class="sketch__id mono">{{ row.id }}</span>
+                  <span class="sketch__name">{{ row.name }}</span>
+                  <span class="sketch__kind">{{ 'Decision' if row.kind == 'decision' else 'State' }}</span>
+                </span>
+                <span class="sketch__detail">{{ row.detail }} · {{ row.where }}</span>
+
+                <span class="sketch__actions">
+                  {% if not row.attached %}
+                    <form method="post"
+                          action="{{ url_for('attach_sketch', item_id=row.id) }}">
+                      <select class="card__select" name="target" required>
+                        <option value="">
+                          {% if row.kind == 'decision' %}Reached from…{% else %}Reached via…{% endif %}
+                        </option>
+                        {% if row.kind == 'decision' %}
+                          {% for state_id in sketch.states %}
+                            <option value="{{ state_id }}">{{ state_id }}</option>
+                          {% endfor %}
+                        {% else %}
+                          {% for outcome in sketch.outcomes %}
+                            <option value="{{ outcome }}">{{ outcome }}</option>
+                          {% endfor %}
+                        {% endif %}
+                      </select>
+                      <button class="button button--quiet" type="submit">Attach</button>
+                    </form>
+                  {% endif %}
+                  <form method="post" action="{{ url_for('remove_sketch', item_id=row.id) }}">
+                    <button class="drop__remove" type="submit">Discard</button>
+                  </form>
+                </span>
+              </li>
+            {% endfor %}
+          </ul>
+
+          <form class="sketch__commit" method="post" action="{{ url_for('commit_sketch') }}">
+            <button class="button button--primary" type="submit">Write these into the intake</button>
+            <span class="sketch__note">
+              {% if sketch.unattached %}
+                <span class="mono">{{ sketch.unattached | join(', ') }}</span> still have nowhere
+                to sit — they will be written, but nothing will reach them until you say what does.
+              {% else %}
+                Appended to the workbook. Everything already in it is left alone.
+              {% endif %}
+            </span>
+          </form>
+        {% endif %}
+
+        <div class="sketch__forms">
+          <form class="sketch__form" method="post" action="{{ url_for('sketch_intake') }}">
+            <input type="hidden" name="kind" value="decision">
+            <p class="sketch__form-title">Add a decision</p>
+            <input class="field__input" type="text" name="name" required
+                   placeholder="What it decides, e.g. Eligibility check">
+            <input class="field__input" type="text" name="outcomes"
+                   placeholder="Outcomes, separated by / — e.g. Eligible / Not eligible">
+            <select class="card__select" name="capability">
+              <option value="">Capability (optional)</option>
+              {% for capability in sketch.capabilities %}
+                <option value="{{ capability }}">{{ capability }}</option>
+              {% endfor %}
+            </select>
+            <select class="card__select" name="input_source">
+              {% for source in ['User', 'Tool', 'Memory-Session', 'Memory-CrossSession',
+                                'System-Context', 'Document'] %}
+                <option value="{{ source }}">{{ source }}</option>
+              {% endfor %}
+            </select>
+            <button class="button button--quiet" type="submit">Add to the sketch</button>
+          </form>
+
+          <form class="sketch__form" method="post" action="{{ url_for('sketch_intake') }}">
+            <input type="hidden" name="kind" value="state">
+            <p class="sketch__form-title">Add a state</p>
+            <input class="field__input" type="text" name="name" required
+                   placeholder="Where the interaction has got to, e.g. Referred to an adviser">
+            <select class="card__select" name="reached_via">
+              <option value="">Reached via… (optional for now)</option>
+              {% for outcome in sketch.outcomes %}
+                <option value="{{ outcome }}">{{ outcome }}</option>
+              {% endfor %}
+            </select>
+            <select class="card__select" name="next_decisions" multiple size="3">
+              {% for decision_id in sketch.decisions %}
+                <option value="{{ decision_id }}">{{ decision_id }}</option>
+              {% endfor %}
+            </select>
+            <label class="card__check">
+              <input type="checkbox" name="is_terminal" value="1"> Ends the interaction
+            </label>
+            <button class="button button--quiet" type="submit">Add to the sketch</button>
+          </form>
+        </div>
       </section>
     {% endif %}
 
@@ -348,42 +520,50 @@
     {% endif %}
 
     {% if questions %}
+      {% set blocking = questions | rejectattr('deferred') | list %}
+      {% set deferred = questions | selectattr('deferred') | list %}
+      {% set outstanding = questions | rejectattr('question', 'in', answered) | list %}
       <section class="panel">
         <h2 class="panel__title">What is still unanswered</h2>
         <p class="panel__body">
-          Answer what you can here. An answer is recorded against its question and given to every
-          stage that follows, so nothing needs re-running. What is left unanswered stays unknown
-          rather than being treated as something the agent does not do.
+          Only what stops the intake being filled in. Documentation is never complete, and the
+          rest of what these documents leave open is recorded in the context file rather than put
+          to anybody. Answer what you can and press Save — you can come back for the others, and
+          an answer already given can be changed. Nothing needs re-running: each answer is
+          recorded against its question and given to every stage that follows.
         </p>
-        <ul class="questions">
-          {% for question in questions %}
-            {% set given = answered.get(question.question) %}
-            <li class="questions__row questions__row--{{ question.kind }}
-                       {% if given %}questions__row--done{% endif %}">
-              <span class="questions__kind">
-                {% if given %}Answered
-                {% elif question.kind == 'gap' %}Not covered
-                {% elif question.kind == 'unknown' %}Unsettled
-                {% else %}Confirm{% endif %}
-              </span>
-              <span class="questions__body">
-                <span class="questions__text">{{ question.question }}</span>
-                <span class="questions__detail">{{ question.detail }}</span>
-                {% if given %}
-                  <span class="questions__answer">{{ given }}</span>
-                {% else %}
-                  <form class="questions__form" method="post"
-                        action="{{ url_for('add_note', key=stage.key) }}">
-                    <input type="hidden" name="question" value="{{ question.question }}">
-                    <input class="field__input field__input--inline" type="text" name="note"
-                           placeholder="Answer this, or leave it for the model owner">
-                    <button class="button button--quiet" type="submit">Save</button>
-                  </form>
-                {% endif %}
-              </span>
-            </li>
-          {% endfor %}
-        </ul>
+
+        <form method="post" action="{{ url_for('save_answers', key=stage.key) }}">
+          <ul class="questions">
+            {% for question in blocking %}
+              {{ question_row(question, loop.index, answered.get(question.question)) }}
+            {% endfor %}
+          </ul>
+
+          {% if deferred %}
+            <details class="questions__more">
+              <summary class="questions__more-summary">
+                {{ deferred | length }} further point{{ '' if deferred | length == 1 else 's' }}
+                the documents left open — not blocking, shown in case you want them
+              </summary>
+              <ul class="questions">
+                {% for question in deferred %}
+                  {{ question_row(question, blocking | length + loop.index,
+                                  answered.get(question.question)) }}
+                {% endfor %}
+              </ul>
+            </details>
+          {% endif %}
+
+          <div class="questions__foot">
+            <button class="button button--primary" type="submit">Save answers</button>
+            <span class="questions__progress">
+              <span class="mono">{{ questions | length - outstanding | length }}</span>
+              of <span class="mono">{{ questions | length }}</span> answered
+              {%- if outstanding %} · leaving the rest is fine{% endif %}
+            </span>
+          </div>
+        </form>
       </section>
     {% endif %}
 
@@ -569,14 +749,95 @@
     </section>
 
     {% if view.has_output %}
-      <form class="reset" method="post" action="{{ url_for('reset_stage', key=stage.key) }}">
-        <button class="button button--danger" type="submit">
-          Clear this stage and everything after it
-        </button>
-      </form>
+      <div class="reset">
+        {# Two intentions, so two buttons. Keeping the old workbooks is what you want when
+           comparing a rerun against what came before; starting over has to delete them, because
+           several stages read what they need straight off disk and would otherwise pick the old
+           work back up. #}
+        <form method="post" action="{{ url_for('reset_stage', key=stage.key) }}">
+          <button class="button button--quiet" type="submit">
+            Clear this stage and everything after it
+          </button>
+          <span class="reset__note">Statuses only. The files stay, and stay downloadable.</span>
+        </form>
+        <form method="post" action="{{ url_for('reset_stage', key=stage.key) }}">
+          <input type="hidden" name="purge" value="1">
+          <button class="button button--danger" type="submit">
+            Start again from here
+          </button>
+          <span class="reset__note">
+            Deletes what this stage and the ones after it produced. Submitted documents and the
+            intake workbook you uploaded are kept.
+          </span>
+        </form>
+      </div>
     {% endif %}
   </main>
 </div>
+
+{% if graph_svg %}
+<script>
+  // Zoom and pan over the graph. These get large enough that a fixed-width picture of one is
+  // unreadable, and the SVG carries its own dimensions, so scaling it is a transform rather than
+  // a redraw. Without scripting the graph still renders at its natural size inside a scrolling
+  // frame, which is what it did before.
+  (function () {
+    var frame = document.querySelector('[data-graph]');
+    var canvas = document.querySelector('[data-graph-canvas]');
+    var readout = document.querySelector('[data-zoom-level]');
+    if (!frame || !canvas) { return; }
+
+    var svg = canvas.querySelector('svg');
+    var natural = svg ? svg.getAttribute('width') : 0;
+    var scale = 1;
+
+    function apply() {
+      canvas.style.transform = 'scale(' + scale + ')';
+      canvas.style.transformOrigin = '0 0';
+      if (svg) {
+        // The wrapper has to grow with the drawing or the frame scrolls over empty space.
+        canvas.style.width = (natural * scale) + 'px';
+        canvas.style.height = (svg.getAttribute('height') * scale) + 'px';
+      }
+      if (readout) { readout.textContent = Math.round(scale * 100) + '%'; }
+    }
+
+    function fit() {
+      scale = natural ? Math.min(1, (frame.clientWidth - 24) / natural) : 1;
+      apply();
+    }
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-zoom]'), function (button) {
+      button.addEventListener('click', function () {
+        var how = button.dataset.zoom;
+        if (how === 'fit') { fit(); return; }
+        scale = Math.min(3, Math.max(0.2, scale * (how === 'in' ? 1.25 : 0.8)));
+        apply();
+      });
+    });
+
+    var dragging = false, startX = 0, startY = 0, fromLeft = 0, fromTop = 0;
+    frame.addEventListener('mousedown', function (event) {
+      dragging = true;
+      startX = event.clientX; startY = event.clientY;
+      fromLeft = frame.scrollLeft; fromTop = frame.scrollTop;
+      frame.classList.add('graph__frame--dragging');
+      event.preventDefault();
+    });
+    window.addEventListener('mousemove', function (event) {
+      if (!dragging) { return; }
+      frame.scrollLeft = fromLeft - (event.clientX - startX);
+      frame.scrollTop = fromTop - (event.clientY - startY);
+    });
+    window.addEventListener('mouseup', function () {
+      dragging = false;
+      frame.classList.remove('graph__frame--dragging');
+    });
+
+    fit();
+  })();
+</script>
+{% endif %}
 
 {% if groups %}
 <script>

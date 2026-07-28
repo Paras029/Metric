@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import List
 
-from ..core.evidence import FACETS, EvidenceRecord
+from ..core.evidence import BLOCKING_ORDER, FACETS, EvidenceRecord
 
 FACET_HEADINGS = {
     "use_case": "What the agent is for",
@@ -124,8 +124,20 @@ def build_context_document(record: EvidenceRecord, use_case_name: str = "") -> s
     return "\n".join(lines).strip() + "\n"
 
 
+# What each blocked part of the intake means for the person reading the question. Stated because
+# "blocks: decisions" is a justification only to somebody who already knows the schema.
+BLOCKING_REASONS = {
+    "use_case": "Without this the intake cannot say what the agent is for.",
+    "personas": "Without this the intake cannot say who the agent serves.",
+    "capabilities": "Without this a capability cannot be listed in the intake.",
+    "decisions": "Without this a branch cannot be enumerated, so nothing on it gets tested.",
+    "states": "Without this an outcome leads somewhere the intake cannot describe.",
+    "tools": "Without this the intake cannot say what calling the system does.",
+}
+
+
 def open_questions(record: EvidenceRecord) -> List[dict]:
-    """What still needs answering, as a list a person can work through.
+    """What still needs answering, as a list a person can work through, most blocking first.
 
     Three kinds, deliberately in one list because they block the same thing — an intake that can
     be trusted. A question nothing addressed is a gap in the submitted pack. A specific point an
@@ -133,9 +145,11 @@ def open_questions(record: EvidenceRecord) -> List[dict]:
     useful of the two, since it is precise enough to be answered in a sentence. A statement that
     could not be checked against text needs confirming before anything rests on it.
 
-    Only the unknowns the resolution sweep judged to need a person appear here. The rest stay in
-    the evidence record and in the context document, where they are a note on how complete the
-    documentation is rather than a task for anybody.
+    Only the unknowns the resolution sweep judged to stop the intake being filled in appear here.
+    Everything else stays in the evidence record and in the context document, where it is a note
+    on how complete the documentation is rather than a task for anybody. Documentation is always
+    incomplete; the questions worth a modelling team's time are the ones without which a part of
+    the intake cannot be written at all.
     """
     questions: List[dict] = []
     unanswered = set(record.empty_facets())
@@ -144,6 +158,7 @@ def open_questions(record: EvidenceRecord) -> List[dict]:
         questions.append({
             "kind": "gap",
             "facet": facet,
+            "blocks": facet if facet in BLOCKING_REASONS else "",
             "heading": FACET_HEADINGS.get(facet, facet),
             "question": FACET_QUESTIONS.get(facet, f"What does the agent do about {facet}?"),
             "detail": "No submitted document settled this.",
@@ -158,23 +173,30 @@ def open_questions(record: EvidenceRecord) -> List[dict]:
         if facet in unanswered or unknown.strip().lower() in seen:
             continue
         seen.add(unknown.strip().lower())
+        blocks = record.blocked_part(unknown)
         questions.append({
             "kind": "unknown",
             "facet": facet,
+            "blocks": blocks,
             "heading": FACET_HEADINGS.get(facet, facet),
             "question": unknown,
-            "detail": "The documents answered this question in part, but not this.",
+            "detail": BLOCKING_REASONS.get(
+                blocks, "The documents answered this question in part, but not this."),
         })
 
     for claim in record.needing_confirmation():
         questions.append({
             "kind": "confirm",
             "facet": claim.facet,
+            "blocks": "",
             "heading": FACET_HEADINGS.get(claim.facet, claim.facet),
             "question": f"Is this correct? {claim.statement}",
             "detail": claim.note or f"Taken from {claim.source}, and not checkable against text.",
         })
 
+    kinds = {"gap": 0, "unknown": 1, "confirm": 2}
+    questions.sort(key=lambda q: (kinds.get(q["kind"], 3),
+                                  BLOCKING_ORDER.get(q["blocks"], len(BLOCKING_ORDER))))
     return questions
 
 

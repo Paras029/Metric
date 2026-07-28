@@ -114,7 +114,7 @@ the intake stage, or pass it straight to `generate`.
 | # | Stage | Input | Output |
 |---|---|---|---|
 | 1 | Documents | The submitted pack: model documentation, their test scenarios, workflow diagrams, supporting material | A cited context document, and answers to eleven questions about the agent |
-| 2 | Open questions | The above | What the documents did not settle, as questions you can answer inline |
+| 2 | Open questions | The above | What stops the intake being filled in, as questions you answer inline |
 | 3 | Intake | A drafted or completed intake workbook | The agent as a decision graph, confirmed by you |
 | 4 | Benchmark | The intake | Every distinct route through the graph, plus applicable probes |
 | 5 | Scenario text | The benchmark | A description and tester script per scenario |
@@ -140,7 +140,26 @@ Each stage states how its output was produced — **computed**, **model judgemen
 decision** — because a materiality tier and a graph walk do not deserve the same trust.
 
 Changing an earlier stage marks the later ones out of date rather than leaving them looking
-finished. Their output is kept and stays downloadable.
+finished. Their output is kept and stays downloadable. Two ways to clear a stage: *Clear this
+stage and everything after it* forgets the statuses and keeps the workbooks, for comparing a
+rerun against what came before; *Start again from here* deletes what those stages produced.
+Neither touches submitted documents or an intake workbook you provided.
+
+**Stage 2** lists only what blocks the intake, most blocking first, each saying which part it
+blocks. Answer as many as you can and press Save once; blanks stay open, and an answer already
+given can be changed. Anything the documents left open that does not block the intake sits behind
+a toggle.
+
+**Stage 3** draws the graph: **boxes are decisions**, **arrows are the states between them**,
+labelled with the outcome that took them there. Zoom, drag to pan, hover for detail. Below it,
+what the declaration leaves out — a branch with one outcome, an outcome leading nowhere, a state
+nothing reaches — each said as something you can go and fix.
+
+You can also try a change before committing it. Add a decision or a state and it appears in the
+graph immediately, dashed; anything not yet connected sits in a row underneath until you give it
+somewhere to go. Press *Write these into the intake* and the rows are appended to the workbook —
+everything already in it, including your own edits, is left alone. For changes to what is already
+declared, edit the workbook and upload it again.
 
 From stage 5 onward the page shows the benchmark itself: what each scenario asks the agent to do,
 what it is judged to be worth and why, and anything the review flagged. Materiality can be
@@ -292,6 +311,7 @@ LLM_FAST_MODEL_ID               Defaults to LLM_MODEL_ID.
 LLM_MAX_CORPUS_CHARS            Default 2000000 (~500k tokens).
 LLM_INGEST_RESOLVE_PASSES       Default 2. How many times an open question is put
                                 back to the documents before it is put to a person.
+LLM_MAX_OPEN_QUESTIONS          Default 6. How many questions are shown at once.
 LLM_VISION                      "off" where the gateway rejects images.
 LLM_MAX_IMAGE_BYTES             Default 4000000.
 ```
@@ -306,9 +326,12 @@ accepting a split.
 
 `LLM_INGEST_RESOLVE_PASSES` decides how hard the tool tries to answer its own questions. Each pass
 is one more call over the whole corpus, and each question it settles is one the modelling team
-never has to answer. The last pass also rules on what is left: the points only a person can settle
-are asked, and the rest are recorded in the context document without being put to anybody. Set it
-to 0 to skip the sweep, which is faster and asks considerably more.
+never has to answer. The last pass also rules on what is left, against one test: **can the intake
+be filled in without this?** A question earns a place on the list only by naming which part of the
+intake it blocks — a branch whose outcomes are never named blocks `decisions`, and nothing on that
+branch can be enumerated. An unstated threshold does not: knowing that escalation happens is
+enough to test escalation. Everything else is recorded in the context document without being put
+to anybody. Set it to 0 to skip the sweep, which is faster and asks considerably more.
 
 **If you see truncation warnings**, reduce the batch size first. Raise the cap only if that does
 not resolve it.

@@ -53,6 +53,16 @@ FACETS: "OrderedDict[str, str]" = OrderedDict([
 KIND_IMAGE = "image"
 KIND_HUMAN = "human"
 
+# The parts of the intake a question can block. A question that cannot name one of these is not
+# asked: the intake can be filled without it, and that is the only test that matters once it is
+# accepted that documentation is never complete.
+INTAKE_PARTS = ("use_case", "personas", "capabilities", "decisions", "states", "tools")
+
+# Which blocked part is worth asking about first. A branch with unnamed outcomes cannot be
+# enumerated at all, so nothing on it is ever tested; an undescribed tool costs one column.
+BLOCKING_ORDER = {"decisions": 0, "states": 1, "capabilities": 2, "use_case": 3,
+                  "personas": 4, "tools": 5}
+
 VERIFIED = "verified"
 UNVERIFIABLE = "unverifiable"
 REJECTED = "rejected"
@@ -118,13 +128,23 @@ class FacetAnswer:
     failed: bool = False
 
     must_ask: List[str] = field(default_factory=list)
-    """The subset of ``unknowns`` that only a person can settle.
+    """The subset of ``unknowns`` that stops the intake being filled in.
 
     Set by the resolution sweep once it has finished putting these back to the documents. What is
-    left over at that point divides in two, and the division is worth making: a threshold nobody
-    wrote down has to be asked, and a detail that would not change which scenarios exist should
-    not be. Both stay under ``unknowns`` so the context document still records the whole of what
-    was not settled; only this list is put in front of a person.
+    left over at that point divides in two, and the division is the whole reason the list stays
+    short: a branch whose outcomes are never named cannot be enumerated and has to be asked about,
+    while a threshold nobody wrote down is normal, testable, and not worth anyone's week. Both
+    stay under ``unknowns`` so the context document still records everything that was not settled;
+    only this list is put in front of a person.
+    """
+
+    blocks: Dict[str, str] = field(default_factory=dict)
+    """Which part of the intake each asked question blocks, keyed by the question.
+
+    A question earns its place by naming what it stops -- one of the intake's own six parts. This
+    is both the justification shown to the reader and the filter: a question that cannot name what
+    it blocks is not asked, because documentation is always incomplete and "this would be good to
+    know" is not a reason to spend a modelling team's fortnight.
     """
 
     triaged: bool = False
@@ -216,15 +236,23 @@ class EvidenceRecord:
     def questions_for_people(self) -> List[Tuple[str, str]]:
         """The unknowns worth putting to a person, as (facet, question).
 
-        Where an answer has been triaged this is the subset that needs a human; where it has not
-        -- an older record, or a run whose resolution sweep did not complete -- it is everything,
-        because the alternative is quietly dropping questions nobody has judged.
+        Where an answer has been triaged this is the subset that blocks the intake; where it has
+        not -- an older record, or a run whose resolution sweep did not complete -- it is
+        everything, because the alternative is quietly dropping questions nobody has judged.
         """
         questions = []
         for answer in self.answers:
             questions += [(answer.facet, q)
                           for q in (answer.must_ask if answer.triaged else answer.unknowns)]
         return questions
+
+    def blocked_part(self, question: str) -> str:
+        """Which part of the intake this question stops being filled in, if it was recorded."""
+        for answer in self.answers:
+            found = answer.blocks.get(question)
+            if found:
+                return found
+        return ""
 
     def set_aside(self) -> int:
         """How many unknowns triage judged not worth asking. Reported rather than hidden."""

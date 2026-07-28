@@ -75,13 +75,18 @@ class Workspace:
 
     def __init__(self, root: Path, name: str = "", created_at: str = "",
                  stages: Optional[Dict[str, StageState]] = None,
-                 notes: Optional[List[dict]] = None) -> None:
+                 notes: Optional[List[dict]] = None,
+                 pending: Optional[List[dict]] = None) -> None:
         self.root = Path(root)
         self.name = name or self.root.name
         self.created_at = created_at or _now()
         self.stages: Dict[str, StageState] = stages or {
             key: StageState() for key in STAGE_KEYS}
         self.notes: List[dict] = list(notes or [])
+        # Intake edits sketched in the interface and not yet written to the workbook. Held here
+        # rather than in the workbook so the workbook stays the one authority for what the
+        # benchmark is built from, and a half-finished idea cannot reach it.
+        self.pending: List[dict] = list(pending or [])
         self._settle()
 
     # ----------------------------------------------------------------- added context
@@ -93,12 +98,27 @@ class Workspace:
         evidence is just as relevant to the final review, and asking the user to repeat it there
         would be a good way to lose it.
         """
-        text = (text or "").strip()
-        if not text:
-            return
-        self.notes.append({"stage": stage_key, "text": text, "added_at": _now(),
-                           "question": (question or "").strip()})
-        self.save()
+        self.add_notes([(question, text)], stage_key)
+
+    def add_notes(self, entries: List[tuple], stage_key: str) -> int:
+        """Record several answers at once, as (question, text) pairs. Returns how many landed.
+
+        Answering questions one at a time meant a page reload between each, which turns a list of
+        six into six round trips. Nothing here requires the whole list: blanks are skipped, so a
+        person can settle what they know now, come back, and settle the rest later, and each pass
+        registers what it carried.
+        """
+        added = 0
+        for question, text in entries:
+            text = (text or "").strip()
+            if not text:
+                continue
+            self.notes.append({"stage": stage_key, "text": text, "added_at": _now(),
+                               "question": (question or "").strip()})
+            added += 1
+        if added:
+            self.save()
+        return added
 
     def answered_questions(self) -> Dict[str, str]:
         """Every open question a person has answered, newest answer winning."""
@@ -144,7 +164,7 @@ class Workspace:
         """
         self.root.mkdir(parents=True, exist_ok=True)
         payload = {"name": self.name, "created_at": self.created_at,
-                   "notes": list(self.notes),
+                   "notes": list(self.notes), "pending": list(self.pending),
                    "stages": {k: v.to_dict() for k, v in self.stages.items()}}
 
         pending = self.state_path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
@@ -163,7 +183,7 @@ class Workspace:
                   for key in STAGE_KEYS}
         return cls(root=root, name=data.get("name", root.name),
                    created_at=data.get("created_at", ""), stages=stages,
-                   notes=data.get("notes", []))
+                   notes=data.get("notes", []), pending=data.get("pending", []))
 
     @classmethod
     def create(cls, base: Path, name: str) -> "Workspace":
@@ -259,12 +279,30 @@ class Workspace:
                 invalidated.append(stage)
         return invalidated
 
-    def reset_from(self, key: str) -> None:
-        """Clear this stage and everything after it, for starting a branch of work again."""
+    def reset_from(self, key: str, delete: Optional[List[str]] = None) -> List[str]:
+        """Clear this stage and everything after it, for starting a branch of work again.
+
+        Clearing the status is not the same as clearing the work. Several stages read what they
+        need straight off disk rather than through the record, so a reset that only forgets the
+        status leaves the old registry, evidence and questions where they were and they come
+        straight back on the next run. Pass ``delete`` to remove them as well.
+
+        Submitted documents are never touched either way. They are input rather than output, and
+        each has its own remove.
+        """
         for stage in [STAGE_BY_KEY[key]] + downstream_of(key):
             self.stages[stage.key] = StageState()
+
+        removed = []
+        for name in delete or []:
+            path = (self.root / name).resolve()
+            if self.root.resolve() in path.parents and path.is_file():
+                path.unlink()
+                removed.append(name)
+
         self._settle()
         self.save()
+        return removed
 
     # ----------------------------------------------------------------- queries
     def can_run(self, key: str) -> bool:

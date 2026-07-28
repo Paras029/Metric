@@ -38,7 +38,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
 
-from ..core.evidence import (FACETS, KIND_IMAGE, Claim, DocumentRef, EvidenceRecord,
+from ..core.evidence import (FACETS, INTAKE_PARTS, KIND_IMAGE, Claim, DocumentRef, EvidenceRecord,
                              FacetAnswer, SourceRef)
 from ..core.grounding import locate
 from ..llm import config, prompt_loader
@@ -408,12 +408,21 @@ class DocumentExtractor:
                     target.answer = answer_text
                 settled += 1
             elif last:
-                # Nothing settled it, so it is one of two kinds of leftover. Anything the sweep
-                # did not rule on is asked: an unjudged question quietly dropped is the one
-                # failure this whole arrangement exists to avoid.
-                if status == NOT_MATERIAL:
+                # Nothing settled it, so it is one of two kinds of leftover, and the sweep has to
+                # justify asking by naming which part of the intake the question blocks. A ruling
+                # of ask_the_team with no part named does not earn the ask -- documentation is
+                # always incomplete, and "worth being sure about" is not a blocked intake.
+                blocked = str(found.get("blocks", "")).strip().lower() if found else ""
+                if status == NOT_MATERIAL or (status == ASK_THE_TEAM
+                                              and blocked not in INTAKE_PARTS):
                     set_aside += 1
+                elif status == ASK_THE_TEAM:
+                    target.must_ask = list(target.must_ask) + [question]
+                    target.blocks = dict(target.blocks, **{question: blocked})
+                    to_ask += 1
                 else:
+                    # No ruling at all. Asked rather than dropped: a question nobody judged is
+                    # the one failure this arrangement exists to avoid.
                     target.must_ask = list(target.must_ask) + [question]
                     to_ask += 1
 

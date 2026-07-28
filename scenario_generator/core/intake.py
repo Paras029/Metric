@@ -128,6 +128,60 @@ _L1_FIELDS = [
 ]
 
 
+_NEXT_DECISIONS_COLUMN = 4                                 # "Valid Next Decisions" on L4 States
+
+
+def append_rows(path: str, decisions: List[list] = None, states: List[list] = None,
+                links: dict = None) -> int:
+    """Apply sketched additions to an existing intake workbook. Returns how many changes landed.
+
+    Rows are appended and existing ones amended in place rather than the workbook rewritten, so
+    every other sheet, and anything a person has put in the file by hand, survives untouched --
+    the workbook is theirs, and a tool that rewrites it wholesale is a tool people stop trusting
+    with their own edits.
+
+    ``links`` maps a declared state to the new decisions that should follow it. Adding a decision
+    is never only a new row: something has to lead to it, and that something is a row that already
+    exists. Without this the decision is written and nothing reaches it, which draws as an
+    unreachable box and generates no scenarios.
+
+    An id already in the sheet is skipped rather than duplicated: two rows with one id would give
+    the graph two nodes for one thing, and the reader would silently take whichever came last.
+    """
+    workbook = load_workbook(path)
+    changed = 0
+
+    for sheet_name, rows in (("L3 Decisions", decisions or []), ("L4 States", states or [])):
+        if not rows or sheet_name not in workbook.sheetnames:
+            continue
+        sheet = workbook[sheet_name]
+        existing = {str(r[0]).strip() for r in sheets.read_rows(sheet) if r and r[0]}
+        for row in rows:
+            if str(row[0]).strip() in existing:
+                continue
+            sheet.append(row)
+            existing.add(str(row[0]).strip())
+            changed += 1
+
+    if links and "L4 States" in workbook.sheetnames:
+        sheet = workbook["L4 States"]
+        for row in sheet.iter_rows(min_row=2):
+            wanted = links.get(str(row[0].value or "").strip())
+            if not wanted:
+                continue
+            cell = row[_NEXT_DECISIONS_COLUMN - 1]
+            already = _DECISION_TOKEN.findall(str(cell.value or ""))
+            addition = [d for d in wanted if d not in already]
+            if not addition:
+                continue
+            cell.value = ", ".join(already + addition)
+            changed += 1
+
+    if changed:
+        workbook.save(path)
+    return changed
+
+
 def write_template(path: str) -> None:
     workbook = Workbook()
     workbook.remove(workbook.active)
