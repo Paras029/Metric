@@ -23,7 +23,7 @@ import shutil
 from collections import Counter
 from pathlib import Path
 import threading
-from typing import Callable, Dict
+from typing import Callable, Dict, List
 
 from flask import (Flask, abort, jsonify, redirect, render_template, request, send_file,
                    session, url_for)
@@ -31,7 +31,8 @@ from werkzeug.utils import secure_filename
 
 from ..core.evidence import FACETS
 from ..core.generation import required_runs
-from ..core.intake import append_rows, read_intake, set_decision_scope, write_template
+from ..core.intake import (append_rows, attach_decision_to_state, merge_decisions, read_intake,
+                           set_decision_scope, set_state_reached_via, write_template)
 from ..core.models import MATERIALITY, IntakeData
 from ..ingest import open_questions, read_owner_library, record_from_json
 from ..ingest.context_document import FACET_HEADINGS
@@ -42,6 +43,7 @@ from ..ingest.owner_library import UnreadableLibrary
 from ..io import read_scenarios, write_challenge_pack, write_registry
 from ..llm import MaterialityAssessor, ScenarioReviewer, ScenarioWriter, config, metering
 from ..llm.cancellation import Stopped
+from ..llm.structure_review import review_structure
 from ..pipeline import (build_scenarios, draft_intake_workbook, ingest_documents, map_coverage,
                         render_questions)
 from . import stagecancel
@@ -241,6 +243,39 @@ def _run_intake(workspace: Workspace) -> Dict[str, object]:
     return {"Use case": intake.name, "Capabilities": len(intake.capabilities),
             "Decision points": len(intake.decisions), "States": len(intake.states),
             "Personas": len(intake.personas), "Tools": len(intake.tools)}
+
+
+def _proposal_dicts(review) -> List[Dict[str, object]]:
+    """A StructureReview's proposals as the plain dicts the workspace stores and the page reads.
+
+    One flat shape either way, distinguished by ``kind``, rather than two differently-shaped rows
+    -- the page renders both from one loop, and applying one is a single dispatch on this field.
+    """
+    rows: List[Dict[str, object]] = []
+    for item in review.reconnections:
+        rows.append({"kind": "reconnect", "target_kind": item.kind, "target_id": item.id,
+                     "attach_to_state": item.attach_to_state, "reached_via": item.reached_via,
+                     "rationale": item.rationale})
+    for item in review.consolidations:
+        rows.append({"kind": "consolidate", "decisions": item.decisions, "new_id": item.id,
+                     "name": item.name, "outcomes": item.outcomes,
+                     "outcome_map": item.outcome_map, "capabilities": item.capabilities,
+                     "importance": item.importance, "rationale": item.rationale})
+    return rows
+
+
+def _apply_proposal(path: Path, entry: dict) -> bool:
+    """Write one accepted proposal into the intake workbook. See core.intake for the mechanics."""
+    if entry.get("kind") == "reconnect":
+        if entry.get("target_kind") == "decision":
+            return attach_decision_to_state(str(path), entry["attach_to_state"],
+                                            entry["target_id"])
+        return set_state_reached_via(str(path), entry["target_id"], entry["reached_via"])
+    if entry.get("kind") == "consolidate":
+        return merge_decisions(str(path), entry["decisions"], entry["new_id"], entry["name"],
+                               entry["outcomes"], entry["outcome_map"],
+                               primary_capability=(entry.get("capabilities") or [""])[0])
+    return False
 
 
 def _run_benchmark(workspace: Workspace) -> Dict[str, object]:
@@ -465,6 +500,8 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             sketch=sketch,
             problems=problems,
             decisions=decisions,
+            structure_proposals=workspace.structure_proposals if key == "intake" else [],
+            structure_review_available=key == "intake" and intake is not None,
             questions=_questions_for(workspace) if key == "questions" else [],
             answered=workspace.answered_questions(),
             answers=_answers_for(workspace) if key == "documents" else [],
@@ -703,6 +740,61 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             return redirect(url_for("stage", key="intake",
                                     invalidated=", ".join(s.title for s in invalidated)))
         return redirect(url_for("stage", key="intake"))
+
+    @app.route("/stage/intake/structure-review", methods=["POST"])
+    def run_structure_review():
+        """One call: look for decisions and states worth reconnecting or consolidating.
+
+        Synchronous rather than the background-thread machinery the pipeline stages use -- this is
+        one call, not the dozens a document pack or a whole benchmark can take, so there is
+        nothing here for a progress bar to usefully report on.
+        """
+        workspace = _workspace()
+        path = workspace.artifact_path("intake", "workbook")
+        if not path:
+            abort(404)
+        intake = _intake(workspace)
+        review = review_structure(intake, context=_context(workspace))
+        workspace.set_structure_proposals(_proposal_dicts(review))
+        workspace.save()
+        if not review:
+            workspace.state("intake").note = (
+                "Nothing to propose: every decision and state connects, and no decisions looked "
+                "like alternate routes to the same fact.")
+            workspace.save()
+        return redirect(url_for("stage", key="intake", _anchor="structure-review"))
+
+    @app.route("/stage/intake/structure-review/<proposal_id>/apply", methods=["POST"])
+    def apply_structure_proposal(proposal_id: str):
+        """Write one accepted proposal straight into the intake workbook.
+
+        Unlike the sketch pad, there is no separate commit step: a structure review's proposal is
+        a change to something already declared, not a new addition waiting on somewhere to attach,
+        so accepting it behaves like the scope toggle -- immediate, and invalidating downstream
+        the same way a corrected upload would.
+        """
+        workspace = _workspace()
+        path = workspace.artifact_path("intake", "workbook")
+        entry = workspace.pop_structure_proposal(proposal_id)
+        if not path or entry is None:
+            abort(404)
+
+        applied = _apply_proposal(path, entry)
+        invalidated = workspace.invalidate_from("intake") if applied else []
+        workspace.state("intake").note = "" if applied else (
+            "That proposal no longer matches the workbook -- something it referred to may have "
+            "changed since it was made. It has been dropped rather than applied.")
+        workspace.save()
+        return redirect(url_for("stage", key="intake",
+                                invalidated=", ".join(s.title for s in invalidated),
+                                _anchor="structure-review"))
+
+    @app.route("/stage/intake/structure-review/<proposal_id>/dismiss", methods=["POST"])
+    def dismiss_structure_proposal(proposal_id: str):
+        workspace = _workspace()
+        workspace.pop_structure_proposal(proposal_id)
+        workspace.save()
+        return redirect(url_for("stage", key="intake", _anchor="structure-review"))
 
     # ----------------------------------------------------------------- sketching the intake
     #

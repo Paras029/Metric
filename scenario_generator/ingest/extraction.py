@@ -273,7 +273,7 @@ class DocumentExtractor:
             cancellation.check(self._cancel)
             self._step(f"Reading the documents for {label}"
                        + (f" (part {number} of {len(chunks)})" if len(chunks) > 1 else ""))
-            reply = self._ask(_READ_PROMPT, questions=questions, corpus=chunk,
+            reply = self._ask(_READ_PROMPT, "INGEST_READ", questions=questions, corpus=chunk,
                               documents=inventory)
             if reply is None:
                 continue
@@ -422,7 +422,7 @@ class DocumentExtractor:
         try:
             reply = parse_json_object(call(
                 self._describe_images, prompt_loader.load(_SYSTEM_PROMPT), user,
-                tier=config.JUDGEMENT, images=[image]))
+                tier=config.stage_tier("INGEST_DIAGRAM_READ", config.JUDGEMENT), images=[image]))
         except Exception as exc:
             self._failures += 1
             logger.warning("Could not read diagram %s: %s", path.name, exc)
@@ -449,7 +449,8 @@ class DocumentExtractor:
         self._calls += 1
         try:
             return parse_json_object(call(
-                self._complete, prompt_loader.load(_SYSTEM_PROMPT), user, tier=config.JUDGEMENT))
+                self._complete, prompt_loader.load(_SYSTEM_PROMPT), user,
+                tier=config.stage_tier("INGEST_DIAGRAM_SYNTHESIZE", config.JUDGEMENT)))
         except Exception as exc:
             self._failures += 1
             logger.warning("Could not construct the workflow from the diagrams: %s", exc)
@@ -487,7 +488,7 @@ class DocumentExtractor:
         try:
             reply = parse_json_object(call(
                 self._describe_images, prompt_loader.load(_SYSTEM_PROMPT), user,
-                tier=config.JUDGEMENT, images=images))
+                tier=config.stage_tier("INGEST_DIAGRAM_REPAIR", config.JUDGEMENT), images=images))
         except Exception as exc:
             self._failures += 1
             logger.warning("Could not check the diagrams again: %s", exc)
@@ -580,7 +581,8 @@ class DocumentExtractor:
             f"## {FACET_HEADINGS.get(a.facet, a.facet)}\n{a.answer}"
             for a in record.answers if a.is_answered and a.answer)
 
-        reply = self._ask(_RESOLVE_PROMPT, established=established or "Nothing yet.",
+        reply = self._ask(_RESOLVE_PROMPT, "INGEST_RESOLVE",
+                          established=established or "Nothing yet.",
                           questions="\n".join(f"- {q}" for _, q in outstanding),
                           corpus=corpus,
                           triage=prompt_loader.load("ingest.triage") if last else "")
@@ -648,14 +650,19 @@ class DocumentExtractor:
         self._done += 1
         self._progress(message, self._done, self._total)
 
-    def _ask(self, prompt: str, **values) -> Optional[dict]:
-        """One judgement-budget call, returning None rather than raising when it fails."""
+    def _ask(self, prompt: str, stage: str, **values) -> Optional[dict]:
+        """One judgement-budget call, returning None rather than raising when it fails.
+
+        ``stage`` names the call site for :func:`config.stage_tier` -- the facet-group reading and
+        the resolution sweep are both JUDGEMENT-tier work but different calls a benchmark can want
+        tuned independently, which a shared tier alone cannot express.
+        """
         self._calls += 1
         user = prompt_loader.render(prompt, **values)
         system = prompt_loader.load(_SYSTEM_PROMPT)
         try:
             return parse_json_object(
-                call(self._complete, system, user, tier=config.JUDGEMENT))
+                call(self._complete, system, user, tier=config.stage_tier(stage, config.JUDGEMENT)))
         except Exception as exc:
             self._failures += 1
             logger.warning("A reading call failed: %s", exc)

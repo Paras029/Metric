@@ -4,6 +4,7 @@
     MaterialityAssessor  a separate sweep assigning materiality with cross-scenario context.
     MetadataExtractor    maps a modeling team's free-text scenarios onto the intake vocabulary.
     ScenarioReviewer     final whole-registry sweep: revises materiality, proposes additions.
+    review_structure     one intake-stage call proposing reconnections and consolidations.
 
 Prompt wording lives in ``scenario_generator/prompts`` and is reached through
 :mod:`~scenario_generator.llm.prompt_loader`. What each pass builds from intake data -- the use
@@ -15,8 +16,10 @@ from .extractor import MetadataExtractor
 from .gateway import ask_llm
 from .materiality import MaterialityAssessor, NullMaterialityAssessor
 from .reviewer import NullReviewer, ScenarioReviewer
+from .structure_review import Consolidation, Reconnection, StructureReview, review_structure
 from .writer import NullWriter, ScenarioWriter
 
 __all__ = ["ask_llm", "describe_use_case", "describe_graph", "ScenarioWriter", "NullWriter",
           "MaterialityAssessor", "NullMaterialityAssessor", "MetadataExtractor",
-          "ScenarioReviewer", "NullReviewer"]
+          "ScenarioReviewer", "NullReviewer", "review_structure", "StructureReview",
+          "Reconnection", "Consolidation"]

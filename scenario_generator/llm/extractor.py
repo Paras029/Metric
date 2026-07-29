@@ -26,9 +26,10 @@ _TASK_PROMPT = "extractor.task"
 
 
 class MetadataExtractor:
-    def __init__(self, complete: CompletionFn = None, batch_size: int = 8, cancel=None) -> None:
+    def __init__(self, complete: CompletionFn = None, batch_size: int = None, cancel=None) -> None:
         self._complete = complete or ask_llm
-        self._batch = batch_size
+        self._batch = (batch_size if batch_size is not None
+                       else config.stage_batch_size("OWNER_EXTRACT", 8))
         self._cancel = cancel
 
     def extract(self, owner_scenarios: List[OwnerScenario], intake: IntakeData) -> List[ExtractedMeta]:
@@ -36,7 +37,8 @@ class MetadataExtractor:
         results: Dict[str, ExtractedMeta] = {}
         pending = list(chunks(owner_scenarios, self._batch))
         replies = call_batch(self._complete, prompt_loader.load(_SYSTEM_PROMPT),
-                             [self._render(chunk, intake) for chunk in pending], tier=config.FAST,
+                             [self._render(chunk, intake) for chunk in pending],
+                             tier=config.stage_tier("OWNER_EXTRACT", config.FAST),
                              cancel=self._cancel)
 
         for chunk, reply in zip(pending, replies):
@@ -76,7 +78,7 @@ class MetadataExtractor:
     def _call(self, system: str, user: str) -> str:
         """Mapping free text onto a closed vocabulary is classification, and anything outside that
         vocabulary is discarded by validation regardless -- so this runs on the fast tier."""
-        return call(self._complete, system, user, tier=config.FAST)
+        return call(self._complete, system, user, tier=config.stage_tier("OWNER_EXTRACT", config.FAST))
 
     def _extract_one(self, owner: OwnerScenario, intake: IntakeData) -> Dict[str, ExtractedMeta]:
         """A single owner scenario a batch dropped, called and validated on its own."""

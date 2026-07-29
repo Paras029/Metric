@@ -44,10 +44,11 @@ class MaterialityAssessor:
     peer-group signals across the WHOLE scenario set first, then batches materiality calls with
     those signals attached, so each call can reason about redundancy beyond its own batch."""
 
-    def __init__(self, complete: CompletionFn = None, batch_size: int = 10,
+    def __init__(self, complete: CompletionFn = None, batch_size: int = None,
                  context: str = "", progress: ProgressFn = None, cancel=None) -> None:
         self._complete = complete or ask_llm
-        self._batch = batch_size
+        self._batch = (batch_size if batch_size is not None
+                       else config.stage_batch_size("MATERIALITY_ASSESS", 10))
         self._context = context
         self._progress = progress or (lambda *args, **kwargs: None)
         self._cancel = cancel
@@ -58,7 +59,8 @@ class MaterialityAssessor:
         pending = list(chunks(scenarios, self._batch))
         replies = call_batch(self._complete, prompt_loader.load(_SYSTEM_PROMPT),
                              [self._render(c, intake, peers) for c in pending],
-                             tier=config.MATERIALITY, cancel=self._cancel)
+                             tier=config.stage_tier("MATERIALITY_ASSESS", config.MATERIALITY),
+                             cancel=self._cancel)
 
         done_count = 0
         for chunk, reply in zip(pending, replies):
@@ -79,7 +81,7 @@ class MaterialityAssessor:
         the single-shot judgement passes -- both in what it can be pointed at and in how hard a
         transient failure retries."""
         return call(self._complete, prompt_loader.load(_SYSTEM_PROMPT), user,
-                    tier=config.MATERIALITY)
+                    tier=config.stage_tier("MATERIALITY_ASSESS", config.MATERIALITY))
 
     def _render(self, chunk: List[Scenario], intake: IntakeData, peers: Dict[str, dict]) -> str:
         """The user prompt for one chunk, built but not yet sent."""

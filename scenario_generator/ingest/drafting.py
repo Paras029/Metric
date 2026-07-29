@@ -103,7 +103,7 @@ def draft_intake(context: str, complete: Optional[Callable[..., str]] = None,
     system = prompt_loader.load(_SYSTEM_PROMPT)
 
     try:
-        reply = complete(system, user, tier=config.JUDGEMENT)
+        reply = complete(system, user, tier=config.stage_tier("INTAKE_DRAFT", config.JUDGEMENT))
     except TypeError:                                      # a stub completion without the keywords
         reply = complete(system, user)
 

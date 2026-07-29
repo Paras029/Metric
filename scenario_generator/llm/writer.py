@@ -46,10 +46,11 @@ class NullWriter:
 
 
 class ScenarioWriter:
-    def __init__(self, complete: CompletionFn = None, batch_size: int = 8,
+    def __init__(self, complete: CompletionFn = None, batch_size: int = None,
                  context: str = "", progress: ProgressFn = None, cancel=None) -> None:
         self._complete = complete or ask_llm
-        self._batch = batch_size
+        self._batch = (batch_size if batch_size is not None
+                       else config.stage_batch_size("WRITER", 8))
         self._context = context
         self._progress = progress or (lambda *args, **kwargs: None)
         self._cancel = cancel
@@ -71,7 +72,8 @@ class ScenarioWriter:
             pending = list(chunks(group, self._batch))
             system = prompt_loader.load(_SYSTEM_PROMPT)
             replies = call_batch(self._complete, system, [self._render(c, intake) for c in pending],
-                                 tier=config.STANDARD, cancel=self._cancel)
+                                 tier=config.stage_tier("WRITER", config.STANDARD),
+                                 cancel=self._cancel)
 
             for chunk, reply in zip(pending, replies):
                 cancellation.check(self._cancel)
@@ -110,7 +112,7 @@ class ScenarioWriter:
     def _call(self, system: str, user: str) -> str:
         """Writing scenario text is mechanical, but it is read by the modelling team, so it stays
         on the standard tier rather than the cheapest one."""
-        return call(self._complete, system, user, tier=config.STANDARD)
+        return call(self._complete, system, user, tier=config.stage_tier("WRITER", config.STANDARD))
 
     def _render(self, chunk: List[Scenario], intake: IntakeData) -> str:
         """The user prompt for one chunk, built but not yet sent."""

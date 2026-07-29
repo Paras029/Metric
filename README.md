@@ -351,6 +351,34 @@ directly; either way it takes hold the next time the benchmark is built.
 A drafted intake includes a **Review This** sheet giving a confidence per section and the specific
 points the draft could not settle. Read it before relying on the draft.
 
+### Tidying the graph
+
+An optional action on the intake stage, once a workbook is in place: **Look for tidying
+opportunities** sends the whole declared graph to a model in one call and asks for two kinds of
+proposal, shown on the page rather than written anywhere until you act on one.
+
+**Reconnections** — a decision or state that does not connect to the rest of the graph, with a
+specific fix: which state a stray decision should be reached from, or which decision outcome a
+stray state should be reached via.
+
+**Consolidations** — decisions that look like alternate routes to the same fact rather than
+genuinely different branches, the way a caller might be identified by the last four digits of an
+SSN, the full SSN, or a card number, with nothing afterwards depending on which one was used.
+Separately, every one of those multiplies the benchmark by every combination without testing
+anything additional past the point where they converge; merged into one decision, the same
+downstream behaviour is tested at a fraction of the cost. The pass is told which decisions are
+*structural* candidates — every outcome of each lands on the same downstream point as every
+outcome of the others — as a computed hint, not a verdict; whether merging is actually a good idea
+is still its judgement to make, weighing what the capabilities involved are for and how central
+the decision is to the use case.
+
+Applying either kind writes straight to the workbook — the same narrow, immediate edit as the
+scope toggle above, not a sketch waiting on a separate commit — and invalidates everything after
+the intake stage the same way a corrected upload would. A consolidation's merge keeps every
+capability the merged decisions used as a note against the new one, since the workbook's
+Triggering Capability column holds only one id; the rest survive as text a person can see rather
+than as a structural link. Dismissing a proposal discards it without touching anything.
+
 ---
 
 ## What you get
@@ -444,21 +472,63 @@ gateway hiccup there means several simultaneous retries rather than one. It defa
 retry ladder for that reason, and can be pointed at a smaller model independently of judgement if
 you are seeing connection errors under load.
 
+### Per-stage overrides
+
+A tier is shared by every call doing the same *kind* of work, which is coarser than every call
+*site*: weighing a scenario's materiality and checking the review's declared category are both
+Materiality-tier work, but they are two different calls in two different passes, and a benchmark
+can want them tuned differently -- a smaller model for the mechanical category check, the full one
+for materiality itself. `LLM_STAGE_<KEY>_*` sets any of `MODEL_ID`, `MAX_TOKENS`,
+`TEMPERATURE`, `REASONING_EFFORT`, `MAX_ATTEMPTS` for one specific call site, and `_BATCH_SIZE`
+for the ones that batch. Every field falls back to its tier's own setting where the stage does not
+override it, which itself falls back to `LLM_MODEL_ID` -- three levels, stage then tier then
+master, and setting nothing at this level changes nothing.
+
+| Stage key | Call site | Tier | Default batch |
+|---|---|---|---|
+| `INGEST_READ` | Reading each facet group from the whole corpus | Judgement | — |
+| `INGEST_RESOLVE` | The resolution sweep | Judgement | — |
+| `INGEST_DIAGRAM_READ` | Reading one diagram image on its own | Judgement | — |
+| `INGEST_DIAGRAM_SYNTHESIZE` | Joining every image's reading into one graph | Judgement | — |
+| `INGEST_DIAGRAM_REPAIR` | Putting unresolved points back to the images | Judgement | — |
+| `INTAKE_DRAFT` | Drafting the intake from the evidence | Judgement | — |
+| `STRUCTURE_REVIEW` | Proposing reconnections/consolidations on the intake | Judgement | — |
+| `WRITER` | Writing scenario text | Standard | 8 |
+| `MATERIALITY_ASSESS` | Weighing each scenario's materiality | Materiality | 10 |
+| `REVIEWER_ASSESS` | Review's materiality + flagging sweep | Judgement | 6 |
+| `REVIEWER_CATEGORY` | Review's declared-category check | Materiality | 20 |
+| `REVIEWER_PROPOSE` | Review's addition proposals | Judgement | — |
+| `OWNER_EXTRACT` | Mapping the owner's scenarios onto the vocabulary | Fast | 8 |
+
+For example, `LLM_STAGE_REVIEWER_CATEGORY_MODEL_ID=some-cheap-model` moves only the category
+check onto a smaller model, leaving materiality assessment on whatever `LLM_MATERIALITY_MODEL_ID`
+(or `LLM_MODEL_ID`) says, even though both share the Materiality tier by default.
+
 ```
 LLM_TEMPERATURE                  Default 0.3.
 LLM_MAX_ATTEMPTS                 Default 4. Retries for any tier that does not set its own.
 LLM_JUDGEMENT_MAX_TOKENS         Default 65536.
 LLM_JUDGEMENT_REASONING_EFFORT   Default "high".
 LLM_JUDGEMENT_MODEL_ID           Defaults to LLM_MODEL_ID.
+LLM_JUDGEMENT_TEMPERATURE        Defaults to LLM_TEMPERATURE.
 LLM_MATERIALITY_MAX_TOKENS       Default 32000.
 LLM_MATERIALITY_REASONING_EFFORT Default "medium".
 LLM_MATERIALITY_MODEL_ID         Defaults to LLM_MODEL_ID.
 LLM_MATERIALITY_MAX_ATTEMPTS     Default 2.
-LLM_MAX_TOKENS                   Default 16000.
+LLM_MATERIALITY_TEMPERATURE      Defaults to LLM_TEMPERATURE.
+LLM_MAX_TOKENS                   Default 16000. (The Standard tier reuses the master prefix --
+                                 there is no separate LLM_STANDARD_*.)
 LLM_REASONING_EFFORT             Default "minimal".
 LLM_FAST_MAX_TOKENS              Default 8000.
 LLM_FAST_REASONING_EFFORT        Default "minimal".
 LLM_FAST_MODEL_ID                Defaults to LLM_MODEL_ID.
+LLM_FAST_TEMPERATURE             Defaults to LLM_TEMPERATURE.
+LLM_STAGE_<KEY>_MODEL_ID         Per-call-site override -- see the table above for <KEY>.
+LLM_STAGE_<KEY>_MAX_TOKENS       Per-call-site override.
+LLM_STAGE_<KEY>_TEMPERATURE      Per-call-site override.
+LLM_STAGE_<KEY>_REASONING_EFFORT Per-call-site override.
+LLM_STAGE_<KEY>_MAX_ATTEMPTS     Per-call-site override.
+LLM_STAGE_<KEY>_BATCH_SIZE       Per-call-site override, where the call site batches.
 LLM_MAX_CORPUS_CHARS             Default 2000000 (~500k tokens).
 LLM_INGEST_RESOLVE_PASSES        Default 2. How many times an open question is put
                                  back to the documents before it is put to a person.

@@ -100,11 +100,12 @@ class NullReviewer:
 
 
 class ScenarioReviewer:
-    def __init__(self, complete: CompletionFn = None, batch_size: int = DEFAULT_BATCH_SIZE,
+    def __init__(self, complete: CompletionFn = None, batch_size: int = None,
                  context: str = "", proposal_limit: int = DEFAULT_PROPOSAL_LIMIT,
                  progress: ProgressFn = None, cancel=None) -> None:
         self._complete = complete or ask_llm
-        self._batch = batch_size
+        self._batch = (batch_size if batch_size is not None
+                       else config.stage_batch_size("REVIEWER_ASSESS", DEFAULT_BATCH_SIZE))
         self._context = context
         self._limit = proposal_limit
         self._progress = progress or (lambda *args, **kwargs: None)
@@ -136,18 +137,21 @@ class ScenarioReviewer:
         # "category" is the probe family they came from, which is not one of CATEGORIES at all.
         routed = [s for s in scenarios if not s.is_probe]
 
+        category_batch = config.stage_batch_size("REVIEWER_CATEGORY", CATEGORY_BATCH_SIZE)
         assess_chunks = list(chunks(scenarios, self._batch))
-        category_chunks = list(chunks(routed, CATEGORY_BATCH_SIZE))
+        category_chunks = list(chunks(routed, category_batch))
         total = len(assess_chunks) + len(category_chunks) + 1        # + the proposal call
         done = 0
 
         done = self._sweep(
-            assess_chunks, "Reviewed", config.JUDGEMENT, done, total, len(scenarios),
+            assess_chunks, "Reviewed",
+            config.stage_tier("REVIEWER_ASSESS", config.JUDGEMENT), done, total, len(scenarios),
             lambda chunk: self._render_assess(chunk, preamble, shared, signals),
             self._apply_assessment)
 
         done = self._sweep(
-            category_chunks, "Checked the category of", config.MATERIALITY, done, total,
+            category_chunks, "Checked the category of",
+            config.stage_tier("REVIEWER_CATEGORY", config.MATERIALITY), done, total,
             len(routed),
             lambda chunk: self._render_category(chunk, preamble, shared),
             self._apply_category)
@@ -204,7 +208,7 @@ class ScenarioReviewer:
     def _call(self, user: str) -> str:
         """Judgement budgets: this pass reasons at length and must justify every verdict."""
         return call(self._complete, prompt_loader.load(_SYSTEM_PROMPT), user,
-                    tier=config.JUDGEMENT)
+                    tier=config.stage_tier("REVIEWER_PROPOSE", config.JUDGEMENT))
 
     def _render_assess(self, chunk: List[Scenario], preamble: str, shared: dict,
                        signals: dict) -> str:

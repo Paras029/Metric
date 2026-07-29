@@ -5,12 +5,12 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 from openpyxl import Workbook, load_workbook
 
 from ..io import sheets
-from ..utils.text import is_yes, normalise_variant, one_of, split_list
+from ..utils.text import is_yes, normalise_variant, one_of, parse_reached_via, split_list
 from .models import (CATEGORIES, INPUT_SOURCES, Capability, Decision, IntakeData, OwnerScenario,
                      Persona, State, Tool)
 
@@ -251,6 +251,141 @@ def set_decision_scope(path: str, decision_id: str, out_of_scope: bool) -> bool:
             workbook.save(path)
             return True
     return False
+
+
+def set_state_reached_via(path: str, state_id: str, reached_via: str) -> bool:
+    """Correct one state's Reached Via column in place. Returns whether a row was found.
+
+    The same narrow exception as :func:`set_decision_scope`, for the other half of a structure
+    review's reconnection proposals: a state the declared graph does not actually connect, fixed
+    by naming the decision outcome that reaches it, without a full workbook round trip.
+    """
+    workbook = _open_for_editing(path)
+    if "L4 States" not in workbook.sheetnames:
+        return False
+    sheet = workbook["L4 States"]
+    for row in sheet.iter_rows(min_row=2):
+        if row and str(row[0].value or "").strip() == state_id:
+            sheet.cell(row=row[0].row, column=2, value=reached_via)
+            workbook.save(path)
+            return True
+    return False
+
+
+def attach_decision_to_state(path: str, state_id: str, decision_id: str) -> bool:
+    """Add ``decision_id`` to a state's Valid Next Decisions. Returns whether the state existed.
+
+    A thin, named entry point onto :func:`append_rows`'s ``links`` handling -- attaching a decision
+    that already exists to a state that already exists is the same edit as attaching a freshly
+    sketched one, so it is worth reusing rather than writing a second way to touch that column.
+    """
+    return append_rows(path, links={state_id: [decision_id]}) > 0
+
+
+_REACHED_VIA_KEY = re.compile(r"^\s*([A-Za-z]+-\d+)\s*=\s*(.+?)\s*$")
+
+
+def _outcome_key(decision_id: str, outcome: str) -> str:
+    """A ``DEC-xx=Outcome`` pair as a lookup key, tolerant of case and spacing.
+
+    Whatever wrote the workbook and whatever proposed a merge may not agree on either -- the
+    workbook's own text is whatever a person or an earlier draft happened to type, and the model
+    was never shown it directly, only the intake's rendered description of it.
+    """
+    return f"{decision_id.strip().upper()}={outcome.strip().lower()}"
+
+
+def merge_decisions(path: str, decision_ids: List[str], new_id: str, new_name: str,
+                    new_outcomes: List[str], outcome_map: Dict[str, str],
+                    primary_capability: str = "") -> bool:
+    """Collapse several decisions into one, remapping every state that pointed at any of them.
+
+    ``new_id`` must be one of ``decision_ids`` -- that row is rewritten in place with the new
+    name and outcomes rather than replaced, so nothing that already pointed at it (a state's
+    Reached Via, another state's Valid Next Decisions) has to change to keep pointing at the right
+    row. Every *other* named decision's row is deleted.
+
+    ``outcome_map`` gives, for each ``DECID=OldOutcome`` combination across every merged decision,
+    which of ``new_outcomes`` it becomes. Every L4 state whose Reached Via names one of the merged
+    decisions is rewritten to ``new_id`` and the mapped outcome; every state whose Valid Next
+    Decisions named one of the *other* merged decisions is rewritten to name ``new_id`` instead. A
+    pair with no entry in ``outcome_map`` is left exactly as it was, on the id it already named --
+    better an orphaned reference to a decision that still exists in spirit under a new id than a
+    silently invented mapping.
+
+    Capabilities are not rewritten: the merged decision keeps whichever single capability
+    ``primary_capability`` names (or its own, where none is given), and a decision that drew on
+    more than one keeps the others only as a note a person can see, not as a structural link --
+    the workbook's Triggering Capability column holds one id, and forcing several into it would be
+    inventing a shape the sheet does not have rather than merging within the one it does.
+    """
+    decision_ids = [str(d).strip().upper() for d in decision_ids]
+    new_id = str(new_id).strip().upper()
+    if new_id not in decision_ids or len(decision_ids) < 2 or len(new_outcomes) < 2:
+        return False
+    remove_ids = [d for d in decision_ids if d != new_id]
+
+    normalised_map: Dict[str, str] = {}
+    for key, value in (outcome_map or {}).items():
+        match = _REACHED_VIA_KEY.match(str(key))
+        if match and str(value).strip() in new_outcomes:
+            normalised_map[_outcome_key(match.group(1), match.group(2))] = str(value).strip()
+
+    workbook = _open_for_editing(path)
+    if "L3 Decisions" not in workbook.sheetnames or "L4 States" not in workbook.sheetnames:
+        return False
+
+    decisions_sheet = workbook["L3 Decisions"]
+    to_delete, found_new = [], False
+    for row in decisions_sheet.iter_rows(min_row=2):
+        identifier = str(row[0].value or "").strip().upper()
+        if identifier == new_id:
+            found_new = True
+            decisions_sheet.cell(row=row[0].row, column=2, value=new_name or row[1].value)
+            decisions_sheet.cell(row=row[0].row, column=5, value=" / ".join(new_outcomes))
+            if primary_capability:
+                decisions_sheet.cell(row=row[0].row, column=3, value=primary_capability)
+            note = f"Merged with {', '.join(d for d in remove_ids)}."
+            existing_inputs = str(row[3].value or "").strip()
+            decisions_sheet.cell(row=row[0].row, column=4,
+                                 value=f"{existing_inputs} ({note})" if existing_inputs else note)
+        elif identifier in remove_ids:
+            to_delete.append(row[0].row)
+    if not found_new:
+        return False
+    for row_number in sorted(to_delete, reverse=True):
+        decisions_sheet.delete_rows(row_number)
+
+    states_sheet = workbook["L4 States"]
+    for row in states_sheet.iter_rows(min_row=2):
+        reached_via = str(row[1].value or "").strip()
+        pairs = parse_reached_via(reached_via)
+        if pairs and any(dec in decision_ids for dec, _ in pairs):
+            rebuilt, changed = [], False
+            for dec, outcome in pairs:
+                mapped = normalised_map.get(_outcome_key(dec, outcome)) if dec in decision_ids else None
+                if mapped:
+                    rebuilt.append(f"{new_id}={mapped}")
+                    changed = True
+                else:
+                    rebuilt.append(f"{dec}={outcome}")
+            if changed:
+                states_sheet.cell(row=row[0].row, column=2,
+                                  value=", ".join(dict.fromkeys(rebuilt)))
+
+        next_cell = row[_NEXT_DECISIONS_COLUMN - 1]
+        existing = _DECISION_TOKEN.findall(str(next_cell.value or ""))
+        if any(d in decision_ids for d in existing):
+            rebuilt_ids = []
+            for decision_id in existing:
+                candidate = new_id if decision_id in decision_ids else decision_id
+                if candidate not in rebuilt_ids:
+                    rebuilt_ids.append(candidate)
+            states_sheet.cell(row=row[0].row, column=_NEXT_DECISIONS_COLUMN,
+                              value=", ".join(rebuilt_ids))
+
+    workbook.save(path)
+    return True
 
 
 def write_template(path: str) -> None:

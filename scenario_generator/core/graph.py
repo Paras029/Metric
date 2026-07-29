@@ -177,3 +177,46 @@ def enumerate_paths(graph: DecisionGraph) -> Tuple[List[Path], List[Path]]:
     unique_walked = [p for p in walked if keep(p)]
     unique_augmented = [p for p in augment_variants(graph, walked) if keep(p)]
     return unique_walked, unique_augmented
+
+
+# --------------------------------------------------------------------------- structural hints
+def _landing(graph: DecisionGraph, decision: Decision, variant: str) -> tuple:
+    """Where one outcome of one decision ends up, as a value two decisions can be compared by.
+
+    A terminal landing is its outcome type; a continuing one is the set of decisions reachable
+    from there. Either way, two outcomes with the same landing put the interaction in the same
+    place afterwards regardless of which one was taken -- which is the one fact that makes a pair
+    of decisions a *candidate* for :func:`convergence_candidates`, not a judgement that they
+    should merge.
+    """
+    state = graph.state(graph.successor(decision.id, variant))
+    if state is None:
+        return ("undeclared",)
+    if state.is_terminal:
+        return ("terminal", state.outcome_type)
+    return ("continue", tuple(sorted(state.next_decisions)))
+
+
+def convergence_candidates(graph: DecisionGraph) -> List[List[str]]:
+    """Decisions whose every outcome lands on the same downstream point(s) as each other's.
+
+    Purely structural, and deliberately not a recommendation: it says that after taking any
+    outcome of any decision in a group, the interaction continues (or ends) identically regardless
+    of which decision or outcome produced it -- which is the shape a "different routes to the same
+    fact" consolidation needs, not proof that collapsing the group is a good idea. A decision that
+    declares no outcomes, or whose destination was never declared, is excluded: nothing about an
+    undeclared landing can be compared.
+    """
+    signatures: Dict[str, frozenset] = {}
+    for decision in graph.decisions.values():
+        if not decision.variants or decision.out_of_scope:
+            continue
+        landings = {_landing(graph, decision, variant) for variant in decision.variants}
+        if ("undeclared",) in landings:
+            continue
+        signatures[decision.id] = frozenset(landings)
+
+    groups: Dict[frozenset, List[str]] = {}
+    for decision_id, signature in signatures.items():
+        groups.setdefault(signature, []).append(decision_id)
+    return [sorted(ids) for ids in groups.values() if len(ids) > 1]

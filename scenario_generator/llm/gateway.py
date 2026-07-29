@@ -164,7 +164,9 @@ def _generation_parameters(tier: Optional["config.Tier"], temperature: Optional[
                            reasoning_effort: Optional[str]) -> Dict[str, Any]:
     """What the model should generate with. Bound to the model rather than passed per call."""
     parameters: Dict[str, Any] = {
-        "temperature": config.DEFAULT_TEMPERATURE if temperature is None else temperature,
+        "temperature": (temperature if temperature is not None
+                        else tier.temperature if tier and tier.temperature is not None
+                        else config.DEFAULT_TEMPERATURE),
         "max_tokens": (max_tokens if max_tokens is not None
                        else tier.max_tokens if tier else config.DEFAULT_MAX_TOKENS),
     }

@@ -278,6 +278,59 @@
       </section>
     {% endif %}
 
+    {% if structure_review_available %}
+      <section class="panel" id="structure-review">
+        <h2 class="panel__title">Tidy the graph</h2>
+        <p class="panel__body">
+          One pass over the whole declared graph: proposes where a disconnected decision or state
+          most plausibly belongs, and where two or more decisions look like alternate routes to
+          the same fact rather than genuinely different branches -- which is usually what is
+          multiplying the benchmark on low-value variation rather than widening it. Optional, and
+          nothing is written until you apply a proposal individually.
+        </p>
+        <form method="post" action="{{ url_for('run_structure_review') }}">
+          <button class="button button--quiet" type="submit">Look for tidying opportunities</button>
+        </form>
+
+        {% if structure_proposals %}
+          <ul class="problems" style="margin-top: .75rem;">
+            {% for item in structure_proposals %}
+              <li class="problems__row">
+                {% if item.kind == 'reconnect' %}
+                  <span class="problems__what">
+                    <span class="mono">{{ item.target_id }}</span>
+                    {% if item.target_kind == 'decision' %}
+                      reached from <span class="mono">{{ item.attach_to_state }}</span>
+                    {% else %}
+                      reached via <span class="mono">{{ item.reached_via }}</span>
+                    {% endif %}
+                  </span>
+                {% else %}
+                  <span class="problems__what">
+                    Merge <span class="mono">{{ item.decisions | join(', ') }}</span>
+                    into <span class="mono">{{ item.new_id }}</span> ({{ item.name }}):
+                    {{ item.outcomes | join(' / ') }}
+                    {% if item.importance %}· {{ item.importance }} importance{% endif %}
+                  </span>
+                {% endif %}
+                <span class="problems__why">{{ item.rationale }}</span>
+                <span class="sketch__actions">
+                  <form method="post"
+                        action="{{ url_for('apply_structure_proposal', proposal_id=item.id) }}">
+                    <button class="button button--quiet" type="submit">Apply</button>
+                  </form>
+                  <form method="post"
+                        action="{{ url_for('dismiss_structure_proposal', proposal_id=item.id) }}">
+                    <button class="drop__remove" type="submit">Dismiss</button>
+                  </form>
+                </span>
+              </li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      </section>
+    {% endif %}
+
     {% if problems %}
       <section class="panel">
         <h2 class="panel__title">What this declaration leaves out</h2>

@@ -140,14 +140,15 @@ DEFAULT_MAX_ATTEMPTS = int(os.getenv("LLM_MAX_ATTEMPTS", "4"))
 
 @dataclass(frozen=True)
 class Tier:
-    """A model, an output cap, a reasoning effort and a retry count, chosen together for one kind
-    of work."""
+    """A model, an output cap, a reasoning effort, a temperature and a retry count, chosen
+    together for one kind of work."""
 
     name: str
     model: str
     max_tokens: int
     reasoning_effort: str
     max_attempts: int = DEFAULT_MAX_ATTEMPTS
+    temperature: float = None                             # set below; None means "use the default"
 
 
 def _tier(name: str, prefix: str, max_tokens: int, effort: str,
@@ -159,6 +160,7 @@ def _tier(name: str, prefix: str, max_tokens: int, effort: str,
         max_tokens=int(os.getenv(f"{prefix}_MAX_TOKENS", str(max_tokens))),
         reasoning_effort=os.getenv(f"{prefix}_REASONING_EFFORT", effort),
         max_attempts=int(os.getenv(f"{prefix}_MAX_ATTEMPTS", str(max_attempts))),
+        temperature=float(os.getenv(f"{prefix}_TEMPERATURE", str(DEFAULT_TEMPERATURE))),
     )
 
 
@@ -188,6 +190,55 @@ STANDARD = _tier("standard", "LLM", 16_000, "minimal")
 # it -- the cheapest useful model that can follow the format is enough. Set LLM_FAST_MODEL_ID to
 # point it somewhere smaller.
 FAST = _tier("fast", "LLM_FAST", 8_000, "minimal")
+
+
+# --------------------------------------------------------------------------- per-stage overrides
+#
+# A tier is shared by every call doing the same *kind* of work, and that is coarse on purpose --
+# pointing MATERIALITY at a smaller model changes every materiality-shaped judgement at once,
+# which is usually what is wanted. Sometimes it is not: weighing a scenario's materiality and
+# checking the review's declared category are both MATERIALITY-tier work, but they are two
+# different calls in two different passes, run at two different points in the pipeline, and a
+# benchmark can want them tuned differently -- a smaller model for the mechanical category check,
+# the full one for materiality itself.
+#
+# STAGE_KEYS names every individual call site this way, one level finer than the tier. Each is
+# overridden with ``LLM_STAGE_<key>_MODEL_ID`` / ``_MAX_TOKENS`` / ``_TEMPERATURE`` /
+# ``_REASONING_EFFORT`` / ``_MAX_ATTEMPTS`` / ``_BATCH_SIZE`` (batch size only where the call
+# actually batches), and every field defaults to its tier's own value where the stage does not set
+# one -- so setting nothing here changes nothing, and setting one field of one stage leaves the
+# rest of that stage, and every other stage, exactly on its tier's setting. That in turn falls
+# back to the master model (``LLM_MODEL_ID``) wherever the tier itself does not override it, which
+# is the three-level cascade this whole module builds: stage, then tier, then master.
+STAGE_KEYS = (
+    "INGEST_READ", "INGEST_RESOLVE", "INGEST_DIAGRAM_READ", "INGEST_DIAGRAM_SYNTHESIZE",
+    "INGEST_DIAGRAM_REPAIR", "INTAKE_DRAFT", "STRUCTURE_REVIEW", "WRITER", "MATERIALITY_ASSESS",
+    "REVIEWER_ASSESS", "REVIEWER_CATEGORY", "REVIEWER_PROPOSE", "OWNER_EXTRACT",
+)
+
+
+def stage_tier(stage: str, base: Tier) -> Tier:
+    """``base`` with any ``LLM_STAGE_<stage>_*`` override applied, field by field.
+
+    Read at the point of use rather than built once, the same reason :func:`max_corpus_chars` is a
+    function and not a constant: the interface runs for hours, and a value fixed at import cannot
+    be changed without restarting it.
+    """
+    prefix = f"LLM_STAGE_{stage.upper()}"
+    return Tier(
+        name=f"{base.name}:{stage.lower()}",
+        model=os.getenv(f"{prefix}_MODEL_ID", "").strip() or base.model,
+        max_tokens=int(os.getenv(f"{prefix}_MAX_TOKENS", str(base.max_tokens))),
+        reasoning_effort=os.getenv(f"{prefix}_REASONING_EFFORT", base.reasoning_effort),
+        max_attempts=int(os.getenv(f"{prefix}_MAX_ATTEMPTS", str(base.max_attempts))),
+        temperature=float(os.getenv(f"{prefix}_TEMPERATURE", str(base.temperature))),
+    )
+
+
+def stage_batch_size(stage: str, default: int) -> int:
+    """How many items one call in ``stage`` covers, or ``default`` where nothing overrides it."""
+    return int(os.getenv(f"LLM_STAGE_{stage.upper()}_BATCH_SIZE", str(default)))
+
 
 # How much submitted text goes into one reading call. Gemini 2.5 Pro takes about a million tokens
 # of input; four characters to a token puts this near half a million tokens, which leaves ample

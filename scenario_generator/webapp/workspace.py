@@ -123,7 +123,8 @@ class Workspace:
                  stages: Optional[Dict[str, StageState]] = None,
                  notes: Optional[List[dict]] = None,
                  pending: Optional[List[dict]] = None,
-                 redact_files: Optional[List[str]] = None) -> None:
+                 redact_files: Optional[List[str]] = None,
+                 structure_proposals: Optional[List[dict]] = None) -> None:
         self.root = Path(root)
         self.name = name or self.root.name
         self.created_at = created_at or _now()
@@ -139,6 +140,11 @@ class Workspace:
         # upload groups. A person marking one sensitive upload should not have to switch redaction
         # on for the whole pack to get it.
         self.redact_files: Set[str] = set(redact_files or [])
+        # What the optional structure-review pass has proposed and not yet been applied or
+        # dismissed. Unlike ``pending``, applying one of these writes straight to the workbook --
+        # see core.intake.merge_decisions and friends -- so this list only ever holds what is
+        # still open, not a sketch waiting on a separate commit.
+        self.structure_proposals: List[dict] = list(structure_proposals or [])
         self._settle()
 
     # ----------------------------------------------------------------- added context
@@ -229,6 +235,31 @@ class Workspace:
         else:
             self.redact_files.discard(key)
 
+    # ----------------------------------------------------------------- structure review
+    def set_structure_proposals(self, proposals: List[dict]) -> None:
+        """Replace the open proposals with a freshly run structure review's results.
+
+        Each is given an id of its own here, distinct from any id the proposal names (a decision
+        or state id) -- a reconnection and a consolidation can both concern the same decision, and
+        a page needs one unambiguous handle per row to apply or dismiss.
+        """
+        self.structure_proposals = [dict(entry, id=f"sr-{index}")
+                                    for index, entry in enumerate(proposals, start=1)]
+
+    def pop_structure_proposal(self, proposal_id: str) -> Optional[dict]:
+        """Remove and return one proposal by its id, or None if it is not there.
+
+        Removed whether it is applied or dismissed: an applied proposal is now reflected in the
+        workbook and would otherwise offer to be applied again, and a dismissed one has nothing
+        further to say.
+        """
+        for entry in self.structure_proposals:
+            if entry.get("id") == proposal_id:
+                self.structure_proposals = [e for e in self.structure_proposals
+                                            if e.get("id") != proposal_id]
+                return entry
+        return None
+
     # ----------------------------------------------------------------- persistence
     @property
     def state_path(self) -> Path:
@@ -251,6 +282,7 @@ class Workspace:
         payload = {"name": self.name, "created_at": self.created_at,
                    "notes": list(self.notes), "pending": list(self.pending),
                    "redact_files": sorted(self.redact_files),
+                   "structure_proposals": list(self.structure_proposals),
                    "stages": {k: v.to_dict() for k, v in self.stages.items()}}
 
         with _lock_for(self.state_path):
@@ -271,7 +303,8 @@ class Workspace:
         return cls(root=root, name=data.get("name", root.name),
                    created_at=data.get("created_at", ""), stages=stages,
                    notes=data.get("notes", []), pending=data.get("pending", []),
-                   redact_files=data.get("redact_files", []))
+                   redact_files=data.get("redact_files", []),
+                   structure_proposals=data.get("structure_proposals", []))
 
     @classmethod
     def create(cls, base: Path, name: str) -> "Workspace":

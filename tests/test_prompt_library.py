@@ -43,6 +43,8 @@ _CONTRACT = {
     "ingest.diagram_synthesize": {"facets", "document", "readings"},
     "ingest.diagram_repair": {"document", "structure", "problems"},
     "intake.draft": {"context", "structure"},
+    "structure_review.system": set(),
+    "structure_review.task": {"use_case", "structure", "hints", "context"},
 }
 
 _INTAKE = IntakeData(

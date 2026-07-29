@@ -115,8 +115,15 @@ class TestReviewSweep(unittest.TestCase):
         budget, so the two only make sense together -- which is why a tier carries both."""
         ScenarioReviewer(complete=self._fake(), batch_size=4).review(self.scenarios, _INTAKE)
         self.assertTrue(self.seen)
+        # Every call site now runs through config.stage_tier, which builds a freshly named Tier
+        # per call even where nothing overrides it -- so this checks the tier's substance (model,
+        # budget, effort, retries) rather than object identity with the JUDGEMENT constant itself.
         for call in self.seen:
-            self.assertIs(call["tier"], config.JUDGEMENT)
+            tier = call["tier"]
+            self.assertEqual(tier.model, config.JUDGEMENT.model)
+            self.assertEqual(tier.max_tokens, config.JUDGEMENT.max_tokens)
+            self.assertEqual(tier.reasoning_effort, config.JUDGEMENT.reasoning_effort)
+            self.assertEqual(tier.max_attempts, config.JUDGEMENT.max_attempts)
         self.assertEqual(config.JUDGEMENT.reasoning_effort, "high")
         self.assertGreater(config.JUDGEMENT.max_tokens, config.STANDARD.max_tokens)
         self.assertGreaterEqual(config.STANDARD.max_tokens, config.FAST.max_tokens)
