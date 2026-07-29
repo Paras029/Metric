@@ -14,6 +14,7 @@
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import List, Tuple
 
 from openpyxl import Workbook, load_workbook
@@ -26,6 +27,23 @@ from ..utils.text import parse_path_str
 from ..core.models import (FUNCTIONAL_ORIGINS, BenchmarkScenario, IntakeData, Match, Scenario,
                            Step, TurnMeta)
 from ..core.probes import ADVERSARIAL_PERSONA
+
+
+def _open_workbook(path: str, **kwargs):
+    """Open a workbook, turning a corrupt or wrong-format file into something actionable.
+
+    These read files this tool wrote itself, so a failure here almost always means the copy on
+    disk was disturbed after the fact -- opened and re-saved by something that mangled it, only
+    partly written because a run was interrupted, or replaced by a file that merely shares the
+    name. Either way "File is not a zip file" does not say that; this does.
+    """
+    try:
+        return load_workbook(path, **kwargs)
+    except Exception as exc:
+        raise ValueError(
+            f"'{Path(path).name}' could not be opened as a workbook ({exc}). If this is a file "
+            f"the tool wrote, it may be incomplete from an interrupted run, or have been altered "
+            f"since. Re-run the stage that produced it.") from exc
 
 _METADATA_COLUMNS = ["SC ID", "Decision Path", "Category", "Materiality",
                      "Materiality Confidence", "Materiality Rationale", "Capabilities", "Tools",
@@ -105,7 +123,7 @@ def read_scenarios(path: str, intake: IntakeData) -> List[Scenario]:
     """Reconstruct full Scenario objects from a graph or registry workbook (same Scenario_Metadata
     / Turn_Metadata layout). If a Scenario_Text sheet is present (registry files), its LLM-authored
     description/turn_plan are used; otherwise the deterministic fallback text is recomputed."""
-    workbook = load_workbook(path, data_only=True)
+    workbook = _open_workbook(path, data_only=True)
 
     turns_by_id: dict = {}
     for row in sheets.read_rows(workbook["Turn_Metadata"]):
@@ -227,7 +245,7 @@ def read_registry(path: str, functional_only: bool = True) -> List[BenchmarkScen
     filtered on `Origin`, not on having an empty decision path, since other scenario kinds may
     legitimately share a path with a graph scenario.
     """
-    sheet = load_workbook(path, data_only=True)["Scenario_Metadata"]
+    sheet = _open_workbook(path, data_only=True)["Scenario_Metadata"]
     benchmark = []
     for row in sheets.read_rows(sheet):
         cell = lambda i: row[i] if i < len(row) else ""

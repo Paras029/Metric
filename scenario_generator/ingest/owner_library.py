@@ -136,7 +136,20 @@ def _from_rows(rows: List[List[str]], origin: str) -> Tuple[List[OwnerScenario],
 def _from_workbook(path: Path) -> Tuple[List[OwnerScenario], str]:
     from openpyxl import load_workbook
 
-    book = load_workbook(str(path), data_only=True)
+    try:
+        book = load_workbook(str(path), data_only=True)
+    except Exception as exc:
+        # A .xlsx file is a zip archive; anything else under that extension fails here with a
+        # message that names the container format rather than the fix. The likely causes are all
+        # ones the sender can act on: an older .xls saved under the wrong extension, a download
+        # that did not finish, or a password-protected file -- openpyxl cannot open any of those,
+        # and the raw error ("File is not a zip file") does not say so.
+        raise UnreadableLibrary(
+            f"{path.name} could not be opened as an Excel workbook ({exc}). This usually means "
+            f"the file is not really .xlsx underneath -- an older .xls saved with the wrong "
+            f"extension, a download that did not finish, or a password-protected file. Re-save an "
+            f"unprotected copy from Excel (File > Save As > Excel Workbook), or send it as .csv, "
+            f"which this reads just as well.") from exc
 
     # Try each sheet and keep whichever yields the most scenarios. A workbook usually carries a
     # cover sheet, a glossary and the actual list, and the list is the longest.

@@ -4,6 +4,7 @@ template. Assumes a well-formed workbook, with row 1 of each sheet as the header
 from __future__ import annotations
 
 import re
+from pathlib import Path as _Path
 from typing import List
 
 from openpyxl import Workbook, load_workbook
@@ -14,6 +15,26 @@ from .models import (CATEGORIES, INPUT_SOURCES, Capability, Decision, IntakeData
                      Persona, State, Tool)
 
 _DECISION_TOKEN = re.compile(r"DEC-\d+")
+
+
+def _open_workbook(path: str, **kwargs):
+    """Open a workbook, turning a corrupt or wrong-format file into something actionable.
+
+    A .xlsx file is a zip archive; anything else under that extension -- an older .xls saved
+    with the wrong extension, a download that did not finish, a password-protected file -- fails
+    here with a message that names the container format ("File is not a zip file") rather than
+    the fix. This is the one place every intake read goes through, so it is the one place worth
+    catching that.
+    """
+    try:
+        return load_workbook(path, **kwargs)
+    except Exception as exc:
+        raise ValueError(
+            f"'{_Path(path).name}' could not be opened as an Excel workbook ({exc}). This "
+            f"usually means the file is not really .xlsx underneath -- an older .xls saved with "
+            f"the wrong extension, a download that did not finish, or a password-protected file. "
+            f"Re-save an unprotected copy from Excel (File > Save As > Excel Workbook), then "
+            f"upload that.") from exc
 
 
 def _cell(row: List[str], index: int) -> str:
@@ -42,7 +63,7 @@ def _outcome_type(raw: str) -> str:
 
 # --------------------------------------------------------------------------- readers
 def read_intake(path: str) -> IntakeData:
-    workbook = load_workbook(path, data_only=True)
+    workbook = _open_workbook(path, data_only=True)
 
     use_case = {}
     for row in sheets.read_rows(workbook["L1 Use Case"]):
@@ -78,7 +99,7 @@ def read_intake(path: str) -> IntakeData:
 
 def read_owner_scenarios(path: str, sheet_name: str = "Scenarios") -> List[OwnerScenario]:
     """Read a modeling team's own scenario library: ID, Description, optional Decision Path."""
-    workbook = load_workbook(path, data_only=True)
+    workbook = _open_workbook(path, data_only=True)
     sheet = workbook[sheet_name]
     return [OwnerScenario(_cell(r, 0), _cell(r, 1), _cell(r, 2))
             for r in sheets.read_rows(sheet) if _cell(r, 0) and _cell(r, 1)]
@@ -148,7 +169,7 @@ def append_rows(path: str, decisions: List[list] = None, states: List[list] = No
     An id already in the sheet is skipped rather than duplicated: two rows with one id would give
     the graph two nodes for one thing, and the reader would silently take whichever came last.
     """
-    workbook = load_workbook(path)
+    workbook = _open_workbook(path)
     changed = 0
 
     for sheet_name, rows in (("L3 Decisions", decisions or []), ("L4 States", states or [])):
