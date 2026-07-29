@@ -75,7 +75,42 @@ class TestTheIntakeWorkbook(unittest.TestCase):
     def test_read_owner_scenarios_gets_the_same_treatment(self):
         with self.assertRaises(ValueError) as raised:
             read_owner_scenarios(str(_not_really_a_workbook("owner.xlsx")))
-        self.assertIn("Excel workbook", str(raised.exception))
+        message = str(raised.exception)
+        self.assertNotIn("BadZipFile", message)
+        self.assertIn("owner.xlsx", message)
+        self.assertIn("Save As", message)
+
+
+class TestAnIncompleteIntake(unittest.TestCase):
+    """A workbook that opens fine and is not an intake, or is one with nothing in it. Both are
+    ordinary things to upload by mistake, and both used to fail with a bare IndexError or
+    KeyError naming neither the file nor what was wrong with it."""
+
+    def test_a_blank_template_says_what_it_is_missing(self):
+        from scenario_generator.core.intake import write_template
+
+        path = Path(tempfile.mkdtemp()) / "blank.xlsx"
+        write_template(str(path))
+
+        with self.assertRaises(ValueError) as raised:
+            read_intake(str(path))
+        message = str(raised.exception)
+        self.assertIn("personas", message.lower())
+        self.assertIn("blank.xlsx", message)
+
+    def test_a_workbook_without_the_intake_sheets_names_them(self):
+        from openpyxl import Workbook
+
+        path = Path(tempfile.mkdtemp()) / "something_else.xlsx"
+        book = Workbook()
+        book.active.title = "Sheet1"
+        book.save(path)
+
+        with self.assertRaises(ValueError) as raised:
+            read_intake(str(path))
+        message = str(raised.exception)
+        self.assertIn("something_else.xlsx", message)
+        self.assertIn("L3 Decisions", message)
 
 
 class TestInternallyWrittenWorkbooks(unittest.TestCase):

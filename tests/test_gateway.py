@@ -31,7 +31,7 @@ from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable
 
-from scenario_generator.llm import config, gateway
+from scenario_generator.llm import config, gateway, metering
 from scenario_generator.llm.cancellation import Stopped
 
 
@@ -234,6 +234,45 @@ class TestBatching(_WithSafeChain):
         self.assertEqual(replies[0], "one")
         self.assertIsInstance(replies[1], Stopped)
         self.assertIsInstance(replies[2], Stopped)
+
+
+class TestCallsAreCounted(_WithSafeChain):
+    """What a stage spent, reported when it finishes. Counted at the point a request is actually
+    sent, so a pass driven by a test stub counts nothing -- there was no call to count."""
+
+    def test_a_single_call_counts_once(self):
+        with metering.counted() as calls:
+            gateway.ask_llm("s", "u")
+        self.assertEqual(calls(), 1)
+
+    def test_a_batch_counts_once_per_message(self):
+        with _install(lambda model_id: _echo()):
+            with metering.counted() as calls:
+                gateway.ask_llm_batch("s", ["one", "two", "three"], tier=config.FAST)
+        self.assertEqual(calls(), 3)
+
+    def test_an_empty_batch_counts_nothing(self):
+        with metering.counted() as calls:
+            gateway.ask_llm_batch("s", [])
+        self.assertEqual(calls(), 0)
+
+    def test_a_retry_is_not_counted_as_another_call(self):
+        """The interesting number is how much work a stage asked for, not how many times the
+        transport had to ask for it."""
+        with _install(lambda model_id: _echo(fails_on="u")), mock.patch("time.sleep"):
+            with metering.counted() as calls:
+                with self.assertRaises(Exception):
+                    gateway.ask_llm("s", "u", tier=config.JUDGEMENT)
+        self.assertEqual(calls(), 1)
+        self.assertGreater(config.JUDGEMENT.max_attempts, 1)   # it really did retry
+
+    def test_counting_windows_do_not_leak_into_each_other(self):
+        with metering.counted() as first:
+            gateway.ask_llm("s", "u")
+        with metering.counted() as second:
+            pass
+        self.assertEqual(first(), 1)
+        self.assertEqual(second(), 0)
 
 
 class TestImages(_WithSafeChain):

@@ -37,7 +37,7 @@ from ..core.models import (CATEGORIES, MATERIALITY, IntakeData, OwnerScenario, S
 from ..core.proposals import instantiate_proposals
 from ..utils import chunks, one_of, parse_json_object
 from . import cancellation, config, prompt_loader
-from .calling import call, call_batch
+from .calling import call, call_batch, parsed_reply
 from .context import describe_graph, describe_use_case, digest, supplementary_context
 from .gateway import ask_llm
 
@@ -219,29 +219,9 @@ class ScenarioReviewer:
             _CATEGORY_PROMPT, **shared, categories=", ".join(CATEGORIES),
             batch=_batch_payload(chunk, {}))
 
-    def _parsed(self, chunk: List[Scenario], reply) -> dict:
-        """One chunk's reply as a dict, or an empty one with the reason logged.
-
-        ``reply`` is either the model's text or the exception raised getting it -- call_batch
-        reports a failed call this way rather than raising, so a batch that failed outright and a
-        reply that would not parse are the same case here: say so, and leave the chunk as the
-        earlier passes set it. Every sweep needs exactly this, which is why it is not written out
-        per sweep.
-        """
-        if isinstance(reply, BaseException):
-            logger.warning("Review call left unchanged (%s): %s",
-                           ", ".join(s.id for s in chunk), reply)
-            return {}
-        try:
-            return parse_json_object(reply)
-        except Exception as exc:
-            logger.warning("Review call left unchanged (%s): %s",
-                           ", ".join(s.id for s in chunk), exc)
-            return {}
-
     def _apply_assessment(self, chunk: List[Scenario], reply) -> None:
         """Write one chunk's materiality verdict and flag onto its scenarios."""
-        parsed = self._parsed(chunk, reply)
+        parsed = parsed_reply(reply, "Review call", ", ".join(s.id for s in chunk))
         for scenario in chunk:
             entry = parsed.get(scenario.id)
             if not entry:
@@ -257,7 +237,7 @@ class ScenarioReviewer:
         writing it down anyway would fill the registry's review columns with restatements of the
         declared value and bury the handful of rows that actually want a second look.
         """
-        parsed = self._parsed(chunk, reply)
+        parsed = parsed_reply(reply, "Review call", ", ".join(s.id for s in chunk))
         for scenario in chunk:
             entry = parsed.get(scenario.id)
             if not entry:

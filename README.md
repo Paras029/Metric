@@ -475,6 +475,12 @@ and anything outside the list is discarded by validation regardless.
 **If a reply comes back truncated**, reduce the batch size first. Raise the cap only if that does
 not resolve it.
 
+**How many calls a stage made** is reported when it finishes — in the stage's own result panel in
+the interface, and on the last line of the command's output on the command line. A count that
+jumps between two runs of the same stage is usually the first visible sign that chunking or the
+refill path has changed behaviour. Retries inside a call are not counted again: the number is how
+much work the stage asked for, not how many times the transport had to ask for it.
+
 ### Batching
 
 Writing scenario text, weighing materiality, reviewing the benchmark and mapping owner scenarios

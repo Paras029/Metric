@@ -404,13 +404,21 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             abort(404)
         workspace = _workspace()
 
+        # Read once and pass it on. Both the graph and the benchmark panel need it, and reading a
+        # workbook twice to render one page is a cost paid on every navigation.
+        intake = None
+        if workspace.artifact_path("intake", "workbook"):
+            try:
+                intake = _intake(workspace)
+            except Exception as exc:                       # a malformed intake must not blank it
+                logger.warning("Could not read the intake: %s", exc)
+
         # The graph is drawn wherever the intake is available, since it is the clearest reading
         # of what the benchmark will and will not be able to reach. On the intake stage it is
         # drawn over the sketch buffer, so an addition can be seen in place before it is committed.
         graph_svg, graph_facts, sketch, problems = "", {}, None, []
-        if key in ("intake", "benchmark") and workspace.artifact_path("intake", "workbook"):
+        if key in ("intake", "benchmark") and intake is not None:
             try:
-                intake = _intake(workspace)
                 pending = PendingEdits.from_list(workspace.pending)
                 drawn = pending.merged(intake) if key == "intake" and pending else intake
                 graph_svg = render_svg(drawn, pending.ids(DECISION), pending.ids(STATE))
@@ -449,7 +457,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             answered=workspace.answered_questions(),
             answers=_answers_for(workspace) if key == "documents" else [],
             groups=_group_rows(workspace, key),
-            benchmark=_benchmark_for(workspace, key),
+            benchmark=_benchmark_for(workspace, key, intake),
             materiality_tiers=MATERIALITY,
             produced={n: p for n, p in workspace.state(key).artifacts.items()
                       if not str(p).startswith("sources/")},
@@ -488,7 +496,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             rows.append(row)
         return rows
 
-    def _benchmark_for(workspace: Workspace, key: str):
+    def _benchmark_for(workspace: Workspace, key: str, intake):
         """The scenarios as this stage left them, once there are any.
 
         A stage reads its own snapshot rather than the live registry, so coming back to the
@@ -496,7 +504,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         text with tiers assigned afterwards beside it. Falling back to the live registry covers
         a workspace built before snapshots existed, and the stage that has not run yet.
         """
-        if key not in SCENARIO_STAGES:
+        if key not in SCENARIO_STAGES or intake is None:
             return None
         path = workspace.root / _snapshot(key)
         if not path.exists():
@@ -504,7 +512,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         if not path.exists():
             return None
         try:
-            scenarios = read_scenarios(str(path), _intake(workspace))
+            scenarios = read_scenarios(str(path), intake)
         except Exception as exc:                           # never blank the page over this
             logger.warning("Could not read the benchmark for display: %s", exc)
             return None

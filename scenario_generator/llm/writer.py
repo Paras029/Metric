@@ -22,9 +22,9 @@ import logging
 from typing import Callable, List
 
 from ..core.models import IntakeData, Scenario
-from ..utils import chunks, parse_json_object
+from ..utils import chunks
 from . import cancellation, config, prompt_loader
-from .calling import call, call_batch
+from .calling import call, call_batch, parsed_reply
 from .context import describe_use_case, supplementary_context
 from .gateway import ask_llm
 
@@ -129,16 +129,7 @@ class ScenarioWriter:
         reports a failed call this way rather than raising, so it is handled here exactly like a
         reply that parsed but left some ids out: logged, and left for the individual refill.
         """
-        if isinstance(reply, BaseException):
-            logger.warning("Writer call left as fallback (%s): %s",
-                           ", ".join(s.id for s in chunk), reply)
-            return set()
-        try:
-            parsed = parse_json_object(reply)
-        except Exception as exc:
-            logger.warning("Writer call left as fallback (%s): %s",
-                           ", ".join(s.id for s in chunk), exc)
-            return set()
+        parsed = parsed_reply(reply, "Writer call", ", ".join(s.id for s in chunk))
 
         filled = set()
         for scenario in chunk:

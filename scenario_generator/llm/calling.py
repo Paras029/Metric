@@ -20,9 +20,37 @@ unchanged and simply does not get the speed.
 from __future__ import annotations
 
 import inspect
+import logging
 from typing import Any, Callable, List, Optional, Sequence, Union
 
+from ..utils import parse_json_object
+
 from .cancellation import Stopped, is_set
+
+logger = logging.getLogger(__name__)
+
+
+def parsed_reply(reply: Any, pass_name: str, subject: str) -> dict:
+    """One entry from :func:`call_batch` as a parsed object, or an empty one, with the reason said.
+
+    Every batched pass needs exactly this, and for the same reason: ``call_batch`` reports a
+    failed call as the exception rather than raising it, so a chunk whose call never landed and a
+    chunk whose reply would not parse arrive as two shapes with one meaning -- nothing usable
+    came back for these ids. Both leave the chunk as the passes before it set it, which every
+    caller already handles, because it is also what happens when a reply parses but leaves an id
+    out.
+
+    ``subject`` names the ids involved so the log line says which part of the benchmark went
+    unanswered rather than only that something did.
+    """
+    if isinstance(reply, BaseException):
+        logger.warning("%s left unchanged (%s): %s", pass_name, subject, reply)
+        return {}
+    try:
+        return parse_json_object(reply)
+    except Exception as exc:
+        logger.warning("%s left unchanged (%s): %s", pass_name, subject, exc)
+        return {}
 
 
 def accepts(complete: Callable[..., str], name: str) -> bool:

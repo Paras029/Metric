@@ -10,17 +10,14 @@ does not depend on another's having been mapped first, so nothing is gained by w
 from __future__ import annotations
 
 import json
-import logging
 from typing import Callable, Dict, List
 
 from ..core.models import CATEGORIES, ExtractedMeta, IntakeData, OwnerScenario
-from ..utils import chunks, one_of, parse_json_object
+from ..utils import chunks, one_of
 from . import cancellation, config, prompt_loader
-from .calling import call, call_batch
+from .calling import call, call_batch, parsed_reply
 from .context import describe_use_case
 from .gateway import ask_llm
-
-logger = logging.getLogger(__name__)
 
 CompletionFn = Callable[[str, str], str]
 
@@ -73,14 +70,7 @@ class MetadataExtractor:
         reports a failed call this way rather than raising, so a batch failure and a reply that
         failed to parse are handled by the same path here.
         """
-        if isinstance(reply, BaseException):
-            logger.warning("Extraction call failed (%s): %s", ", ".join(s.id for s in chunk), reply)
-            return {}
-        try:
-            parsed = parse_json_object(reply)
-        except Exception as exc:
-            logger.warning("Extraction call failed (%s): %s", ", ".join(s.id for s in chunk), exc)
-            return {}
+        parsed = parsed_reply(reply, "Extraction call", ", ".join(s.id for s in chunk))
         return {s.id: self._validate(parsed[s.id], intake) for s in chunk if parsed.get(s.id)}
 
     def _call(self, system: str, user: str) -> str:

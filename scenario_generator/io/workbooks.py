@@ -17,7 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Tuple
 
-from openpyxl import Workbook, load_workbook
+from openpyxl import Workbook
 
 from . import sheets
 from ..core.coverage import coverage_gaps, coverage_summary, incremental_owner
@@ -28,22 +28,6 @@ from ..core.models import (FUNCTIONAL_ORIGINS, BenchmarkScenario, IntakeData, Ma
                            Step, TurnMeta)
 from ..core.probes import ADVERSARIAL_PERSONA
 
-
-def _open_workbook(path: str, **kwargs):
-    """Open a workbook, turning a corrupt or wrong-format file into something actionable.
-
-    These read files this tool wrote itself, so a failure here almost always means the copy on
-    disk was disturbed after the fact -- opened and re-saved by something that mangled it, only
-    partly written because a run was interrupted, or replaced by a file that merely shares the
-    name. Either way "File is not a zip file" does not say that; this does.
-    """
-    try:
-        return load_workbook(path, **kwargs)
-    except Exception as exc:
-        raise ValueError(
-            f"'{Path(path).name}' could not be opened as a workbook ({exc}). If this is a file "
-            f"the tool wrote, it may be incomplete from an interrupted run, or have been altered "
-            f"since. Re-run the stage that produced it.") from exc
 
 _METADATA_COLUMNS = ["SC ID", "Decision Path", "Category", "Materiality",
                      "Materiality Confidence", "Materiality Rationale", "Capabilities", "Tools",
@@ -125,25 +109,35 @@ def read_scenarios(path: str, intake: IntakeData) -> List[Scenario]:
     """Reconstruct full Scenario objects from a graph or registry workbook (same Scenario_Metadata
     / Turn_Metadata layout). If a Scenario_Text sheet is present (registry files), its LLM-authored
     description/turn_plan are used; otherwise the deterministic fallback text is recomputed."""
-    workbook = _open_workbook(path, data_only=True)
+    with sheets.open_for_reading(path, "a benchmark workbook") as workbook:
+        turns_by_id: dict = {}
+        for row in sheets.read_rows(workbook["Turn_Metadata"]):
+            turns_by_id.setdefault(row[0], []).append(TurnMeta(
+                index=int(row[1]), decision_id=row[2], decision_name=row[3],
+                expected_variant=row[4], expected_tool=row[5], next_state=row[6],
+                input_source=row[7] if len(row) > 7 and row[7] else "User"))
 
-    turns_by_id: dict = {}
-    for row in sheets.read_rows(workbook["Turn_Metadata"]):
-        turns_by_id.setdefault(row[0], []).append(TurnMeta(
-            index=int(row[1]), decision_id=row[2], decision_name=row[3],
-            expected_variant=row[4], expected_tool=row[5], next_state=row[6],
-            input_source=row[7] if len(row) > 7 and row[7] else "User"))
+        text_by_id: dict = {}
+        if "Scenario_Text" in workbook.sheetnames:
+            for row in sheets.read_rows(workbook["Scenario_Text"]):
+                text_by_id[row[0]] = (row[1] if len(row) > 1 else "",
+                                      row[2] if len(row) > 2 else "")
 
-    text_by_id: dict = {}
-    if "Scenario_Text" in workbook.sheetnames:
-        for row in sheets.read_rows(workbook["Scenario_Text"]):
-            text_by_id[row[0]] = (row[1] if len(row) > 1 else "", row[2] if len(row) > 2 else "")
+        header, metadata = sheets.read_table(workbook["Scenario_Metadata"])
+
+    # Columns are addressed by the heading printed in the file rather than by position. Twenty-six
+    # hand-counted indices had to be kept in step with the writer by eye, and a registry written
+    # before a column existed simply has no cell there -- looking the name up handles both.
+    at = {name: index for index, name in enumerate(header)}
 
     scenarios = []
-    for row in sheets.read_rows(workbook["Scenario_Metadata"]):
-        cell = lambda i: row[i] if i < len(row) else ""
-        turn_meta = turns_by_id.get(cell(0), [])
-        origin = cell(12)
+    for row in metadata:
+        def cell(name, _row=row):
+            index = at.get(name)
+            return _row[index] if index is not None and index < len(_row) else ""
+
+        turn_meta = turns_by_id.get(cell("SC ID"), [])
+        origin = cell("Origin")
         is_probe = origin == "probe"
 
         # Synthetic turn rows (probes, and proposals with no declared route) carry "-" as their
@@ -151,26 +145,31 @@ def read_scenarios(path: str, intake: IntakeData) -> List[Scenario]:
         path_steps = [Step(t.decision_id, t.expected_variant, t.next_state)
                       for t in turn_meta if t.decision_id and t.decision_id != "-"]
         persona = (ADVERSARIAL_PERSONA if is_probe else
-                   intake.persona_by_id(cell(8)) or
+                   intake.persona_by_id(cell("Persona ID")) or
                    next((p for p in intake.personas if p.is_default), intake.personas[0]))
 
         scenarios.append(Scenario(
-            id=cell(0), path=path_steps, category=cell(2),
-            persona=persona, seeded_state=cell(10), termination=cell(11),
-            capabilities=[c.strip() for c in cell(6).split(",") if c.strip()],
-            tools=[t.strip() for t in cell(7).split(",") if t.strip()],
-            touches_state_change=cell(9).strip().lower() == "yes",
+            id=cell("SC ID"), path=path_steps, category=cell("Category"),
+            persona=persona, seeded_state=cell("Seeded State"), termination=cell("Termination"),
+            capabilities=[c.strip() for c in cell("Capabilities").split(",") if c.strip()],
+            tools=[t.strip() for t in cell("Tools").split(",") if t.strip()],
+            touches_state_change=cell("State-changing?").strip().lower() == "yes",
             turn_meta=turn_meta, origin=origin,
-            materiality=cell(3) or "Medium",
-            materiality_confidence=cell(4) or "Low",
-            materiality_rationale=cell(5) or "Not assessed.",
-            materiality_override=cell(13), probe_id=cell(14), probe_family=cell(15),
-            review_materiality=cell(16), review_rationale=cell(17), review_flag=cell(18),
-            proposed_rationale=cell(19), proposed_anchor=cell(20),
-            owner_coverage=cell(22), owner_coverage_note=cell(23),
-            review_category=cell(24), review_category_rationale=cell(25),
+            materiality=cell("Materiality") or "Medium",
+            materiality_confidence=cell("Materiality Confidence") or "Low",
+            materiality_rationale=cell("Materiality Rationale") or "Not assessed.",
+            materiality_override=cell("Materiality Override"),
+            probe_id=cell("Probe ID"), probe_family=cell("Probe Family"),
+            review_materiality=cell("Reviewed Materiality"),
+            review_rationale=cell("Review Rationale"), review_flag=cell("Review Flag"),
+            proposed_rationale=cell("Proposal Rationale"),
+            proposed_anchor=cell("Proposal Anchor"),
+            owner_coverage=cell("Their Coverage"),
+            owner_coverage_note=cell("Their Coverage Note"),
+            review_category=cell("Reviewed Category"),
+            review_category_rationale=cell("Review Category Rationale"),
         ))
-        description, turn_plan = text_by_id.get(cell(0), ("", ""))
+        description, turn_plan = text_by_id.get(cell("SC ID"), ("", ""))
         scenarios[-1].description = description or fallback_description(scenarios[-1].category, turn_meta)
         scenarios[-1].turn_plan = turn_plan or fallback_turn_plan(turn_meta)
     return scenarios
@@ -248,19 +247,27 @@ def read_registry(path: str, functional_only: bool = True) -> List[BenchmarkScen
     filtered on `Origin`, not on having an empty decision path, since other scenario kinds may
     legitimately share a path with a graph scenario.
     """
-    sheet = _open_workbook(path, data_only=True)["Scenario_Metadata"]
+    with sheets.open_for_reading(path, "a benchmark workbook") as workbook:
+        header, rows = sheets.read_table(workbook["Scenario_Metadata"])
+
+    at = {name: index for index, name in enumerate(header)}
     benchmark = []
-    for row in sheets.read_rows(sheet):
-        cell = lambda i: row[i] if i < len(row) else ""
-        origin = cell(12) or "graph"
+    for row in rows:
+        def cell(name, _row=row):
+            index = at.get(name)
+            return _row[index] if index is not None and index < len(_row) else ""
+
+        origin = cell("Origin") or "graph"
         if functional_only and origin not in FUNCTIONAL_ORIGINS:
             continue
-        capabilities = [c.strip() for c in cell(6).split(",") if c.strip()]
-        pairs = parse_path_str(cell(1))
         benchmark.append(BenchmarkScenario(
-            id=cell(0), path_str=cell(1), category=cell(2),
-            materiality=cell(13) or cell(16) or cell(3),
-            capabilities=capabilities, persona_id=cell(8), signature=tuple(pairs),
+            id=cell("SC ID"), path_str=cell("Decision Path"), category=cell("Category"),
+            # The same precedence effective_materiality applies, read off the sheet.
+            materiality=(cell("Materiality Override") or cell("Reviewed Materiality")
+                         or cell("Materiality")),
+            capabilities=[c.strip() for c in cell("Capabilities").split(",") if c.strip()],
+            persona_id=cell("Persona ID"),
+            signature=tuple(parse_path_str(cell("Decision Path"))),
             origin=origin))
     return benchmark
 

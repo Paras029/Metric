@@ -4,7 +4,7 @@ template. Assumes a well-formed workbook, with row 1 of each sheet as the header
 from __future__ import annotations
 
 import re
-from pathlib import Path as _Path
+from pathlib import Path
 from typing import List
 
 from openpyxl import Workbook, load_workbook
@@ -16,21 +16,26 @@ from .models import (CATEGORIES, INPUT_SOURCES, Capability, Decision, IntakeData
 
 _DECISION_TOKEN = re.compile(r"DEC-\d+")
 
+# The sheets an intake must have. "Tools" is optional -- an agent that calls nothing
+# is unusual but not malformed.
+_REQUIRED_SHEETS = ("L1 Use Case", "Personas", "L2 Capabilities", "L3 Decisions",
+                    "L4 States")
 
-def _open_workbook(path: str, **kwargs):
-    """Open a workbook, turning a corrupt or wrong-format file into something actionable.
 
-    A .xlsx file is a zip archive; anything else under that extension -- an older .xls saved
-    with the wrong extension, a download that did not finish, a password-protected file -- fails
-    here with a message that names the container format ("File is not a zip file") rather than
-    the fix. This is the one place every intake read goes through, so it is the one place worth
-    catching that.
+def _open_for_editing(path: str):
+    """Open a workbook that is about to be written back to.
+
+    Reading goes through :func:`sheets.open_for_reading`, which is faster and closes the file
+    behind it; this is the one path that cannot use it, because a streaming read-only workbook
+    cannot be saved. The error handling is the same either way: a .xlsx is a zip archive, and
+    anything else carrying that extension fails with a message naming the container format rather
+    than the fix.
     """
     try:
-        return load_workbook(path, **kwargs)
+        return load_workbook(path)
     except Exception as exc:
         raise ValueError(
-            f"'{_Path(path).name}' could not be opened as an Excel workbook ({exc}). This "
+            f"'{Path(path).name}' could not be opened as an Excel workbook ({exc}). This "
             f"usually means the file is not really .xlsx underneath -- an older .xls saved with "
             f"the wrong extension, a download that did not finish, or a password-protected file. "
             f"Re-save an unprotected copy from Excel (File > Save As > Excel Workbook), then "
@@ -60,47 +65,66 @@ def _outcome_type(raw: str) -> str:
 
 
 # --------------------------------------------------------------------------- readers
-def read_intake(path: str) -> IntakeData:
-    workbook = _open_workbook(path, data_only=True)
+def _sheet(workbook, name: str, path: str) -> list:
+    """One sheet's data rows, or a message naming the sheet that is not there.
 
-    use_case = {}
-    for row in sheets.read_rows(workbook["L1 Use Case"]):
-        if _cell(row, 0):
-            use_case[_cell(row, 0)] = _cell(row, 1)
+    A workbook that has been through Google Sheets, or been rebuilt by hand from a copy, loses or
+    renames tabs surprisingly often. openpyxl reports that as a bare KeyError on the sheet name,
+    which does not say what the file was expected to contain or where to get one that does.
+    """
+    if name not in workbook.sheetnames:
+        raise ValueError(
+            f"'{Path(path).name}' has no '{name}' sheet, so it is not an intake workbook this "
+            f"can read. It needs the sheets the template ships with: "
+            f"{', '.join(_REQUIRED_SHEETS)}. Download a blank template and fill that in, or "
+            f"check you have uploaded the right file.")
+    return sheets.read_rows(workbook[name])
+
+
+def read_intake(path: str) -> IntakeData:
+    with sheets.open_for_reading(path, "an intake workbook") as workbook:
+        rows = {name: _sheet(workbook, name, path) for name in _REQUIRED_SHEETS}
+        rows["Tools"] = (sheets.read_rows(workbook["Tools"])
+                         if "Tools" in workbook.sheetnames else [])
+
+    use_case = {_cell(r, 0): _cell(r, 1) for r in rows["L1 Use Case"] if _cell(r, 0)}
 
     personas = [Persona(_cell(r, 0), _cell(r, 1),
                         split_list(_cell(r, 2), separators=r"[,;]"), is_yes(_cell(r, 3)))
-                for r in sheets.read_rows(workbook["Personas"])]
+                for r in rows["Personas"]]
+    if not personas:
+        raise ValueError(
+            f"'{Path(path).name}' declares no personas, and every scenario is walked by one. Add "
+            f"at least one row to the Personas sheet -- a cooperative user trying to use the "
+            f"service as intended is the one every agent has.")
     if not any(p.is_default for p in personas):
         personas[0] = Persona(personas[0].id, personas[0].name, personas[0].applies_to, True)
 
     capabilities = [Capability(_cell(r, 0), _cell(r, 1), _cell(r, 2))
-                    for r in sheets.read_rows(workbook["L2 Capabilities"])]
+                    for r in rows["L2 Capabilities"]]
 
     decisions = [Decision(_cell(r, 0), _cell(r, 1), _cell(r, 2), _cell(r, 3),
                           [normalise_variant(v) for v in split_list(_cell(r, 4), separators=r"[/]")],
                           _input_source(_cell(r, 5)), _max_attempts(_cell(r, 6)), _cell(r, 7))
-                 for r in sheets.read_rows(workbook["L3 Decisions"])]
+                 for r in rows["L3 Decisions"]]
 
     states = [State(_cell(r, 0), _cell(r, 1), _cell(r, 2),
                     _DECISION_TOKEN.findall(_cell(r, 3)), is_yes(_cell(r, 4)),
                     _outcome_type(_cell(r, 5)))
-              for r in sheets.read_rows(workbook["L4 States"])]
+              for r in rows["L4 States"]]
 
-    tools = []
-    if "Tools" in workbook.sheetnames:
-        tools = [Tool(_cell(r, 0), _cell(r, 1), is_yes(_cell(r, 2)))
-                 for r in sheets.read_rows(workbook["Tools"]) if _cell(r, 0)]
+    tools = [Tool(_cell(r, 0), _cell(r, 1), is_yes(_cell(r, 2)))
+             for r in rows["Tools"] if _cell(r, 0)]
 
     return IntakeData(use_case, personas, capabilities, decisions, states, tools)
 
 
 def read_owner_scenarios(path: str, sheet_name: str = "Scenarios") -> List[OwnerScenario]:
     """Read a modeling team's own scenario library: ID, Description, optional Decision Path."""
-    workbook = _open_workbook(path, data_only=True)
-    sheet = workbook[sheet_name]
+    with sheets.open_for_reading(path, "a scenario library") as workbook:
+        rows = sheets.read_rows(workbook[sheet_name])
     return [OwnerScenario(_cell(r, 0), _cell(r, 1), _cell(r, 2))
-            for r in sheets.read_rows(sheet) if _cell(r, 0) and _cell(r, 1)]
+            for r in rows if _cell(r, 0) and _cell(r, 1)]
 
 
 # --------------------------------------------------------------------------- template
@@ -167,7 +191,7 @@ def append_rows(path: str, decisions: List[list] = None, states: List[list] = No
     An id already in the sheet is skipped rather than duplicated: two rows with one id would give
     the graph two nodes for one thing, and the reader would silently take whichever came last.
     """
-    workbook = _open_workbook(path)
+    workbook = _open_for_editing(path)
     changed = 0
 
     for sheet_name, rows in (("L3 Decisions", decisions or []), ("L4 States", states or [])):

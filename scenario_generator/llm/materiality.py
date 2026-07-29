@@ -16,9 +16,9 @@ import logging
 from typing import Callable, Dict, List
 
 from ..core.models import CONFIDENCE, MATERIALITY, IntakeData, Scenario
-from ..utils import chunks, one_of, parse_json_object
+from ..utils import chunks, one_of
 from . import cancellation, config, prompt_loader
-from .calling import call, call_batch
+from .calling import call, call_batch, parsed_reply
 from .context import describe_use_case, supplementary_context
 from .gateway import ask_llm
 from ..core.generation import peer_signals
@@ -109,16 +109,7 @@ class MaterialityAssessor:
         reports a failed call this way rather than raising, so a batch failure and a reply that
         parsed but left some ids out are handled by the same path here.
         """
-        if isinstance(reply, BaseException):
-            logger.warning("Materiality call left as fallback (%s): %s",
-                           ", ".join(s.id for s in chunk), reply)
-            return set()
-        try:
-            parsed = parse_json_object(reply)
-        except Exception as exc:
-            logger.warning("Materiality call left as fallback (%s): %s",
-                           ", ".join(s.id for s in chunk), exc)
-            return set()
+        parsed = parsed_reply(reply, "Materiality call", ", ".join(s.id for s in chunk))
 
         filled = set()
         for scenario in chunk:
