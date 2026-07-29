@@ -92,13 +92,19 @@ def _build_config(MaskingConfig: Any, RedactionConfig: Any) -> Any:
         thresholds=config.PII_REDACTION_THRESHOLDS or None))
 
 
-def redact_segments(segments: List[Segment],
-                    mapping: Optional[dict] = None) -> Tuple[List[Segment], Optional[dict]]:
+def redact_segments(segments: List[Segment], mapping: Optional[dict] = None,
+                    force: bool = False) -> Tuple[List[Segment], Optional[dict]]:
     """Redact every segment's text, keeping its locator untouched.
 
     Called after a document has been read into segments and before those segments are joined into
     a corpus, so a locator still points at the same place in the original document even though
     the text it names may no longer carry whatever was redacted out of it.
+
+    ``force`` runs redaction on this call even where ``PII_REDACTION`` is off globally -- the
+    per-document toggle in the interface sets it, so one particular upload can be redacted without
+    switching redaction on for everything else in the pack. It has no effect the other way round:
+    there is no per-document opt *out* once ``PII_REDACTION`` is on, because a switch that only
+    ever widens what gets redacted cannot itself be the reason something sensitive was missed.
 
     ``mapping`` carries a substitution-mode engine's token assignments across every segment and
     every document in one ingestion run, so the same person or account is masked the same way
@@ -107,10 +113,10 @@ def redact_segments(segments: List[Segment],
     the end of the run rather than written anywhere, since a mapping is itself exactly the kind of
     thing this exists to keep out of a saved file.
 
-    A no-op, returning ``segments`` unchanged, wherever ``PII_REDACTION`` is off -- which is the
-    default. See the module docstring for why that default is off rather than on.
+    A no-op, returning ``segments`` unchanged, wherever ``PII_REDACTION`` is off and ``force`` is
+    not set. See the module docstring for why the default is off rather than on.
     """
-    if not config.PII_REDACTION or not segments:
+    if not (config.PII_REDACTION or force) or not segments:
         return segments, mapping
 
     MaskingConfig, RedactionConfig, redact_text = _load_engine()
@@ -122,8 +128,8 @@ def redact_segments(segments: List[Segment],
             result = redact_text(segment.text, engine_config, current_mapping=mapping)
         except Exception as exc:
             raise RedactionUnavailable(
-                f"Redaction failed on a submitted passage ({exc}). PII_REDACTION is on, so "
-                f"nothing from this document is read further until this is fixed.") from exc
+                f"Redaction failed on a submitted passage ({exc}). Redaction is required for "
+                f"this document, so nothing from it is read further until this is fixed.") from exc
         mapping = result.mapping
         redacted.append(Segment(text=result.text, locator=segment.locator))
     return redacted, mapping

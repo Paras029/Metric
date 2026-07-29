@@ -99,7 +99,8 @@ class Corpus:
 
 
 def build_corpus(paths: Sequence[Path], progress: ProgressFn = None,
-                 redact: Callable[..., Tuple[List, Optional[dict]]] = None) -> Corpus:
+                 redact: Callable[..., Tuple[List, Optional[dict]]] = None,
+                 should_redact: Callable[[Path], bool] = None) -> Corpus:
     """Read every submitted file into one corpus. Deterministic; no model involved.
 
     Each passage keeps the marker that says where it came from, so a quote can be traced to a
@@ -109,9 +110,14 @@ def build_corpus(paths: Sequence[Path], progress: ProgressFn = None,
     is joined into the corpus this returns -- see :mod:`.redaction`. That is what makes it true
     that nothing downstream, including every model call ingestion makes, ever sees a passage this
     step has not already been through, regardless of which facet reads it next.
+
+    ``should_redact``, given a path, says whether *this* document must be redacted regardless of
+    the global ``PII_REDACTION`` setting -- the interface's per-file toggle is what sets this.
+    Nothing here decides the global default; that stays entirely in :func:`.redaction.redact_segments`.
     """
     progress = progress or (lambda *a, **k: None)
     redact = redact or redact_segments
+    should_redact = should_redact or (lambda path: False)
     parts: List[str] = []
     documents: List[DocumentRef] = []
     diagrams: List[Path] = []
@@ -132,7 +138,7 @@ def build_corpus(paths: Sequence[Path], progress: ProgressFn = None,
             documents.append(DocumentRef(name=path.name, kind="unreadable", note=str(exc)))
             continue
 
-        segments, mapping = redact(segments, mapping)
+        segments, mapping = redact(segments, mapping, force=should_redact(path))
         documents.append(reference)
         body = "\n\n".join(f"[{segment.locator}]\n{segment.text}" for segment in segments)
         parts.append(f"=== DOCUMENT: {path.name} ===\n\n{body}")
@@ -147,7 +153,8 @@ class DocumentExtractor:
                  progress: Optional[ProgressFn] = None, resolve: bool = True,
                  describe_images: Optional[Callable[..., str]] = None,
                  resolve_passes: Optional[int] = None, cancel=None,
-                 redact: Optional[Callable[..., Tuple[List, Optional[dict]]]] = None) -> None:
+                 redact: Optional[Callable[..., Tuple[List, Optional[dict]]]] = None,
+                 should_redact: Optional[Callable[[Path], bool]] = None) -> None:
         self._complete = complete or ask_llm
         self._describe_images = describe_images or ask_llm_with_images
         self._progress = progress or (lambda *args, **kwargs: None)
@@ -156,6 +163,7 @@ class DocumentExtractor:
                         else max(0, int(resolve_passes)))
         self._cancel = cancel
         self._redact = redact or redact_segments
+        self._should_redact = should_redact
         self._calls = 0
         self._failures = 0
         self._done = 0
@@ -166,7 +174,7 @@ class DocumentExtractor:
     # ------------------------------------------------------------------ entry point
     def run(self, paths: Sequence[Path]) -> EvidenceRecord:
         paths = [Path(p) for p in paths]
-        corpus = build_corpus(paths, self._progress, self._redact)
+        corpus = build_corpus(paths, self._progress, self._redact, self._should_redact)
         if not corpus:
             raise IngestionFailed("None of the submitted files could be read.")
         cancellation.check(self._cancel)

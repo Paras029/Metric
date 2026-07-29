@@ -222,6 +222,13 @@ account numbers and other business-sensitive material never leave your machine u
 is not a best-effort pass: if the redaction engine cannot be reached, ingestion stops rather than
 sending the document through unredacted.
 
+A **Redact** checkbox next to each uploaded model-documentation or supporting file marks that one
+file to be redacted the next time Documents runs, whether or not `PII_REDACTION` is on for
+everything else — one particularly sensitive upload does not require switching redaction on for
+the whole pack. It has no effect the other way round: there is no per-file opt-out once
+`PII_REDACTION` is on. Diagrams have no text to redact, and their own scenario library never
+reaches this reading at all (see below), so neither shows the checkbox.
+
 Each stage states how its output was produced — **computed**, **model judgement**, or **human
 decision** — because a materiality tier and a graph walk do not deserve the same trust.
 

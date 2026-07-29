@@ -5,6 +5,7 @@ or its test environment, so it is stubbed here the same way SafeChain is stubbed
 test_gateway.py: a real module installed on sys.modules for the duration of a test, standing in
 for the real contract (MaskingConfig, RedactionConfig, redact_text) rather than a loose mock.
 """
+import io
 import sys
 import types
 import unittest
@@ -14,6 +15,8 @@ from scenario_generator.ingest.extraction import build_corpus
 from scenario_generator.ingest.readers import Segment
 from scenario_generator.ingest.redaction import RedactionUnavailable, redact_segments
 from scenario_generator.llm import config
+from scenario_generator.webapp.app import _run_documents, create_app
+from scenario_generator.webapp.workspace import Workspace
 
 
 class _FakeMaskingConfig:
@@ -147,6 +150,31 @@ class TestWiredIntoIngestion(unittest.TestCase):
     this pins that the wiring point is exactly there, using an injected stub rather than the
     real engine."""
 
+    def test_should_redact_forces_one_file_independent_of_the_global_setting(self):
+        """The per-file toggle in the interface must reach build_corpus as force=True for that
+        file only, regardless of whether PII_REDACTION is on globally."""
+        import tempfile
+        from pathlib import Path
+
+        directory = Path(tempfile.mkdtemp())
+        marked = directory / "sensitive.md"
+        unmarked = directory / "ordinary.md"
+        marked.write_text("marked document", encoding="utf-8")
+        unmarked.write_text("ordinary document", encoding="utf-8")
+
+        seen_force = {}
+
+        def stub_redact(segments, mapping=None, force=False):
+            seen_force[segments[0].text] = force
+            return segments, mapping
+
+        with mock.patch.object(config, "PII_REDACTION", False):
+            build_corpus([marked, unmarked], redact=stub_redact,
+                        should_redact=lambda path: path.name == "sensitive.md")
+
+        self.assertTrue(seen_force["marked document"])
+        self.assertFalse(seen_force["ordinary document"])
+
     def test_every_readable_document_is_redacted_before_joining_the_corpus(self):
         import tempfile
         from pathlib import Path
@@ -157,7 +185,7 @@ class TestWiredIntoIngestion(unittest.TestCase):
 
         seen = []
 
-        def stub_redact(segments, mapping=None):
+        def stub_redact(segments, mapping=None, force=False):
             seen.append([s.text for s in segments])
             marked = [Segment(f"REDACTED::{s.text}", s.locator) for s in segments]
             return marked, mapping
@@ -177,7 +205,8 @@ class TestWiredIntoIngestion(unittest.TestCase):
 
         calls = []
         build_corpus([directory / "empty.md"],
-                     redact=lambda segments, mapping=None: (calls.append(1), (segments, mapping))[1])
+                     redact=lambda segments, mapping=None, force=False:
+                         (calls.append(1), (segments, mapping))[1])
         self.assertEqual(calls, [])
 
     def test_images_never_reach_redaction_either(self):
@@ -191,9 +220,114 @@ class TestWiredIntoIngestion(unittest.TestCase):
             "IQAAAABJRU5ErkJggg=="))
         calls = []
         corpus = build_corpus([path],
-                              redact=lambda segments, mapping=None: (calls.append(1), (segments, mapping))[1])
+                              redact=lambda segments, mapping=None, force=False:
+                                  (calls.append(1), (segments, mapping))[1])
         self.assertEqual(calls, [])
         self.assertEqual(corpus.diagrams, [path])
+
+
+class _StubSummary(dict):
+    """The counts _run_documents reads off a real IngestResult.summary."""
+
+    def __init__(self):
+        super().__init__(documents=1, readable=1, drawn_on=0, answered=0, usable=0,
+                         rejected=0, to_ask=0, set_aside=0)
+
+
+class _StubIngestResult:
+    def __init__(self):
+        self.evidence_path = "workspace_evidence.json"
+        self.context_path = "workspace_context.md"
+        self.summary = _StubSummary()
+
+
+class TestThePerFileToggleReachesIngestion(unittest.TestCase):
+    """The interface's per-file checkbox has to survive two hops -- workspace state, then a
+    should_redact callable built from it -- before it reaches build_corpus. This pins the
+    middle hop, in _run_documents, without needing a full model-backed ingestion run."""
+
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+
+        self.workspace = Workspace.create(Path(tempfile.mkdtemp()), "Redact toggle")
+        sources = self.workspace.root / "sources" / "model_doc"
+        sources.mkdir(parents=True)
+        (sources / "spec.md").write_text("has content", encoding="utf-8")
+        (sources / "other.md").write_text("has content too", encoding="utf-8")
+
+    def test_only_the_marked_file_is_forced(self):
+        self.workspace.set_redact("model_doc", "spec.md", True)
+
+        captured = {}
+
+        def fake_ingest_documents(paths, prefix, progress=None, cancel=None, should_redact=None):
+            captured["should_redact"] = should_redact
+            return _StubIngestResult()
+
+        with mock.patch("scenario_generator.webapp.app.ingest_documents", fake_ingest_documents):
+            _run_documents(self.workspace)
+
+        should_redact = captured["should_redact"]
+        marked = self.workspace.root / "sources" / "model_doc" / "spec.md"
+        unmarked = self.workspace.root / "sources" / "model_doc" / "other.md"
+        self.assertTrue(should_redact(marked))
+        self.assertFalse(should_redact(unmarked))
+
+
+class TestTheToggleRouteThroughTheInterface(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+
+        self.root = Path(tempfile.mkdtemp())
+        self.app = create_app(self.root)
+        self.client = self.app.test_client()
+        self.client.post("/workspaces", data={"name": "Redact toggle"})
+
+        self.client.post("/stage/documents/upload",
+                         data={"files": (io.BytesIO(b"# Spec\nSome content."), "spec.md"),
+                              "group": "model_doc"},
+                         content_type="multipart/form-data")
+
+    def _workspace(self) -> Workspace:
+        directories = [p for p in self.root.iterdir() if (p / "workspace.json").exists()]
+        self.assertEqual(len(directories), 1)
+        return Workspace.load(directories[0])
+
+    def test_checking_the_box_marks_the_file(self):
+        response = self.client.post("/stage/documents/redact",
+                                    data={"group": "model_doc", "name": "spec.md", "on": "1"})
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(self._workspace().is_marked_for_redaction("model_doc", "spec.md"))
+
+    def test_unchecking_it_clears_the_mark(self):
+        self.client.post("/stage/documents/redact",
+                         data={"group": "model_doc", "name": "spec.md", "on": "1"})
+        # An unchecked checkbox submits no "on" field at all -- this is the real request shape.
+        self.client.post("/stage/documents/redact", data={"group": "model_doc", "name": "spec.md"})
+        self.assertFalse(self._workspace().is_marked_for_redaction("model_doc", "spec.md"))
+
+    def test_the_toggle_is_refused_for_a_group_redaction_cannot_apply_to(self):
+        """Diagrams have no text to redact, and an unknown group name is not a real upload."""
+        self.client.post("/stage/documents/redact",
+                         data={"group": "diagrams", "name": "flow.png", "on": "1"})
+        self.assertFalse(self._workspace().is_marked_for_redaction("diagrams", "flow.png"))
+
+    def test_removing_the_file_also_clears_its_mark(self):
+        self.client.post("/stage/documents/redact",
+                         data={"group": "model_doc", "name": "spec.md", "on": "1"})
+        self.client.post("/stage/documents/remove", data={"group": "model_doc", "name": "spec.md"})
+        self.assertFalse(self._workspace().is_marked_for_redaction("model_doc", "spec.md"))
+
+    def test_the_checkbox_state_is_reflected_back_on_the_page(self):
+        self.client.post("/stage/documents/redact",
+                         data={"group": "model_doc", "name": "spec.md", "on": "1"})
+        page = self.client.get("/stage/documents").data.decode()
+        # The checkbox for spec.md must be checked; a loose "checked" anywhere on the page would
+        # pass even if it landed on the wrong element, so this looks at the specific input.
+        self.assertRegex(page, r'name="name" value="spec\.md">\s*<label[^>]*>\s*<input '
+                                r'type="checkbox" name="on" value="1"\s+checked')
 
 
 if __name__ == "__main__":

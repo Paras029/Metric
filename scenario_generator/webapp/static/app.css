@@ -857,7 +857,8 @@ ol, ul { list-style: none; padding: 0; }
 }
 .drop__file:last-child { border-bottom: 0; }
 .drop__file form { margin: 0; }
-.drop__file span { overflow-wrap: anywhere; }
+.drop__file > span:first-child { overflow-wrap: anywhere; }
+.drop__file-actions { display: flex; align-items: center; gap: .7rem; flex: none; }
 .drop__remove {
   font: inherit;
   font-size: .72rem;
@@ -869,6 +870,18 @@ ol, ul { list-style: none; padding: 0; }
   border-radius: 3px;
 }
 .drop__remove:hover { color: var(--rejected); background: #FCEDEC; }
+
+.drop__redact {
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+  font-size: .72rem;
+  color: var(--ink-faint);
+  cursor: pointer;
+  user-select: none;
+}
+.drop__redact input { margin: 0; cursor: pointer; accent-color: var(--blue); }
+.drop__redact:has(input:checked) { color: var(--blue-dark); font-weight: 600; }
 
 .drop__note {
   margin: .2rem 1.1rem 1rem;

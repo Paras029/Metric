@@ -149,6 +149,27 @@ class TestPersistence(unittest.TestCase):
         workspace.state("intake").artifacts["escape"] = "../../etc/passwd"
         self.assertIsNone(workspace.artifact_path("intake", "escape"))
 
+    def test_a_per_file_redaction_mark_survives_being_reopened(self):
+        workspace = _workspace()
+        workspace.set_redact("model_doc", "spec.pdf", True)
+        workspace.save()
+
+        reopened = Workspace.load(workspace.root)
+        self.assertTrue(reopened.is_marked_for_redaction("model_doc", "spec.pdf"))
+        self.assertFalse(reopened.is_marked_for_redaction("model_doc", "other.pdf"))
+
+    def test_the_mark_is_scoped_to_its_own_group(self):
+        """A filename is not unique across upload groups, so the mark must not bleed across them."""
+        workspace = _workspace()
+        workspace.set_redact("model_doc", "notes.md", True)
+        self.assertFalse(workspace.is_marked_for_redaction("supporting", "notes.md"))
+
+    def test_unmarking_clears_it(self):
+        workspace = _workspace()
+        workspace.set_redact("model_doc", "spec.pdf", True)
+        workspace.set_redact("model_doc", "spec.pdf", False)
+        self.assertFalse(workspace.is_marked_for_redaction("model_doc", "spec.pdf"))
+
     def test_names_become_stable_directories(self):
         self.assertEqual(slugify("Cardmember Disputes Assistant"),
                          "cardmember-disputes-assistant")

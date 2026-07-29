@@ -34,9 +34,9 @@ from ..core.intake import append_rows, read_intake, write_template
 from ..core.models import MATERIALITY, IntakeData
 from ..ingest import open_questions, read_owner_library, record_from_json
 from ..ingest.context_document import FACET_HEADINGS
-from ..ingest.groups import (ALL_EXTENSIONS, DEFAULT_GROUP, GROUP_BY_KEY, GROUPS, OWNER_SCENARIOS,
-                             evidence_files, folder_for, files_in, owner_scenario_file,
-                             remove_file)
+from ..ingest.groups import (ALL_EXTENSIONS, DEFAULT_GROUP, GROUP_BY_KEY, GROUPS, MODEL_DOC,
+                             OWNER_SCENARIOS, SUPPORTING, evidence_files, folder_for, files_in,
+                             owner_scenario_file, remove_file)
 from ..ingest.owner_library import UnreadableLibrary
 from ..io import read_scenarios, write_challenge_pack, write_registry
 from ..llm import MaterialityAssessor, ScenarioReviewer, ScenarioWriter, config
@@ -52,6 +52,11 @@ from .workspace import Workspace, stage_view
 
 # Stages whose output is a set of scenarios, so the page shows them rather than only counts.
 SCENARIO_STAGES = ("text", "materiality", "review", "coverage", "issue")
+
+# Groups redaction can actually do something to: the two that carry text ingestion reads. A
+# diagram has no text to redact, and the owner's own scenario library never reaches build_corpus
+# at all -- it is read separately, only to measure coverage, at a later stage.
+REDACTABLE_GROUPS = (MODEL_DOC, SUPPORTING)
 
 logger = logging.getLogger(__name__)
 
@@ -130,24 +135,27 @@ def _evidence_record(workspace: Workspace):
         return None
 
 
-def _source_files(workspace: Workspace):
-    """Every submitted file that describes the agent, across all groups that do.
-
-    The owner's own scenarios are excluded: they describe the owner's testing rather than the
-    agent, and reading them as evidence would let their blind spots into the benchmark by the
-    back door -- which is the thing an independent benchmark exists to avoid.
-    """
-    return [path for paths in evidence_files(workspace.root).values() for path in paths]
-
-
 def _run_documents(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
-    """Read every submitted document, then answer each question from all of them at once."""
-    paths = _source_files(workspace)
+    """Read every submitted document, then answer each question from all of them at once.
+
+    Only the groups that describe the agent are read (``evidence_files``) -- the owner's own
+    scenarios are excluded, since reading them as evidence would let their blind spots into the
+    benchmark by the back door, which is the thing an independent benchmark exists to avoid.
+    """
+    grouped = evidence_files(workspace.root)
+    paths = [path for paths in grouped.values() for path in paths]
     if not paths:
         raise ValueError("Add at least one document before reading them.")
 
+    # Which files carry the per-upload redaction toggle, resolved to actual paths here rather
+    # than in ingestion: the workspace's notion of "group" is a webapp concept, and the ingestion
+    # layer should only ever be told which files, not why.
+    forced = {path for group, paths_in_group in grouped.items() for path in paths_in_group
+             if workspace.is_marked_for_redaction(group, path.name)}
+
     result = ingest_documents([str(p) for p in paths], str(workspace.root / "ingest"),
-                              progress=progress, cancel=cancel)
+                              progress=progress, cancel=cancel,
+                              should_redact=lambda path: Path(path) in forced)
     workspace.state("documents").artifacts.update({
         "evidence": Path(result.evidence_path).name,
         "context": Path(result.context_path).name,
@@ -438,7 +446,10 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         rows = []
         for group in wanted:
             files = files_in(workspace.root, group.key)
-            row = {"group": group, "files": [f.name for f in files], "note": "", "problem": False}
+            row = {"group": group, "files": [f.name for f in files], "note": "", "problem": False,
+                  "redactable": group.key in REDACTABLE_GROUPS,
+                  "redacted": {f.name for f in files
+                              if workspace.is_marked_for_redaction(group.key, f.name)}}
             if group.key == OWNER_SCENARIOS and files:
                 # Say how it was read now rather than when coverage runs, while there is still
                 # time to ask them for a clearer file.
@@ -595,6 +606,23 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         group, name = request.form.get("group", ""), request.form.get("name", "")
         if group in GROUP_BY_KEY and remove_file(workspace.root, group, name):
             workspace.state("documents").artifacts.pop(Path(name).name, None)
+            workspace.set_redact(group, name, False)
+            workspace.invalidate_after("documents")
+            workspace.save()
+        return redirect(url_for("stage", key=key))
+
+    @app.route("/stage/<key>/redact", methods=["POST"])
+    def toggle_redact(key: str):
+        """Mark or unmark one uploaded file to be redacted ahead of the global setting.
+
+        Takes effect the next time the documents stage runs -- this only records the choice.
+        Changing it invalidates a completed documents stage the same way adding a file does: what
+        the corpus was built from is different now, whether or not the file itself changed.
+        """
+        workspace = _workspace()
+        group, name = request.form.get("group", ""), request.form.get("name", "")
+        if group in REDACTABLE_GROUPS and name:
+            workspace.set_redact(group, name, bool(request.form.get("on")))
             workspace.invalidate_after("documents")
             workspace.save()
         return redirect(url_for("stage", key=key))

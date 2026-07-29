@@ -21,7 +21,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 from .stages import (COMPLETE, FAILED, LOCKED, READY, RUNNING, STAGE_BY_KEY, STAGE_KEYS,
                      STALE, STAGES, STOPPED, Stage, downstream_of, index_of, required_before)
@@ -122,7 +122,8 @@ class Workspace:
     def __init__(self, root: Path, name: str = "", created_at: str = "",
                  stages: Optional[Dict[str, StageState]] = None,
                  notes: Optional[List[dict]] = None,
-                 pending: Optional[List[dict]] = None) -> None:
+                 pending: Optional[List[dict]] = None,
+                 redact_files: Optional[List[str]] = None) -> None:
         self.root = Path(root)
         self.name = name or self.root.name
         self.created_at = created_at or _now()
@@ -133,6 +134,11 @@ class Workspace:
         # rather than in the workbook so the workbook stays the one authority for what the
         # benchmark is built from, and a half-finished idea cannot reach it.
         self.pending: List[dict] = list(pending or [])
+        # Which uploaded files must be redacted before their text is read, independent of the
+        # PII_REDACTION setting -- keyed "group/name" since a filename alone is not unique across
+        # upload groups. A person marking one sensitive upload should not have to switch redaction
+        # on for the whole pack to get it.
+        self.redact_files: Set[str] = set(redact_files or [])
         self._settle()
 
     # ----------------------------------------------------------------- added context
@@ -193,6 +199,27 @@ class Workspace:
                 lines.append(f"- ({title}) {note['text']}")
         return "\n".join(lines)
 
+    # ----------------------------------------------------------------- redaction
+    @staticmethod
+    def _redact_key(group: str, name: str) -> str:
+        return f"{group}/{name}"
+
+    def is_marked_for_redaction(self, group: str, name: str) -> bool:
+        return self._redact_key(group, name) in self.redact_files
+
+    def set_redact(self, group: str, name: str, on: bool) -> None:
+        """Mark or unmark one uploaded file for redaction ahead of the global setting.
+
+        Does not save -- callers that change this alongside other state (invalidating a stage,
+        removing the file itself) write it all in one save, the same as everywhere else a route
+        makes more than one change.
+        """
+        key = self._redact_key(group, name)
+        if on:
+            self.redact_files.add(key)
+        else:
+            self.redact_files.discard(key)
+
     # ----------------------------------------------------------------- persistence
     @property
     def state_path(self) -> Path:
@@ -214,6 +241,7 @@ class Workspace:
         self.root.mkdir(parents=True, exist_ok=True)
         payload = {"name": self.name, "created_at": self.created_at,
                    "notes": list(self.notes), "pending": list(self.pending),
+                   "redact_files": sorted(self.redact_files),
                    "stages": {k: v.to_dict() for k, v in self.stages.items()}}
 
         with _lock_for(self.state_path):
@@ -233,7 +261,8 @@ class Workspace:
                   for key in STAGE_KEYS}
         return cls(root=root, name=data.get("name", root.name),
                    created_at=data.get("created_at", ""), stages=stages,
-                   notes=data.get("notes", []), pending=data.get("pending", []))
+                   notes=data.get("notes", []), pending=data.get("pending", []),
+                   redact_files=data.get("redact_files", []))
 
     @classmethod
     def create(cls, base: Path, name: str) -> "Workspace":

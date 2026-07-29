@@ -659,12 +659,28 @@
                     {% for name in row.files %}
                       <li class="drop__file">
                         <span class="mono">{{ name }}</span>
-                        <form method="post" action="{{ url_for('remove_upload', key=stage.key) }}">
-                          <input type="hidden" name="group" value="{{ row.group.key }}">
-                          <input type="hidden" name="name" value="{{ name }}">
-                          <button class="drop__remove" type="submit"
-                                  title="Remove {{ name }}">Remove</button>
-                        </form>
+                        <span class="drop__file-actions">
+                          {% if row.redactable %}
+                            <form method="post" class="drop__redact-form"
+                                  action="{{ url_for('toggle_redact', key=stage.key) }}">
+                              <input type="hidden" name="group" value="{{ row.group.key }}">
+                              <input type="hidden" name="name" value="{{ name }}">
+                              <label class="drop__redact"
+                                     title="Redact this file before it is read, even if PII_REDACTION is off for the rest of the pack">
+                                <input type="checkbox" name="on" value="1"
+                                       {% if name in row.redacted %}checked{% endif %}
+                                       onchange="this.form.submit()">
+                                Redact
+                              </label>
+                            </form>
+                          {% endif %}
+                          <form method="post" action="{{ url_for('remove_upload', key=stage.key) }}">
+                            <input type="hidden" name="group" value="{{ row.group.key }}">
+                            <input type="hidden" name="name" value="{{ name }}">
+                            <button class="drop__remove" type="submit"
+                                    title="Remove {{ name }}">Remove</button>
+                          </form>
+                        </span>
                       </li>
                     {% endfor %}
                   </ul>
