@@ -115,6 +115,31 @@ class TestInvalidation(unittest.TestCase):
         progress = workspace.progress()
         self.assertEqual(progress["stale"], 1)
 
+    def test_a_new_input_marks_the_stage_that_reads_it_out_of_date_too(self):
+        """Uploading a corrected intake used to leave the intake stage reporting the figures it
+        read off the *previous* workbook -- which reads as a fact about the file in front of you
+        rather than as a stale number, and is the more misleading of the two."""
+        workspace = _workspace()
+        workspace.complete("intake", summary={"Decision points": 5})
+        workspace.complete("benchmark")
+
+        invalidated = workspace.invalidate_from("intake")
+
+        self.assertEqual(workspace.state("intake").status, STALE)
+        self.assertEqual(workspace.state("benchmark").status, STALE)
+        self.assertIn("intake", [s.key for s in invalidated])
+
+    def test_a_change_upstream_still_leaves_that_stage_alone(self):
+        """invalidate_after is the other case, and must not start clearing its own stage."""
+        workspace = _workspace()
+        workspace.complete("intake")
+        workspace.complete("benchmark")
+
+        workspace.invalidate_after("intake")
+
+        self.assertEqual(workspace.state("intake").status, COMPLETE)
+        self.assertEqual(workspace.state("benchmark").status, STALE)
+
     def test_clearing_a_stage_clears_everything_after_it(self):
         workspace = _workspace()
         self._through(workspace, "issue")

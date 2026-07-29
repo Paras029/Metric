@@ -203,6 +203,52 @@ class TestDiagrams(unittest.TestCase):
         self.assertTrue(diagram_claims)
         self.assertTrue(diagram_claims[0].needs_confirmation)
 
+    def test_what_a_diagram_establishes_reaches_the_context_document(self):
+        """The whole point of reading a diagram. Diagram observations used to be stored on the
+        record and then read by nothing: the context document renders only the claims an *answer*
+        names as its sources, and the intake is drafted from the context document alone. A
+        workflow diagram is often the only place a branch is written down, so a pack whose
+        structure was entirely in its images produced a context file reporting that structure as
+        "not covered by the submitted documents"."""
+        def describe_one(system, user, images, **kwargs):
+            return json.dumps({"description": "A PIN check box branching to Pass and Fail."})
+
+        complete = self._synthesizing([{
+            "facet": "decisions", "statement": "PIN check branches to Pass or Fail.",
+            "quote": "PIN check", "locator": "image 1"}])
+
+        record = extract_documents([_write("notes.md", _SCATTERED), self._png()],
+                                   complete=complete, describe_images=describe_one)
+
+        answer = record.answer_for("decisions")
+        self.assertIn("PIN check branches to Pass or Fail.", answer.points)
+        self.assertTrue(answer.is_answered)
+        self.assertNotIn("decisions", record.empty_facets())
+
+        # Traceable as well as present: the claim carries an id and the answer names it.
+        claim = next(c for c in record.claims if c.source.kind == "image")
+        self.assertTrue(claim.id)
+        self.assertIn(claim.id, answer.sources)
+
+        context = build_context_document(record, "Test agent")
+        self.assertIn("PIN check branches to Pass or Fail.", context)
+
+    def test_a_facet_only_a_diagram_answered_stops_being_asked_as_a_gap(self):
+        """The placeholder question means 'nothing addressed this at all', which is no longer
+        true once a diagram has. Leaving it would ask the team for what they already sent."""
+        def describe_one(system, user, images, **kwargs):
+            return json.dumps({"description": "States: Authenticated, Locked."})
+
+        complete = self._synthesizing([{
+            "facet": "states", "statement": "A Locked state ends the call.",
+            "quote": "Locked", "locator": "image 1"}])
+
+        record = extract_documents([_write("notes.md", _SCATTERED), self._png()],
+                                   complete=complete, describe_images=describe_one)
+
+        generic = "What positions can an interaction be in, and which of them end it?"
+        self.assertNotIn(generic, record.answer_for("states").unknowns)
+
     def test_diagram_confirmations_are_grouped_by_facet_not_one_per_observation(self):
         """A single diagram can produce dozens of observations; each becoming its own question
         would flood the open-questions list with rows that all ask the same thing."""

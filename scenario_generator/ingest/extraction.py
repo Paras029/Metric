@@ -198,6 +198,7 @@ class DocumentExtractor:
 
         record.answers = [answers.get(facet) or _unanswered(facet) for facet in FACETS]
         self._attach_evidence(record, corpus.text)
+        _fold_diagram_observations(record)
         self._mark_documents_drawn_on(record)
         self._stop_if_mostly_failing("reading")
         cancellation.check(self._cancel)
@@ -550,6 +551,40 @@ class DocumentExtractor:
                 f"would not be a usable reading of these documents, so nothing was written. "
                 f"Check that SafeChain can reach the model named in your config.yml, and run it "
                 f"again.")
+
+
+def _fold_diagram_observations(record: EvidenceRecord) -> None:
+    """Attach what the diagrams established to the answers they inform.
+
+    Without this a diagram is read, its observations are stored, and then nothing downstream ever
+    looks at them: the context document renders only the claims an *answer* names as its sources,
+    and the intake is drafted from the context document alone. A workflow diagram is frequently
+    the only place a branch is written down at all, so the effect was a context file reporting
+    "where it branches -- not covered by the submitted documents" while the evidence record sat
+    there holding the branches.
+
+    Run after :meth:`DocumentExtractor._attach_evidence`, which assigns ``sources`` wholesale from
+    the verified text citations and would otherwise overwrite what this adds.
+    """
+    for index, claim in enumerate(record.claims, start=1):
+        if claim.source.kind != KIND_IMAGE or claim.id:
+            continue
+        claim.id = f"D-{index:03d}"
+
+        answer = record.answer_for(claim.facet)
+        if answer is None:
+            continue
+        if claim.statement not in answer.points:
+            answer.points.append(claim.statement)
+        if claim.id not in answer.sources:
+            answer.sources.append(claim.id)
+
+        # The placeholder unknown only means "nothing addressed this at all", which has just
+        # stopped being true. Anything the diagram genuinely left open is recorded by the
+        # resolution sweep on its own terms rather than by this stand-in.
+        generic = FACET_QUESTIONS.get(claim.facet, "").strip()
+        if generic:
+            answer.unknowns = [u for u in answer.unknowns if u.strip() != generic]
 
 
 def _facet_guide() -> str:

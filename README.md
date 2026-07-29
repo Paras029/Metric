@@ -193,7 +193,7 @@ the intake stage, or pass it straight to `generate`.
 | 5 | Scenario text | The benchmark | A description and tester script per scenario |
 | 6 | Materiality | The benchmark | A Low / Medium / High / Critical tier per scenario, driving run counts |
 | 7 | Final review | The whole benchmark | Settled materiality, flagged weaknesses, proposed additions |
-| 8 | Their coverage | Their scenario library | How much of the benchmark they already exercise, annotated onto each scenario |
+| 8 | Coverage | Their scenario library | How much of the benchmark they already exercise, annotated onto each scenario |
 | 9 | Issue | The registry | The challenge pack to send, and the registry to keep |
 
 Stages 1, 2 and 8 are optional. Skip 1 and 2 if you already have an intake; skip 8 if the team

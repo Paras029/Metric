@@ -204,7 +204,27 @@ class TestRendering(unittest.TestCase):
 
     def test_hover_detail_names_the_decision_the_outcome_and_the_state(self):
         svg = render_svg(_INTAKE)
-        self.assertIn("Auth → Pass → S-01: Authenticated", svg)
+        self.assertIn("DEC-01 · Auth → Pass", svg)
+        self.assertIn("Leads to: S-01 · Authenticated", svg)
+
+    def test_hover_detail_is_a_labelled_panel_rather_than_one_run_on_line(self):
+        """A tooltip is where most of the intake is actually read. One fact per line, each named,
+        is the same information without having to pick it apart by eye."""
+        detail = build_layout(_INTAKE).nodes["DEC-01"].detail
+        self.assertEqual(detail.splitlines()[0], "DEC-01 · Auth")
+        self.assertIn("Outcomes: Pass / Fail", detail)
+        self.assertIn("Capability: CAP-01", detail)
+
+    def test_a_field_with_no_value_is_left_out_rather_than_shown_empty(self):
+        """DEC-01 declares no retry bound and no outcome condition."""
+        detail = build_layout(_INTAKE).nodes["DEC-01"].detail
+        self.assertNotIn("Attempts allowed:", detail)
+        self.assertNotIn("Selected when:", detail)
+
+    def test_a_terminal_state_says_how_the_interaction_ends(self):
+        detail = build_layout(_INTAKE).nodes["S-02"].detail
+        self.assertIn("Reached via: DEC-01=Fail", detail)
+        self.assertIn("Ends the interaction (Termination)", detail)
 
     def test_the_drawing_states_its_own_size_so_it_can_be_zoomed(self):
         self.assertIn('width="', render_svg(_INTAKE))

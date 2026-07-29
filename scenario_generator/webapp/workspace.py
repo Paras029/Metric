@@ -361,8 +361,23 @@ class Workspace:
 
     def invalidate_after(self, key: str) -> List[Stage]:
         """Mark every completed stage after this one as out of date. Outputs are kept."""
+        return self._invalidate(downstream_of(key))
+
+    def invalidate_from(self, key: str) -> List[Stage]:
+        """Mark this stage and everything after it out of date. Outputs are kept.
+
+        For a change to a stage's own *input* rather than to something upstream of it. Uploading
+        a corrected intake workbook is the case that matters: the benchmark built from the old one
+        is out of date, which :meth:`invalidate_after` already said, but so is the intake stage's
+        own report of what the workbook declares -- and leaving that showing "5 decision points"
+        beside a workbook that now declares seven is the more misleading of the two, because it
+        reads as a fact about the file rather than as a stale figure.
+        """
+        return self._invalidate([STAGE_BY_KEY[key]] + downstream_of(key))
+
+    def _invalidate(self, stages: List[Stage]) -> List[Stage]:
         invalidated = []
-        for stage in downstream_of(key):
+        for stage in stages:
             if self.stages[stage.key].status == COMPLETE:
                 self.stages[stage.key].status = STALE
                 self.stages[stage.key].updated_at = _now()

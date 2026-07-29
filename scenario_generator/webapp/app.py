@@ -589,8 +589,9 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             for name in stored:
                 workspace.state("documents").artifacts[name] = f"sources/{group}/{name}"
 
-        # Adding source material invalidates whatever was built from the material before it.
-        invalidated = workspace.invalidate_after("documents" if key != "intake" else "intake")
+        # A new file invalidates the stage that reads it as well as everything built on top:
+        # the reading itself has not seen this file, so its own reported result is out of date.
+        invalidated = workspace.invalidate_from("documents" if key != "intake" else "intake")
         workspace.save()
         return redirect(url_for("stage", key=key,
                                 invalidated=", ".join(s.title for s in invalidated)))
@@ -607,7 +608,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         if group in GROUP_BY_KEY and remove_file(workspace.root, group, name):
             workspace.state("documents").artifacts.pop(Path(name).name, None)
             workspace.set_redact(group, name, False)
-            workspace.invalidate_after("documents")
+            workspace.invalidate_from("documents")
             workspace.save()
         return redirect(url_for("stage", key=key))
 
@@ -623,7 +624,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         group, name = request.form.get("group", ""), request.form.get("name", "")
         if group in REDACTABLE_GROUPS and name:
             workspace.set_redact(group, name, bool(request.form.get("on")))
-            workspace.invalidate_after("documents")
+            workspace.invalidate_from("documents")
             workspace.save()
         return redirect(url_for("stage", key=key))
 

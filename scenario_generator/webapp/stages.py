@@ -25,9 +25,9 @@ REVIEW = "review"
 # Shown beside the stage number rather than as a block of prose. The label is the whole point;
 # a reader who wants the reasoning has the stage's own write-up below it.
 MODE_LABELS = {
-    COMPUTED: "Computed",
-    JUDGED: "Model judgement",
-    REVIEW: "Human decision",
+    COMPUTED: "Deterministic",
+    JUDGED: "LLM",
+    REVIEW: "Human",
 }
 
 # Stage status. A stage that has run and then had its inputs changed underneath it is stale
@@ -140,7 +140,7 @@ STAGES: Tuple[Stage, ...] = (
           "flags scenarios that are redundant, under-specified or mis-scoped, and proposes "
           "additions. It cannot remove anything — a flag is a recommendation to you."),
 
-    Stage("coverage", "Their coverage", JUDGED,
+    Stage("coverage", "Coverage", JUDGED,
           "What the model owner's own testing already covers, matched against this benchmark. "
           "Skip it if they submitted none.",
           "Matches the modelling team's own scenarios against the benchmark, in whatever format "
