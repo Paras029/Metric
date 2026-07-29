@@ -145,6 +145,75 @@ class TestTheChain(_WithSafeChain):
         self.assertEqual(gateway.ask_llm("s", "u"), "part one part two")
 
 
+class _EchoModel(GenericFakeChatModel):
+    """Replies with whatever human message it was given, and remembers every one it saw.
+
+    A test can tell which output answers which input this way even though .batch() runs the
+    calls concurrently and they can finish in any order -- unlike a model that always returns
+    the same fixed reply, this lets order-independent assertions still be exact ones.
+    """
+
+    seen: list = []
+    fails_on: str = ""
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        content = messages[1].content
+        self.seen.append(content)
+        if content == self.fails_on:
+            raise RuntimeError("boom")
+        from langchain_core.outputs import ChatGeneration, ChatResult
+        return ChatResult(generations=[ChatGeneration(message=AIMessage(content=content))])
+
+
+def _echo(fails_on: str = "") -> _EchoModel:
+    return _EchoModel(messages=iter([]), seen=[], fails_on=fails_on)
+
+
+class TestBatching(_WithSafeChain):
+    def test_one_reply_comes_back_per_message_in_the_same_order(self):
+        with _install(lambda model_id: _echo()):
+            replies = gateway.ask_llm_batch("s", ["one", "two", "three"], tier=config.FAST)
+        self.assertEqual(list(replies), ["one", "two", "three"])
+
+    def test_every_message_actually_reached_the_model(self):
+        model = _echo()
+        with _install(lambda model_id: model):
+            gateway.ask_llm_batch("s", ["alpha", "beta", "gamma"], tier=config.FAST)
+        self.assertEqual(sorted(model.seen), ["alpha", "beta", "gamma"])
+
+    def test_an_empty_list_is_not_sent_anywhere(self):
+        self.assertEqual(gateway.ask_llm_batch("s", []), [])
+
+    def test_a_json_output_specification_survives_inside_a_batch(self):
+        """The hazard the single-call path avoids by not templating at all; batching must avoid
+        it a different way, since it has to vary the message between calls."""
+        hazardous = 'Return ONLY: {"resolved": [{"question": "...", "status": "answered"}]}'
+        with _install(lambda model_id: _echo()):
+            replies = gateway.ask_llm_batch("s", [hazardous], tier=config.FAST)
+        self.assertEqual(replies[0], hazardous)
+
+    def test_one_failure_does_not_lose_the_others(self):
+        # The failing item is retried through the same with_retry every call carries, which is
+        # correct -- a transient failure inside a batch deserves the same second chance a lone
+        # call gets -- but it means real backoff delay unless sleep is short-circuited here.
+        with _install(lambda model_id: _echo(fails_on="bad")), mock.patch("time.sleep"):
+            replies = gateway.ask_llm_batch("s", ["good-1", "bad", "good-2"], tier=config.FAST)
+
+        self.assertEqual(replies[0], "good-1")
+        self.assertIsInstance(replies[1], BaseException)
+        self.assertEqual(replies[2], "good-2")
+
+    def test_the_model_is_shared_with_the_single_call_path(self):
+        """Batching does not bypass the tier cache and build a second model for the same tier."""
+        gateway.ask_llm("s", "u", tier=config.STANDARD)
+        gateway.ask_llm_batch("s", ["u1", "u2"], tier=config.STANDARD)
+        self.assertEqual(len(self.built), 1)
+
+    def test_ask_llm_advertises_its_own_batch_function(self):
+        """This is the hook calling.call_batch looks for to find real concurrency."""
+        self.assertIs(gateway.ask_llm.batch, gateway.ask_llm_batch)
+
+
 class TestImages(_WithSafeChain):
     def test_an_image_is_attached_as_a_content_part(self):
         gateway.ask_llm_with_images("s", "describe this", [("image/png", b"not-really-a-png")])

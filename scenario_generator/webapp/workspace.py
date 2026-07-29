@@ -17,6 +17,7 @@ import json
 import os
 import re
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +32,51 @@ _SAFE_NAME = re.compile(r"[^a-z0-9]+")
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+# One lock per workspace file, shared across every Workspace instance that points at it. A
+# background thread running a stage and a request handling a click each construct their own
+# instance -- an instance-level lock would not stop them writing at the same moment, and ingesting
+# a document pack alone runs three of those threads at once, each reporting its own progress.
+_save_locks: Dict[str, threading.Lock] = {}
+_save_locks_guard = threading.Lock()
+
+
+def _lock_for(path: Path) -> threading.Lock:
+    key = str(path.resolve())
+    with _save_locks_guard:
+        if key not in _save_locks:
+            _save_locks[key] = threading.Lock()
+        return _save_locks[key]
+
+
+# How long to keep retrying a Windows file-replace that is transiently refused. OneDrive and
+# antivirus scanners routinely hold a just-written file open for a fraction of a second while they
+# look at it, which os.replace on Windows reports as PermissionError rather than queuing behind --
+# nothing to do with actual permissions. The wait doubles each attempt because the hold is
+# transient by nature; if it has not cleared within a second, something other than a momentary
+# lock is wrong, and that is worth raising for rather than retrying forever.
+_REPLACE_ATTEMPTS = 8
+_REPLACE_BACKOFF = 0.05
+
+
+def _replace(source: Path, destination: Path) -> None:
+    """os.replace, tolerant of a destination something outside Python is briefly holding open.
+
+    POSIX rename is atomic and a concurrent reader never blocks it. Windows is not: a sync client,
+    an antivirus scanner, or even another process's own read can hold a file open for a moment and
+    turn the replace into a PermissionError that has nothing to do with who is allowed to write
+    it. Retrying briefly is the standard answer, because the hold clears on its own.
+    """
+    last_error = None
+    for attempt in range(_REPLACE_ATTEMPTS):
+        try:
+            os.replace(str(source), str(destination))
+            return
+        except PermissionError as exc:
+            last_error = exc
+            time.sleep(_REPLACE_BACKOFF * (attempt + 1))
+    raise last_error
 
 
 def slugify(name: str) -> str:
@@ -153,27 +199,31 @@ class Workspace:
         return self.root / STATE_FILE
 
     def save(self) -> None:
-        """Write the record, atomically.
+        """Write the record, atomically and one writer at a time.
 
-        A running stage saves its progress every few seconds from a background thread while the
-        page polls for it from a request thread. Writing in place means truncating the file first,
-        and a reader arriving in that instant gets an empty file and a workspace that appears not
-        to exist. Writing beside it and renaming means a reader sees either the old record or the
-        new one, never a half-written one -- ``os.replace`` is atomic on both platforms this runs
-        on.
+        A running stage saves its progress from several threads at once -- ingesting a document
+        pack reads three groups of questions in parallel, each reporting its own progress -- while
+        a request handling a click can write from yet another. Writing in place means truncating
+        the file first, and a reader arriving in that instant gets an empty file and a workspace
+        that appears not to exist; writing beside it and renaming means a reader always sees either
+        the old record or the new one. The lock is what stops two writers from racing that rename
+        against each other regardless of which Workspace instance they came through, and
+        :func:`_replace` covers the moment something outside Python -- a sync client, a virus
+        scanner -- is holding the destination open at the same instant.
         """
         self.root.mkdir(parents=True, exist_ok=True)
         payload = {"name": self.name, "created_at": self.created_at,
                    "notes": list(self.notes), "pending": list(self.pending),
                    "stages": {k: v.to_dict() for k, v in self.stages.items()}}
 
-        pending = self.state_path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
-        try:
-            pending.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-            os.replace(str(pending), str(self.state_path))
-        finally:
-            if pending.exists():
-                pending.unlink()
+        with _lock_for(self.state_path):
+            pending = self.state_path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
+            try:
+                pending.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+                _replace(pending, self.state_path)
+            finally:
+                if pending.exists():
+                    pending.unlink()
 
     @classmethod
     def load(cls, root: Path) -> "Workspace":

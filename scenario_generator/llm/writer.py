@@ -8,6 +8,12 @@ outcome. That is enforced here by what the model is given rather than only by wh
 :meth:`ScenarioWriter._payload` withholds the scenario's terminal state entirely. Per-step
 outcomes are supplied, because the tester has to know which condition to induce, but the route's
 destination is never in the prompt and so cannot reach the challenge pack through this call.
+
+A benchmark of any size is several chunks of scenarios, and every chunk needs its own call. Those
+calls go out together rather than one after another: nothing in one chunk's text depends on
+another's, so there is no reason the second should wait for the first to come back. What each
+chunk's reply settles is still applied one chunk at a time, in the order the chunks were made, so
+the result reads the same as it would have sequentially -- only the waiting is concurrent.
 """
 from __future__ import annotations
 
@@ -18,7 +24,7 @@ from typing import Callable, List
 from ..core.models import IntakeData, Scenario
 from ..utils import chunks, parse_json_object
 from . import config, prompt_loader
-from .calling import call
+from .calling import call, call_batch
 from .context import describe_use_case, supplementary_context
 from .gateway import ask_llm
 
@@ -48,15 +54,28 @@ class ScenarioWriter:
         self._progress = progress or (lambda *args, **kwargs: None)
 
     def write(self, scenarios: List[Scenario], intake: IntakeData) -> List[Scenario]:
-        """Graph scenarios and probes are written by separate prompts, so batch them separately."""
+        """Graph scenarios and probes are written by separate prompts, so batch them separately.
+
+        Every chunk's call goes out together within its group; nothing in one chunk's text
+        depends on another's. Replies are applied in the order the chunks were made regardless
+        of which came back first, so a benchmark written this way reads exactly as it would have
+        one chunk at a time -- only the waiting overlaps.
+        """
         written = 0
         for group in ([s for s in scenarios if not s.is_probe],
                       [s for s in scenarios if s.is_probe]):
-            for chunk in chunks(group, self._batch):
-                done = self._write(chunk, intake)
+            if not group:
+                continue
+            pending = list(chunks(group, self._batch))
+            system = prompt_loader.load(_SYSTEM_PROMPT)
+            replies = call_batch(self._complete, system, [self._render(c, intake) for c in pending],
+                                 tier=config.STANDARD)
+
+            for chunk, reply in zip(pending, replies):
+                filled = self._apply(chunk, reply)
                 for scenario in chunk:                     # refill anything the batch dropped
-                    if scenario.id not in done:
-                        self._write([scenario], intake)
+                    if scenario.id not in filled:
+                        self._write_one(scenario, intake)
                 written += len(chunk)
                 self._progress(f"Written {written} of {len(scenarios)} scenarios",
                                written, len(scenarios))
@@ -89,17 +108,29 @@ class ScenarioWriter:
         on the standard tier rather than the cheapest one."""
         return call(self._complete, system, user, tier=config.STANDARD)
 
-    def _write(self, chunk: List[Scenario], intake: IntakeData) -> set:
-        """Call the model for these scenarios and apply the reply; return the IDs it filled."""
+    def _render(self, chunk: List[Scenario], intake: IntakeData) -> str:
+        """The user prompt for one chunk, built but not yet sent."""
         name = _PROBE_PROMPT if chunk[0].is_probe else _GRAPH_PROMPT
-        user = prompt_loader.render(
+        return prompt_loader.render(
             name,
             use_case=describe_use_case(intake),
             context=supplementary_context(self._context),
             house_style=prompt_loader.load("shared.house_style"),
             scenarios=json.dumps([self._payload(s) for s in chunk], indent=2))
+
+    def _apply(self, chunk: List[Scenario], reply) -> set:
+        """Write a chunk's reply onto its scenarios; return the IDs it actually filled.
+
+        ``reply`` is either the model's text or the exception raised getting it -- call_batch
+        reports a failed call this way rather than raising, so it is handled here exactly like a
+        reply that parsed but left some ids out: logged, and left for the individual refill.
+        """
+        if isinstance(reply, BaseException):
+            logger.warning("Writer call left as fallback (%s): %s",
+                           ", ".join(s.id for s in chunk), reply)
+            return set()
         try:
-            reply = parse_json_object(self._call(prompt_loader.load(_SYSTEM_PROMPT), user))
+            parsed = parse_json_object(reply)
         except Exception as exc:
             logger.warning("Writer call left as fallback (%s): %s",
                            ", ".join(s.id for s in chunk), exc)
@@ -107,7 +138,7 @@ class ScenarioWriter:
 
         filled = set()
         for scenario in chunk:
-            entry = reply.get(scenario.id)
+            entry = parsed.get(scenario.id)
             if not entry:
                 continue
             scenario.description = str(entry.get("description", "")).strip() or scenario.description
@@ -117,6 +148,19 @@ class ScenarioWriter:
             logger.info("Batch filled %d/%d; refilling %s individually.",
                         len(filled), len(chunk), ", ".join(s.id for s in chunk if s.id not in filled))
         return filled
+
+    def _write_one(self, scenario: Scenario, intake: IntakeData) -> None:
+        """A single scenario a batch dropped, called and applied on its own.
+
+        Rare enough, and small enough, that batching the mop-up too would not be worth the
+        complexity -- most runs refill nothing at all.
+        """
+        chunk = [scenario]
+        try:
+            reply = self._call(prompt_loader.load(_SYSTEM_PROMPT), self._render(chunk, intake))
+        except Exception as exc:                           # handled the same way _apply handles
+            reply = exc                                     # a failed call inside a batch
+        self._apply(chunk, reply)
 
 
 # --------------------------------------------------------------------------- materiality

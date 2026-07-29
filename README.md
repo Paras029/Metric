@@ -385,6 +385,7 @@ LLM_MAX_CORPUS_CHARS            Default 2000000 (~500k tokens).
 LLM_INGEST_RESOLVE_PASSES       Default 2. How many times an open question is put
                                 back to the documents before it is put to a person.
 LLM_MAX_OPEN_QUESTIONS          Default 6. How many questions are shown at once.
+LLM_MAX_CONCURRENCY             Default 4. How many batched calls run at once.
 LLM_VISION                      "off" where the model does not accept images.
 LLM_MAX_IMAGE_BYTES             Default 4000000.
 ```
@@ -415,6 +416,19 @@ and anything outside the list is discarded by validation regardless.
 
 **If a reply comes back truncated**, reduce the batch size first. Raise the cap only if that does
 not resolve it.
+
+### Batching
+
+Writing scenario text, weighing materiality, reviewing the benchmark and mapping owner scenarios
+each split a large benchmark into chunks. Every chunk's call now goes out together rather than one
+after another — nothing in one chunk's answer depends on another's, so there is no reason the
+second should wait for the first to come back. `LLM_MAX_CONCURRENCY` caps how many are in flight
+at once; raise it if your gateway comfortably takes more, lower it if calls start failing under
+load.
+
+Document ingestion already reads its three question groups in parallel and is unaffected by this
+setting — that parallelism was already as wide as it needs to be, since there are only three
+groups regardless of benchmark size.
 
 ---
 

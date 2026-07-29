@@ -144,6 +144,12 @@ INGEST_RESOLVE_PASSES = int(os.getenv("LLM_INGEST_RESOLVE_PASSES", "2"))
 # and the questions that mattered are lost among the ones that did not.
 MAX_OPEN_QUESTIONS = int(os.getenv("LLM_MAX_OPEN_QUESTIONS", "6"))
 
+# How many batched calls a pass sends at once. Writing, materiality and review each split a
+# benchmark into chunks and used to send them one after another; batching sends several chunks'
+# calls concurrently instead, and this caps how many are ever in flight together, so a large
+# benchmark cannot open more connections than the gateway is prepared to hold at once.
+MAX_CONCURRENCY = int(os.getenv("LLM_MAX_CONCURRENCY", "4"))
+
 # Kept for callers that still read the older names.
 DEFAULT_MAX_TOKENS = STANDARD.max_tokens
 JUDGEMENT_MAX_TOKENS = JUDGEMENT.max_tokens

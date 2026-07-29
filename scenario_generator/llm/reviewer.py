@@ -28,7 +28,7 @@ from ..core.models import (CATEGORIES, MATERIALITY, IntakeData, OwnerScenario, S
 from ..core.proposals import instantiate_proposals
 from ..utils import chunks, parse_json_object
 from . import config, prompt_loader
-from .calling import call
+from .calling import call, call_batch
 from .context import describe_graph, describe_use_case, digest, supplementary_context
 from .gateway import ask_llm
 
@@ -103,12 +103,20 @@ class ScenarioReviewer:
         shared = {"total": len(scenarios), "digest": digest(scenarios),
                   "owner": _owner_block(owner_scenarios)}
 
-        # One step per batch plus one for the proposal call, so the bar reflects the whole pass
-        # rather than reaching the end and then sitting there through the longest single call.
-        total = len(list(chunks(scenarios, self._batch))) + 1
+        # Every chunk's assessment call goes out together -- each weighs its own scenarios against
+        # the whole-set signals computed above, so none of them waits on another's reply. One
+        # progress step per batch plus one for the proposal call, so the bar reflects the whole
+        # pass rather than reaching the end and then sitting there through the longest single call.
+        pending = list(chunks(scenarios, self._batch))
+        total = len(pending) + 1
+        replies = call_batch(
+            self._complete, prompt_loader.load(_SYSTEM_PROMPT),
+            [self._render_assess(chunk, preamble, shared, signals) for chunk in pending],
+            tier=config.JUDGEMENT)
+
         done = 0
-        for chunk in chunks(scenarios, self._batch):
-            self._assess_batch(chunk, preamble, shared, signals)
+        for chunk, reply in zip(pending, replies):
+            self._apply_assessment(chunk, reply)
             done += 1
             self._progress(f"Reviewed {min(done * self._batch, len(scenarios))} of "
                            f"{len(scenarios)} scenarios", done, total)
@@ -142,20 +150,33 @@ class ScenarioReviewer:
         return call(self._complete, prompt_loader.load(_SYSTEM_PROMPT), user,
                     tier=config.JUDGEMENT)
 
-    def _assess_batch(self, chunk: List[Scenario], preamble: str, shared: dict,
-                      signals: dict) -> None:
-        user = f"{preamble}\n\n" + prompt_loader.render(
+    def _render_assess(self, chunk: List[Scenario], preamble: str, shared: dict,
+                       signals: dict) -> str:
+        """The user prompt for one chunk's assessment, built but not yet sent."""
+        return f"{preamble}\n\n" + prompt_loader.render(
             _ASSESS_PROMPT, **shared, materiality=", ".join(MATERIALITY),
             batch=_batch_payload(chunk, signals))
+
+    def _apply_assessment(self, chunk: List[Scenario], reply) -> None:
+        """Write one chunk's reply onto its scenarios.
+
+        ``reply`` is either the model's text or the exception raised getting it -- call_batch
+        reports a failed call this way rather than raising, so it is handled here exactly like a
+        reply that failed to parse: logged, and the chunk is left as the first pass set it.
+        """
+        if isinstance(reply, BaseException):
+            logger.warning("Review call left unchanged (%s): %s",
+                           ", ".join(s.id for s in chunk), reply)
+            return
         try:
-            reply = parse_json_object(self._call(user))
+            parsed = parse_json_object(reply)
         except Exception as exc:
             logger.warning("Review call left unchanged (%s): %s",
                            ", ".join(s.id for s in chunk), exc)
             return
 
         for scenario in chunk:
-            entry = reply.get(scenario.id)
+            entry = parsed.get(scenario.id)
             if not entry:
                 continue
             materiality = str(entry.get("materiality", "")).strip().title()

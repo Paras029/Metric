@@ -15,6 +15,16 @@ parameters on the model. ``with_retry`` handles a gateway that is busy rather th
 is wrong. ``StrOutputParser`` turns the reply message into text, including the case where a model
 returns its content as a list of parts. None of that is reimplemented here.
 
+Several passes in this package -- writing scenario text, weighing materiality, mapping owner
+scenarios -- split a large benchmark into chunks and used to call the model once per chunk, in
+sequence, each call waiting for the last to finish. ``ask_llm_batch`` sends several chunks at
+once instead, using the chain's own ``.batch``, which is LangChain's documented way of running
+one runnable over many inputs concurrently rather than a queue this module manages by hand. It
+needs a template with real placeholders to do that -- a chain built with the finished text already
+baked in, the way ``ask_llm`` builds one, has nothing left to vary between chunks. See
+:func:`_batch_prompt` for how that stays safe against the same hazard the module docstring below
+describes for the single-call path.
+
 Taking SafeChain's authentication also removed the three failures that used to be this module's
 problem: a token expiring in the middle of a long ingestion, a gateway rejecting a payload shaped
 for a different provider, and a 401 that meant "stale" rather than "wrong". The code for those is
@@ -284,6 +294,70 @@ def ask_llm_with_images(system_prompt: str, user_message: str, images: list,
     return build_chain(system_prompt, user_message, images, tier=tier, model=model,
                        temperature=temperature, max_tokens=max_tokens,
                        reasoning_effort=reasoning_effort).invoke({})
+
+
+_BATCH_PROMPT = None
+
+
+def _batch_prompt():
+    """The one reusable template every batched call is built from.
+
+    A single placeholder each for the system and human message, and nothing else in the template
+    text for LangChain to scan. That is what keeps this safe against the hazard the module
+    docstring describes: a template is only parsed for placeholders in its own literal text, never
+    in the value substituted into one, so a JSON output specification arriving as the *value* of
+    ``{content}`` is inserted exactly as written however many braces it contains. ``ask_llm``
+    reaches the same safety a different way -- by never templating at all -- because it has no
+    need to vary what it sends between calls; this exists because batching does.
+
+    Built once and cached at module level: the template itself holds no per-call state, only the
+    model piped after it changes between tiers.
+    """
+    global _BATCH_PROMPT
+    if _BATCH_PROMPT is None:
+        from langchain_core.prompts import (ChatPromptTemplate, HumanMessagePromptTemplate,
+                                            SystemMessagePromptTemplate)
+        _BATCH_PROMPT = ChatPromptTemplate.from_messages([
+            SystemMessagePromptTemplate.from_template("{system}"),
+            HumanMessagePromptTemplate.from_template("{content}"),
+        ])
+    return _BATCH_PROMPT
+
+
+def ask_llm_batch(system_prompt: str, user_messages: List[str],
+                  temperature: float = None, max_tokens: int = None,
+                  reasoning_effort: str = None, tier: "config.Tier" = None,
+                  model: str = None, max_concurrency: int = None) -> List[Any]:
+    """Send several user messages under one system prompt, concurrently, and return the replies.
+
+    One entry per message, in the same order they were given. An entry is either the reply text
+    or the exception raised getting it -- a batch never fails as a whole because one message in
+    it did, matching how every caller already treats a single dropped chunk from a JSON reply.
+    That is LangChain's own ``return_exceptions``, not something reimplemented here.
+
+    ``max_concurrency`` caps how many of the messages are in flight at once, defaulting to
+    ``LLM_MAX_CONCURRENCY`` -- without a cap, a large benchmark split into many chunks would open
+    as many connections as it has chunks, which is more than a gateway is necessarily willing to
+    hold open at the same time.
+    """
+    if not user_messages:
+        return []
+
+    from langchain_core.output_parsers import StrOutputParser
+
+    chain = _batch_prompt() | chat_model(
+        tier=tier, model=model, temperature=temperature, max_tokens=max_tokens,
+        reasoning_effort=reasoning_effort) | StrOutputParser()
+
+    inputs = [{"system": system_prompt, "content": message} for message in user_messages]
+    concurrency = max_concurrency or config.MAX_CONCURRENCY
+    return chain.batch(inputs, config={"max_concurrency": concurrency}, return_exceptions=True)
+
+
+# Lets a caller ask "does this completion function support batching?" by looking for this
+# attribute rather than by knowing ask_llm is the real gateway -- see calling.call_batch, which
+# is how every pass actually reaches this without hardcoding the real function's name.
+ask_llm.batch = ask_llm_batch
 
 
 def reset_models() -> None:

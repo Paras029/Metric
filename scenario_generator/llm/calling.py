@@ -1,4 +1,4 @@
-"""Invoking a completion function that may or may not understand tiers.
+"""Invoking a completion function that may or may not understand tiers, or batching.
 
 Every pass in this package takes a ``complete`` callable so it can be driven by a stub in a test
 or by an alternative gateway. The real gateway accepts a ``tier``; a two-argument stub does not.
@@ -9,11 +9,18 @@ is what this replaces. The problem with catching is what else it catches: a ``Ty
 looks identical to one raised by the call signature, and the retry then repeats the same failure
 with fewer arguments and reports the second failure instead of the first. Asking the signature
 what it accepts distinguishes the two, so a real error is raised as itself.
+
+The same problem exists one level up, for batching. ``ask_llm`` in the real gateway carries a
+``.batch`` attribute pointing at the concurrent version; a test stub is just a function and has
+no such thing. :func:`call_batch` looks for it and runs several prompts at once where it is
+there, and falls back to calling the plain function once per prompt -- through the same
+tier-aware :func:`call` -- where it is not. A stub written before batching existed keeps working
+unchanged and simply does not get the speed.
 """
 from __future__ import annotations
 
 import inspect
-from typing import Any, Callable, Optional
+from typing import Any, Callable, List, Optional, Sequence, Union
 
 
 def accepts(complete: Callable[..., str], name: str) -> bool:
@@ -43,3 +50,37 @@ def call(complete: Callable[..., str], system_prompt: str, user_message: str,
     if tier is not None and accepts(complete, "tier"):
         keywords["tier"] = tier
     return complete(system_prompt, user_message, **keywords)
+
+
+def call_batch(complete: Callable[..., str], system_prompt: str, user_messages: Sequence[str],
+              tier: Optional[Any] = None, **extra: Any) -> List[Union[str, BaseException]]:
+    """Call several prompts under one system prompt, concurrently where that is available.
+
+    Returns one entry per message, in the same order, and never raises for an individual
+    failure: an entry is either the reply text or the exception that call raised getting it,
+    exactly as the real gateway's batch reports a partial failure. A caller already has to
+    handle a chunk the model dropped from a JSON reply; this is the same handling, one level
+    earlier, so a chunk that failed outright is not a different case to write.
+
+    Real concurrency comes from a ``.batch`` attribute on ``complete`` -- the production gateway
+    sets one, pointing at its own concurrent implementation. Nothing here assumes it exists:
+    without it, this calls ``complete`` once per message through :func:`call`, which is what a
+    test stub written before batching existed already does, unchanged.
+    """
+    if not user_messages:
+        return []
+
+    batch_fn = getattr(complete, "batch", None)
+    if callable(batch_fn):
+        keywords = {name: value for name, value in extra.items() if accepts(batch_fn, name)}
+        if tier is not None and accepts(batch_fn, "tier"):
+            keywords["tier"] = tier
+        return list(batch_fn(system_prompt, list(user_messages), **keywords))
+
+    results: List[Union[str, BaseException]] = []
+    for message in user_messages:
+        try:
+            results.append(call(complete, system_prompt, message, tier=tier, **extra))
+        except Exception as exc:                          # reported, not raised -- see above
+            results.append(exc)
+    return results
