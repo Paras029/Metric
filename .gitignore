@@ -10,8 +10,10 @@ __pycache__/
 venv/
 env/
 
-# Secrets / environment
+# Secrets / environment. Both are per-machine: .env holds the credentials, config.yml names the
+# models your gateway exposes. Neither is committed, so neither is touched by a pull.
 .env
+config.yml
 
 # Excel lock files
 ~$*.xlsx

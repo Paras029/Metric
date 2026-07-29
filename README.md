@@ -30,29 +30,63 @@ The challenge pack contains no expected outcomes. That separation is the point o
 
 **Python 3.12.** SafeChain requires it. There is no build step and nothing to add to your path.
 
+Do this **once**. Updating afterwards is a `git pull` — see below.
+
 **Windows**
 
 ```
-git clone <repository-url>
-cd scenario_generator_pkg
+git clone <repository-url> scenario-generator
+cd scenario-generator
 py -m venv .venv
 .venv\Scripts\activate
 py -m pip install -r requirements.txt
+py -m pip install -e .
 py -m scenario_generator --help
 ```
 
 **macOS and Linux**
 
 ```bash
-git clone <repository-url>
-cd scenario_generator_pkg
+git clone <repository-url> scenario-generator
+cd scenario-generator
 python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install -r requirements.txt
+python3 -m pip install -e .
 python3 -m scenario_generator --help
 ```
 
 Substitute `py` or `python3` for `python` in every command below, to match your platform.
+
+`pip install -e .` installs the package **editable**: the virtual environment points at this
+directory rather than holding a copy of it. That is what makes an update a pull and nothing else.
+
+### Updating
+
+```bash
+git pull
+```
+
+That is the whole of it, in the same directory, with the same virtual environment. Do not clone
+again, and do not rebuild the environment — a fresh install per change costs several minutes and
+gains nothing.
+
+Three things are deliberately never touched by a pull, because none of them are tracked: your
+`.env`, your `config.yml`, and everything under `workspaces/`. A pull cannot lose a run in
+progress.
+
+Reinstall dependencies **only when `requirements.txt` itself changes**:
+
+```bash
+pip install -r requirements.txt
+```
+
+pip skips anything already satisfied, so this is quick and safe to run whenever you are unsure.
+
+**If your machine cannot reach the repository** and the code arrives as a zip instead, do not
+extract it over a new directory. Keep one working directory, keep `.venv` inside it, and unpack
+the new code over the top — the ignored files listed above are not in the zip, so they survive,
+and the environment does not need rebuilding.
 
 ### Connecting a model
 
