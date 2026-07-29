@@ -177,18 +177,82 @@ class TestDiagrams(unittest.TestCase):
             "IQAAAABJRU5ErkJggg=="))
         return path
 
+    def _synthesizing(self, observations, base=None):
+        """A completion that answers the ordinary reading prompts through ``base`` (defaulting
+        to ``_stub()``) and the diagram-synthesis prompt with the given observations."""
+        base = base or _stub()
+
+        def complete(system, user, **kwargs):
+            if "THE READINGS" in user:
+                return json.dumps({"observations": observations})
+            return base(system, user, **kwargs)
+        return complete
+
     def test_a_diagram_is_read_and_marked_for_confirmation(self):
-        def describe(system, user, images, **kwargs):
+        def describe_one(system, user, images, **kwargs):
             assert images and images[0][0] == "image/png"
-            return json.dumps({"observations": [{
-                "facet": "decisions", "statement": "Auth check branches to pass or fail.",
-                "quote": "Auth check", "locator": "top left"}]})
+            return json.dumps({"description": "An Auth check box branches to Pass or Fail."})
+
+        complete = self._synthesizing([{
+            "facet": "decisions", "statement": "Auth check branches to pass or fail.",
+            "quote": "Auth check", "locator": "top left"}])
 
         record = extract_documents([_write("notes.md", _SCATTERED), self._png()],
-                                   complete=_stub(), describe_images=describe)
+                                   complete=complete, describe_images=describe_one)
         diagram_claims = [c for c in record.claims if c.source.kind == "image"]
         self.assertTrue(diagram_claims)
         self.assertTrue(diagram_claims[0].needs_confirmation)
+
+    def test_several_images_are_read_on_their_own_then_put_together(self):
+        """Each image is described without seeing the others; the synthesis call is given every
+        description together, and is the only one that has to make sense of all of them at once."""
+        reads = []
+
+        def describe_one(system, user, images, **kwargs):
+            reads.append(images[0])
+            return json.dumps({"description": f"Reading of image {len(reads)}."})
+
+        synth_calls = []
+
+        def complete(system, user, **kwargs):
+            if "THE READINGS" in user:
+                synth_calls.append(user)
+                return json.dumps({"observations": [{
+                    "facet": "decisions", "statement": "Combined across both images.",
+                    "quote": "Auth check", "locator": "image 2"}]})
+            return _stub()(system, user, **kwargs)
+
+        second = Path(tempfile.mkdtemp()) / "flow2.png"
+        second.write_bytes(self._png().read_bytes())
+
+        record = extract_documents([_write("notes.md", _SCATTERED), self._png(), second],
+                                   complete=complete, describe_images=describe_one)
+
+        self.assertEqual(len(reads), 2)                    # each image read on its own
+        self.assertIn("Reading of image 1.", synth_calls[0])
+        self.assertIn("Reading of image 2.", synth_calls[0])
+        diagram_claims = [c for c in record.claims if c.source.kind == "image"]
+        self.assertTrue(diagram_claims)
+
+    def test_an_unreadable_image_is_dropped_and_the_rest_still_go_through(self):
+        """One image fails on its own; the other is still read and still reaches synthesis."""
+        def describe_one(system, user, images, **kwargs):
+            if images[0][1] == b"broken":
+                raise RuntimeError("vision not enabled")
+            return json.dumps({"description": "A readable diagram."})
+
+        complete = self._synthesizing([{
+            "facet": "decisions", "statement": "From the one readable diagram.",
+            "quote": "Auth check", "locator": "top left"}])
+
+        broken_image = Path(tempfile.mkdtemp()) / "broken.png"
+        broken_image.write_bytes(b"broken")
+
+        record = extract_documents(
+            [_write("notes.md", _SCATTERED), self._png(), broken_image],
+            complete=complete, describe_images=describe_one)
+
+        self.assertTrue(any(c.source.kind == "image" for c in record.claims))
 
     def test_an_unreadable_diagram_asks_for_a_description_and_the_pack_still_reads(self):
         def broken(system, user, images, **kwargs):
@@ -199,6 +263,22 @@ class TestDiagrams(unittest.TestCase):
         diagram = next(d for d in record.documents if d.name == "flow.png")
         self.assertEqual(diagram.kind, "unreadable")
         self.assertIn("written description", diagram.note)
+        self.assertTrue(record.answer_for("decisions").is_answered)
+
+    def test_a_synthesis_failure_still_leaves_the_rest_of_the_pack_readable(self):
+        """Every image was read individually, but the pass that puts them together failed."""
+        def describe_one(system, user, images, **kwargs):
+            return json.dumps({"description": "A readable diagram."})
+
+        def complete(system, user, **kwargs):
+            if "THE READINGS" in user:
+                raise RuntimeError("gateway down")
+            return _stub()(system, user, **kwargs)
+
+        record = extract_documents([_write("notes.md", _SCATTERED), self._png()],
+                                   complete=complete, describe_images=describe_one)
+        diagram = next(d for d in record.documents if d.name == "flow.png")
+        self.assertEqual(diagram.kind, "unreadable")
         self.assertTrue(record.answer_for("decisions").is_answered)
 
 

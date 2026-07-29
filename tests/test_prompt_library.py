@@ -38,7 +38,8 @@ _CONTRACT = {
     "ingest.read": {"questions", "corpus", "documents"},
     "ingest.resolve": {"established", "questions", "corpus", "triage"},
     "ingest.triage": set(),
-    "ingest.diagram": {"facets", "document"},
+    "ingest.diagram_read": {"filename", "position"},
+    "ingest.diagram_synthesize": {"facets", "document", "readings"},
     "intake.draft": {"context"},
 }
 

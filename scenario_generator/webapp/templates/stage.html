@@ -141,6 +141,14 @@
           This keeps running if you navigate away or close the tab. Reading a long document is
           several minutes of model calls.
         </p>
+        {% if stage.key in ('documents', 'text', 'materiality', 'review') %}
+          <form method="post" action="{{ url_for('stop_stage', key=stage.key) }}" id="stop-form">
+            <button class="button button--quiet" type="submit" id="stop-button">Stop</button>
+          </form>
+          <p class="panel__foot panel__foot--quiet" id="stop-note" hidden>
+            Stopping — calls already sent are finishing; nothing further will be sent.
+          </p>
+        {% endif %}
       </section>
     {% endif %}
 
@@ -148,6 +156,16 @@
       <div class="banner banner--failed" role="alert">
         <p class="banner__title">This stage did not finish</p>
         <p class="banner__body">{{ state.note }}</p>
+      </div>
+    {% endif %}
+
+    {% if state.status == 'stopped' %}
+      <div class="banner banner--stopped" role="status">
+        <p class="banner__title">Stopped</p>
+        <p class="banner__body">
+          {{ state.note }} Nothing this run would have produced was written, so the stage is
+          exactly where it was before you ran it — run it again when you are ready.
+        </p>
       </div>
     {% endif %}
 
@@ -890,6 +908,17 @@
     var bar = document.getElementById('run-bar');
     var message = document.getElementById('run-message');
     var count = document.getElementById('run-count');
+
+    // Not every running stage has a stop form -- only the ones that make many model calls.
+    var stopForm = document.getElementById('stop-form');
+    if (stopForm) {
+      stopForm.addEventListener('submit', function () {
+        var button = document.getElementById('stop-button');
+        button.disabled = true;
+        button.textContent = 'Stopping…';
+        document.getElementById('stop-note').hidden = false;
+      });
+    }
 
     setInterval(function () {
       fetch('/stage/' + stage + '/progress')

@@ -78,23 +78,36 @@ MAX_IMAGE_BYTES = int(os.getenv("LLM_MAX_IMAGE_BYTES", "4000000"))
 DEFAULT_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.3"))
 
 
+# How many times a call is retried before it is reported as failed, where a tier does not set its
+# own. Retries cover a gateway that is busy or briefly unreachable; anything the model rejects on
+# its merits is raised, since repeating a malformed request only wastes the time it takes to fail
+# again. A tier under heavier concurrent load -- more chunks in flight, each one retrying -- can
+# turn a brief gateway hiccup into a pile of simultaneous retries, which is what the per-tier
+# override below exists to relieve independently of this default.
+DEFAULT_MAX_ATTEMPTS = int(os.getenv("LLM_MAX_ATTEMPTS", "4"))
+
+
 @dataclass(frozen=True)
 class Tier:
-    """A model, an output cap and a reasoning effort, chosen together for one kind of work."""
+    """A model, an output cap, a reasoning effort and a retry count, chosen together for one kind
+    of work."""
 
     name: str
     model: str
     max_tokens: int
     reasoning_effort: str
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS
 
 
-def _tier(name: str, prefix: str, max_tokens: int, effort: str) -> Tier:
+def _tier(name: str, prefix: str, max_tokens: int, effort: str,
+         max_attempts: int = DEFAULT_MAX_ATTEMPTS) -> Tier:
     """Build a tier from the environment, falling back to the main model where none is set."""
     return Tier(
         name=name,
         model=os.getenv(f"{prefix}_MODEL_ID", "").strip() or LLM_MODEL_ID,
         max_tokens=int(os.getenv(f"{prefix}_MAX_TOKENS", str(max_tokens))),
         reasoning_effort=os.getenv(f"{prefix}_REASONING_EFFORT", effort),
+        max_attempts=int(os.getenv(f"{prefix}_MAX_ATTEMPTS", str(max_attempts))),
     )
 
 
@@ -106,6 +119,14 @@ def _tier(name: str, prefix: str, max_tokens: int, effort: str) -> Tier:
 # instead of shortening the answer -- which is why the cap and the effort are set together and
 # why the cap is generous.
 JUDGEMENT = _tier("judgement", "LLM_JUDGEMENT", 65_536, "high")
+
+# Weighing materiality. Judgement-shaped work -- it reasons about a scenario against its peers --
+# but unlike drafting or review it runs as many concurrent chunk calls as the benchmark has
+# chunks, all against the same tier at once. That concurrency is what turns an ordinary gateway
+# hiccup into a pile of simultaneous retries, so this tier gets its own retry ladder, shorter than
+# the default, and its own model setting, separate from JUDGEMENT, so it can be pointed at
+# something smaller without changing what drafting or review use.
+MATERIALITY = _tier("materiality", "LLM_MATERIALITY", 32_000, "medium", max_attempts=2)
 
 # Writing each scenario up for the modelling team. Mechanical and bounded by the batch size, but
 # the text is issued and read by people, so it stays on the main model by default.

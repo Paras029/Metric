@@ -260,6 +260,7 @@ ol, ul { list-style: none; padding: 0; }
 }
 .steps__item--stale .steps__status { color: #F0B24A; }
 .steps__item--failed .steps__marker { background: var(--rejected); border-color: var(--rejected); color: #fff; }
+.steps__item--stopped .steps__marker { background: transparent; border-color: #7C93B8; color: #7C93B8; }
 .steps__item--locked .steps__link { opacity: .45; }
 .steps__item--active { background: rgba(255,255,255,.09); }
 .steps__item--active .steps__title { font-weight: 600; color: #fff; }
@@ -385,6 +386,8 @@ ol, ul { list-style: none; padding: 0; }
 .banner--stale .banner__title { color: var(--attention); }
 .banner--failed { background: #FCEDEC; border-color: var(--rejected); }
 .banner--failed .banner__title { color: var(--rejected); }
+.banner--stopped { background: var(--line-soft); border-color: #7C93B8; }
+.banner--stopped .banner__title { color: #4A5A72; }
 
 .tag {
   font-size: .68rem;
@@ -739,6 +742,8 @@ ol, ul { list-style: none; padding: 0; }
   font-size: .86rem;
   color: var(--ink-soft);
 }
+#stop-form { margin-top: 1rem; }
+.panel__foot--quiet { margin-top: .5rem; }
 
 /* ------------------------------------------------------------------ answerable questions */
 .questions__form { display: flex; gap: .5rem; margin-top: .45rem; max-width: 34rem; }

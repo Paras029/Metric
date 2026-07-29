@@ -22,6 +22,7 @@ into text, including the case where content comes back as a list of parts.
 """
 import itertools
 import sys
+import threading
 import types
 import unittest
 from unittest import mock
@@ -31,6 +32,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable
 
 from scenario_generator.llm import config, gateway
+from scenario_generator.llm.cancellation import Stopped
 
 
 class _FakeChatModel(GenericFakeChatModel):
@@ -213,6 +215,26 @@ class TestBatching(_WithSafeChain):
         """This is the hook calling.call_batch looks for to find real concurrency."""
         self.assertIs(gateway.ask_llm.batch, gateway.ask_llm_batch)
 
+    def test_cancelling_between_waves_stops_further_sends(self):
+        """Messages go out one concurrency-sized wave at a time exactly so there is a point
+        between waves to notice a stop -- with concurrency 1 here, that point is every message."""
+        event = threading.Event()
+
+        class _CancellingEcho(_EchoModel):
+            def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+                result = super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+                if messages[1].content == "one":            # as if a stop landed right after
+                    event.set()
+                return result
+
+        with _install(lambda model_id: _CancellingEcho(messages=iter([]), seen=[], fails_on="")):
+            replies = gateway.ask_llm_batch("s", ["one", "two", "three"], tier=config.FAST,
+                                            max_concurrency=1, cancel=event)
+
+        self.assertEqual(replies[0], "one")
+        self.assertIsInstance(replies[1], Stopped)
+        self.assertIsInstance(replies[2], Stopped)
+
 
 class TestImages(_WithSafeChain):
     def test_an_image_is_attached_as_a_content_part(self):
@@ -278,6 +300,22 @@ class TestGenerationParameters(_WithSafeChain):
 
         self.assertEqual(len(gateway._models), 1)
         self.assertEqual(len(self.built), 1)
+
+    def test_a_tier_with_fewer_attempts_retries_less(self):
+        """Materiality's shorter retry ladder is a property of the tier, not a global -- a tier
+        that never overrides it still gets the ordinary default."""
+        materiality_model = _echo(fails_on="u")
+        with _install(lambda model_id: materiality_model), mock.patch("time.sleep"):
+            with self.assertRaises(Exception):
+                gateway.ask_llm("s", "u", tier=config.MATERIALITY)
+        self.assertEqual(len(materiality_model.seen), config.MATERIALITY.max_attempts)
+
+        judgement_model = _echo(fails_on="u")
+        with _install(lambda model_id: judgement_model), mock.patch("time.sleep"):
+            with self.assertRaises(Exception):
+                gateway.ask_llm("s", "u", tier=config.JUDGEMENT)
+        self.assertEqual(len(judgement_model.seen), config.JUDGEMENT.max_attempts)
+        self.assertLess(len(materiality_model.seen), len(judgement_model.seen))
 
 
 class TestFindingSafeChainsFactory(unittest.TestCase):

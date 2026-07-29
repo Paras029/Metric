@@ -39,6 +39,7 @@ RUNNING = "running"
 COMPLETE = "complete"
 STALE = "stale"
 FAILED = "failed"
+STOPPED = "stopped"
 
 STATUS_LABELS = {
     LOCKED: "Locked",
@@ -47,6 +48,7 @@ STATUS_LABELS = {
     COMPLETE: "Complete",
     STALE: "Out of date",
     FAILED: "Failed",
+    STOPPED: "Stopped",
 }
 
 

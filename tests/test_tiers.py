@@ -43,7 +43,8 @@ class _Recorder:
 
 class TestTierDefinitions(unittest.TestCase):
     def test_the_tiers_are_ordered_by_how_much_room_the_work_needs(self):
-        self.assertGreater(config.JUDGEMENT.max_tokens, config.STANDARD.max_tokens)
+        self.assertGreater(config.JUDGEMENT.max_tokens, config.MATERIALITY.max_tokens)
+        self.assertGreaterEqual(config.MATERIALITY.max_tokens, config.STANDARD.max_tokens)
         self.assertGreaterEqual(config.STANDARD.max_tokens, config.FAST.max_tokens)
 
     def test_only_the_judgement_tier_reasons_at_length(self):
@@ -54,8 +55,14 @@ class TestTierDefinitions(unittest.TestCase):
     def test_every_tier_falls_back_to_the_main_model(self):
         """Nothing changes until a smaller model is configured, which matters where a new model
         has to clear an approval before it can be used."""
-        for tier in (config.JUDGEMENT, config.STANDARD, config.FAST):
+        for tier in (config.JUDGEMENT, config.MATERIALITY, config.STANDARD, config.FAST):
             self.assertTrue(tier.model)
+
+    def test_materiality_retries_less_than_the_default(self):
+        """Every chunk of the benchmark hits this tier at once, so a busy gateway means several
+        simultaneous retries rather than one -- this tier is given a shorter ladder for that."""
+        self.assertLess(config.MATERIALITY.max_attempts, config.DEFAULT_MAX_ATTEMPTS)
+        self.assertEqual(config.JUDGEMENT.max_attempts, config.DEFAULT_MAX_ATTEMPTS)
 
     def test_the_corpus_limit_leaves_room_for_the_prompt_and_the_reply(self):
         """Four characters to a token, against a million-token input window."""
@@ -70,11 +77,11 @@ class TestWhichPassUsesWhichTier(unittest.TestCase):
         self.assertTrue(recorder.tiers)
         self.assertTrue(all(t is config.JUDGEMENT for t in recorder.tiers))
 
-    def test_the_materiality_pass_reasons(self):
+    def test_the_materiality_pass_runs_on_its_own_tier(self):
         recorder = _Recorder()
         MaterialityAssessor(complete=recorder).assess(build_probes(_INTAKE)[:4], _INTAKE)
         self.assertTrue(recorder.tiers)
-        self.assertTrue(all(t is config.JUDGEMENT for t in recorder.tiers))
+        self.assertTrue(all(t is config.MATERIALITY for t in recorder.tiers))
 
     def test_writing_scenario_text_stays_on_the_standard_tier(self):
         """Mechanical, but the modelling team reads it, so not the cheapest model."""

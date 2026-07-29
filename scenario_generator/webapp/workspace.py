@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from .stages import (COMPLETE, FAILED, LOCKED, READY, RUNNING, STAGE_BY_KEY, STAGE_KEYS,
-                     STALE, STAGES, Stage, downstream_of, index_of, required_before)
+                     STALE, STAGES, STOPPED, Stage, downstream_of, index_of, required_before)
 
 STATE_FILE = "workspace.json"
 _SAFE_NAME = re.compile(r"[^a-z0-9]+")
@@ -267,7 +267,7 @@ class Workspace:
         """
         for stage in STAGES:
             current = self.stages[stage.key]
-            if current.status in (COMPLETE, STALE, RUNNING, FAILED):
+            if current.status in (COMPLETE, STALE, RUNNING, FAILED, STOPPED):
                 continue
             satisfied = all(self.stages[earlier.key].status in (COMPLETE, STALE)
                             for earlier in required_before(stage.key))
@@ -294,6 +294,17 @@ class Workspace:
     def mark_failed(self, key: str, note: str) -> None:
         state = self.stages[key]
         state.status, state.note, state.updated_at = FAILED, note, _now()
+        state.progress = {}
+        self.save()
+
+    def mark_stopped(self, key: str) -> None:
+        """A stage was asked to stop and unwound before finishing.
+
+        Nothing it would have written was, so the stage sits exactly where it was before this run
+        started -- distinct from a failure, and just as ready to be run again.
+        """
+        state = self.stages[key]
+        state.status, state.note, state.updated_at = STOPPED, "Stopped before finishing.", _now()
         state.progress = {}
         self.save()
 
@@ -356,7 +367,7 @@ class Workspace:
 
     # ----------------------------------------------------------------- queries
     def can_run(self, key: str) -> bool:
-        return self.stages[key].status in (READY, STALE, COMPLETE, FAILED)
+        return self.stages[key].status in (READY, STALE, COMPLETE, FAILED, STOPPED)
 
     def is_blocked(self, key: str) -> bool:
         return self.stages[key].status == LOCKED
@@ -367,7 +378,7 @@ class Workspace:
     def current_stage(self) -> Stage:
         """Where the user should be taken: the first stage that still needs attention."""
         for stage in STAGES:
-            if self.stages[stage.key].status in (READY, RUNNING, FAILED):
+            if self.stages[stage.key].status in (READY, RUNNING, FAILED, STOPPED):
                 return stage
         for stage in STAGES:
             if self.stages[stage.key].status == STALE:

@@ -23,7 +23,7 @@ from typing import Callable, List
 
 from ..core.models import IntakeData, Scenario
 from ..utils import chunks, parse_json_object
-from . import config, prompt_loader
+from . import cancellation, config, prompt_loader
 from .calling import call, call_batch
 from .context import describe_use_case, supplementary_context
 from .gateway import ask_llm
@@ -47,11 +47,12 @@ class NullWriter:
 
 class ScenarioWriter:
     def __init__(self, complete: CompletionFn = None, batch_size: int = 8,
-                 context: str = "", progress: ProgressFn = None) -> None:
+                 context: str = "", progress: ProgressFn = None, cancel=None) -> None:
         self._complete = complete or ask_llm
         self._batch = batch_size
         self._context = context
         self._progress = progress or (lambda *args, **kwargs: None)
+        self._cancel = cancel
 
     def write(self, scenarios: List[Scenario], intake: IntakeData) -> List[Scenario]:
         """Graph scenarios and probes are written by separate prompts, so batch them separately.
@@ -61,6 +62,7 @@ class ScenarioWriter:
         of which came back first, so a benchmark written this way reads exactly as it would have
         one chunk at a time -- only the waiting overlaps.
         """
+        cancellation.check(self._cancel)
         written = 0
         for group in ([s for s in scenarios if not s.is_probe],
                       [s for s in scenarios if s.is_probe]):
@@ -69,12 +71,14 @@ class ScenarioWriter:
             pending = list(chunks(group, self._batch))
             system = prompt_loader.load(_SYSTEM_PROMPT)
             replies = call_batch(self._complete, system, [self._render(c, intake) for c in pending],
-                                 tier=config.STANDARD)
+                                 tier=config.STANDARD, cancel=self._cancel)
 
             for chunk, reply in zip(pending, replies):
+                cancellation.check(self._cancel)
                 filled = self._apply(chunk, reply)
                 for scenario in chunk:                     # refill anything the batch dropped
                     if scenario.id not in filled:
+                        cancellation.check(self._cancel)
                         self._write_one(scenario, intake)
                 written += len(chunk)
                 self._progress(f"Written {written} of {len(scenarios)} scenarios",

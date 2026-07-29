@@ -17,7 +17,7 @@ from typing import Callable, Dict, List
 
 from ..core.models import IntakeData, Scenario
 from ..utils import chunks, parse_json_object
-from . import config, prompt_loader
+from . import cancellation, config, prompt_loader
 from .calling import call, call_batch
 from .context import describe_use_case, supplementary_context
 from .gateway import ask_llm
@@ -45,24 +45,28 @@ class MaterialityAssessor:
     those signals attached, so each call can reason about redundancy beyond its own batch."""
 
     def __init__(self, complete: CompletionFn = None, batch_size: int = 10,
-                 context: str = "", progress: ProgressFn = None) -> None:
+                 context: str = "", progress: ProgressFn = None, cancel=None) -> None:
         self._complete = complete or ask_llm
         self._batch = batch_size
         self._context = context
         self._progress = progress or (lambda *args, **kwargs: None)
+        self._cancel = cancel
 
     def assess(self, scenarios: List[Scenario], intake: IntakeData) -> List[Scenario]:
+        cancellation.check(self._cancel)
         peers = peer_signals(scenarios)
         pending = list(chunks(scenarios, self._batch))
         replies = call_batch(self._complete, prompt_loader.load(_SYSTEM_PROMPT),
                              [self._render(c, intake, peers) for c in pending],
-                             tier=config.JUDGEMENT)
+                             tier=config.MATERIALITY, cancel=self._cancel)
 
         done_count = 0
         for chunk, reply in zip(pending, replies):
+            cancellation.check(self._cancel)
             filled = self._apply(chunk, reply)
             for scenario in chunk:                         # refill anything the batch dropped
                 if scenario.id not in filled:
+                    cancellation.check(self._cancel)
                     self._assess_one(scenario, intake, peers)
             done_count += len(chunk)
             self._progress(f"Assessed {done_count} of {len(scenarios)} scenarios",
@@ -70,9 +74,12 @@ class MaterialityAssessor:
         return scenarios
 
     def _call(self, user: str) -> str:
-        """Judgement budgets: assigning a tier requires weighing a scenario against its peers."""
+        """Its own tier: this reasons about a scenario against its peers, but every chunk of the
+        benchmark is in flight against it at once, which is what makes it worth separating from
+        the single-shot judgement passes -- both in what it can be pointed at and in how hard a
+        transient failure retries."""
         return call(self._complete, prompt_loader.load(_SYSTEM_PROMPT), user,
-                    tier=config.JUDGEMENT)
+                    tier=config.MATERIALITY)
 
     def _render(self, chunk: List[Scenario], intake: IntakeData, peers: Dict[str, dict]) -> str:
         """The user prompt for one chunk, built but not yet sent."""

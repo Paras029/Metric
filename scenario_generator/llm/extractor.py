@@ -15,7 +15,7 @@ from typing import Callable, Dict, List
 
 from ..core.models import CATEGORIES, ExtractedMeta, IntakeData, OwnerScenario
 from ..utils import chunks, parse_json_object
-from . import config, prompt_loader
+from . import cancellation, config, prompt_loader
 from .calling import call, call_batch
 from .context import describe_use_case
 from .gateway import ask_llm
@@ -29,20 +29,25 @@ _TASK_PROMPT = "extractor.task"
 
 
 class MetadataExtractor:
-    def __init__(self, complete: CompletionFn = None, batch_size: int = 8) -> None:
+    def __init__(self, complete: CompletionFn = None, batch_size: int = 8, cancel=None) -> None:
         self._complete = complete or ask_llm
         self._batch = batch_size
+        self._cancel = cancel
 
     def extract(self, owner_scenarios: List[OwnerScenario], intake: IntakeData) -> List[ExtractedMeta]:
+        cancellation.check(self._cancel)
         results: Dict[str, ExtractedMeta] = {}
         pending = list(chunks(owner_scenarios, self._batch))
         replies = call_batch(self._complete, prompt_loader.load(_SYSTEM_PROMPT),
-                             [self._render(chunk, intake) for chunk in pending], tier=config.FAST)
+                             [self._render(chunk, intake) for chunk in pending], tier=config.FAST,
+                             cancel=self._cancel)
 
         for chunk, reply in zip(pending, replies):
+            cancellation.check(self._cancel)
             results.update(self._apply(chunk, reply, intake))
             for owner in chunk:                            # refill anything the batch dropped
                 if owner.id not in results:
+                    cancellation.check(self._cancel)
                     results.update(self._extract_one(owner, intake))
         return [results.get(s.id, ExtractedMeta(rationale="extraction failed")) for s in owner_scenarios]
 

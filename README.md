@@ -205,6 +205,13 @@ sheet with the header repeated on each passage, because a rules table is where t
 usually live. A scanned PDF has no text layer and is reported as unreadable rather than read as
 empty — ask for a text-based copy.
 
+A workflow diagram often arrives split across several images because it did not fit in one
+picture. Each image is read on its own first — the same way a person would look at them, one at a
+time — and only once every image has its own description does a second pass put them together
+into one workflow and pull out what the rest of the reading needs. An image that fails on its own
+is dropped rather than losing the rest; the diagrams are only reported unreadable if every one of
+them was, or if nothing could be made of them together.
+
 Every submitted document is named in the reading prompt and the result says which ones any answer
 actually rested on. A file that informed nothing is reported: it is either irrelevant or it was
 passed over, and those need different responses.
@@ -217,6 +224,12 @@ finished. Their output is kept and stays downloadable. Two ways to clear a stage
 stage and everything after it* forgets the statuses and keeps the workbooks, for comparing a
 rerun against what came before; *Start again from here* deletes what those stages produced.
 Neither touches submitted documents or an intake workbook you provided.
+
+**Stopping a run.** Documents, scenario text, materiality and final review can each be dozens of
+model calls, so each of them shows a *Stop* button while running. Pressing it stops the run from
+sending any further calls — whichever one is already in flight is left to finish rather than cut
+off — and nothing that run would have produced is written, so the stage lands back exactly where
+it was before you ran it, ready to run again rather than stuck looking failed.
 
 **Stage 2** lists only what blocks the intake, most blocking first, each saying which part it
 blocks. Answer as many as you can and press Save once; blanks stay open, and an answer already
@@ -357,37 +370,49 @@ the same files these commands produce. A use case can move between the two freel
 
 ## Configuration
 
-Calls run on one of three tiers, because the work genuinely differs. Each tier takes its own
-model, output cap and reasoning effort.
+Calls run on one of four tiers, because the work genuinely differs. Each tier takes its own model,
+output cap, reasoning effort and retry count.
 
-| Tier | Used by | Output cap | Reasoning | Model |
-|---|---|---|---|---|
-| **Judgement** | reading documents, drafting the intake, materiality, review | 65,536 | high | `LLM_JUDGEMENT_MODEL_ID` |
-| **Standard** | writing scenario text | 16,000 | minimal | `LLM_MODEL_ID` |
-| **Fast** | mapping their scenarios onto the intake vocabulary | 8,000 | minimal | `LLM_FAST_MODEL_ID` |
+| Tier | Used by | Output cap | Reasoning | Retries | Model |
+|---|---|---|---|---|---|
+| **Judgement** | reading documents, drafting the intake, review | 65,536 | high | 4 | `LLM_JUDGEMENT_MODEL_ID` |
+| **Materiality** | weighing each scenario against its peers | 32,000 | medium | 2 | `LLM_MATERIALITY_MODEL_ID` |
+| **Standard** | writing scenario text | 16,000 | minimal | 4 | `LLM_MODEL_ID` |
+| **Fast** | mapping their scenarios onto the intake vocabulary | 8,000 | minimal | 4 | `LLM_FAST_MODEL_ID` |
 
 Every tier falls back to `LLM_MODEL_ID`, so nothing changes until you name a smaller model.
 Pointing the fast tier somewhere cheap is the first saving worth making: that pass is
 classification against a closed list, and anything outside the list is discarded by validation
 regardless.
 
+Materiality is split out from judgement rather than sharing it, because it is also the tier under
+the most concurrent load: every chunk of the benchmark is sent at once (see Batching below), so a
+gateway hiccup there means several simultaneous retries rather than one. It defaults to a shorter
+retry ladder for that reason, and can be pointed at a smaller model independently of judgement if
+you are seeing connection errors under load.
+
 ```
-LLM_TEMPERATURE                 Default 0.3.
-LLM_JUDGEMENT_MAX_TOKENS        Default 65536.
-LLM_JUDGEMENT_REASONING_EFFORT  Default "high".
-LLM_JUDGEMENT_MODEL_ID          Defaults to LLM_MODEL_ID.
-LLM_MAX_TOKENS                  Default 16000.
-LLM_REASONING_EFFORT            Default "minimal".
-LLM_FAST_MAX_TOKENS             Default 8000.
-LLM_FAST_REASONING_EFFORT       Default "minimal".
-LLM_FAST_MODEL_ID               Defaults to LLM_MODEL_ID.
-LLM_MAX_CORPUS_CHARS            Default 2000000 (~500k tokens).
-LLM_INGEST_RESOLVE_PASSES       Default 2. How many times an open question is put
-                                back to the documents before it is put to a person.
-LLM_MAX_OPEN_QUESTIONS          Default 6. How many questions are shown at once.
-LLM_MAX_CONCURRENCY             Default 4. How many batched calls run at once.
-LLM_VISION                      "off" where the model does not accept images.
-LLM_MAX_IMAGE_BYTES             Default 4000000.
+LLM_TEMPERATURE                  Default 0.3.
+LLM_MAX_ATTEMPTS                 Default 4. Retries for any tier that does not set its own.
+LLM_JUDGEMENT_MAX_TOKENS         Default 65536.
+LLM_JUDGEMENT_REASONING_EFFORT   Default "high".
+LLM_JUDGEMENT_MODEL_ID           Defaults to LLM_MODEL_ID.
+LLM_MATERIALITY_MAX_TOKENS       Default 32000.
+LLM_MATERIALITY_REASONING_EFFORT Default "medium".
+LLM_MATERIALITY_MODEL_ID         Defaults to LLM_MODEL_ID.
+LLM_MATERIALITY_MAX_ATTEMPTS     Default 2.
+LLM_MAX_TOKENS                   Default 16000.
+LLM_REASONING_EFFORT             Default "minimal".
+LLM_FAST_MAX_TOKENS              Default 8000.
+LLM_FAST_REASONING_EFFORT        Default "minimal".
+LLM_FAST_MODEL_ID                Defaults to LLM_MODEL_ID.
+LLM_MAX_CORPUS_CHARS             Default 2000000 (~500k tokens).
+LLM_INGEST_RESOLVE_PASSES        Default 2. How many times an open question is put
+                                 back to the documents before it is put to a person.
+LLM_MAX_OPEN_QUESTIONS           Default 6. How many questions are shown at once.
+LLM_MAX_CONCURRENCY              Default 4. How many batched calls run at once.
+LLM_VISION                       "off" where the model does not accept images.
+LLM_MAX_IMAGE_BYTES              Default 4000000.
 ```
 
 Each tier's values are bound to its model with LangChain's `bind`, so a chain carries its own cap

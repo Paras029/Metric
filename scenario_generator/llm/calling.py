@@ -22,6 +22,8 @@ from __future__ import annotations
 import inspect
 from typing import Any, Callable, List, Optional, Sequence, Union
 
+from .cancellation import Stopped, is_set
+
 
 def accepts(complete: Callable[..., str], name: str) -> bool:
     """Whether this callable takes a keyword argument of that name.
@@ -53,7 +55,8 @@ def call(complete: Callable[..., str], system_prompt: str, user_message: str,
 
 
 def call_batch(complete: Callable[..., str], system_prompt: str, user_messages: Sequence[str],
-              tier: Optional[Any] = None, **extra: Any) -> List[Union[str, BaseException]]:
+              tier: Optional[Any] = None, cancel=None,
+              **extra: Any) -> List[Union[str, BaseException]]:
     """Call several prompts under one system prompt, concurrently where that is available.
 
     Returns one entry per message, in the same order, and never raises for an individual
@@ -66,6 +69,13 @@ def call_batch(complete: Callable[..., str], system_prompt: str, user_messages: 
     sets one, pointing at its own concurrent implementation. Nothing here assumes it exists:
     without it, this calls ``complete`` once per message through :func:`call`, which is what a
     test stub written before batching existed already does, unchanged.
+
+    ``cancel``, if given, is a ``threading.Event`` that a caller can set to ask this to stop
+    sending further messages. Anything not yet sent when it is noticed comes back as a
+    :class:`~.cancellation.Stopped` entry rather than being sent -- handled by every caller
+    exactly like any other failed chunk, and passed through to the real batch function where it
+    understands it (the production gateway sends its concurrent waves in a loop of its own and
+    checks between them) or checked here, once per message, where it does not.
     """
     if not user_messages:
         return []
@@ -75,10 +85,15 @@ def call_batch(complete: Callable[..., str], system_prompt: str, user_messages: 
         keywords = {name: value for name, value in extra.items() if accepts(batch_fn, name)}
         if tier is not None and accepts(batch_fn, "tier"):
             keywords["tier"] = tier
+        if cancel is not None and accepts(batch_fn, "cancel"):
+            keywords["cancel"] = cancel
         return list(batch_fn(system_prompt, list(user_messages), **keywords))
 
     results: List[Union[str, BaseException]] = []
     for message in user_messages:
+        if is_set(cancel):
+            results.append(Stopped())
+            continue
         try:
             results.append(call(complete, system_prompt, message, tier=tier, **extra))
         except Exception as exc:                          # reported, not raised -- see above

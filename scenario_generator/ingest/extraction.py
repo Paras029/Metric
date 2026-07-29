@@ -41,7 +41,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
 from ..core.evidence import (FACETS, INTAKE_PARTS, KIND_IMAGE, Claim, DocumentRef, EvidenceRecord,
                              FacetAnswer, SourceRef)
 from ..core.grounding import locate
-from ..llm import config, prompt_loader
+from ..llm import cancellation, config, prompt_loader
 from ..llm.calling import call
 from ..llm.gateway import ask_llm, ask_llm_with_images
 from ..utils import parse_json_object
@@ -56,7 +56,8 @@ ProgressFn = Callable[..., None]
 _SYSTEM_PROMPT = "ingest.system"
 _READ_PROMPT = "ingest.read"
 _RESOLVE_PROMPT = "ingest.resolve"
-_DIAGRAM_PROMPT = "ingest.diagram"
+_DIAGRAM_READ_PROMPT = "ingest.diagram_read"
+_DIAGRAM_SYNTHESIZE_PROMPT = "ingest.diagram_synthesize"
 
 # How much text goes into one reading call, from LLM_MAX_CORPUS_CHARS. A pack past this is split,
 # which reads worse than reading it whole, so the number is set to make that rare.
@@ -135,13 +136,14 @@ class DocumentExtractor:
     def __init__(self, complete: Optional[CompletionFn] = None,
                  progress: Optional[ProgressFn] = None, resolve: bool = True,
                  describe_images: Optional[Callable[..., str]] = None,
-                 resolve_passes: Optional[int] = None) -> None:
+                 resolve_passes: Optional[int] = None, cancel=None) -> None:
         self._complete = complete or ask_llm
         self._describe_images = describe_images or ask_llm_with_images
         self._progress = progress or (lambda *args, **kwargs: None)
         self._resolve = resolve
         self._passes = (config.INGEST_RESOLVE_PASSES if resolve_passes is None
                         else max(0, int(resolve_passes)))
+        self._cancel = cancel
         self._calls = 0
         self._failures = 0
         self._done = 0
@@ -155,6 +157,7 @@ class DocumentExtractor:
         corpus = build_corpus(paths, self._progress)
         if not corpus:
             raise IngestionFailed("None of the submitted files could be read.")
+        cancellation.check(self._cancel)
 
         record = EvidenceRecord(documents=corpus.documents)
         self._total = self._estimate_calls(corpus)
@@ -177,6 +180,7 @@ class DocumentExtractor:
         self._attach_evidence(record, corpus.text)
         self._mark_documents_drawn_on(record)
         self._stop_if_mostly_failing("reading")
+        cancellation.check(self._cancel)
 
         if self._resolve and self._passes:
             self._resolve_unknowns(record, corpus.text)
@@ -218,6 +222,7 @@ class DocumentExtractor:
 
         merged: Dict[str, FacetAnswer] = {}
         for number, chunk in enumerate(chunks, start=1):
+            cancellation.check(self._cancel)
             self._step(f"Reading the documents for {label}"
                        + (f" (part {number} of {len(chunks)})" if len(chunks) > 1 else ""))
             reply = self._ask(_READ_PROMPT, questions=questions, corpus=chunk,
@@ -253,37 +258,56 @@ class DocumentExtractor:
                 name in mentioned for mentioned in cited | self._drawn_on)
 
     def _read_diagrams(self, paths: List[Path], record: EvidenceRecord) -> None:
-        """Describe submitted diagrams. Several images of one flow are read as a sequence."""
-        images = []
+        """Describe submitted diagrams in two passes.
+
+        A workflow is often split across several images because it did not fit in one picture,
+        and asking a single call to both parse every image and stitch them into one flow at once
+        asks it to do two different things together. This reads each image on its own first --
+        the same way a person would, one picture at a time -- and only afterwards, with grounded
+        descriptions in hand rather than raw pixels, works out how they connect and what they
+        establish. An image that fails on its own is dropped and the rest still go through; the
+        second pass only runs at all if at least one image was actually read.
+        """
+        loaded: List[Tuple[Path, Tuple[str, bytes]]] = []
         for path in paths:
             try:
-                images.append(load_image(path))
+                loaded.append((path, load_image(path)))
             except UnreadableDocument as exc:
                 record.documents.append(
                     DocumentRef(name=path.name, kind="unreadable", note=str(exc)))
-        if not images:
+        if not loaded:
             return
 
-        self._step(f"Reading {len(images)} diagram(s)")
         names = ", ".join(p.name for p in paths)
-        user = prompt_loader.render(_DIAGRAM_PROMPT, facets=_facet_guide(), document=names)
+        descriptions: List[Tuple[str, str]] = []
+        for index, (path, image) in enumerate(loaded, start=1):
+            cancellation.check(self._cancel)
+            self._step(f"Reading diagram {index} of {len(loaded)}: {path.name}")
+            description = self._read_one_diagram(path, image, index, len(loaded))
+            if description:
+                descriptions.append((path.name, description))
 
-        self._calls += 1
-        try:
-            reply = parse_json_object(call(
-                self._describe_images, prompt_loader.load(_SYSTEM_PROMPT), user,
-                tier=config.JUDGEMENT, images=images))
-        except Exception as exc:
-            self._failures += 1
-            logger.warning("Could not read the diagrams: %s", exc)
-            for path in paths:
+        if not descriptions:
+            for path, _ in loaded:
                 record.documents.append(DocumentRef(
                     name=path.name, kind="unreadable",
-                    note=f"the diagram could not be read ({exc}). Supply a written description "
-                         f"of the flow it shows, or add it as a note."))
+                    note="the diagram could not be read. Supply a written description of the "
+                         "flow it shows, or add it as a note."))
             return
 
-        for path in paths:
+        cancellation.check(self._cancel)
+        self._step(f"Constructing the workflow from {len(descriptions)} diagram(s)")
+        reply = self._synthesize_diagrams(descriptions, names)
+        if reply is None:
+            for path, _ in loaded:
+                record.documents.append(DocumentRef(
+                    name=path.name, kind="unreadable",
+                    note="each diagram was read on its own but could not be put together into "
+                         "a workflow. Supply a written description of the flow, or add it as a "
+                         "note."))
+            return
+
+        for path, _ in loaded:
             record.documents.append(DocumentRef(name=path.name, kind="diagram", units=1))
 
         # Nothing read from a picture can be checked against text, so it is always unconfirmed.
@@ -300,6 +324,43 @@ class DocumentExtractor:
                     source=SourceRef(document=names,
                                      locator=str(entry.get("locator", "")).strip(),
                                      kind=KIND_IMAGE)))
+
+    def _read_one_diagram(self, path: Path, image: Tuple[str, bytes], index: int,
+                          total: int) -> Optional[str]:
+        """One image, read on its own. Returns the description, or None if the call failed."""
+        user = prompt_loader.render(_DIAGRAM_READ_PROMPT, filename=path.name,
+                                    position=f"{index} of {total}")
+        self._calls += 1
+        try:
+            reply = parse_json_object(call(
+                self._describe_images, prompt_loader.load(_SYSTEM_PROMPT), user,
+                tier=config.JUDGEMENT, images=[image]))
+        except Exception as exc:
+            self._failures += 1
+            logger.warning("Could not read diagram %s: %s", path.name, exc)
+            return None
+        return str(reply.get("description", "")).strip() or None
+
+    def _synthesize_diagrams(self, descriptions: List[Tuple[str, str]],
+                             names: str) -> Optional[dict]:
+        """Reconcile every image's own reading into one workflow, and extract what it settles.
+
+        Text only -- everything visual that matters was already pulled out into the descriptions
+        this is given, so there is nothing left for this call to look at a picture for.
+        """
+        readings = "\n\n".join(
+            f"=== IMAGE {index} of {len(descriptions)}: {name} ===\n{text}"
+            for index, (name, text) in enumerate(descriptions, start=1))
+        user = prompt_loader.render(_DIAGRAM_SYNTHESIZE_PROMPT, facets=_facet_guide(),
+                                    document=names, readings=readings)
+        self._calls += 1
+        try:
+            return parse_json_object(call(
+                self._complete, prompt_loader.load(_SYSTEM_PROMPT), user, tier=config.JUDGEMENT))
+        except Exception as exc:
+            self._failures += 1
+            logger.warning("Could not construct the workflow from the diagrams: %s", exc)
+            return None
 
     # ------------------------------------------------------------------ grounding
     def _attach_evidence(self, record: EvidenceRecord, corpus: str) -> None:
@@ -346,6 +407,7 @@ class DocumentExtractor:
         That ruling is what keeps the list at the end of this short enough to be worked through.
         """
         for number in range(1, self._passes + 1):
+            cancellation.check(self._cancel)
             outstanding = self._outstanding(record)
             if not outstanding:
                 break
@@ -440,7 +502,9 @@ class DocumentExtractor:
     def _estimate_calls(self, corpus: Corpus) -> int:
         parts = max(1, -(-len(corpus.text) // config.max_corpus_chars()))
         sweeps = self._passes if self._resolve else 0
-        return len(FACET_GROUPS) * parts + (1 if corpus.diagrams else 0) + sweeps
+        # One call per diagram, read on its own, plus one to construct the workflow from them.
+        diagram_calls = len(corpus.diagrams) + 1 if corpus.diagrams else 0
+        return len(FACET_GROUPS) * parts + diagram_calls + sweeps
 
     def _step(self, message: str) -> None:
         self._done += 1
@@ -524,11 +588,11 @@ def _merge(existing: Optional[FacetAnswer], addition: FacetAnswer) -> FacetAnswe
 def extract_documents(paths: Sequence[Path], complete: Optional[CompletionFn] = None,
                       progress: Optional[ProgressFn] = None, resolve: bool = True,
                       describe_images: Optional[Callable[..., str]] = None,
-                      resolve_passes: Optional[int] = None) -> EvidenceRecord:
+                      resolve_passes: Optional[int] = None, cancel=None) -> EvidenceRecord:
     """Read a submitted pack into a verified evidence record."""
     return DocumentExtractor(complete=complete, progress=progress, resolve=resolve,
                              describe_images=describe_images,
-                             resolve_passes=resolve_passes).run(paths)
+                             resolve_passes=resolve_passes, cancel=cancel).run(paths)
 
 
 def record_to_json(record: EvidenceRecord, path: Path) -> None:

@@ -239,15 +239,17 @@ class IngestResult:
 def ingest_documents(source_paths: Sequence[str], output_prefix: str,
                      extractor: Optional[DocumentExtractor] = None,
                      progress: Optional[Callable[[str], None]] = None,
-                     resolve_passes: Optional[int] = None) -> IngestResult:
+                     resolve_passes: Optional[int] = None, cancel=None) -> IngestResult:
     """Stage 0: read submitted documents into verified evidence, context and open questions.
 
     Writes three files under ``output_prefix``: the evidence record, the cited context document
     that later stages take through ``--context``, and the questions nobody's documents answered.
     Every claim in the record was checked against the passage it cites; anything unsupported was
-    discarded before it got here.
+    discarded before it got here. Nothing is written if ``cancel`` interrupts the read: a stopped
+    stage leaves the workspace exactly where it was before this run started.
     """
-    extractor = extractor or DocumentExtractor(progress=progress, resolve_passes=resolve_passes)
+    extractor = extractor or DocumentExtractor(progress=progress, resolve_passes=resolve_passes,
+                                               cancel=cancel)
     record = extractor.run([Path(p) for p in source_paths])
 
     evidence_path = f"{output_prefix}_evidence.json"

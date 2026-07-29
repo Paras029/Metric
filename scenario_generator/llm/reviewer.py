@@ -27,7 +27,7 @@ from ..core.generation import peer_signals
 from ..core.models import (CATEGORIES, MATERIALITY, IntakeData, OwnerScenario, Scenario)
 from ..core.proposals import instantiate_proposals
 from ..utils import chunks, parse_json_object
-from . import config, prompt_loader
+from . import cancellation, config, prompt_loader
 from .calling import call, call_batch
 from .context import describe_graph, describe_use_case, digest, supplementary_context
 from .gateway import ask_llm
@@ -87,17 +87,19 @@ class NullReviewer:
 class ScenarioReviewer:
     def __init__(self, complete: CompletionFn = None, batch_size: int = DEFAULT_BATCH_SIZE,
                  context: str = "", proposal_limit: int = DEFAULT_PROPOSAL_LIMIT,
-                 progress: ProgressFn = None) -> None:
+                 progress: ProgressFn = None, cancel=None) -> None:
         self._complete = complete or ask_llm
         self._batch = batch_size
         self._context = context
         self._limit = proposal_limit
         self._progress = progress or (lambda *args, **kwargs: None)
+        self._cancel = cancel
 
     def review(self, scenarios: List[Scenario], intake: IntakeData,
                owner_scenarios: Optional[List[OwnerScenario]] = None
                ) -> Tuple[List[Scenario], List[Scenario]]:
         """Settle materiality in place and return (scenarios, proposals)."""
+        cancellation.check(self._cancel)
         preamble = self._preamble(intake)
         signals = peer_signals(scenarios)
         shared = {"total": len(scenarios), "digest": digest(scenarios),
@@ -112,15 +114,17 @@ class ScenarioReviewer:
         replies = call_batch(
             self._complete, prompt_loader.load(_SYSTEM_PROMPT),
             [self._render_assess(chunk, preamble, shared, signals) for chunk in pending],
-            tier=config.JUDGEMENT)
+            tier=config.JUDGEMENT, cancel=self._cancel)
 
         done = 0
         for chunk, reply in zip(pending, replies):
+            cancellation.check(self._cancel)
             self._apply_assessment(chunk, reply)
             done += 1
             self._progress(f"Reviewed {min(done * self._batch, len(scenarios))} of "
                            f"{len(scenarios)} scenarios", done, total)
 
+        cancellation.check(self._cancel)
         self._progress("Looking for what enumeration could not reach", done, total)
         proposals = self._propose(intake, preamble, shared)
         self._progress("Review complete", total, total)

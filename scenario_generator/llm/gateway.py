@@ -45,12 +45,9 @@ import threading
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import config
+from .cancellation import Stopped, is_set
 
 logger = logging.getLogger(__name__)
-
-# Retries cover a gateway that is busy or briefly unreachable. Anything the model rejects on its
-# merits is raised: repeating a malformed request only wastes the time it takes to fail again.
-MAX_ATTEMPTS = 4
 
 _models: Dict[Tuple, Any] = {}
 _lock = threading.Lock()
@@ -190,7 +187,8 @@ def chat_model(tier: Optional["config.Tier"] = None, model: Optional[str] = None
 
     model_id = model or (tier.model if tier else config.LLM_MODEL_ID)
     parameters = _generation_parameters(tier, temperature, max_tokens, reasoning_effort)
-    key = (model_id,) + tuple(sorted(parameters.items()))
+    attempts = tier.max_attempts if tier else config.DEFAULT_MAX_ATTEMPTS
+    key = (model_id, attempts) + tuple(sorted(parameters.items()))
 
     with _lock:
         if key in _models:
@@ -210,7 +208,7 @@ def chat_model(tier: Optional["config.Tier"] = None, model: Optional[str] = None
                 f"LangChain runnable. Everything here is built on that interface.")
 
         _models[key] = built.bind(**parameters).with_retry(
-            stop_after_attempt=MAX_ATTEMPTS, wait_exponential_jitter=True)
+            stop_after_attempt=attempts, wait_exponential_jitter=True)
         return _models[key]
 
 
@@ -327,7 +325,7 @@ def _batch_prompt():
 def ask_llm_batch(system_prompt: str, user_messages: List[str],
                   temperature: float = None, max_tokens: int = None,
                   reasoning_effort: str = None, tier: "config.Tier" = None,
-                  model: str = None, max_concurrency: int = None) -> List[Any]:
+                  model: str = None, max_concurrency: int = None, cancel=None) -> List[Any]:
     """Send several user messages under one system prompt, concurrently, and return the replies.
 
     One entry per message, in the same order they were given. An entry is either the reply text
@@ -339,6 +337,14 @@ def ask_llm_batch(system_prompt: str, user_messages: List[str],
     ``LLM_MAX_CONCURRENCY`` -- without a cap, a large benchmark split into many chunks would open
     as many connections as it has chunks, which is more than a gateway is necessarily willing to
     hold open at the same time.
+
+    Messages are sent one concurrency-sized wave at a time rather than as a single call to
+    LangChain's own ``.batch`` -- which would also cap concurrency, but as one call over the
+    whole list, with no point between the first wave and the last where anything here gets to
+    look at ``cancel`` before starting the next one. Waving it by hand costs a small amount of
+    scheduling efficiency (a wave waits for its slowest message before the next one starts) in
+    return for a real place to stop: once ``cancel`` is set, nothing beyond the wave already sent
+    is dispatched, and whatever was not gets a :class:`~.cancellation.Stopped` entry instead.
     """
     if not user_messages:
         return []
@@ -349,9 +355,17 @@ def ask_llm_batch(system_prompt: str, user_messages: List[str],
         tier=tier, model=model, temperature=temperature, max_tokens=max_tokens,
         reasoning_effort=reasoning_effort) | StrOutputParser()
 
-    inputs = [{"system": system_prompt, "content": message} for message in user_messages]
     concurrency = max_concurrency or config.MAX_CONCURRENCY
-    return chain.batch(inputs, config={"max_concurrency": concurrency}, return_exceptions=True)
+    results: List[Any] = []
+    for start in range(0, len(user_messages), concurrency):
+        if is_set(cancel):
+            results.extend(Stopped() for _ in user_messages[start:])
+            break
+        wave = user_messages[start:start + concurrency]
+        inputs = [{"system": system_prompt, "content": message} for message in wave]
+        results.extend(chain.batch(inputs, config={"max_concurrency": concurrency},
+                                   return_exceptions=True))
+    return results
 
 
 # Lets a caller ask "does this completion function support batching?" by looking for this

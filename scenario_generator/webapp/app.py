@@ -40,8 +40,10 @@ from ..ingest.groups import (ALL_EXTENSIONS, DEFAULT_GROUP, GROUP_BY_KEY, GROUPS
 from ..ingest.owner_library import UnreadableLibrary
 from ..io import read_scenarios, write_challenge_pack, write_registry
 from ..llm import MaterialityAssessor, ScenarioReviewer, ScenarioWriter, config
+from ..llm.cancellation import Stopped
 from ..pipeline import (build_scenarios, draft_intake_workbook, ingest_documents, map_coverage,
                         render_questions)
+from . import stagecancel
 from .draft import DECISION, STATE, PendingEdits, PendingItem, next_id
 from .graphview import completeness, graph_summary, render_svg
 from .scenarios import build_rows
@@ -138,14 +140,14 @@ def _source_files(workspace: Workspace):
     return [path for paths in evidence_files(workspace.root).values() for path in paths]
 
 
-def _run_documents(workspace: Workspace, progress=None) -> Dict[str, object]:
+def _run_documents(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
     """Read every submitted document, then answer each question from all of them at once."""
     paths = _source_files(workspace)
     if not paths:
         raise ValueError("Add at least one document before reading them.")
 
     result = ingest_documents([str(p) for p in paths], str(workspace.root / "ingest"),
-                              progress=progress)
+                              progress=progress, cancel=cancel)
     workspace.state("documents").artifacts.update({
         "evidence": Path(result.evidence_path).name,
         "context": Path(result.context_path).name,
@@ -217,11 +219,12 @@ def _run_benchmark(workspace: Workspace) -> Dict[str, object]:
             "Probes": probes}
 
 
-def _run_text(workspace: Workspace, progress=None) -> Dict[str, object]:
+def _run_text(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
     """Write each scenario up for the team that owns the agent."""
     intake = _intake(workspace)
     scenarios = _scenarios(workspace, intake)
-    ScenarioWriter(context=_context(workspace), progress=progress).write(scenarios, intake)
+    ScenarioWriter(context=_context(workspace), progress=progress,
+                  cancel=cancel).write(scenarios, intake)
     write_registry(str(workspace.root / REGISTRY), intake, scenarios)
     workspace.state("text").artifacts["registry"] = REGISTRY
 
@@ -229,11 +232,12 @@ def _run_text(workspace: Workspace, progress=None) -> Dict[str, object]:
     return {"Scenarios written": written, "Turns scripted": sum(s.turn_count for s in scenarios)}
 
 
-def _run_materiality(workspace: Workspace, progress=None) -> Dict[str, object]:
+def _run_materiality(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
     """Assign a tier to every scenario, with the redundancy signals in view."""
     intake = _intake(workspace)
     scenarios = _scenarios(workspace, intake)
-    MaterialityAssessor(context=_context(workspace), progress=progress).assess(scenarios, intake)
+    MaterialityAssessor(context=_context(workspace), progress=progress,
+                        cancel=cancel).assess(scenarios, intake)
     write_registry(str(workspace.root / REGISTRY), intake, scenarios)
     workspace.state("materiality").artifacts["registry"] = REGISTRY
 
@@ -241,11 +245,11 @@ def _run_materiality(workspace: Workspace, progress=None) -> Dict[str, object]:
     return {tier: tiers.get(tier, 0) for tier in MATERIALITY}
 
 
-def _run_review(workspace: Workspace, progress=None) -> Dict[str, object]:
+def _run_review(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
     """One pass over the whole benchmark, then rebuild the pack so its verdict actually lands."""
     intake = _intake(workspace)
     scenarios = _scenarios(workspace, intake)
-    reviewer = ScenarioReviewer(context=_context(workspace), progress=progress)
+    reviewer = ScenarioReviewer(context=_context(workspace), progress=progress, cancel=cancel)
     scenarios, proposals = reviewer.review(scenarios, intake)
     scenarios = list(scenarios) + list(proposals)
 
@@ -754,7 +758,22 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
         workspace.mark_running(key)
         root = workspace.root
-        threading.Thread(target=_execute, args=(root, key), daemon=True).start()
+        # Registered here, in the request that starts the run, rather than inside the thread it
+        # starts -- so a stop clicked in the instant after this returns always finds a signal
+        # waiting for it, rather than racing the new thread to create one.
+        event = stagecancel.start(root, key)
+        threading.Thread(target=_execute, args=(root, key, event), daemon=True).start()
+        return redirect(url_for("stage", key=key))
+
+    @app.route("/stage/<key>/stop", methods=["POST"])
+    def stop_stage(key: str):
+        """Ask a running stage to stop. Calls already sent finish; nothing further is sent.
+
+        The stage is left exactly as it was before this run -- nothing partial is written -- so
+        it comes back as ready to run again rather than as failed.
+        """
+        workspace = _workspace()
+        stagecancel.stop(workspace.root, key)
         return redirect(url_for("stage", key=key))
 
     @app.route("/stage/<key>/progress", methods=["GET"])
@@ -825,12 +844,17 @@ if __name__ == "__main__":
     main()
 
 
-def _execute(root: Path, key: str) -> None:
+def _execute(root: Path, key: str, cancel) -> None:
     """Run one stage on a background thread, reporting progress as it goes.
 
     The workspace is re-read here rather than handed across the thread boundary, so the record on
     disk stays the one source of truth for what has happened -- the same record the polling
     request reads, and the same one the command line would read.
+
+    ``cancel`` is the stop signal ``run_stage`` registered before this thread was started. Only
+    the stages that make many model calls take it -- see :func:`_takes_progress`, which the two
+    always travel together with -- so a stop on any other stage is accepted without complaint but
+    has nothing to interrupt beyond the one call already in flight.
     """
     workspace = Workspace.load(root)
 
@@ -838,12 +862,20 @@ def _execute(root: Path, key: str) -> None:
         workspace.report_progress(key, message, done, total)
 
     try:
-        summary = RUNNERS[key](workspace, report) if _takes_progress(key) \
-            else RUNNERS[key](workspace)
+        summary = RUNNERS[key](workspace, progress=report, cancel=cancel) \
+            if _takes_progress(key) else RUNNERS[key](workspace)
+    except Stopped:
+        # Nothing this run would have written was: the pass raises before its caller reaches the
+        # write. The workspace is exactly where it was before the run started.
+        logger.info("Stage %s stopped by the user.", key)
+        Workspace.load(root).mark_stopped(key)
+        return
     except Exception as exc:                              # surfaced in the panel, not swallowed
         logger.exception("Stage %s failed", key)
         Workspace.load(root).mark_failed(key, str(exc))
         return
+    finally:
+        stagecancel.clear(root, key)
 
     finished = Workspace.load(root)
     finished.stages[key].artifacts.update(workspace.stages[key].artifacts)
@@ -851,11 +883,13 @@ def _execute(root: Path, key: str) -> None:
 
 
 def _takes_progress(key: str) -> bool:
-    """Which stages report progress: the ones that make many model calls.
+    """Which stages report progress, and can be stopped mid-run: the ones that make many model
+    calls.
 
     Reading documents was the only long stage while benchmarks were small. Writing, weighing and
     reviewing three hundred scenarios is dozens of batched calls each, and a stage that shows
-    nothing for four minutes is indistinguishable from one that has died.
+    nothing for four minutes is indistinguishable from one that has died -- and is exactly the
+    kind of run someone wants to be able to call off rather than sit through.
     """
     return key in ("documents", "text", "materiality", "review")
 
