@@ -46,6 +46,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from . import config
 from .cancellation import Stopped, is_set
+from .metering import record_call
 
 logger = logging.getLogger(__name__)
 
@@ -270,6 +271,7 @@ def ask_llm(system_prompt: str, user_message: str,
     pass says what kind of work it is doing rather than restating three numbers. The individual
     arguments still override it, one call at a time.
     """
+    record_call()
     return build_chain(system_prompt, user_message, tier=tier, model=model,
                        temperature=temperature, max_tokens=max_tokens,
                        reasoning_effort=reasoning_effort).invoke({})
@@ -289,6 +291,7 @@ def ask_llm_with_images(system_prompt: str, user_message: str, images: list,
     if not config.LLM_VISION:
         raise RuntimeError("Vision is disabled (LLM_VISION=off), so images cannot be sent.")
 
+    record_call()
     return build_chain(system_prompt, user_message, images, tier=tier, model=model,
                        temperature=temperature, max_tokens=max_tokens,
                        reasoning_effort=reasoning_effort).invoke({})
@@ -362,6 +365,7 @@ def ask_llm_batch(system_prompt: str, user_messages: List[str],
             results.extend(Stopped() for _ in user_messages[start:])
             break
         wave = user_messages[start:start + concurrency]
+        record_call(len(wave))
         inputs = [{"system": system_prompt, "content": message} for message in wave]
         results.extend(chain.batch(inputs, config={"max_concurrency": concurrency},
                                    return_exceptions=True))

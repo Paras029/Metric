@@ -14,7 +14,7 @@ import logging
 from typing import Callable, Dict, List
 
 from ..core.models import CATEGORIES, ExtractedMeta, IntakeData, OwnerScenario
-from ..utils import chunks, parse_json_object
+from ..utils import chunks, one_of, parse_json_object
 from . import cancellation, config, prompt_loader
 from .calling import call, call_batch
 from .context import describe_use_case
@@ -111,7 +111,6 @@ class MetadataExtractor:
             else:
                 dropped += 1
 
-        category = str(entry.get("category", "")).strip()
         persona_id = str(entry.get("persona_id", "")).strip()
         raw_confidence = str(entry.get("confidence", "")).strip().lower()
         confidence = "Confident" if raw_confidence in ("confident", "high") else "Watch-out"
@@ -121,7 +120,7 @@ class MetadataExtractor:
 
         return ExtractedMeta(
             decision_path=path,
-            category=category if category in CATEGORIES else "",
+            category=one_of(entry.get("category"), CATEGORIES),
             capabilities=[c for c in (entry.get("capabilities") or []) if c in capability_ids],
             persona_id=persona_id if intake.persona_by_id(persona_id) else "",
             confidence=confidence,

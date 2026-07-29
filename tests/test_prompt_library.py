@@ -29,6 +29,7 @@ _CONTRACT = {
     "reviewer.approach": set(),
     "reviewer.field_guide": set(),
     "reviewer.assess": {"owner", "total", "digest", "materiality", "batch"},
+    "reviewer.category": {"owner", "total", "digest", "categories", "batch"},
     "reviewer.propose": {"owner", "total", "digest", "limit", "categories", "materiality"},
     "reviewer.owner_block": {"owner_scenarios"},
     "extractor.system": set(),

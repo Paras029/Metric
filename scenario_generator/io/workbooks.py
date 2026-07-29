@@ -51,9 +51,10 @@ _METADATA_COLUMNS = ["SC ID", "Decision Path", "Category", "Materiality",
                      "Materiality Override", "Probe ID", "Probe Family",
                      "Reviewed Materiality", "Review Rationale", "Review Flag",
                      "Proposal Rationale", "Proposal Anchor", "Effective Materiality",
-                     "Their Coverage", "Their Coverage Note"]
+                     "Their Coverage", "Their Coverage Note",
+                     "Reviewed Category", "Review Category Rationale"]
 _METADATA_WIDTHS = [10, 40, 18, 12, 12, 46, 22, 24, 11, 13, 26, 40, 13, 18, 26, 22,
-                    18, 52, 16, 52, 14, 18, 18, 26]
+                    18, 52, 16, 52, 14, 18, 18, 26, 18, 52]
 
 _PACK_INSTRUCTIONS = [
     ("What this workbook is", "A set of test scenarios for your agent, issued by MRMG. Run each "
@@ -92,7 +93,8 @@ def _write_metadata_sheet(workbook, scenarios: List[Scenario]) -> None:
         s.materiality_override, s.probe_id, s.probe_family,
         s.review_materiality, s.review_rationale, s.review_flag,
         s.proposed_rationale, s.proposed_anchor, s.effective_materiality,
-        s.owner_coverage, s.owner_coverage_note]
+        s.owner_coverage, s.owner_coverage_note,
+        s.review_category, s.review_category_rationale]
         for s in scenarios])
 
 
@@ -166,6 +168,7 @@ def read_scenarios(path: str, intake: IntakeData) -> List[Scenario]:
             review_materiality=cell(16), review_rationale=cell(17), review_flag=cell(18),
             proposed_rationale=cell(19), proposed_anchor=cell(20),
             owner_coverage=cell(22), owner_coverage_note=cell(23),
+            review_category=cell(24), review_category_rationale=cell(25),
         ))
         description, turn_plan = text_by_id.get(cell(0), ("", ""))
         scenarios[-1].description = description or fallback_description(scenarios[-1].category, turn_meta)

@@ -15,8 +15,8 @@ import json
 import logging
 from typing import Callable, Dict, List
 
-from ..core.models import IntakeData, Scenario
-from ..utils import chunks, parse_json_object
+from ..core.models import CONFIDENCE, MATERIALITY, IntakeData, Scenario
+from ..utils import chunks, one_of, parse_json_object
 from . import cancellation, config, prompt_loader
 from .calling import call, call_batch
 from .context import describe_use_case, supplementary_context
@@ -125,11 +125,9 @@ class MaterialityAssessor:
             entry = parsed.get(scenario.id)
             if not entry:
                 continue
-            materiality = str(entry.get("materiality", "")).strip().title()
-            if materiality in ("Low", "Medium", "High", "Critical"):
-                scenario.materiality = materiality
-            confidence = str(entry.get("confidence", "")).strip().title()
-            scenario.materiality_confidence = confidence if confidence in ("Low", "Medium", "High") else "Low"
+            scenario.materiality = one_of(entry.get("materiality"), MATERIALITY,
+                                          scenario.materiality)
+            scenario.materiality_confidence = one_of(entry.get("confidence"), CONFIDENCE, "Low")
             scenario.materiality_rationale = str(entry.get("rationale", "")).strip()
             filled.add(scenario.id)
         if len(filled) < len(chunk):

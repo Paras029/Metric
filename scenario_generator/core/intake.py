@@ -10,7 +10,7 @@ from typing import List
 from openpyxl import Workbook, load_workbook
 
 from ..io import sheets
-from ..utils.text import is_yes, normalise_variant, split_list
+from ..utils.text import is_yes, normalise_variant, one_of, split_list
 from .models import (CATEGORIES, INPUT_SOURCES, Capability, Decision, IntakeData, OwnerScenario,
                      Persona, State, Tool)
 
@@ -43,8 +43,7 @@ def _cell(row: List[str], index: int) -> str:
 
 def _input_source(raw: str) -> str:
     """Match the declared source against the closed vocabulary; anything unknown reads as User."""
-    text = str(raw or "").strip().lower()
-    return next((s for s in INPUT_SOURCES if s.lower() == text), "User")
+    return one_of(raw, INPUT_SOURCES, "User")
 
 
 def _max_attempts(raw: str) -> int:
@@ -57,8 +56,7 @@ def _max_attempts(raw: str) -> int:
 
 def _outcome_type(raw: str) -> str:
     """Declared category of a terminal state; blank falls back to the keyword heuristic."""
-    text = str(raw or "").strip().lower()
-    return next((c for c in CATEGORIES if c.lower() == text), "")
+    return one_of(raw, CATEGORIES)
 
 
 # --------------------------------------------------------------------------- readers

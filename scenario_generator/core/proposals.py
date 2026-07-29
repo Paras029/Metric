@@ -11,7 +11,8 @@ from __future__ import annotations
 
 from typing import List, Tuple
 
-from .models import CATEGORIES, MATERIALITY, IntakeData, Scenario, Step, TurnMeta
+from ..utils.text import one_of
+from .models import (CATEGORIES, MATERIALITY, IntakeData, Scenario, Step, TurnMeta)
 
 
 def _validate_path(entry: dict, intake: IntakeData) -> Tuple[List[Step], int]:
@@ -59,7 +60,6 @@ def instantiate_proposal(entry: dict, index: int, intake: IntakeData) -> Scenari
                or next((p for p in intake.personas if p.is_default), intake.personas[0]))
 
     category = str(entry.get("category", "")).strip()
-    materiality = str(entry.get("materiality", "")).strip().title()
 
     rationale = str(entry.get("rationale", "")).strip()
     if dropped:
@@ -69,7 +69,7 @@ def instantiate_proposal(entry: dict, index: int, intake: IntakeData) -> Scenari
     scenario = Scenario(
         id=f"LP-{index:03d}",
         path=steps,
-        category=category if category in CATEGORIES else "Proposed",
+        category=one_of(entry.get("category"), CATEGORIES, "Proposed"),
         persona=persona,
         seeded_state="Session start",
         termination=str(entry.get("expected_outcome", "")).strip() or "See scenario description.",
@@ -81,7 +81,7 @@ def instantiate_proposal(entry: dict, index: int, intake: IntakeData) -> Scenari
     )
     scenario.description = str(entry.get("description", "")).strip()
     scenario.turn_plan = str(entry.get("turn_plan", "")).strip()
-    scenario.materiality = materiality if materiality in MATERIALITY else "Medium"
+    scenario.materiality = one_of(entry.get("materiality"), MATERIALITY, "Medium")
     scenario.materiality_confidence = "Low"
     scenario.materiality_rationale = "Proposed by the review layer; not independently assessed."
     scenario.proposed_rationale = rationale

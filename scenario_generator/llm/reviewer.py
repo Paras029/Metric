@@ -7,15 +7,24 @@ digest of every scenario generated, and, where available, the scenarios the agen
 submitted. It runs with raised reasoning effort and smaller batches because it is asked to weigh
 rather than classify.
 
-Two powers:
+Three powers, and the first two are separate sweeps rather than one prompt asked to do both --
+they are different readings, and a single call carrying both answers the first well and the
+second as an afterthought:
 
-    assess   settle each scenario's materiality with the whole set visible, and flag scenarios
-             that are redundant, too vague to run, or describing something other than what they
-             test. Written to its own columns, so any earlier assessment survives alongside it.
-    propose  add scenarios that are materially missing. Capped, validated against the intake's
-             vocabulary, and marked with origin "llm-proposed".
+    assess    settle each scenario's materiality with the whole set visible, and flag scenarios
+              that are redundant, too vague to run, or describing something other than what they
+              test.
+    category  read back how each route actually ends, against the ending the intake declared.
+              Category is deterministic everywhere else -- it comes from the Outcome Type on the
+              state a route finishes in -- which makes it the column a wrong or blank declaration
+              corrupts without anything noticing. A disagreement here usually means the workbook
+              needs correcting rather than the scenario.
+    propose   add scenarios that are materially missing. Capped, validated against the intake's
+              vocabulary, and marked with origin "llm-proposed".
 
-It cannot remove anything. Flagging a scenario as redundant is a recommendation for a human.
+Every verdict is written to its own column beside the value it disagrees with, never over it, so
+both readings stay visible and a person rules. It cannot remove anything: flagging a scenario as
+redundant is a recommendation for a human.
 """
 from __future__ import annotations
 
@@ -26,7 +35,7 @@ from typing import Callable, List, Optional, Tuple
 from ..core.generation import peer_signals
 from ..core.models import (CATEGORIES, MATERIALITY, IntakeData, OwnerScenario, Scenario)
 from ..core.proposals import instantiate_proposals
-from ..utils import chunks, parse_json_object
+from ..utils import chunks, one_of, parse_json_object
 from . import cancellation, config, prompt_loader
 from .calling import call, call_batch
 from .context import describe_graph, describe_use_case, digest, supplementary_context
@@ -40,10 +49,16 @@ ProgressFn = Callable[..., None]
 DEFAULT_PROPOSAL_LIMIT = 15
 DEFAULT_BATCH_SIZE = 6
 
+# Checking a category is a narrower judgement than weighing materiality -- it compares an ending
+# against a five-value vocabulary rather than reasoning about business consequence -- so it takes
+# a much coarser batch, and the second reviewed column costs a fraction of the first's calls.
+CATEGORY_BATCH_SIZE = 20
+
 REVIEW_FLAGS = ("Redundant", "Under-specified", "Mis-scoped")
 
 _SYSTEM_PROMPT = "reviewer.system"
 _ASSESS_PROMPT = "reviewer.assess"
+_CATEGORY_PROMPT = "reviewer.category"
 _PROPOSE_PROMPT = "reviewer.propose"
 _OWNER_PROMPT = "reviewer.owner_block"
 
@@ -98,37 +113,74 @@ class ScenarioReviewer:
     def review(self, scenarios: List[Scenario], intake: IntakeData,
                owner_scenarios: Optional[List[OwnerScenario]] = None
                ) -> Tuple[List[Scenario], List[Scenario]]:
-        """Settle materiality in place and return (scenarios, proposals)."""
+        """Settle each judged column in place and return (scenarios, proposals).
+
+        One sweep per column rather than one sweep asked to settle everything at once. The two
+        are genuinely different readings -- materiality asks what failure would cost, category
+        asks how the interaction ends -- and a single prompt carrying both tends to answer the
+        first well and the second as an afterthought.
+
+        The sweeps run one after another rather than together. Each already sends all of its own
+        chunks concurrently, and running two at once would put twice ``LLM_MAX_CONCURRENCY``
+        connections in flight, which is the number that cap exists to hold down. The cost of the
+        second column is modest because it needs a much coarser batch: a seventy-scenario
+        benchmark is twelve materiality calls and four category ones.
+        """
         cancellation.check(self._cancel)
         preamble = self._preamble(intake)
         signals = peer_signals(scenarios)
         shared = {"total": len(scenarios), "digest": digest(scenarios),
                   "owner": _owner_block(owner_scenarios)}
 
-        # Every chunk's assessment call goes out together -- each weighs its own scenarios against
-        # the whole-set signals computed above, so none of them waits on another's reply. One
-        # progress step per batch plus one for the proposal call, so the bar reflects the whole
-        # pass rather than reaching the end and then sitting there through the longest single call.
-        pending = list(chunks(scenarios, self._batch))
-        total = len(pending) + 1
-        replies = call_batch(
-            self._complete, prompt_loader.load(_SYSTEM_PROMPT),
-            [self._render_assess(chunk, preamble, shared, signals) for chunk in pending],
-            tier=config.JUDGEMENT, cancel=self._cancel)
+        # Probes are not routes through the graph and have no ending to categorise -- their
+        # "category" is the probe family they came from, which is not one of CATEGORIES at all.
+        routed = [s for s in scenarios if not s.is_probe]
 
+        assess_chunks = list(chunks(scenarios, self._batch))
+        category_chunks = list(chunks(routed, CATEGORY_BATCH_SIZE))
+        total = len(assess_chunks) + len(category_chunks) + 1        # + the proposal call
         done = 0
-        for chunk, reply in zip(pending, replies):
-            cancellation.check(self._cancel)
-            self._apply_assessment(chunk, reply)
-            done += 1
-            self._progress(f"Reviewed {min(done * self._batch, len(scenarios))} of "
-                           f"{len(scenarios)} scenarios", done, total)
+
+        done = self._sweep(
+            assess_chunks, "Reviewed", config.JUDGEMENT, done, total, len(scenarios),
+            lambda chunk: self._render_assess(chunk, preamble, shared, signals),
+            self._apply_assessment)
+
+        done = self._sweep(
+            category_chunks, "Checked the category of", config.MATERIALITY, done, total,
+            len(routed),
+            lambda chunk: self._render_category(chunk, preamble, shared),
+            self._apply_category)
 
         cancellation.check(self._cancel)
         self._progress("Looking for what enumeration could not reach", done, total)
         proposals = self._propose(intake, preamble, shared)
         self._progress("Review complete", total, total)
         return scenarios, proposals
+
+    def _sweep(self, pending: List[List[Scenario]], label: str, tier, done: int, total: int,
+               subject_count: int, render: Callable[[List[Scenario]], str],
+               apply_reply: Callable[[List[Scenario], object], None]) -> int:
+        """One column judged across the whole benchmark. Returns the running progress count.
+
+        Every chunk's call goes out together: each judges its own scenarios against the
+        whole-set digest built once above, so none of them waits on another's reply. Replies are
+        applied in the order the chunks were made regardless of which came back first.
+        """
+        if not pending:
+            return done
+        replies = call_batch(self._complete, prompt_loader.load(_SYSTEM_PROMPT),
+                             [render(chunk) for chunk in pending], tier=tier, cancel=self._cancel)
+
+        seen = 0
+        for chunk, reply in zip(pending, replies):
+            cancellation.check(self._cancel)
+            apply_reply(chunk, reply)
+            seen += len(chunk)
+            done += 1
+            self._progress(f"{label} {min(seen, subject_count)} of {subject_count} scenarios",
+                           done, total)
+        return done
 
     def _preamble(self, intake: IntakeData) -> str:
         """Everything needed before a single scenario is seen. Built from the intake, so a
@@ -161,34 +213,60 @@ class ScenarioReviewer:
             _ASSESS_PROMPT, **shared, materiality=", ".join(MATERIALITY),
             batch=_batch_payload(chunk, signals))
 
-    def _apply_assessment(self, chunk: List[Scenario], reply) -> None:
-        """Write one chunk's reply onto its scenarios.
+    def _render_category(self, chunk: List[Scenario], preamble: str, shared: dict) -> str:
+        """The user prompt for one chunk's category check, built but not yet sent."""
+        return f"{preamble}\n\n" + prompt_loader.render(
+            _CATEGORY_PROMPT, **shared, categories=", ".join(CATEGORIES),
+            batch=_batch_payload(chunk, {}))
+
+    def _parsed(self, chunk: List[Scenario], reply) -> dict:
+        """One chunk's reply as a dict, or an empty one with the reason logged.
 
         ``reply`` is either the model's text or the exception raised getting it -- call_batch
-        reports a failed call this way rather than raising, so it is handled here exactly like a
-        reply that failed to parse: logged, and the chunk is left as the first pass set it.
+        reports a failed call this way rather than raising, so a batch that failed outright and a
+        reply that would not parse are the same case here: say so, and leave the chunk as the
+        earlier passes set it. Every sweep needs exactly this, which is why it is not written out
+        per sweep.
         """
         if isinstance(reply, BaseException):
             logger.warning("Review call left unchanged (%s): %s",
                            ", ".join(s.id for s in chunk), reply)
-            return
+            return {}
         try:
-            parsed = parse_json_object(reply)
+            return parse_json_object(reply)
         except Exception as exc:
             logger.warning("Review call left unchanged (%s): %s",
                            ", ".join(s.id for s in chunk), exc)
-            return
+            return {}
 
+    def _apply_assessment(self, chunk: List[Scenario], reply) -> None:
+        """Write one chunk's materiality verdict and flag onto its scenarios."""
+        parsed = self._parsed(chunk, reply)
         for scenario in chunk:
             entry = parsed.get(scenario.id)
             if not entry:
                 continue
-            materiality = str(entry.get("materiality", "")).strip().title()
-            if materiality in MATERIALITY:
-                scenario.review_materiality = materiality
+            scenario.review_materiality = one_of(entry.get("materiality"), MATERIALITY)
             scenario.review_rationale = str(entry.get("rationale", "")).strip()
-            flag = str(entry.get("flag", "")).strip()
-            scenario.review_flag = flag if flag in REVIEW_FLAGS else ""
+            scenario.review_flag = one_of(entry.get("flag"), REVIEW_FLAGS)
+
+    def _apply_category(self, chunk: List[Scenario], reply) -> None:
+        """Record where the review reads a scenario's ending differently from the intake.
+
+        Only a disagreement is stored. Agreement is the expected result for most scenarios, and
+        writing it down anyway would fill the registry's review columns with restatements of the
+        declared value and bury the handful of rows that actually want a second look.
+        """
+        parsed = self._parsed(chunk, reply)
+        for scenario in chunk:
+            entry = parsed.get(scenario.id)
+            if not entry:
+                continue
+            category = one_of(entry.get("category"), CATEGORIES)
+            if not category or category == scenario.category:
+                continue
+            scenario.review_category = category
+            scenario.review_category_rationale = str(entry.get("rationale", "")).strip()
 
     def _propose(self, intake: IntakeData, preamble: str, shared: dict) -> List[Scenario]:
         user = f"{preamble}\n\n" + prompt_loader.render(

@@ -10,7 +10,7 @@ from typing import List, Optional
 
 from .core import write_template
 from .ingest import SUPPORTED_EXTENSIONS
-from .llm import NullMaterialityAssessor, NullReviewer, NullWriter
+from .llm import NullMaterialityAssessor, NullReviewer, NullWriter, metering
 from .pipeline import (assess_materiality, build_graph, build_pack, build_probes_stage,
                        draft_intake_workbook, generate, ingest_documents, map_coverage, refine,
                        review)
@@ -129,6 +129,23 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
+    if args.command == "serve":
+        from .webapp.app import create_app          # imported here so the CLI works without Flask
+        app = create_app(Path(args.workspaces))
+        print(f"\n  Scenario generator — http://127.0.0.1:{args.port}\n")
+        app.run(host="127.0.0.1", port=args.port)
+        return 0
+
+    # Every other command finishes, so it is worth saying what it spent. A count of zero means the
+    # command was deterministic (or was given --no-llm), which is not worth a line of its own.
+    with metering.counted() as calls:
+        code = _run_command(args)
+    if calls():
+        print(f"\n{calls()} model call(s).")
+    return code
+
+
+def _run_command(args) -> int:
     if args.command == "init-template":
         write_template(args.output)
         print(f"Wrote blank intake template to {args.output}")
@@ -180,13 +197,6 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.command == "draft-intake":
         draft_intake_workbook(args.context, args.output)
         print(f"Drafted {args.output}. Read the 'Review This' sheet before relying on it.")
-        return 0
-
-    if args.command == "serve":
-        from .webapp.app import create_app          # imported here so the CLI works without Flask
-        app = create_app(Path(args.workspaces))
-        print(f"\n  Scenario generator — http://127.0.0.1:{args.port}\n")
-        app.run(host="127.0.0.1", port=args.port)
         return 0
 
     generate(args.intake, args.output_prefix,

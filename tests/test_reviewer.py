@@ -6,6 +6,7 @@ import json
 from scenario_generator.core.models import (Capability, Decision, IntakeData, OwnerScenario,
                                             Persona, State, Tool)
 from scenario_generator.core.probes import build_probes
+from scenario_generator.pipeline import build_scenarios
 from scenario_generator.core.proposals import instantiate_proposals
 from scenario_generator.llm import config
 from scenario_generator.llm.reviewer import ScenarioReviewer
@@ -187,12 +188,94 @@ class TestReviewSweep(unittest.TestCase):
         self.assertIn("WHAT THE AGENT'S OWN TEAM SUBMITTED", self.seen[0]["user"])
         self.assertIn("Their own happy path test.", self.seen[0]["user"])
 
+    def test_probes_are_left_out_of_the_category_sweep(self):
+        """A probe's 'category' is the family it came from, not one of the five endings a route
+        can have, so asking which of those it is would be asking a question with no right answer."""
+        seen = []
+
+        def complete(system, user, **kwargs):
+            if "how the interaction ends" in user:
+                seen.append(user)
+            return self._fake()(system, user, **kwargs)
+
+        ScenarioReviewer(complete=complete, batch_size=4).review(self.scenarios, _INTAKE)
+        self.assertEqual(seen, [])
+
     def test_a_failed_call_leaves_the_registry_untouched(self):
         def broken(system, user, max_tokens=None, reasoning_effort=None):
             raise RuntimeError("gateway down")
         reviewed, proposals = ScenarioReviewer(complete=broken).review(self.scenarios, _INTAKE)
         self.assertEqual(proposals, [])
         self.assertTrue(all(s.review_materiality == "" for s in reviewed))
+
+
+class TestTheCategorySweep(unittest.TestCase):
+    """Category is otherwise deterministic -- taken from the Outcome Type the intake declares on
+    the state a route ends in. That makes it exactly the column a wrong declaration corrupts
+    silently, which is why the review reads it back."""
+
+    def setUp(self):
+        self.scenarios = build_scenarios(_INTAKE)
+        self.assertTrue(self.scenarios, "the fixture intake should produce graph scenarios")
+
+    def _fake(self, category="Escalation", rationale="ends with a handoff"):
+        def complete(system, user, **kwargs):
+            if '{"proposals"' in user:
+                return json.dumps({"proposals": []})
+            ids = [line.split('"id": "')[1].split('"')[0]
+                   for line in user.splitlines() if '"id": "' in line]
+            if "how the interaction ends" in user:
+                return json.dumps({i: {"category": category, "rationale": rationale} for i in ids})
+            return json.dumps({i: {"materiality": "High", "rationale": "r", "flag": ""}
+                               for i in ids})
+        return complete
+
+    def test_a_disagreement_is_recorded_beside_the_declared_value(self):
+        declared = [s.category for s in self.scenarios]
+        ScenarioReviewer(complete=self._fake(), batch_size=4).review(self.scenarios, _INTAKE)
+
+        self.assertEqual([s.category for s in self.scenarios], declared)   # untouched
+        self.assertTrue(all(s.review_category == "Escalation" for s in self.scenarios))
+        self.assertTrue(all(s.effective_category == "Escalation" for s in self.scenarios))
+
+    def test_agreement_is_not_written_down(self):
+        """Most scenarios come back agreeing. Recording that would fill the review columns with
+        restatements and bury the few rows that want a second look."""
+        agreed = self.scenarios[0].category
+        ScenarioReviewer(complete=self._fake(category=agreed),
+                         batch_size=4).review(self.scenarios, _INTAKE)
+
+        matching = [s for s in self.scenarios if s.category == agreed]
+        self.assertTrue(matching)
+        self.assertTrue(all(s.review_category == "" for s in matching))
+        self.assertTrue(all(s.effective_category == s.category for s in matching))
+
+    def test_a_category_outside_the_vocabulary_is_ignored(self):
+        ScenarioReviewer(complete=self._fake(category="Sideways"),
+                         batch_size=4).review(self.scenarios, _INTAKE)
+        self.assertTrue(all(s.review_category == "" for s in self.scenarios))
+
+    def test_a_differently_capitalised_answer_still_counts(self):
+        """'happy path' is the same verdict as 'Happy path'; dropping it would silently discard
+        a correction for a formatting difference."""
+        ScenarioReviewer(complete=self._fake(category="eSCALATION"),
+                         batch_size=4).review(self.scenarios, _INTAKE)
+        self.assertTrue(all(s.review_category == "Escalation" for s in self.scenarios))
+
+    def test_the_second_column_costs_far_fewer_calls_than_the_first(self):
+        """It takes a much coarser batch, so reviewing a second column is not a second review."""
+        prompts = []
+
+        def complete(system, user, **kwargs):
+            prompts.append(user)
+            return self._fake()(system, user, **kwargs)
+
+        ScenarioReviewer(complete=complete, batch_size=1).review(self.scenarios, _INTAKE)
+        assess = [p for p in prompts if "how the interaction ends" not in p and '"proposals"' not in p]
+        category = [p for p in prompts if "how the interaction ends" in p]
+
+        self.assertEqual(len(assess), len(self.scenarios))    # batch_size=1, one call each
+        self.assertLess(len(category), len(assess))
 
 
 if __name__ == "__main__":

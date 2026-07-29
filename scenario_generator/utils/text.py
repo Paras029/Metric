@@ -4,7 +4,7 @@ so these are safe to reuse anywhere a "DEC-xx=Variant"-shaped string shows up.
 from __future__ import annotations
 
 import re
-from typing import List, Tuple
+from typing import List, Sequence, Tuple
 
 _PARENTHETICAL = re.compile(r"\(.*?\)")
 _REPETITION_SUFFIX = re.compile(r"[x×]\s*\d+\s*$")
@@ -42,3 +42,18 @@ def parse_path_str(text: str) -> List[Tuple[str, str]]:
 def is_yes(value: str) -> bool:
     """Loose truthy check for spreadsheet cells: 'Y', 'Yes', 'yes' all read as True."""
     return str(value or "").strip().lower().startswith("y")
+
+
+def one_of(value: object, allowed: Sequence[str], default: str = "") -> str:
+    """Match a value against a closed vocabulary, ignoring case and surrounding space.
+
+    Every vocabulary in this package is closed on purpose -- a category, a materiality tier, an
+    input source -- and anything outside one is dropped rather than guessed at. What must not
+    happen is dropping something that *is* in the list and merely arrived capitalised differently,
+    which is the common case when the value came from a model or from a hand-edited spreadsheet
+    cell. ``"happy path"`` and ``"HAPPY PATH"`` are both ``"Happy path"``; ``"Escalated"`` is not.
+
+    Returns the canonical spelling from ``allowed`` so callers can compare and store one form.
+    """
+    text = str(value or "").strip().lower()
+    return next((item for item in allowed if item.lower() == text), default)

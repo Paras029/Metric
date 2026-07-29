@@ -39,7 +39,7 @@ from ..ingest.groups import (ALL_EXTENSIONS, DEFAULT_GROUP, GROUP_BY_KEY, GROUPS
                              owner_scenario_file, remove_file)
 from ..ingest.owner_library import UnreadableLibrary
 from ..io import read_scenarios, write_challenge_pack, write_registry
-from ..llm import MaterialityAssessor, ScenarioReviewer, ScenarioWriter, config
+from ..llm import MaterialityAssessor, ScenarioReviewer, ScenarioWriter, config, metering
 from ..llm.cancellation import Stopped
 from ..pipeline import (build_scenarios, draft_intake_workbook, ingest_documents, map_coverage,
                         render_questions)
@@ -891,8 +891,12 @@ def _execute(root: Path, key: str, cancel) -> None:
         workspace.report_progress(key, message, done, total)
 
     try:
-        summary = RUNNERS[key](workspace, progress=report, cancel=cancel) \
-            if _takes_progress(key) else RUNNERS[key](workspace)
+        with metering.counted() as calls:
+            summary = RUNNERS[key](workspace, progress=report, cancel=cancel) \
+                if _takes_progress(key) else RUNNERS[key](workspace)
+        if calls():
+            summary = dict(summary, **{"Model calls": calls()})
+            logger.info("Stage %s finished in %d model call(s).", key, calls())
     except Stopped:
         # Nothing this run would have written was: the pass raises before its caller reaches the
         # write. The workspace is exactly where it was before the run started.

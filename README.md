@@ -192,7 +192,7 @@ the intake stage, or pass it straight to `generate`.
 | 4 | Benchmark | The intake | Every distinct route through the graph, plus applicable probes |
 | 5 | Scenario text | The benchmark | A description and tester script per scenario |
 | 6 | Materiality | The benchmark | A Low / Medium / High / Critical tier per scenario, driving run counts |
-| 7 | Final review | The whole benchmark | Settled materiality, flagged weaknesses, proposed additions |
+| 7 | Final review | The whole benchmark | Settled materiality, checked categories, flagged weaknesses, proposed additions |
 | 8 | Coverage | Their scenario library | How much of the benchmark they already exercise, annotated onto each scenario |
 | 9 | Issue | The registry | The challenge pack to send, and the registry to keep |
 

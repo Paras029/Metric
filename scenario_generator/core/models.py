@@ -141,6 +141,14 @@ class Scenario:
     review_rationale: str = ""
     review_flag: str = ""                 # e.g. "Redundant", "Under-specified", "Mis-scoped"
 
+    # The review's reading of the scenario's category. Category is otherwise deterministic --
+    # taken from the Outcome Type the intake declares on the state a route ends in -- so a
+    # disagreement here is usually a defect in that declaration rather than in the scenario, and
+    # the fix belongs in the workbook. Recorded beside the declared value rather than replacing
+    # it, for the same reason materiality is: both readings stay visible and a person rules.
+    review_category: str = ""
+    review_category_rationale: str = ""
+
     # What the modelling team's own testing already covers, written by the coverage stage. An
     # annotation and nothing more: it is recorded against the scenario and shown to a person, and
     # never removes anything from the pack. Whether covering a scenario twice is waste or
@@ -169,6 +177,11 @@ class Scenario:
     def effective_materiality(self) -> str:
         """Human override, else the review layer's revision, else the first assessment."""
         return self.materiality_override or self.review_materiality or self.materiality
+
+    @property
+    def effective_category(self) -> str:
+        """The review's reading where it disagreed, else what the intake declared."""
+        return self.review_category or self.category
 
     @property
     def signature(self) -> Tuple[Tuple[str, str], ...]:
