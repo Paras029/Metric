@@ -296,7 +296,8 @@ def render_questions(questions: List[dict]) -> str:
 
 def draft_intake_workbook(context_path: str, output_path: str,
                           complete: Optional[Callable[..., str]] = None,
-                          evidence_path: Optional[str] = None) -> "DraftResult":
+                          evidence_path: Optional[str] = None,
+                          notes=None) -> "DraftResult":
     """Draft an intake workbook from an ingested context document.
 
     The result is a real intake in the shape ``init-template`` produces, plus a "Review This"
@@ -308,8 +309,15 @@ def draft_intake_workbook(context_path: str, output_path: str,
     to the drafter as structure rather than only as the prose rendering in the context file. A
     diagram is often the only place a branch is drawn, and confirming a graph is a far more
     reliable job than rebuilding one from sentences about a graph.
+
+    ``notes`` is anything typed alongside the documents -- a correction, an answer to one of the
+    open questions the first reading left, a constraint nobody wrote down. Every other pass this
+    tool makes takes the same kind of input (see :func:`.core.context.load_context`), and the
+    draft is the one pass a gap here would hurt most: it is the one call that decides the whole
+    shape of the intake, and an answer given after ingestion but never passed to this one call
+    would otherwise be redrafted every time this step re-runs.
     """
-    context = Path(context_path).read_text(encoding="utf-8")
+    context = load_context(context_path, notes)
     structure = _diagram_structure(evidence_path or _evidence_beside(context_path))
     draft = draft_intake(context, complete=complete, structure=structure)
     write_drafted_intake(Path(output_path), draft)

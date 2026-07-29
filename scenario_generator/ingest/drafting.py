@@ -289,7 +289,10 @@ def write_drafted_intake(path: Path, draft: DraftedIntake) -> None:
         book["L3 Decisions"].append([
             decision["id"], decision["name"], decision["capability_id"], decision["inputs"],
             " / ".join(decision["outcomes"]), decision["input_source"],
-            decision["max_attempts"], decision["outcome_condition"]])
+            decision["max_attempts"], decision["outcome_condition"],
+            # Never drafted. Whether a decision is already covered by a separate engagement is a
+            # scoping call the validation team makes, not something the documents state.
+            "No"])
 
     for state in data["states"]:
         book["L4 States"].append([

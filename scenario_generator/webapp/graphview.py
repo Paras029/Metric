@@ -61,6 +61,7 @@ class Node:
     detail: str
     pending: bool = False
     outcome_type: str = ""
+    out_of_scope: bool = False
     depth: int = 0
     x: float = 0.0
     y: float = 0.0
@@ -76,6 +77,10 @@ class Edge:
     state_label: str
     detail: str
     pending: bool = False
+
+    out_of_scope: bool = False
+    """Whether this edge leaves a decision marked out of scope -- see :class:`Node`. Drawn muted
+    rather than left off: the route is declared, it is just not one the benchmark walks."""
 
     is_back: bool = False
     """Whether this edge points back to the same depth or an earlier one -- a retry loop rather
@@ -146,7 +151,9 @@ def _decision_detail(decision: Decision) -> str:
          ("Decided from", decision.inputs),
          ("Input source", decision.input_source),
          ("Attempts allowed", str(decision.max_attempts) if decision.max_attempts > 1 else ""),
-         ("Selected when", decision.outcome_condition)])
+         ("Selected when", decision.outcome_condition)],
+        footer=("Out of scope — declared but not walked; no scenario is generated through it."
+                if decision.out_of_scope else ""))
 
 
 def _state_detail(state: State) -> str:
@@ -188,7 +195,8 @@ def build_layout(intake: IntakeData, pending_decisions: Sequence[str] = (),
     for decision in intake.decisions:
         layout.nodes[decision.id] = Node(
             id=decision.id, kind=DECISION, title=decision.id, caption=decision.name,
-            detail=_decision_detail(decision), pending=decision.id in pending_decisions)
+            detail=_decision_detail(decision), pending=decision.id in pending_decisions,
+            out_of_scope=decision.out_of_scope)
 
     for state in intake.states:
         if state.is_terminal:
@@ -222,7 +230,7 @@ def build_layout(intake: IntakeData, pending_decisions: Sequence[str] = (),
                     source=decision.id, target=state.id, outcome=variant,
                     state_label=state.description or state.id,
                     detail=_edge_detail(decision, variant, state),
-                    pending=pending))
+                    pending=pending, out_of_scope=decision.out_of_scope))
                 continue
             for decision_id in state.next_decisions:
                 if decision_id not in layout.nodes:
@@ -231,7 +239,7 @@ def build_layout(intake: IntakeData, pending_decisions: Sequence[str] = (),
                     source=decision.id, target=decision_id, outcome=variant,
                     state_label=state.description or state.id,
                     detail=_edge_detail(decision, variant, state),
-                    pending=pending))
+                    pending=pending, out_of_scope=decision.out_of_scope))
 
     _assign_depths(layout)
 
@@ -392,7 +400,8 @@ def render_svg(intake: IntakeData, pending_decisions: Sequence[str] = (),
         if not source or not target:
             continue
         classes = "graph__edge" + (" graph__edge--pending" if edge.pending else "") + \
-            (" graph__edge--loop" if edge.is_back else "")
+            (" graph__edge--loop" if edge.is_back else "") + \
+            (" graph__edge--out-of-scope" if edge.out_of_scope else "")
         parts.append(
             f'<g class="{classes}"><title>{html.escape(edge.detail)}</title>'
             f'<path d="{_edge_path(edge, source, target)}" marker-end="url(#arrow)"/></g>')
@@ -422,6 +431,8 @@ def render_svg(intake: IntakeData, pending_decisions: Sequence[str] = (),
             classes.append(f"graph__node--{node.outcome_type.split()[0].lower()}")
         if node.pending:
             classes.append("graph__node--pending")
+        if node.out_of_scope:
+            classes.append("graph__node--out-of-scope")
         detail = node.detail
         if node.id in layout.unreachable:
             classes.append("graph__node--unreachable")
@@ -459,6 +470,7 @@ def graph_summary(intake: IntakeData, pending_decisions: Sequence[str] = (),
         "terminal": len(terminal),
         "decisions": len(intake.decisions),
         "outcomes": sum(len(d.variants) for d in intake.decisions),
+        "out_of_scope": sum(1 for d in intake.decisions if d.out_of_scope),
         "unreachable": layout.unreachable,
         "orphans": layout.orphans,
         "depth": max((n.depth for n in layout.nodes.values()), default=0) + 1,
@@ -476,6 +488,8 @@ def completeness(intake: IntakeData) -> List[Dict[str, str]]:
     layout = build_layout(intake)
 
     for decision in intake.decisions:
+        if decision.out_of_scope:
+            continue                   # not walked, so an incomplete branch here tests nothing
         if len(decision.variants) < 2:
             problems.append({
                 "id": decision.id,

@@ -180,6 +180,22 @@ class Workspace:
     def notes_for(self, stage_key: str) -> List[dict]:
         return [note for note in self.notes if note["stage"] == stage_key]
 
+    def note_lines(self) -> List[str]:
+        """Every note as one line each, attributed to the stage it was added at.
+
+        Shared by :meth:`context_text`, which wraps these into the block the mid-pipeline passes
+        take, and by anything -- like drafting the intake -- that takes notes as a list of strings
+        in its own right rather than one pre-assembled block.
+        """
+        lines = []
+        for note in self.notes:
+            title = STAGE_BY_KEY[note["stage"]].title if note["stage"] in STAGE_BY_KEY else "General"
+            if note.get("question"):
+                lines.append(f"({title}) Q: {note['question']} — A: {note['text']}")
+            else:
+                lines.append(f"({title}) {note['text']}")
+        return lines
+
     def context_text(self) -> str:
         """Everything the user has added, as one block for the passes that take context.
 
@@ -189,15 +205,8 @@ class Workspace:
         """
         if not self.notes:
             return ""
-        lines = ["NOTES ADDED BY THE VALIDATION TEAM", ""]
-        for note in self.notes:
-            title = STAGE_BY_KEY[note["stage"]].title if note["stage"] in STAGE_BY_KEY else "General"
-            if note.get("question"):
-                lines.append(f"- ({title}) Q: {note['question']}")
-                lines.append(f"  A: {note['text']}")
-            else:
-                lines.append(f"- ({title}) {note['text']}")
-        return "\n".join(lines)
+        return "\n".join(["NOTES ADDED BY THE VALIDATION TEAM", ""]
+                         + [f"- {line}" for line in self.note_lines()])
 
     # ----------------------------------------------------------------- redaction
     @staticmethod

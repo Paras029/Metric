@@ -105,7 +105,8 @@ def read_intake(path: str) -> IntakeData:
 
     decisions = [Decision(_cell(r, 0), _cell(r, 1), _cell(r, 2), _cell(r, 3),
                           [normalise_variant(v) for v in split_list(_cell(r, 4), separators=r"[/]")],
-                          _input_source(_cell(r, 5)), _max_attempts(_cell(r, 6)), _cell(r, 7))
+                          _input_source(_cell(r, 5)), _max_attempts(_cell(r, 6)), _cell(r, 7),
+                          is_yes(_cell(r, 8)))
                  for r in rows["L3 Decisions"]]
 
     states = [State(_cell(r, 0), _cell(r, 1), _cell(r, 2),
@@ -148,6 +149,11 @@ _GUIDE = [
     ("Outcome Condition", "Optional. What actually triggers each outcome, e.g. 'risk score < 0.3'. "
                           "Not used for graph traversal; recorded so boundary inputs can be "
                           "derived later."),
+    ("Out of Scope?", "Y if this decision has already been reviewed elsewhere and is being reused "
+                      "as-is -- a plug-and-play sub-system covered by a separate engagement is "
+                      "the usual case. The decision still belongs in the sheet, because the graph "
+                      "is not honest without it, but no scenario is generated through it. Blank "
+                      "reads as No."),
     ("Outcome Type", "On a terminal state only: Happy path, Retry, Fallback, Escalation or "
                      "Termination. This is what sets a scenario's category, so declare it rather "
                      "than relying on outcome wording."),
@@ -225,6 +231,28 @@ def append_rows(path: str, decisions: List[list] = None, states: List[list] = No
     return changed
 
 
+def set_decision_scope(path: str, decision_id: str, out_of_scope: bool) -> bool:
+    """Flip one decision's Out of Scope column in place. Returns whether a row was found.
+
+    A narrow exception to "edit the workbook and upload it again": scope is a single yes/no a
+    person is expected to flip while looking at the graph rather than while looking at a
+    spreadsheet, so the interface writes it directly instead of making a full workbook round trip
+    the only way to set it. ``sheet.cell(...)`` rather than indexing the row tuple, because a
+    workbook drafted before this column existed has fewer than nine columns and indexing past the
+    end of a short row raises; writing by row and column number extends the sheet instead.
+    """
+    workbook = _open_for_editing(path)
+    if "L3 Decisions" not in workbook.sheetnames:
+        return False
+    sheet = workbook["L3 Decisions"]
+    for row in sheet.iter_rows(min_row=2):
+        if row and str(row[0].value or "").strip() == decision_id:
+            sheet.cell(row=row[0].row, column=9, value="Yes" if out_of_scope else "No")
+            workbook.save(path)
+            return True
+    return False
+
+
 def write_template(path: str) -> None:
     workbook = Workbook()
     workbook.remove(workbook.active)
@@ -241,8 +269,9 @@ def write_template(path: str) -> None:
                      ["Capability ID", "Name", "Type"], [14, 30, 20])
     sheets.add_sheet(workbook, "L3 Decisions",
                      ["Decision ID", "Decision", "Triggering Capability", "Inputs",
-                      "Possible Outputs", "Input Source", "Max Attempts", "Outcome Condition"],
-                     [12, 28, 22, 30, 30, 20, 14, 34])
+                      "Possible Outputs", "Input Source", "Max Attempts", "Outcome Condition",
+                      "Out of Scope?"],
+                     [12, 28, 22, 30, 30, 20, 14, 34, 14])
     sheets.add_sheet(workbook, "L4 States",
                      ["State ID", "Reached Via", "Description", "Valid Next Decisions",
                       "Terminal?", "Outcome Type"], [10, 26, 34, 26, 11, 16])

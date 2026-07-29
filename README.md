@@ -340,6 +340,14 @@ a decision allowing three attempts produces three-attempt routes.
 **`L4 States.Outcome Type`** — on a terminal state: `Happy path`, `Retry`, `Fallback`,
 `Escalation` or `Termination`. Sets the category of every scenario ending there.
 
+**`L3 Decisions.Out of Scope?`** — `Y` for a decision that has already been reviewed elsewhere and
+is being reused as-is, the usual case being a plug-and-play sub-system covered by a separate
+engagement. The decision stays in the sheet and stays in the graph picture, drawn muted, because
+the graph is not honest without it — but no scenario is generated through it, and it does not
+count against the completeness checks the intake stage reports. Flip it from the intake stage
+itself (a checkbox beside each declared decision, in effect immediately) or in the workbook
+directly; either way it takes hold the next time the benchmark is built.
+
 A drafted intake includes a **Review This** sheet giving a confidence per section and the specific
 points the draft could not settle. Read it before relying on the draft.
 
@@ -510,9 +518,33 @@ second should wait for the first to come back. `LLM_MAX_CONCURRENCY` caps how ma
 at once; raise it if your gateway comfortably takes more, lower it if calls start failing under
 load.
 
-Document ingestion already reads its three question groups in parallel and is unaffected by this
-setting — that parallelism was already as wide as it needs to be, since there are only three
-groups regardless of benchmark size.
+The chunk size is different at each stage, and each was picked for what that particular call is
+actually weighing, not from one shared default:
+
+- **Scenario text** (8 scenarios a call) writes each one mostly independently — the only shared
+  context is the use case and house style — so the chunk exists purely to amortise that shared
+  preamble across several scenarios rather than resending it once per scenario.
+- **Materiality** (10 a call) has to see enough of the benchmark at once to judge relative
+  consequence — whether a scenario is "the worst thing here" depends partly on what else is in the
+  same call — without the call growing so large that a single scenario's tier gets lost in it.
+- **Review's assessment sweep** (6 a call) is the most demanding read per scenario: it is settling
+  materiality, flagging redundant or under-specified scenarios, and doing it with the full
+  reviewer field guide in view, so the chunk is kept small enough that each scenario still gets a
+  considered look rather than a skim.
+- **Review's category sweep** (20 a call) is a narrower, more mechanical judgement — does the
+  declared outcome type actually match what the scenario does — so it tolerates a much larger
+  chunk without the same loss of attention per item.
+
+None of this is tuned to a model's context window; every call here is far short of it. It is tuned
+to how much one call can weigh carefully at once, which is a much smaller number. A batch size is
+a constructor argument on each pass's class (`ScenarioWriter(batch_size=...)` and so on) if a
+particular benchmark's shape calls for a different balance.
+
+Document ingestion reads its three question groups in parallel, each image in a submitted diagram
+pack is read on its own and in parallel with the others, and parsing several submitted files
+(PDF, Word, Excel...) into text also happens in parallel — none of that is affected by
+`LLM_MAX_CONCURRENCY`, since none of it is chunked the way the stages above are: there are only
+ever a few facet groups or a few files in flight at once regardless of benchmark size.
 
 ---
 

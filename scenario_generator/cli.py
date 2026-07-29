@@ -120,6 +120,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="draft an intake workbook from an ingested context document")
     p_draft.add_argument("context", help="the PREFIX_context.md written by ingest")
     p_draft.add_argument("output", help="where to write the drafted intake workbook")
+    p_draft.add_argument("--evidence", default=None,
+                         help="the PREFIX_evidence.json written by ingest, for the decision graph "
+                              "read out of any submitted diagrams (default: found beside context)")
+    p_draft.add_argument("--note", action="append", metavar="TEXT",
+                         help="something you know that the documents do not say, or an answer to "
+                              "one of the open questions -- may be given more than once")
 
     p_serve = sub.add_parser("serve", help="run the local web interface")
     p_serve.add_argument("--port", type=int, default=5000)
@@ -195,7 +201,8 @@ def _run_command(args) -> int:
         return 0
 
     if args.command == "draft-intake":
-        draft_intake_workbook(args.context, args.output, evidence_path=args.evidence)
+        draft_intake_workbook(args.context, args.output, evidence_path=args.evidence,
+                              notes=args.note)
         print(f"Drafted {args.output}. Read the 'Review This' sheet before relying on it.")
         return 0
 

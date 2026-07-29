@@ -31,7 +31,7 @@ from werkzeug.utils import secure_filename
 
 from ..core.evidence import FACETS
 from ..core.generation import required_runs
-from ..core.intake import append_rows, read_intake, write_template
+from ..core.intake import append_rows, read_intake, set_decision_scope, write_template
 from ..core.models import MATERIALITY, IntakeData
 from ..ingest import open_questions, read_owner_library, record_from_json
 from ..ingest.context_document import FACET_HEADINGS
@@ -232,7 +232,8 @@ def _run_intake(workspace: Workspace) -> Dict[str, object]:
                 "No intake workbook, and no documents have been read to draft one from. Either "
                 "upload a completed intake here, or add documents on the first stage.")
         draft_intake_workbook(str(context), str(workspace.root / DRAFT_INTAKE),
-                              evidence_path=str(workspace.root / EVIDENCE))
+                              evidence_path=str(workspace.root / EVIDENCE),
+                              notes=workspace.note_lines())
         workspace.state("intake").artifacts["workbook"] = DRAFT_INTAKE
         logger.info("Drafted an intake from the context document.")
 
@@ -441,6 +442,15 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             except Exception as exc:                       # a malformed intake must not blank it
                 logger.warning("Could not draw the graph: %s", exc)
 
+        # Every already-declared decision, with whether it is walked -- shown only on the intake
+        # stage, and only for what the workbook already has. A sketched decision is not here yet
+        # to have a scope one way or the other.
+        decisions = []
+        if key == "intake" and intake is not None:
+            decisions = [{"id": d.id, "name": d.name or d.id,
+                         "outcomes": " / ".join(d.variants) or "none declared",
+                         "out_of_scope": d.out_of_scope} for d in intake.decisions]
+
         return render_template(
             "stage.html",
             workspace=workspace,
@@ -454,6 +464,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             graph_facts=graph_facts,
             sketch=sketch,
             problems=problems,
+            decisions=decisions,
             questions=_questions_for(workspace) if key == "questions" else [],
             answered=workspace.answered_questions(),
             answers=_answers_for(workspace) if key == "documents" else [],
@@ -672,6 +683,26 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             workspace.invalidate_from("documents")
             workspace.save()
         return redirect(url_for("stage", key=key))
+
+    @app.route("/stage/intake/decision/<decision_id>/scope", methods=["POST"])
+    def toggle_scope(decision_id: str):
+        """Mark or unmark one already-declared decision as out of scope.
+
+        A narrow exception to "edit the workbook and upload it again" -- see
+        :func:`core.intake.set_decision_scope`. Writes straight to the workbook rather than the
+        sketch buffer, because this changes something already declared rather than proposing
+        something new, and it takes effect immediately the same way a corrected upload would.
+        """
+        workspace = _workspace()
+        path = workspace.artifact_path("intake", "workbook")
+        if not path:
+            abort(404)
+        if set_decision_scope(str(path), decision_id, bool(request.form.get("on"))):
+            invalidated = workspace.invalidate_from("intake")
+            workspace.save()
+            return redirect(url_for("stage", key="intake",
+                                    invalidated=", ".join(s.title for s in invalidated)))
+        return redirect(url_for("stage", key="intake"))
 
     # ----------------------------------------------------------------- sketching the intake
     #

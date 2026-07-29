@@ -83,7 +83,12 @@ uses. Each decision also carries:
   and outcome that leads to it. **This is what connects the graph.** A state whose `reached_via`
   names an outcome no decision declares is unreachable, and the route through it is never tested.
 - `next_decisions`: which decisions are available from here, or empty if the interaction ends.
-- `is_terminal`: whether the interaction ends here.
+- `is_terminal`: whether the interaction ends here. **Do not mark a state terminal just because
+  the evidence does not say what happens next.** An outcome of a decision that leads onward to
+  another branch is an intermediate state even where the next step is unclear -- that is a gap to
+  flag in `next_decisions` and the review notes, not a reason to call it an ending. Reserve
+  `is_terminal` for a state the evidence actually describes as finishing the interaction: a
+  hand-off, a rejection, a completed request.
 - `outcome_type`, on terminal states only: one of `Happy path`, `Retry`, `Fallback`,
   `Escalation`, `Termination`.
 

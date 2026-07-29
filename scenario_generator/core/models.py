@@ -43,6 +43,13 @@ class Decision:
     input_source: str = "User"
     max_attempts: int = 1
     outcome_condition: str = ""
+    out_of_scope: bool = False
+    """Declared, but not walked: a part of the agent this review is not testing.
+
+    Set for a component that has already been reviewed elsewhere and is being reused as-is --
+    the usual case is a plug-and-play sub-system covered by a separate engagement. The decision
+    still belongs in the intake, because the graph is not honest without it, but nothing downstream
+    builds a scenario through it: see :mod:`.graph`, which is the one place this is read."""
 
 
 @dataclass(frozen=True)

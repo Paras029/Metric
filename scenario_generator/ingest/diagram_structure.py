@@ -191,8 +191,10 @@ def audit(structure: dict) -> List[str]:
         if not state["is_terminal"] and not state["next_decisions"]:
             problems.append(
                 f"{state['id']} ({state['description'] or 'no description'}) is not marked as "
-                f"ending the interaction and nothing follows it. Either something does follow it, "
-                f"or it is terminal and needs an outcome type.")
+                f"ending the interaction and nothing follows it. Look at what leaves that box in "
+                f"the image before ruling on it -- this is usually an arrow or a downstream "
+                f"decision that was missed, not a real ending. Only mark it terminal where the "
+                f"image genuinely shows the flow stopping there.")
 
     for capability in {d["capability_id"] for d in structure["decisions"] if d["capability_id"]}:
         if capability not in {c["id"] for c in structure["capabilities"]}:

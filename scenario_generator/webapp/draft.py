@@ -201,7 +201,7 @@ class PendingEdits:
     def as_workbook_rows(self) -> Tuple[List[list], List[list]]:
         """The pending items as rows for the intake's own sheets: (decisions, states)."""
         decisions = [[item.id, item.name or item.id, item.capability, "",
-                      " / ".join(item.outcomes), item.input_source or "User", 1, ""]
+                      " / ".join(item.outcomes), item.input_source or "User", 1, "", "No"]
                      for item in self.by_kind(DECISION)]
         states = [[item.id, item.reached_via, item.name or item.id,
                    ", ".join(item.next_decisions), "Y" if item.is_terminal else "N",

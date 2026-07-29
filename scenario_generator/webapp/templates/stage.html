@@ -246,6 +246,38 @@
       </section>
     {% endif %}
 
+    {% if decisions %}
+      <section class="panel">
+        <h2 class="panel__title">Decisions</h2>
+        <p class="panel__body">
+          Mark a decision out of scope where it has already been reviewed elsewhere and is being
+          reused as-is -- a plug-and-play sub-system covered by a separate engagement is the usual
+          case. It stays in the graph, drawn muted, but the benchmark generates no scenario through
+          it. Takes effect immediately; nothing here needs the intake re-uploaded.
+        </p>
+        <ul class="problems">
+          {% for decision in decisions %}
+            <li class="problems__row">
+              <span class="problems__what">
+                <span class="mono">{{ decision.id }}</span> {{ decision.name }}
+              </span>
+              <span class="problems__why">{{ decision.outcomes }}</span>
+              <form method="post"
+                    action="{{ url_for('toggle_scope', decision_id=decision.id) }}">
+                <label class="drop__redact"
+                       title="Exclude this decision from the graph walk -- declared, but not tested">
+                  <input type="checkbox" name="on" value="1"
+                         {% if decision.out_of_scope %}checked{% endif %}
+                         onchange="this.form.submit()">
+                  Out of scope
+                </label>
+              </form>
+            </li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+
     {% if problems %}
       <section class="panel">
         <h2 class="panel__title">What this declaration leaves out</h2>
@@ -887,6 +919,18 @@
     });
 
     fit();
+
+    // Paint order in SVG is document order, and a crowded row can leave a box or an edge label
+    // sitting underneath a neighbour with nothing to click to fix it. Moving the hovered element
+    // to the end of its parent's children is enough to bring it to the front for as long as the
+    // pointer is over it -- no state to track, and the next thing hovered does the same.
+    if (svg) {
+      svg.addEventListener('mouseover', function (event) {
+        var el = event.target.closest &&
+          event.target.closest('.graph__node, .graph__edge, .graph__label');
+        if (el && el.parentNode) { el.parentNode.appendChild(el); }
+      });
+    }
   })();
 </script>
 {% endif %}

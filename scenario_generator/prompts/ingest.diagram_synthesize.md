@@ -44,7 +44,13 @@ guessing; it decides which adversarial probes get applied.
   declared on a decision should appear here on some state.
 - `description`: what the box says, or what the position is.
 - `next_decisions`: the decisions reachable from here. Empty where the interaction ends.
-- `is_terminal`: whether the flow stops here.
+- `is_terminal`: whether the flow stops here. Each image's own reading already classified this
+  box's `kind` -- a node read as `terminal` is terminal; a node read as `state` is not, even where
+  the arrow leaving it points at a box the readings did not fully resolve. **Do not mark a state
+  terminal because its next step is unclear.** A branch box the readings missed is a gap to name in
+  `unresolved`, not a reason to call an intermediate step an ending -- the two look identical once
+  written down, but only one is true, and there is no later pass that re-derives this from the
+  picture.
 - `outcome_type`, on terminal states only: `Happy path`, `Retry`, `Fallback`, `Escalation` or
   `Termination`.
 

@@ -83,7 +83,7 @@ def walk_paths(graph: DecisionGraph) -> List[Path]:
         advanced = False
         for decision_id in state.next_decisions:
             decision = graph.decision(decision_id)
-            if decision is None:
+            if decision is None or decision.out_of_scope:
                 continue
             occurrence = fired.get(decision_id, 0)
             if occurrence >= decision.max_attempts:
@@ -95,9 +95,11 @@ def walk_paths(graph: DecisionGraph) -> List[Path]:
                       path + [Step(decision_id, variant, next_state)],
                       {**fired, decision_id: occurrence + 1})
 
-        # Every decision this state offers has used up its attempts. The interaction stops here,
-        # which is a real outcome — exhausting a retry limit is usually exactly what the owner
-        # declared Max Attempts to bound — so the path is recorded rather than discarded.
+        # Every decision this state offers is either out of scope or has used up its attempts.
+        # The interaction stops here, which is a real outcome either way -- exhausting a retry
+        # limit is usually exactly what the owner declared Max Attempts to bound, and a decision
+        # marked out of scope is one this review is deliberately not walking into -- so the path
+        # is recorded rather than discarded.
         if not advanced and path:
             paths.append(list(path))
 
@@ -133,7 +135,7 @@ def _shortest_prefix_to(graph: DecisionGraph, decision_id: str) -> Path:
             continue
         for next_decision in state.next_decisions:
             decision = graph.decision(next_decision)
-            if decision is None:
+            if decision is None or decision.out_of_scope:
                 continue
             for variant in decision.variants:
                 next_state = graph.successor(next_decision, variant)
@@ -149,6 +151,8 @@ def augment_variants(graph: DecisionGraph, paths: List[Path]) -> List[Path]:
     already = covered_variants(paths)
     extra: List[Path] = []
     for decision in graph.decisions.values():
+        if decision.out_of_scope:
+            continue
         for variant in decision.variants:
             if (decision.id, variant) in already:
                 continue

@@ -29,8 +29,17 @@ Each of these is one of a small number of things, and it is worth knowing which 
   or it is not a branch point at all and is a step that happens to be drawn as a diamond.
 - **A name that does not match.** Two entries refer to the same thing by different words. The
   diagram has one of them written on it; use that one.
-- **A state that neither ends nor continues.** Look at whether anything leaves that box. If
-  nothing does, it is terminal, and it needs the outcome type that says how the interaction ended.
+- **A state that neither ends nor continues.** Look again at what leaves that box before deciding
+  anything. This is usually a missed arrow or a missed decision box downstream, not a real ending
+  -- a box drawn as a plain rectangle mid-flow, with an arrow leaving it, is an intermediate state
+  even if the box it points to was not read the first time. Mark it terminal only where the image
+  genuinely shows the flow stopping there: a hand-off, a rejection, a completed outcome, nothing
+  drawn leaving it. **Do not mark a state terminal merely because you could not identify what
+  follows it** -- that turns a reading gap into a wrong fact about the agent, and it is the one
+  mistake here a person is unlikely to catch, because a terminal state looks exactly as finished
+  whether the ending is real or invented. Where you still cannot find what follows it after
+  looking again, leave `is_terminal` false, leave `next_decisions` empty, and say so in
+  `unresolved` instead.
 
 Where the images genuinely do not settle a point — the arrow really does run off the page and no
 other image picks it up, the label really is illegible — say so in `unresolved` and leave the

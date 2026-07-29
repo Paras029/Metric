@@ -84,6 +84,11 @@ FACET_GROUPS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
 MAX_PARALLEL_CALLS = 3
 MAX_FAILURE_RATE = 0.5
 
+# How many files are parsed at once. Parsing (PDF/Word/Excel extraction) is mostly waiting on
+# disk and on C extensions that release the GIL, so threads help here the same way they help the
+# reading calls below, even though nothing here talks to a model.
+MAX_PARALLEL_READS = 4
+
 
 class IngestionFailed(RuntimeError):
     """Too much of the run failed for its output to be worth keeping."""
@@ -99,6 +104,15 @@ class Corpus:
 
     def __bool__(self) -> bool:
         return bool(self.text.strip()) or bool(self.diagrams)
+
+
+def _read_one(path: Path, progress: ProgressFn) -> Tuple[Path, object, object]:
+    """One file, parsed off the main thread. Returns (path, result, error) -- never raises."""
+    progress(f"Reading {path.name}")
+    try:
+        return path, read_document(path), None
+    except UnreadableDocument as exc:
+        return path, None, exc
 
 
 def build_corpus(paths: Sequence[Path], progress: ProgressFn = None,
@@ -117,34 +131,44 @@ def build_corpus(paths: Sequence[Path], progress: ProgressFn = None,
     ``should_redact``, given a path, says whether *this* document must be redacted regardless of
     the global ``PII_REDACTION`` setting -- the interface's per-file toggle is what sets this.
     Nothing here decides the global default; that stays entirely in :func:`.redaction.redact_segments`.
+
+    Parsing each file is independent of every other and is where a large pack actually spends its
+    time -- a sixty-page PDF and a dense workbook both take real wall-clock to turn into text, and
+    nothing about that work touches another file. It runs in a thread pool for that reason.
+    Redaction does not: a substitution-mode engine has to mask the same name the same way
+    everywhere it appears, which means the mapping it builds while reading one document has to
+    carry into the next, so that part stays a single sequential pass over the parsed results, in
+    submission order, after every file has been parsed.
     """
     progress = progress or (lambda *a, **k: None)
     redact = redact or redact_segments
     should_redact = should_redact or (lambda path: False)
+
+    ordered = [Path(p) for p in paths]
+    diagrams = [p for p in ordered if is_image(p)]
+    text_paths = [p for p in ordered if not is_image(p)]
+
     parts: List[str] = []
     documents: List[DocumentRef] = []
-    diagrams: List[Path] = []
     mapping: Optional[dict] = None
 
-    for path in paths:
-        path = Path(path)
-        progress(f"Reading {path.name}")
+    if text_paths:
+        with ThreadPoolExecutor(max_workers=min(MAX_PARALLEL_READS, len(text_paths))) as pool:
+            # map() yields results in the order the inputs were given, whichever thread finishes
+            # first, so what follows can stay a plain sequential fold over that order.
+            read = list(pool.map(lambda p: _read_one(p, progress), text_paths))
 
-        if is_image(path):
-            diagrams.append(path)
-            continue
+        for path, result, error in read:
+            if error is not None:
+                logger.warning("%s could not be read: %s", path.name, error)
+                documents.append(DocumentRef(name=path.name, kind="unreadable", note=str(error)))
+                continue
 
-        try:
-            reference, segments = read_document(path)
-        except UnreadableDocument as exc:
-            logger.warning("%s could not be read: %s", path.name, exc)
-            documents.append(DocumentRef(name=path.name, kind="unreadable", note=str(exc)))
-            continue
-
-        segments, mapping = redact(segments, mapping, force=should_redact(path))
-        documents.append(reference)
-        body = "\n\n".join(f"[{segment.locator}]\n{segment.text}" for segment in segments)
-        parts.append(f"=== DOCUMENT: {path.name} ===\n\n{body}")
+            reference, segments = result
+            segments, mapping = redact(segments, mapping, force=should_redact(path))
+            documents.append(reference)
+            body = "\n\n".join(f"[{segment.locator}]\n{segment.text}" for segment in segments)
+            parts.append(f"=== DOCUMENT: {path.name} ===\n\n{body}")
 
     return Corpus(text="\n\n\n".join(parts), documents=documents, diagrams=diagrams)
 
@@ -310,13 +334,15 @@ class DocumentExtractor:
             return
 
         names = ", ".join(p.name for p in paths)
-        readings: List[Tuple[str, dict]] = []
-        for index, (path, image) in enumerate(loaded, start=1):
-            cancellation.check(self._cancel)
-            self._step(f"Reading diagram {index} of {len(loaded)}: {path.name}")
-            reading = self._read_one_diagram(path, image, index, len(loaded))
-            if reading:
-                readings.append((path.name, reading))
+        cancellation.check(self._cancel)
+        # Each image is read alone -- see the docstring above -- so one image's reading has
+        # nothing to do with another's, the same reasoning that already runs the three facet
+        # groups in parallel below.
+        with ThreadPoolExecutor(max_workers=min(MAX_PARALLEL_CALLS, len(loaded))) as pool:
+            results = list(pool.map(
+                lambda item: self._read_diagram_step(item[0], len(loaded), item[1][0], item[1][1]),
+                enumerate(loaded, start=1)))
+        readings = [r for r in results if r]
 
         if not readings:
             self._unreadable(record, loaded,
@@ -379,6 +405,13 @@ class DocumentExtractor:
                     source=SourceRef(document=names,
                                      locator=str(entry.get("locator", "")).strip(),
                                      kind=KIND_IMAGE)))
+
+    def _read_diagram_step(self, index: int, total: int, path: Path,
+                           image: Tuple[str, bytes]) -> Optional[Tuple[str, dict]]:
+        """One pool worker's share: report progress, read the image, name it if it read."""
+        self._step(f"Reading diagram {index} of {total}: {path.name}")
+        reading = self._read_one_diagram(path, image, index, total)
+        return (path.name, reading) if reading else None
 
     def _read_one_diagram(self, path: Path, image: Tuple[str, bytes], index: int,
                           total: int) -> Optional[dict]:
