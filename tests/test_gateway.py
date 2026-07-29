@@ -211,6 +211,86 @@ class TestGenerationParameters(_WithSafeChain):
         self.assertEqual(len(self.built), 1)
 
 
+class TestFindingSafeChainsFactory(unittest.TestCase):
+    """Where SafeChain keeps its model factory is not something to hardcode from one example.
+
+    The import path has moved between releases, and the failure it produces is easy to misread:
+    "no module named safechain.core_model" means the package was found and the submodule was not,
+    which is a different problem from a missing install and has a different fix.
+    """
+
+    def setUp(self):
+        env = mock.patch.dict("os.environ", {config.CONSUMER_SECRET: "c2VjcmV0",
+                                             config.CONSUMER_INTEGRATION_ID: "app-1"})
+        env.start()
+        self.addCleanup(env.stop)
+        self.addCleanup(gateway.reset_models)
+        gateway.reset_models()
+
+    def _package(self, **submodules):
+        """A safechain package exposing the given submodules, as {name: {attribute: value}}."""
+        package = types.ModuleType("safechain")
+        package.__path__ = []
+        modules = {"safechain": package}
+        for name, attributes in submodules.items():
+            module = types.ModuleType(f"safechain.{name}")
+            for attribute, value in attributes.items():
+                setattr(module, attribute, value)
+            setattr(package, name, module)
+            modules[f"safechain.{name}"] = module
+        patch = mock.patch.dict(sys.modules, modules, clear=False)
+        patch.start()
+        self.addCleanup(patch.stop)
+        return package
+
+    def test_the_first_candidate_that_exists_is_used(self):
+        factory = _model
+        self._package(core_model={"model": factory})
+        self.assertIs(gateway._load_safechain(), factory)
+
+    def test_a_later_candidate_is_found_too(self):
+        """The one the photograph of the onboarding notebook did not show."""
+        factory = _model
+        self._package(**{"models": {"model": factory}})
+        self.assertIs(gateway._load_safechain(), factory)
+
+    def test_an_explicit_path_overrides_the_search(self):
+        factory = _model
+        self._package(elsewhere={"build": factory}, core_model={"model": lambda i: None})
+        with mock.patch.dict("os.environ",
+                             {gateway.FACTORY_ENV: "safechain.elsewhere:build"}):
+            self.assertIs(gateway._load_safechain(), factory)
+
+    def test_an_explicit_path_that_is_wrong_says_what_is_actually_there(self):
+        self._package(llm_factory={"build_model": _model})
+        with mock.patch.dict("os.environ", {gateway.FACTORY_ENV: "safechain.nowhere:model"}):
+            with self.assertRaises(gateway.ModelUnavailable) as raised:
+                gateway._load_safechain()
+
+        message = str(raised.exception)
+        self.assertIn("safechain.nowhere:model", message)
+        self.assertIn("llm_factory", message)
+
+    def test_an_install_with_no_recognisable_factory_is_diagnosed_not_just_refused(self):
+        """Installed but unrecognised is one line to fix; the message has to say which line."""
+        self._package(something_else={})
+        with self.assertRaises(gateway.ModelUnavailable) as raised:
+            gateway._load_safechain()
+
+        message = str(raised.exception)
+        self.assertIn("something_else", message)
+        self.assertIn(gateway.FACTORY_ENV, message)
+
+    def test_a_missing_install_is_told_apart_from_a_wrong_path(self):
+        patch = mock.patch.dict(sys.modules, {"safechain": None}, clear=False)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+        with self.assertRaises(gateway.ModelUnavailable) as raised:
+            gateway._load_safechain()
+        self.assertIn("not importable", str(raised.exception))
+
+
 class TestFailingBeforeItWastesTime(unittest.TestCase):
     def setUp(self):
         gateway.reset_models()

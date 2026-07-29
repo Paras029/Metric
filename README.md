@@ -134,6 +134,14 @@ A missing credential, a model name your `config.yml` does not declare, or a Safe
 back something other than a LangChain runnable are each reported before any work starts, naming
 what is wrong.
 
+If a call fails saying the model factory could not be found, SafeChain is installed but keeps it
+somewhere this does not check — the import path has moved between releases. This prints which
+interpreter you are on, whether SafeChain is importable from it, and the exact line to add:
+
+```bash
+python tools/find_safechain.py
+```
+
 Six stages call a model; the rest are deterministic and run without one. Every model-using stage
 also accepts `--no-llm`, which substitutes placeholder text — useful for checking an intake before
 spending any calls.

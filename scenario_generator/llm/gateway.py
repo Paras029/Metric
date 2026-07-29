@@ -50,8 +50,75 @@ class ModelUnavailable(RuntimeError):
     """SafeChain could not be loaded, or did not return a usable LangChain model."""
 
 
+# Where SafeChain's model factory lives, as ``module:attribute``. Several are tried because the
+# import path has not been stable across releases and is not something to hardcode from one
+# example. Set SAFECHAIN_MODEL_FACTORY to name it outright if your install puts it elsewhere.
+FACTORY_ENV = "SAFECHAIN_MODEL_FACTORY"
+
+FACTORY_CANDIDATES: Tuple[str, ...] = (
+    "safechain.core_model:model",
+    "safechain.core.model:model",
+    "safechain.model:model",
+    "safechain.models:model",
+    "safechain.chat_model:model",
+    "safechain:model",
+)
+
+
+def _resolve(path: str):
+    """Import ``module:attribute``, or return None if either half is not there."""
+    import importlib
+
+    module_name, _, attribute = path.partition(":")
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError:
+        return None
+    return getattr(module, attribute or "model", None)
+
+
+def _describe_safechain() -> str:
+    """What the installed SafeChain actually exposes, for when none of the candidates fit.
+
+    A "no module named safechain.core_model" tells you the parent package was found and the
+    submodule was not, which is a different problem from a missing install and has a different
+    fix. Listing what is there turns the next step into reading one line rather than guessing.
+    """
+    import pkgutil
+    import sys
+    import types
+
+    try:
+        import safechain
+    except ImportError:
+        return ("The safechain package is not importable at all on this interpreter. Install it "
+                "from the internal index, and make sure you are running the Python you installed "
+                "it into -- an activated virtual environment uses its own.")
+
+    where = getattr(safechain, "__file__", "an unknown location")
+
+    # Three ways of finding what is inside, because no one of them sees everything: scanning the
+    # package directory misses namespace and zipped installs, and the other two only see what has
+    # already been imported. Together they cover every shape this has actually arrived in.
+    names = {module.name for module in pkgutil.iter_modules(getattr(safechain, "__path__", []))}
+    names |= {name for name, value in vars(safechain).items()
+              if isinstance(value, types.ModuleType)}
+    names |= {name.split(".", 1)[1].split(".")[0] for name in sys.modules
+              if name.startswith("safechain.") and sys.modules[name] is not None}
+
+    submodules = sorted(names)
+    factories = sorted(name for name, value in vars(safechain).items()
+                       if "model" in name.lower() and callable(value))
+
+    return (f"safechain is installed at {where}, so this is the import path rather than the "
+            f"install. It contains: {', '.join(submodules) or 'no submodules'}"
+            + (f"; and exposes {', '.join(factories)} at the top level" if factories else "")
+            + f". Set {FACTORY_ENV} to the right one as module:attribute -- for example "
+              f"{FACTORY_ENV}=safechain.core_model:model.")
+
+
 def _load_safechain():
-    """Import SafeChain's ``model`` factory, with the environment prepared first.
+    """Find SafeChain's model factory, with the environment prepared first.
 
     Imported here rather than at module load so the command line, the tests and the interface all
     start without it. Only a pass that actually calls a model needs it, which keeps a missing or
@@ -64,13 +131,24 @@ def _load_safechain():
             f"{' and '.join(missing)} not set. SafeChain reads these from the environment; put "
             f"them in .env beside the config.yml that names your models.")
 
-    try:
-        from safechain.core_model import model
-    except ImportError as exc:                             # pragma: no cover - environment issue
-        raise ModelUnavailable(
-            f"SafeChain could not be imported ({exc}). Install it from the internal index and "
-            f"check the interpreter is Python 3.12.") from exc
-    return model
+    import os
+
+    named = os.getenv(FACTORY_ENV, "").strip()
+    if named:
+        factory = _resolve(named)
+        if factory is None:
+            raise ModelUnavailable(
+                f"{FACTORY_ENV} is set to '{named}' and nothing was found there. "
+                + _describe_safechain())
+        return factory
+
+    for candidate in FACTORY_CANDIDATES:
+        factory = _resolve(candidate)
+        if factory is not None:
+            logger.debug("Using the SafeChain model factory at %s.", candidate)
+            return factory
+
+    raise ModelUnavailable("Could not find SafeChain's model factory. " + _describe_safechain())
 
 
 def _generation_parameters(tier: Optional["config.Tier"], temperature: Optional[float],
