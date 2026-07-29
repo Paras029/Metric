@@ -41,7 +41,8 @@ _CONTRACT = {
     "ingest.triage": set(),
     "ingest.diagram_read": {"filename", "position"},
     "ingest.diagram_synthesize": {"facets", "document", "readings"},
-    "intake.draft": {"context"},
+    "ingest.diagram_repair": {"document", "structure", "problems"},
+    "intake.draft": {"context", "structure"},
 }
 
 _INTAKE = IntakeData(

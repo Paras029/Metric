@@ -46,7 +46,9 @@ from ..llm.calling import call
 from ..llm.gateway import ask_llm, ask_llm_with_images
 from ..utils import parse_json_object
 from .context_document import FACET_HEADINGS, FACET_QUESTIONS
-from .readers import UnreadableDocument, is_image, load_image, read_document
+from . import diagram_structure
+from .readers import (UnreadableDocument, is_image, load_image,
+                      read_document)
 from .redaction import redact_segments
 
 logger = logging.getLogger(__name__)
@@ -59,6 +61,7 @@ _READ_PROMPT = "ingest.read"
 _RESOLVE_PROMPT = "ingest.resolve"
 _DIAGRAM_READ_PROMPT = "ingest.diagram_read"
 _DIAGRAM_SYNTHESIZE_PROMPT = "ingest.diagram_synthesize"
+_DIAGRAM_REPAIR_PROMPT = "ingest.diagram_repair"
 
 # How much text goes into one reading call, from LLM_MAX_CORPUS_CHARS. A pack past this is split,
 # which reads worse than reading it whole, so the number is set to make that rare.
@@ -279,15 +282,22 @@ class DocumentExtractor:
                 name in mentioned for mentioned in cited | self._drawn_on)
 
     def _read_diagrams(self, paths: List[Path], record: EvidenceRecord) -> None:
-        """Describe submitted diagrams in two passes.
+        """Read submitted diagrams into the workflow they describe, in three passes.
 
-        A workflow is often split across several images because it did not fit in one picture,
-        and asking a single call to both parse every image and stitch them into one flow at once
-        asks it to do two different things together. This reads each image on its own first --
-        the same way a person would, one picture at a time -- and only afterwards, with grounded
-        descriptions in hand rather than raw pixels, works out how they connect and what they
-        establish. An image that fails on its own is dropped and the rest still go through; the
-        second pass only runs at all if at least one image was actually read.
+        A workflow diagram *is* the intake's decision and state sheets: a box with branching
+        arrows is a decision, an arrow's label is an outcome, the box it lands in is a state. So
+        the reading keeps that structure all the way through rather than flattening it to prose
+        and asking something later to rebuild a graph out of the prose.
+
+        Each image is read on its own first, into an explicit list of boxes and arrows -- one
+        picture at a time, the way a person would, and enumerated rather than described so that a
+        box which was missed shows up as an arrow pointing at nothing instead of vanishing
+        silently. A second pass is given every image's reading together and joins them into one
+        graph, following an arrow that ran off the edge of one image into whatever picks it up in
+        another. A third looks again, with the images still attached, at whatever the joined graph
+        cannot account for -- see :meth:`_repair_structure`.
+
+        An image that fails on its own is dropped and the rest still go through.
         """
         loaded: List[Tuple[Path, Tuple[str, bytes]]] = []
         for path in paths:
@@ -300,39 +310,63 @@ class DocumentExtractor:
             return
 
         names = ", ".join(p.name for p in paths)
-        descriptions: List[Tuple[str, str]] = []
+        readings: List[Tuple[str, dict]] = []
         for index, (path, image) in enumerate(loaded, start=1):
             cancellation.check(self._cancel)
             self._step(f"Reading diagram {index} of {len(loaded)}: {path.name}")
-            description = self._read_one_diagram(path, image, index, len(loaded))
-            if description:
-                descriptions.append((path.name, description))
+            reading = self._read_one_diagram(path, image, index, len(loaded))
+            if reading:
+                readings.append((path.name, reading))
 
-        if not descriptions:
-            for path, _ in loaded:
-                record.documents.append(DocumentRef(
-                    name=path.name, kind="unreadable",
-                    note="the diagram could not be read. Supply a written description of the "
-                         "flow it shows, or add it as a note."))
+        if not readings:
+            self._unreadable(record, loaded,
+                             "the diagram could not be read. Supply a written description of the "
+                             "flow it shows, or add it as a note.")
             return
 
         cancellation.check(self._cancel)
-        self._step(f"Constructing the workflow from {len(descriptions)} diagram(s)")
-        reply = self._synthesize_diagrams(descriptions, names)
+        self._step(f"Constructing the workflow from {len(readings)} diagram(s)")
+        reply = self._synthesize_diagrams(readings, names)
         if reply is None:
-            for path, _ in loaded:
-                record.documents.append(DocumentRef(
-                    name=path.name, kind="unreadable",
-                    note="each diagram was read on its own but could not be put together into "
-                         "a workflow. Supply a written description of the flow, or add it as a "
-                         "note."))
+            self._unreadable(record, loaded,
+                             "each diagram was read on its own but could not be put together "
+                             "into a workflow. Supply a written description of the flow, or add "
+                             "it as a note.")
             return
+
+        structure = diagram_structure.clean(reply)
+        structure = self._repair_structure(structure, [image for _, image in loaded], names)
+        record.structure = structure
 
         for path, _ in loaded:
             record.documents.append(DocumentRef(name=path.name, kind="diagram", units=1))
 
-        # Nothing read from a picture can be checked against text, so it is always unconfirmed.
-        for entry in reply.get("observations") or []:
+        # A diagram that yielded a workflow has informed the reading, whether or not it also
+        # produced a quotable observation. Without this an image carrying the entire structure of
+        # the agent gets reported as "nothing rests on this document", which is both wrong and
+        # exactly the sort of line that sends someone looking for a problem that is not there.
+        if not diagram_structure.is_empty(structure):
+            self._note_documents_used([path.name for path, _ in loaded])
+
+        self._claim_observations(record, reply.get("observations"), names)
+        if not diagram_structure.is_empty(structure):
+            logger.info("Read a workflow from %d diagram(s): %s.", len(readings),
+                        ", ".join(f"{count} {part}"
+                                  for part, count in diagram_structure.counts(structure).items()))
+
+    def _unreadable(self, record: EvidenceRecord, loaded: List[Tuple[Path, object]],
+                    note: str) -> None:
+        """Record every submitted image as needing a written description instead."""
+        for path, _ in loaded:
+            record.documents.append(DocumentRef(name=path.name, kind="unreadable", note=note))
+
+    def _claim_observations(self, record: EvidenceRecord, observations, names: str) -> None:
+        """What the diagrams establish in prose, alongside the graph they establish in structure.
+
+        Nothing read from a picture can be checked against a span of text, so these are always
+        recorded unverifiable and always surface for confirmation.
+        """
+        for entry in observations or []:
             if not isinstance(entry, dict):
                 continue
             facet = str(entry.get("facet", "")).strip()
@@ -347,8 +381,8 @@ class DocumentExtractor:
                                      kind=KIND_IMAGE)))
 
     def _read_one_diagram(self, path: Path, image: Tuple[str, bytes], index: int,
-                          total: int) -> Optional[str]:
-        """One image, read on its own. Returns the description, or None if the call failed."""
+                          total: int) -> Optional[dict]:
+        """One image, read on its own into boxes and arrows. None if the call failed."""
         user = prompt_loader.render(_DIAGRAM_READ_PROMPT, filename=path.name,
                                     position=f"{index} of {total}")
         self._calls += 1
@@ -360,20 +394,25 @@ class DocumentExtractor:
             self._failures += 1
             logger.warning("Could not read diagram %s: %s", path.name, exc)
             return None
-        return str(reply.get("description", "")).strip() or None
+        return reply if (reply.get("nodes") or reply.get("edges")) else None
 
-    def _synthesize_diagrams(self, descriptions: List[Tuple[str, str]],
+    def _synthesize_diagrams(self, readings: List[Tuple[str, dict]],
                              names: str) -> Optional[dict]:
-        """Reconcile every image's own reading into one workflow, and extract what it settles.
+        """Join every image's own reading into one graph, in the intake's own vocabulary.
 
-        Text only -- everything visual that matters was already pulled out into the descriptions
-        this is given, so there is nothing left for this call to look at a picture for.
+        Text only: everything visual was already pulled out into the node and edge lists this is
+        given, so there is nothing left for this call to look at a picture for. Node references
+        are namespaced by image first, since each image numbers its own boxes from one and this
+        pass sees them all at once.
         """
-        readings = "\n\n".join(
-            f"=== IMAGE {index} of {len(descriptions)}: {name} ===\n{text}"
-            for index, (name, text) in enumerate(descriptions, start=1))
+        namespaced = diagram_structure.namespaced([reading for _, reading in readings])
+        blocks = "\n\n".join(
+            f"=== IMAGE {index} of {len(readings)}: {name} ===\n"
+            f"{json.dumps(reading, indent=2)}"
+            for index, ((name, _), reading) in enumerate(zip(readings, namespaced), start=1))
+
         user = prompt_loader.render(_DIAGRAM_SYNTHESIZE_PROMPT, facets=_facet_guide(),
-                                    document=names, readings=readings)
+                                    document=names, readings=blocks)
         self._calls += 1
         try:
             return parse_json_object(call(
@@ -382,6 +421,50 @@ class DocumentExtractor:
             self._failures += 1
             logger.warning("Could not construct the workflow from the diagrams: %s", exc)
             return None
+
+    def _repair_structure(self, structure: dict, images: List[Tuple[str, bytes]],
+                          names: str) -> dict:
+        """Put whatever the joined graph cannot account for back to the images, once.
+
+        The graph has properties it must have to be walkable at all -- every outcome leads
+        somewhere, every state is reached by an outcome that exists, a branch has more than one
+        branch. Where it does not, the reading is demonstrably incomplete, and the useful thing is
+        that the audit says *which* points. That turns "read it again, more carefully" -- which a
+        model cannot act on -- into a short list of specific arrows to go and follow, which it can.
+
+        Once, not until clean. A second look settles the holes a first reading left; a third
+        mostly re-litigates what the second decided, and each pass is a call against the largest
+        tier with every image attached.
+        """
+        problems = diagram_structure.audit(structure)
+        if not problems or not config.LLM_VISION:
+            return structure
+
+        cancellation.check(self._cancel)
+        self._step(f"Checking {len(problems)} unresolved point(s) against the diagrams")
+        logger.info("The workflow read from the diagrams left %d point(s) unresolved; "
+                    "looking again.", len(problems))
+
+        user = prompt_loader.render(
+            _DIAGRAM_REPAIR_PROMPT, document=names,
+            structure=diagram_structure.render(structure),
+            problems="\n".join(f"- {problem}" for problem in problems))
+
+        self._calls += 1
+        try:
+            reply = parse_json_object(call(
+                self._describe_images, prompt_loader.load(_SYSTEM_PROMPT), user,
+                tier=config.JUDGEMENT, images=images))
+        except Exception as exc:
+            self._failures += 1
+            logger.warning("Could not check the diagrams again: %s", exc)
+            return structure
+
+        repaired = diagram_structure.merge(structure, reply)
+        remaining = diagram_structure.audit(repaired)
+        logger.info("After looking again: %d of %d point(s) settled.",
+                    len(problems) - len(remaining), len(problems))
+        return repaired
 
     # ------------------------------------------------------------------ grounding
     def _attach_evidence(self, record: EvidenceRecord, corpus: str) -> None:
@@ -523,8 +606,9 @@ class DocumentExtractor:
     def _estimate_calls(self, corpus: Corpus) -> int:
         parts = max(1, -(-len(corpus.text) // config.max_corpus_chars()))
         sweeps = self._passes if self._resolve else 0
-        # One call per diagram, read on its own, plus one to construct the workflow from them.
-        diagram_calls = len(corpus.diagrams) + 1 if corpus.diagrams else 0
+        # One call per diagram read on its own, one to join them into a workflow, and one
+        # more where that workflow does not account for itself and is put back to the images.
+        diagram_calls = len(corpus.diagrams) + 2 if corpus.diagrams else 0
         return len(FACET_GROUPS) * parts + diagram_calls + sweeps
 
     def _step(self, message: str) -> None:

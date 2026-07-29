@@ -1,37 +1,51 @@
 WHAT THIS IS
 
 This image is one of {{position}} submitted as documentation for an AI agent, almost always part
-of a workflow or architecture diagram. It may be the whole diagram, or one part of a larger flow
-that continues in another image. An independent team is working out from this documentation what
-the agent actually is, so it can be tested.
+of a workflow or architecture diagram. It may be the whole flow, or one part of a larger one that
+continues in another image. An independent team is working out from this documentation what the
+agent actually is, so it can be tested.
 
-Read this image on its own and describe everything it shows. A second pass will be given every
-image's description together and will do the work of putting them into one workflow — your job
-here is only to say, fully and accurately, what this one image contains.
+Read this image **on its own**. Do not guess at what the other images contain, and do not try to
+complete a flow that runs off the edge — a later pass is given every image's reading together and
+does the joining. Your job is to record, completely and exactly, what is drawn here.
 
-WHAT TO DESCRIBE
+WHAT TO RETURN
 
-Everything the image shows, in plain prose:
+Not a description. A list of the boxes and a list of the arrows, each one its own entry.
 
-- Every box and the label on it: steps, states, decision points, systems.
-- Every arrow and its label: what leads to what, and on what condition. The label on an arrow
-  leaving a decision is usually the outcome that selects it, and matters as much as the box.
-- Anything that ends the flow here: a terminal state, a handoff to a person, an abandoned path.
-- Swimlanes, groupings, colour keys and legends, where they carry meaning.
-- Anywhere the flow appears to leave the edge of this image without ending — an arrow running off
-  the top, bottom or a side with nowhere left to go. Say which edge, and what the arrow was
-  labelled if anything; that is usually where the flow continues in another image, and the pass
-  that reads your description alongside the others is what reconnects it.
+That is deliberate: a diagram written out as a paragraph loses boxes silently, and nobody can
+tell afterwards which ones. Written out as entries, a box that was missed shows up as an arrow
+pointing at nothing, and can be asked about.
 
-Use the words on the diagram. If a box says "Auth check", write "Auth check" rather than
-"identity verification" — the rest of the documentation uses the diagram's own words, and a
-tidied vocabulary here would stop the two from matching up later.
+**Every box gets a node.** Give each one a short reference of your own (`n1`, `n2`, …), the label
+exactly as written on it, and what kind of thing it is:
 
-Do not infer a step that is not drawn. If an arrow's destination is cut off or illegible, say so
-rather than guessing what it might be.
+- `start` — where the interaction opens.
+- `decision` — a branch point. More than one arrow leaves it, usually a diamond.
+- `state` — a step or position the interaction passes through and then leaves.
+- `terminal` — the flow stops here: a hand-off to a person, a rejection, a completed outcome.
+- `system` — a system, service or datastore the flow calls rather than a step in the conversation.
+- `other` — anything else drawn: a legend, a note, an annotation.
 
-Where the image is too low-resolution, cropped, or otherwise unreadable, say so plainly instead
-of guessing at the content.
+**Every arrow gets an edge**: which node it leaves, which node it enters, and its label exactly
+as written. An unlabelled arrow gets an empty label — do not invent one.
+
+**Every arrow that leaves the page gets an entry in `continues_offpage`** instead: which node it
+leaves, its label, and which edge of the image it runs off. This is the single most important
+thing to record accurately, because it is where this image joins another one, and a flow that
+does not join up is a flow the benchmark cannot walk.
+
+**Anything you cannot read goes in `unreadable`** — a label too small to make out, a box cut off
+at the margin, an arrow whose destination is ambiguous. Say what and where. Never guess at a
+label: a wrong outcome name becomes a test of something that does not exist.
+
+Use the words on the diagram. If a box says "Auth check", write "Auth check", not "identity
+verification" — the rest of the documentation will use the diagram's own words, and a tidied
+label stops the two matching up.
+
+Finally, count what you found and put the numbers in `counts`. Count first, then check your lists
+have that many entries. This is a check on yourself, and a dense diagram is exactly where a
+reading quietly stops short.
 
 THE SOURCE
 
@@ -41,7 +55,10 @@ OUTPUT
 
 Return ONLY a JSON object of the form:
 
-{"description": "..."}
+{"nodes": [{"ref": "n1", "label": "...", "kind": "decision"}],
+ "edges": [{"from": "n1", "to": "n2", "label": "Pass"}],
+ "continues_offpage": [{"from": "n5", "label": "Fail", "side": "bottom"}],
+ "unreadable": ["..."],
+ "counts": {"boxes": 0, "arrows": 0}}
 
-One string, as long as it needs to be, in plain prose rather than further nested structure. No
-markdown fences and no text outside the JSON.
+No markdown fences and no text outside the JSON. Keep each string value on a single line.

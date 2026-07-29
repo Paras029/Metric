@@ -195,7 +195,7 @@ def _run_command(args) -> int:
         return 0
 
     if args.command == "draft-intake":
-        draft_intake_workbook(args.context, args.output)
+        draft_intake_workbook(args.context, args.output, evidence_path=args.evidence)
         print(f"Drafted {args.output}. Read the 'Review This' sheet before relying on it.")
         return 0
 

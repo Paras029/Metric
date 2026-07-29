@@ -19,6 +19,10 @@ that were checked against their source, plus anything the validation team added 
 
 {{context}}
 
+WHAT THE DIAGRAMS SHOWED
+
+{{structure}}
+
 WHAT THE INTAKE IS
 
 The agent described as a decision graph. Six parts, and they interlock — the ids you use in one
@@ -102,6 +106,12 @@ writing conversations in this domain's language.
 
 Do not invent a plausible agent. Everything must trace to the evidence above. If the evidence
 describes three decision points, declare three — not the seven a system like this usually has.
+
+Where a diagram structure was given, it is the strongest evidence you have about the *shape* of
+the agent, because it was read off a picture of that shape. Keep its ids. Where the prose and the
+diagram disagree about what an outcome is called, prefer the diagram's wording and note the
+disagreement in the review notes — the diagram is what the team drew, and the prose is what
+somebody wrote about it afterwards.
 
 WHAT TO RETURN
 

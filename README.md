@@ -205,12 +205,32 @@ sheet with the header repeated on each passage, because a rules table is where t
 usually live. A scanned PDF has no text layer and is reported as unreadable rather than read as
 empty — ask for a text-based copy.
 
-A workflow diagram often arrives split across several images because it did not fit in one
-picture. Each image is read on its own first — the same way a person would look at them, one at a
-time — and only once every image has its own description does a second pass put them together
-into one workflow and pull out what the rest of the reading needs. An image that fails on its own
-is dropped rather than losing the rest; the diagrams are only reported unreadable if every one of
-them was, or if nothing could be made of them together.
+**Workflow diagrams are read as graphs, not as prose.** A diagram *is* the intake's decision and
+state sheets — a box with branching arrows is a decision, an arrow's label is an outcome, the box
+it lands in is a state — so the reading keeps that structure the whole way rather than flattening
+it to sentences and asking a later pass to rebuild a graph from the sentences. Three passes:
+
+1. **Each image on its own**, into an explicit list of boxes and arrows. Enumerated rather than
+   described, because a box missed in a paragraph vanishes silently, where a box missed in a node
+   list shows up as an arrow pointing at nothing. Arrows that run off the edge of the image are
+   recorded as exactly that — they are where one image joins another.
+2. **All the readings together**, joined into one graph and written in the intake's own
+   vocabulary: decisions with named outcomes, states with `reached_via`, terminal flags and
+   outcome types.
+3. **Whatever that graph cannot account for, back to the images.** The graph is checked against
+   properties it must have to be walkable at all — every outcome leads somewhere, every state is
+   reached by an outcome that exists, a branch has more than one branch — and the specific
+   failures are named back to the model with the images still attached: *"DEC-03 outcome Timeout
+   leads nowhere; follow that arrow"*. Once, not until clean.
+
+The resulting graph is carried through to the intake drafter **as structure**, alongside the prose
+context, so drafting becomes confirming and completing a graph rather than rebuilding one from
+sentences about it. It also appears in the context document, so you can read what was extracted.
+
+An image that fails on its own is dropped rather than losing the rest; the diagrams are only
+reported unreadable if every one of them was, or if nothing could be made of them together. A
+repair pass that returns nothing usable leaves the first reading exactly as it was — a second look
+can improve a reading, never damage it.
 
 Every submitted document is named in the reading prompt and the result says which ones any answer
 actually rested on. A file that informed nothing is reported: it is either irrelevant or it was

@@ -19,7 +19,8 @@ from .llm import (MaterialityAssessor, MetadataExtractor, ScenarioReviewer,
                   ScenarioWriter)
 from .llm.reviewer import DEFAULT_PROPOSAL_LIMIT
 from .ingest import (DocumentExtractor, build_context_document, draft_intake, open_questions,
-                     read_owner_library, rejection_summary, write_drafted_intake)
+                     read_owner_library, record_from_json, rejection_summary,
+                     write_drafted_intake)
 
 logger = logging.getLogger("scenario_generator")
 
@@ -294,15 +295,23 @@ def render_questions(questions: List[dict]) -> str:
 
 
 def draft_intake_workbook(context_path: str, output_path: str,
-                          complete: Optional[Callable[..., str]] = None) -> "DraftResult":
+                          complete: Optional[Callable[..., str]] = None,
+                          evidence_path: Optional[str] = None) -> "DraftResult":
     """Draft an intake workbook from an ingested context document.
 
     The result is a real intake in the shape ``init-template`` produces, plus a "Review This"
     sheet saying where the draft is weak. It is a starting point for a person to correct, not an
     authority -- but correcting a draft is an afternoon and writing one is a week.
+
+    ``evidence_path`` is the record ingestion wrote beside the context document. It is read for
+    one thing: the decision graph pulled out of any submitted workflow diagrams, which is handed
+    to the drafter as structure rather than only as the prose rendering in the context file. A
+    diagram is often the only place a branch is drawn, and confirming a graph is a far more
+    reliable job than rebuilding one from sentences about a graph.
     """
     context = Path(context_path).read_text(encoding="utf-8")
-    draft = draft_intake(context, complete=complete)
+    structure = _diagram_structure(evidence_path or _evidence_beside(context_path))
+    draft = draft_intake(context, complete=complete, structure=structure)
     write_drafted_intake(Path(output_path), draft)
 
     counts = draft.counts()
@@ -312,6 +321,30 @@ def draft_intake_workbook(context_path: str, output_path: str,
     logger.info("%d point(s) flagged for review. Wrote %s",
                 len(draft.review_notes), output_path)
     return DraftResult(draft=draft, path=output_path)
+
+
+def _evidence_beside(context_path: str) -> Optional[str]:
+    """The evidence record ingest wrote alongside this context document, if it is still there.
+
+    ``ingest`` writes ``<prefix>_context.md`` and ``<prefix>_evidence.json`` together, so the one
+    can be found from the other and nobody has to pass both on the command line.
+    """
+    context = Path(context_path)
+    if not context.name.endswith("_context.md"):
+        return None
+    candidate = context.with_name(context.name[: -len("_context.md")] + "_evidence.json")
+    return str(candidate) if candidate.exists() else None
+
+
+def _diagram_structure(evidence_path: Optional[str]) -> Optional[dict]:
+    """The workflow read from submitted diagrams, where ingestion recorded one."""
+    if not evidence_path or not Path(evidence_path).exists():
+        return None
+    try:
+        return record_from_json(Path(evidence_path)).structure or None
+    except (OSError, ValueError) as exc:
+        logger.warning("Could not read the evidence record for the diagram structure: %s", exc)
+        return None
 
 
 @dataclass

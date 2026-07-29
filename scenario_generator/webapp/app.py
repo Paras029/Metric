@@ -231,7 +231,8 @@ def _run_intake(workspace: Workspace) -> Dict[str, object]:
             raise ValueError(
                 "No intake workbook, and no documents have been read to draft one from. Either "
                 "upload a completed intake here, or add documents on the first stage.")
-        draft_intake_workbook(str(context), str(workspace.root / DRAFT_INTAKE))
+        draft_intake_workbook(str(context), str(workspace.root / DRAFT_INTAKE),
+                              evidence_path=str(workspace.root / EVIDENCE))
         workspace.state("intake").artifacts["workbook"] = DRAFT_INTAKE
         logger.info("Drafted an intake from the context document.")
 

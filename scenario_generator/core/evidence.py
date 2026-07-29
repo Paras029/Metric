@@ -195,6 +195,16 @@ class EvidenceRecord:
     claims: List[Claim] = field(default_factory=list)
     answers: List[FacetAnswer] = field(default_factory=list)
 
+    structure: Dict[str, list] = field(default_factory=dict)
+    """The decision graph read out of submitted workflow diagrams, if any were submitted.
+
+    Carried as structure rather than only as prose because a workflow diagram *is* the intake's
+    decision and state sheets, and the pass that drafts the intake can confirm and complete a
+    graph far more reliably than it can rebuild one from sentences about a graph. The prose
+    reading of the same diagrams is in :attr:`claims` alongside it; this is the part that has a
+    shape. See :mod:`scenario_generator.ingest.diagram_structure`.
+    """
+
     def answer_for(self, facet: str) -> Optional["FacetAnswer"]:
         return next((a for a in self.answers if a.facet == facet), None)
 
@@ -261,7 +271,8 @@ class EvidenceRecord:
     def to_dict(self) -> dict:
         return {"documents": [asdict(d) for d in self.documents],
                 "claims": [asdict(c) for c in self.claims],
-                "answers": [asdict(a) for a in self.answers]}
+                "answers": [asdict(a) for a in self.answers],
+                "structure": dict(self.structure)}
 
     @classmethod
     def from_dict(cls, data: dict) -> "EvidenceRecord":
@@ -271,7 +282,8 @@ class EvidenceRecord:
             raw = dict(raw)
             claims.append(Claim(source=SourceRef(**raw.pop("source", {})), **raw))
         answers = [FacetAnswer(**a) for a in data.get("answers", [])]
-        return cls(documents=documents, claims=claims, answers=answers)
+        return cls(documents=documents, claims=claims, answers=answers,
+                   structure=data.get("structure") or {})
 
 
 def group_by_facet(claims: Iterable[Claim]) -> "OrderedDict[str, List[Claim]]":

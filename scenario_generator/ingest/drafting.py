@@ -39,6 +39,23 @@ INPUT_SOURCES = ("User", "Tool", "Memory-Session", "Memory-CrossSession", "Syste
 OUTCOME_TYPES = ("Happy path", "Retry", "Fallback", "Escalation", "Termination")
 CONFIDENCE = ("High", "Medium", "Low")
 
+def _structure_block(structure: Optional[dict]) -> str:
+    """The diagram-derived graph as a prompt section, or a line saying there was not one."""
+    from . import diagram_structure
+
+    if not structure or diagram_structure.is_empty(structure):
+        return ("No workflow diagram was submitted, or none could be read. Build the graph below "
+                "from the prose above.")
+    return (
+        "A workflow diagram was submitted and read into the structure below, box by box. It is "
+        "already in the shape you are being asked for, so **start from it**: carry it through, "
+        "correct it where the documents above contradict it, and add what it does not cover. It "
+        "was read off an image and could not be checked against any text, so it is a draft to "
+        "confirm rather than a fact -- but a branch drawn on a diagram and mentioned nowhere in "
+        "the prose is still a real branch, and dropping it would leave it untested.\n\n"
+        + diagram_structure.render(structure))
+
+
 _L1_KEYS = [
     ("Use case name", "name"),
     ("Business objective", "objective"),
@@ -70,10 +87,19 @@ class DraftedIntake:
                 for part in ("personas", "capabilities", "decisions", "states", "tools")}
 
 
-def draft_intake(context: str, complete: Optional[Callable[..., str]] = None) -> DraftedIntake:
-    """Ask for a filled intake, given everything the documents established."""
+def draft_intake(context: str, complete: Optional[Callable[..., str]] = None,
+                 structure: Optional[dict] = None) -> DraftedIntake:
+    """Ask for a filled intake, given everything the documents established.
+
+    ``structure`` is the decision graph read out of any submitted workflow diagrams, in the
+    intake's own vocabulary. It is passed separately from the prose context rather than only
+    rendered into it, because it is the one part of the reading that already has the shape being
+    asked for -- confirming and completing a graph is a far more reliable job than rebuilding one
+    from sentences describing it, and a diagram is frequently the only place a branch is drawn.
+    """
     complete = complete or ask_llm
-    user = prompt_loader.render(_DRAFT_PROMPT, context=context)
+    user = prompt_loader.render(_DRAFT_PROMPT, context=context,
+                                structure=_structure_block(structure))
     system = prompt_loader.load(_SYSTEM_PROMPT)
 
     try:

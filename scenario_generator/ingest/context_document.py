@@ -20,6 +20,7 @@ from collections import OrderedDict
 from typing import List
 
 from ..core.evidence import BLOCKING_ORDER, FACETS, EvidenceRecord
+from . import diagram_structure
 
 FACET_HEADINGS = {
     "use_case": "What the agent is for",
@@ -80,6 +81,13 @@ def build_context_document(record: EvidenceRecord, use_case_name: str = "") -> s
     else:
         lines.append("- none")
     lines.append("")
+
+    if not diagram_structure.is_empty(record.structure or {}):
+        lines += ["## The workflow, as read from the submitted diagrams", "",
+                  "Read off the images box by box, then joined across them. Nothing here was "
+                  "checked against text -- a diagram cannot be quoted -- so treat it as a first "
+                  "draft of the structure to confirm rather than as established fact.", "",
+                  "```", diagram_structure.render(record.structure), "```", ""]
 
     claims = record.claims_by_id()
     answered = [f for f in FACETS
