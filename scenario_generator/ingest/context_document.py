@@ -16,6 +16,7 @@ it was built from.
 """
 from __future__ import annotations
 
+from collections import OrderedDict
 from typing import List
 
 from ..core.evidence import BLOCKING_ORDER, FACETS, EvidenceRecord
@@ -136,6 +137,35 @@ BLOCKING_REASONS = {
 }
 
 
+def _confirmation_groups(record: EvidenceRecord) -> List[dict]:
+    """Claims needing confirmation, one entry per facet rather than one per claim.
+
+    A single workflow diagram routinely reads out several dozen individual observations, and none
+    of them changes what the intake needs to declare -- each one needs the same thing, a person's
+    glance to say it was read right. Listing every one as its own question turns one diagram into
+    a wall of near-identical rows; grouping them by the part of the intake they inform is the same
+    review; with a fraction of the scrolling.
+    """
+    grouped: "OrderedDict[str, list]" = OrderedDict()
+    for claim in record.needing_confirmation():
+        grouped.setdefault(claim.facet, []).append(claim)
+
+    groups = []
+    for facet, claims in grouped.items():
+        plural = "" if len(claims) == 1 else "s"
+        groups.append({
+            "kind": "confirm",
+            "facet": facet,
+            "blocks": "",
+            "heading": FACET_HEADINGS.get(facet, facet),
+            "question": f"Confirm {len(claims)} statement{plural} for "
+                        f"{FACET_HEADINGS.get(facet, facet).lower()}, read from a source that "
+                        f"cannot be checked against text (a diagram, usually)",
+            "detail": "\n".join(f"• {claim.statement}" for claim in claims),
+        })
+    return groups
+
+
 def open_questions(record: EvidenceRecord) -> List[dict]:
     """What still needs answering, as a list a person can work through, most blocking first.
 
@@ -143,7 +173,9 @@ def open_questions(record: EvidenceRecord) -> List[dict]:
     be trusted. A question nothing addressed is a gap in the submitted pack. A specific point an
     answer could not settle is a gap inside an otherwise good answer, and is usually the more
     useful of the two, since it is precise enough to be answered in a sentence. A statement that
-    could not be checked against text needs confirming before anything rests on it.
+    could not be checked against text needs confirming before anything rests on it -- these are
+    grouped one entry per facet rather than one per statement, since a diagram alone can produce
+    dozens and every one of them asks the same thing of the reader.
 
     Only the unknowns the resolution sweep judged to stop the intake being filled in appear here.
     Everything else stays in the evidence record and in the context document, where it is a note
@@ -184,15 +216,7 @@ def open_questions(record: EvidenceRecord) -> List[dict]:
                 blocks, "The documents answered this question in part, but not this."),
         })
 
-    for claim in record.needing_confirmation():
-        questions.append({
-            "kind": "confirm",
-            "facet": claim.facet,
-            "blocks": "",
-            "heading": FACET_HEADINGS.get(claim.facet, claim.facet),
-            "question": f"Is this correct? {claim.statement}",
-            "detail": claim.note or f"Taken from {claim.source}, and not checkable against text.",
-        })
+    questions += _confirmation_groups(record)
 
     kinds = {"gap": 0, "unknown": 1, "confirm": 2}
     questions.sort(key=lambda q: (kinds.get(q["kind"], 3),

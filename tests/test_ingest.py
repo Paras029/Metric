@@ -203,6 +203,31 @@ class TestDiagrams(unittest.TestCase):
         self.assertTrue(diagram_claims)
         self.assertTrue(diagram_claims[0].needs_confirmation)
 
+    def test_diagram_confirmations_are_grouped_by_facet_not_one_per_observation(self):
+        """A single diagram can produce dozens of observations; each becoming its own question
+        would flood the open-questions list with rows that all ask the same thing."""
+        def describe_one(system, user, images, **kwargs):
+            return json.dumps({"description": "A readable diagram."})
+
+        complete = self._synthesizing([
+            {"facet": "decisions", "statement": "Auth check branches to pass or fail.",
+             "quote": "Auth check", "locator": "top left"},
+            {"facet": "decisions", "statement": "Escalation follows three failures.",
+             "quote": "Escalate", "locator": "bottom right"},
+            {"facet": "states", "statement": "A locked state ends the call.",
+             "quote": "Locked", "locator": "bottom"},
+        ])
+
+        record = extract_documents([_write("notes.md", _SCATTERED), self._png()],
+                                   complete=complete, describe_images=describe_one)
+        confirmations = [q for q in open_questions(record) if q["kind"] == "confirm"]
+
+        self.assertEqual(len(confirmations), 2)               # one per facet, not one per claim
+        decisions = next(q for q in confirmations if q["facet"] == "decisions")
+        self.assertIn("Auth check branches to pass or fail.", decisions["detail"])
+        self.assertIn("Escalation follows three failures.", decisions["detail"])
+        self.assertIn("2 statement", decisions["question"])
+
     def test_several_images_are_read_on_their_own_then_put_together(self):
         """Each image is described without seeing the others; the synthesis call is given every
         description together, and is the only one that has to make sense of all of them at once."""

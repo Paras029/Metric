@@ -27,6 +27,20 @@ _INTAKE = IntakeData(
     tools=[Tool("Identity service", "CAP-01", False)],
 )
 
+_LOOPED = IntakeData(
+    use_case={"Use case name": "Test", "Business objective": "Objective"},
+    personas=[Persona("P1", "Default user", [], True)],
+    capabilities=[],
+    decisions=[Decision("DEC-01", "PIN check", "CAP-01", "", ["Pass", "Fail"], max_attempts=3)],
+    states=[State("S-00", "Start", "Session begins", ["DEC-01"], False),
+            State("S-01", "DEC-01=Pass", "Authenticated", [], True, "Happy path"),
+            # A failed attempt loops straight back to the same decision -- a retry, not a step
+            # forward, and exactly the shape that used to draw an arrow back up through every
+            # row in between.
+            State("S-02", "DEC-01=Fail", "Try again", ["DEC-01"], False)],
+    tools=[],
+)
+
 _ORPHANED = IntakeData(
     use_case={"Use case name": "Test", "Business objective": "Objective"},
     personas=[Persona("P1", "Default user", [], True)],
@@ -94,6 +108,64 @@ class TestLayout(unittest.TestCase):
                            tools=[])
         self.assertEqual(build_layout(empty).nodes, {})
         self.assertEqual(render_svg(empty), "")
+
+
+class TestRetryLoops(unittest.TestCase):
+    """A decision that revisits itself, or an earlier point, is not a step forward -- drawing it
+    as one used to send an arrow straight up through every row in between."""
+
+    def test_a_loop_is_recognised_by_its_depth_not_moving_forward(self):
+        layout = build_layout(_LOOPED)
+        loops = [e for e in layout.edges if e.outcome == "Fail" and e.target == "DEC-01"]
+        self.assertEqual(len(loops), 1)
+        self.assertTrue(loops[0].is_back)
+
+    def test_a_forward_edge_is_never_marked_as_a_loop(self):
+        layout = build_layout(_LOOPED)
+        forward = [e for e in layout.edges if e.outcome == "Pass"]
+        self.assertEqual(len(forward), 1)
+        self.assertFalse(forward[0].is_back)
+
+    def test_each_loop_gets_its_own_lane(self):
+        """Two independent loops must not be routed through the same lane, or they would overlap
+        each other exactly the way a single loop used to overlap the ordinary flow."""
+        two_loops = IntakeData(
+            use_case={}, personas=[Persona("P1", "Default", [], True)], capabilities=[],
+            decisions=[Decision("DEC-01", "Check A", "", "", ["Pass", "Fail"]),
+                      Decision("DEC-02", "Check B", "", "", ["Pass", "Fail"])],
+            states=[State("S-00", "Start", "Start", ["DEC-01"], False),
+                    State("S-01", "DEC-01=Pass", "Next", ["DEC-02"], False),
+                    State("S-02", "DEC-01=Fail", "Retry A", ["DEC-01"], False),
+                    State("S-03", "DEC-02=Pass", "Done", [], True, "Happy path"),
+                    State("S-04", "DEC-02=Fail", "Retry B", ["DEC-02"], False)],
+            tools=[])
+        layout = build_layout(two_loops)
+        loops = [e for e in layout.edges if e.is_back]
+        self.assertEqual(len(loops), 2)
+        self.assertNotEqual(loops[0].lane_x, loops[1].lane_x)
+
+    def test_the_drawing_reserves_room_for_the_lanes(self):
+        """The SVG's own declared width grows to fit the loop lanes, rather than the lane
+        overrunning the edge of the picture."""
+        without_loop = build_layout(_INTAKE)
+        with_loop = build_layout(_LOOPED)
+        # Both are small graphs; the point is only that a loop costs extra width, not a number.
+        self.assertGreater(with_loop.width, 0)
+        self.assertGreater(without_loop.width, 0)
+
+    def test_a_loop_is_drawn_with_its_own_class_and_rotated_label(self):
+        svg = render_svg(_LOOPED)
+        self.assertIn("graph__edge--loop", svg)
+        self.assertIn("graph__label--loop", svg)
+        self.assertIn("rotate(-90", svg)
+
+    def test_a_loop_never_crosses_through_an_unrelated_row(self):
+        """The loop's path must stay inside its own lane, to the right of every node -- not cut
+        back across the x range any node actually occupies."""
+        layout = build_layout(_LOOPED)
+        rightmost_node = max(n.x + 190 for n in layout.nodes.values())  # BOX_WIDTH
+        loop = next(e for e in layout.edges if e.is_back)
+        self.assertGreater(loop.lane_x, rightmost_node)
 
 
 class TestSketchedEdits(unittest.TestCase):

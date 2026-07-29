@@ -29,10 +29,18 @@ from ..core.models import Decision, IntakeData, State
 
 BOX_WIDTH = 190
 BOX_HEIGHT = 62
-GAP_X = 40
-GAP_Y = 104
+GAP_X = 52
+GAP_Y = 116
 MARGIN = 28
 MAX_LABEL = 22
+
+# A retry loop -- a decision whose own outcome leads back to itself or to an earlier point in the
+# flow -- cannot be drawn as a normal top-to-bottom arrow without it cutting straight across every
+# row in between. Those edges are routed instead through a side lane: out the right of the source,
+# down (or up) a dedicated vertical lane past the edge of the ordinary flow, and back in the right
+# of the target. Each such edge gets its own lane so two loops never run on top of each other.
+LOOP_LANE_GAP = 30
+LOOP_MARGIN = 34
 
 START = "start"
 DECISION = "decision"
@@ -68,6 +76,14 @@ class Edge:
     state_label: str
     detail: str
     pending: bool = False
+
+    is_back: bool = False
+    """Whether this edge points back to the same depth or an earlier one -- a retry loop rather
+    than a step forward. Set once depths are known, and what decides whether it is drawn as an
+    ordinary arrow or routed through a side lane."""
+
+    lane_x: float = 0.0
+    """Where a back edge's side lane sits. Unused for an ordinary forward edge."""
 
 
 @dataclass
@@ -188,6 +204,14 @@ def build_layout(intake: IntakeData, pending_decisions: Sequence[str] = (),
 
     _assign_depths(layout)
 
+    # A retry loop is any edge that does not move forward: the BFS above gave every node the
+    # depth of the *shortest* way to reach it, so an edge landing at that node's own depth or
+    # shallower is, by construction, not the path that produced that depth -- it is a loop back.
+    for edge in layout.edges:
+        source, target = layout.nodes.get(edge.source), layout.nodes.get(edge.target)
+        if source and target:
+            edge.is_back = target.depth <= source.depth
+
     # A state nobody can reach is a defect in the declaration, not something to hide.
     reachable = {e.target for e in layout.edges} | {_START_ID}
     layout.unreachable = sorted(
@@ -233,16 +257,28 @@ def _place(layout: Layout) -> None:
         rows.setdefault(node.depth, []).append(node)
 
     widest = max((len(row) for row in rows.values()), default=1)
-    layout.width = MARGIN * 2 + widest * BOX_WIDTH + (widest - 1) * GAP_X
+    content_width = MARGIN * 2 + widest * BOX_WIDTH + (widest - 1) * GAP_X
     layout.height = MARGIN * 2 + len(rows) * BOX_HEIGHT + (len(rows) - 1) * GAP_Y
 
     for depth, row in sorted(rows.items()):
         row.sort(key=lambda n: (n.kind == TERMINAL, n.id))
         span = len(row) * BOX_WIDTH + (len(row) - 1) * GAP_X
-        left = (layout.width - span) / 2
+        left = (content_width - span) / 2
         for column, node in enumerate(row):
             node.x = left + column * (BOX_WIDTH + GAP_X)
             node.y = MARGIN + depth * (BOX_HEIGHT + GAP_Y)
+
+    # Back edges get their own lane, in a strip appended to the right of the ordinary flow --
+    # never inside it, so a loop can never run across a row it does not belong to. Longer loops
+    # (more rows spanned) are given the outer lanes, so a short loop nested inside a long one
+    # still reads as nested rather than crossing it.
+    back_edges = sorted((e for e in layout.edges if e.is_back),
+                        key=lambda e: abs(layout.nodes[e.target].depth - layout.nodes[e.source].depth))
+    for index, edge in enumerate(back_edges):
+        edge.lane_x = content_width + LOOP_MARGIN + index * LOOP_LANE_GAP
+
+    layout.width = content_width + (LOOP_MARGIN + len(back_edges) * LOOP_LANE_GAP
+                                    if back_edges else 0)
 
 
 def _wrap(text: str, limit: int = MAX_LABEL, lines: int = 2) -> List[str]:
@@ -266,7 +302,18 @@ def _wrap(text: str, limit: int = MAX_LABEL, lines: int = 2) -> List[str]:
     return out
 
 
-def _edge_path(source: Node, target: Node) -> str:
+def _edge_path(edge: Edge, source: Node, target: Node) -> str:
+    """The arrow's path: a plain top-to-bottom curve for a forward step, or a routed side lane
+    for a retry loop -- see :attr:`Edge.is_back`. A loop drawn the ordinary way would run bottom
+    to top straight through whatever rows sit between the two, which is exactly the overlap this
+    exists to avoid: it leaves the flow on the right of the source, travels its own lane past the
+    edge of the ordinary rows, and re-enters the target from the right as well."""
+    if edge.is_back:
+        x1, y1 = source.x + BOX_WIDTH, source.y + BOX_HEIGHT / 2
+        x2, y2 = target.x + BOX_WIDTH, target.y + BOX_HEIGHT / 2
+        return (f"M {x1:.1f} {y1:.1f} L {edge.lane_x:.1f} {y1:.1f} "
+                f"L {edge.lane_x:.1f} {y2:.1f} L {x2:.1f} {y2:.1f}")
+
     x1, y1 = source.x + BOX_WIDTH / 2, source.y + BOX_HEIGHT
     x2, y2 = target.x + BOX_WIDTH / 2, target.y
     if abs(x1 - x2) < 1:
@@ -274,6 +321,16 @@ def _edge_path(source: Node, target: Node) -> str:
     midpoint = (y1 + y2) / 2
     return (f"M {x1:.1f} {y1:.1f} C {x1:.1f} {midpoint:.1f} "
             f"{x2:.1f} {midpoint:.1f} {x2:.1f} {y2:.1f}")
+
+
+def _label_position(edge: Edge, source: Node, target: Node) -> tuple:
+    """Where an edge's outcome label sits -- along the lane for a loop, at the midpoint otherwise."""
+    if edge.is_back:
+        y1, y2 = source.y + BOX_HEIGHT / 2, target.y + BOX_HEIGHT / 2
+        return edge.lane_x, (y1 + y2) / 2
+    mid_x = (source.x + target.x) / 2 + BOX_WIDTH / 2
+    mid_y = (source.y + BOX_HEIGHT + target.y) / 2
+    return mid_x, mid_y
 
 
 def _edge_label(edge: Edge) -> str:
@@ -303,22 +360,26 @@ def render_svg(intake: IntakeData, pending_decisions: Sequence[str] = (),
         source, target = layout.nodes.get(edge.source), layout.nodes.get(edge.target)
         if not source or not target:
             continue
-        classes = "graph__edge" + (" graph__edge--pending" if edge.pending else "")
+        classes = "graph__edge" + (" graph__edge--pending" if edge.pending else "") + \
+            (" graph__edge--loop" if edge.is_back else "")
         parts.append(
             f'<g class="{classes}"><title>{html.escape(edge.detail)}</title>'
-            f'<path d="{_edge_path(source, target)}" marker-end="url(#arrow)"/></g>')
+            f'<path d="{_edge_path(edge, source, target)}" marker-end="url(#arrow)"/></g>')
 
-    # Labels are drawn after every edge so no path crosses over the text.
+    # Labels are drawn after every edge so no path crosses over the text. A loop's label is
+    # rotated to run along its lane -- upright, it would need the label's full text width just to
+    # fit between two lanes 30px apart, which no reasonable width leaves room for.
     for edge in layout.edges:
         source, target = layout.nodes.get(edge.source), layout.nodes.get(edge.target)
         if not source or not target:
             continue
         label = _edge_label(edge)
-        mid_x = (source.x + target.x) / 2 + BOX_WIDTH / 2
-        mid_y = (source.y + BOX_HEIGHT + target.y) / 2
+        mid_x, mid_y = _label_position(edge, source, target)
         width = len(label) * 5.6 + 14
+        classes = "graph__label" + (" graph__label--loop" if edge.is_back else "")
+        rotate = f' transform="rotate(-90 {mid_x:.1f} {mid_y:.1f})"' if edge.is_back else ""
         parts.append(
-            f'<g class="graph__label"><title>{html.escape(edge.detail)}</title>'
+            f'<g class="{classes}"{rotate}><title>{html.escape(edge.detail)}</title>'
             f'<rect x="{mid_x - width / 2:.1f}" y="{mid_y - 9:.1f}" width="{width:.1f}" '
             f'height="17" rx="8.5"/>'
             f'<text x="{mid_x:.1f}" y="{mid_y + 3.5:.1f}" text-anchor="middle">'

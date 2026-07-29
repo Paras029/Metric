@@ -44,17 +44,21 @@ weeks and arriving with the same intake you could have built on day one.
 
 So do not ask for:
 
-- a threshold, limit or timeout where the branch it governs is already named. Knowing that
-  escalation happens is enough to test escalation; the exact number is not needed to write the
-  scenario.
+- a threshold, limit, timeout, dollar amount, percentage or exact wording that *selects* a branch
+  already named. Knowing that escalation happens, and what it leads to, is enough to test
+  escalation; the exact value or rule that triggers it is not needed to write the scenario. A
+  tester needs to be able to *induce* the branch, and "push it past the stated limit" induces it
+  just as well as the number itself would.
 - retry counts, timings, SLAs, latency budgets, volumes.
 - which team owns a system, which vendor supplies it, versions, release history.
 - internal implementation: models used, prompt wording, frameworks, infrastructure.
 - confirmation of something a related answer already covers adequately.
 - anything you are asking mainly because it would be nice to be sure.
 
-An unstated threshold is normal and testable. An unnamed branch outcome is not, and that is the
-distinction this whole judgement turns on.
+The test throughout is the same one: does a scenario need this fact to be written, or only to
+know that a branch exists and where it leads? An unstated threshold, amount or exact rule is
+normal and testable regardless. An unnamed branch outcome is not, and that is the distinction
+this whole judgement turns on.
 
 BOTH DIRECTIONS COST SOMETHING
 

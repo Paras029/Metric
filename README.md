@@ -234,12 +234,24 @@ it was before you ran it, ready to run again rather than stuck looking failed.
 **Stage 2** lists only what blocks the intake, most blocking first, each saying which part it
 blocks. Answer as many as you can and press Save once; blanks stay open, and an answer already
 given can be changed. Anything the documents left open that does not block the intake sits behind
-a toggle.
+a toggle. The triage judging what "blocks the intake" means is deliberately conservative about
+what counts: a scenario needs to know that a branch exists and where it leads, not the exact
+value, threshold or wording that selects it, so an unstated dollar figure or timeout is not put to
+you as long as the branch it governs is already named. Statements read off a diagram — which can
+run to dozens for one workflow image — are grouped into one confirmation per part of the intake
+rather than one per statement, so confirming them is one read of a short list rather than dozens
+of near-identical rows.
 
 **Stage 3** draws the graph: **boxes are decisions**, **arrows are the states between them**,
 labelled with the outcome that took them there. Zoom, drag to pan, hover for detail. Below it,
 what the declaration leaves out — a branch with one outcome, an outcome leading nowhere, a state
 nothing reaches — each said as something you can go and fix.
+
+A retry — a decision whose failed outcome leads back to itself or an earlier point — is drawn as a
+dashed loop through a lane on the right rather than a straight arrow back up through the rows in
+between. That is usually most of what used to make a branchy graph look tangled: an ordinary
+top-to-bottom flow with every retry routed the same way it happens (Max Attempts almost always
+means a loop) rather than crossing back over everything drawn since.
 
 You can also try a change before committing it. Add a decision or a state and it appears in the
 graph immediately, dashed; anything not yet connected sits in a row underneath until you give it
