@@ -30,3 +30,10 @@ Pillow
 # line: the development environment usually has a newer Flask than the machine this runs on, so
 # a 2.0-only convenience passes every test here and fails where it matters.
 flask
+
+# PII/BI redaction, run on every submitted document before any of it reaches a model call -- see
+# ingest/redaction.py and PII_REDACTION in .env.example. Not on the internal index: it is an
+# editable local install from wherever your team keeps the pii-redactor package, e.g.
+#     pip install -e "C:\path\to\pii-redactor"
+# Left out of this file for that reason -- add it to your own environment, not here, since a path
+# on your machine has no meaning in anyone else's.

@@ -15,12 +15,15 @@ makes it slower without making it better.
 Every tier defaults to the main model, so nothing changes until a smaller one is configured. That
 matters where a new model has to clear an approval before it can be used.
 """
+import logging
 import os
 from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # --------------------------------------------------------------------------- SafeChain
 #
@@ -76,6 +79,54 @@ LLM_VISION = os.getenv("LLM_VISION", "on").strip().lower() not in ("0", "off", "
 MAX_IMAGE_BYTES = int(os.getenv("LLM_MAX_IMAGE_BYTES", "4000000"))
 
 DEFAULT_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.3"))
+
+
+# --------------------------------------------------------------------------- redaction
+#
+# Submitted documents routinely carry names, account numbers and other business-sensitive
+# material that has no reason to reach a model call. Every segment ingestion reads a document
+# into is redacted before it is joined into a corpus -- see ingest/redaction.py, which is the
+# only place these are read. Off by default so the tool runs unmodified wherever the internal
+# redaction package (pii-redactor, built on ee_utils.redaction) has not been installed; turn it
+# on once it has, for anything but a local run against material that was never sensitive.
+PII_REDACTION = os.getenv("PII_REDACTION", "off").strip().lower() not in ("0", "off", "false", "no")
+
+# masking | substitution | disabled, and the text a masked span is replaced with.
+PII_REDACTION_MODE = os.getenv("PII_REDACTION_MODE", "masking")
+PII_REDACTION_REPLACEMENT_TEXT = os.getenv("PII_REDACTION_REPLACEMENT_TEXT", "[REDACTED]")
+
+# strict | balanced | loose -- how aggressive the engine's fallback masking is. Left unset
+# (rather than defaulted here) so the engine's own default applies unless a value is given.
+PII_REDACTION_SENSITIVITY = os.getenv("PII_REDACTION_SENSITIVITY", "").strip() or None
+
+
+def _csv(raw: str) -> list:
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+# Detector labels to switch off, and terms to leave alone regardless of what the engine would
+# otherwise mask -- both comma-separated, e.g. PII_REDACTION_ALLOW=American Express,New York.
+PII_REDACTION_EXCLUDE_ENTITIES = _csv(os.getenv("PII_REDACTION_EXCLUDE_ENTITIES", ""))
+PII_REDACTION_ALLOW = _csv(os.getenv("PII_REDACTION_ALLOW", ""))
+
+
+def _thresholds(raw: str) -> dict:
+    """``name=score,name=score`` from the environment, as the ``{"name": {"score": score}}``
+    shape the engine expects -- e.g. PII_REDACTION_THRESHOLDS=secondary_pii_email=0.7."""
+    thresholds = {}
+    for item in _csv(raw):
+        name, _, score = item.partition("=")
+        name, score = name.strip(), score.strip()
+        if not name or not score:
+            continue
+        try:
+            thresholds[name] = {"score": float(score)}
+        except ValueError:
+            logger.warning("PII_REDACTION_THRESHOLDS: '%s' is not name=score; ignored.", item)
+    return thresholds
+
+
+PII_REDACTION_THRESHOLDS = _thresholds(os.getenv("PII_REDACTION_THRESHOLDS", ""))
 
 
 # How many times a call is retried before it is reported as failed, where a tier does not set its

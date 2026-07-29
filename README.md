@@ -216,6 +216,12 @@ Every submitted document is named in the reading prompt and the result says whic
 actually rested on. A file that informed nothing is reported: it is either irrelevant or it was
 passed over, and those need different responses.
 
+**Redaction.** With `PII_REDACTION=on` (see Configuration), every passage a document is read into
+is redacted before it is joined into a corpus and before any of it reaches a model call — names,
+account numbers and other business-sensitive material never leave your machine unredacted. This
+is not a best-effort pass: if the redaction engine cannot be reached, ingestion stops rather than
+sending the document through unredacted.
+
 Each stage states how its output was produced — **computed**, **model judgement**, or **human
 decision** — because a materiality tier and a graph walk do not deserve the same trust.
 
@@ -425,6 +431,14 @@ LLM_MAX_OPEN_QUESTIONS           Default 6. How many questions are shown at once
 LLM_MAX_CONCURRENCY              Default 4. How many batched calls run at once.
 LLM_VISION                       "off" where the model does not accept images.
 LLM_MAX_IMAGE_BYTES              Default 4000000.
+PII_REDACTION                    Default "off". Redact submitted documents before any
+                                 model call. Requires the internal pii-redactor package.
+PII_REDACTION_MODE               Default "masking".
+PII_REDACTION_REPLACEMENT_TEXT   Default "[REDACTED]".
+PII_REDACTION_SENSITIVITY        strict | balanced | loose. Blank takes the engine default.
+PII_REDACTION_EXCLUDE_ENTITIES   Comma-separated detector labels to switch off.
+PII_REDACTION_ALLOW              Comma-separated terms to never mask.
+PII_REDACTION_THRESHOLDS         Comma-separated name=score pairs.
 ```
 
 Each tier's values are bound to its model with LangChain's `bind`, so a chain carries its own cap
