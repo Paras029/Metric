@@ -412,16 +412,23 @@
                   <span class="card__id mono">{{ row.id }}</span>
                   <span class="card__title">{{ row.title }}</span>
                   <span class="card__marks">
-                    {% if row.flag %}
-                      <span class="mark mark--flag">{{ row.flag }}</span>
+                    {% if 'review' in benchmark.shows %}
+                      {% if row.flag %}
+                        <span class="mark mark--flag">{{ row.flag }}</span>
+                      {% endif %}
+                      {% if row.is_proposed %}<span class="mark mark--new">Proposed</span>{% endif %}
+                      {% if row.category_changed %}
+                        <span class="mark mark--flag">Category</span>
+                      {% endif %}
                     {% endif %}
-                    {% if row.is_proposed %}<span class="mark mark--new">Proposed</span>{% endif %}
-                    {% if row.coverage %}
+                    {% if 'coverage' in benchmark.shows and row.coverage %}
                       <span class="mark mark--covered">{{ row.coverage }}</span>
                     {% endif %}
-                    <span class="mark mark--tier mark--tier-{{ row.materiality | lower }}">
-                      {{ row.materiality }}
-                    </span>
+                    {% if 'materiality' in benchmark.shows %}
+                      <span class="mark mark--tier mark--tier-{{ row.materiality | lower }}">
+                        {{ row.materiality }}
+                      </span>
+                    {% endif %}
                   </span>
                 </summary>
 
@@ -438,28 +445,37 @@
                     <span>{{ row.persona }}</span>
                     <span>{{ row.turns }} turn{{ '' if row.turns == 1 else 's' }}</span>
                     {% if row.category %}<span>{{ row.category }}</span>{% endif %}
-                    <span>{{ row.runs }} run{{ '' if row.runs == 1 else 's' }} requested</span>
+                    {% if 'materiality' in benchmark.shows %}
+                      <span>{{ row.runs }} run{{ '' if row.runs == 1 else 's' }} requested</span>
+                    {% endif %}
                   </p>
 
-                  {% if row.materiality_reason %}
+                  {% if 'materiality' in benchmark.shows and row.materiality_reason %}
                     <p class="card__why">
                       <strong>{{ row.materiality }}</strong>, from {{ row.materiality_source }} —
                       {{ row.materiality_reason }}
                     </p>
-                  {% elif row.overridden %}
+                  {% elif 'materiality' in benchmark.shows and row.overridden %}
                     <p class="card__why"><strong>{{ row.materiality }}</strong> — your override.</p>
                   {% endif %}
-                  {% if row.flag_reason %}
+                  {% if 'review' in benchmark.shows and row.category_changed %}
+                    <p class="card__why card__why--flag">
+                      <strong>Reads as {{ row.category }}</strong>, not
+                      {{ row.declared_category }} as declared — {{ row.category_reason }}
+                      The fix is the Outcome Type on that state in the intake workbook.
+                    </p>
+                  {% endif %}
+                  {% if 'review' in benchmark.shows and row.flag_reason %}
                     <p class="card__why card__why--flag">
                       <strong>{{ row.flag }}</strong> — {{ row.flag_reason }}
                     </p>
                   {% endif %}
-                  {% if row.proposal_reason %}
+                  {% if 'review' in benchmark.shows and row.proposal_reason %}
                     <p class="card__why">
                       <strong>Proposed</strong> — {{ row.proposal_reason }}
                     </p>
                   {% endif %}
-                  {% if row.coverage_note %}
+                  {% if 'coverage' in benchmark.shows and row.coverage_note %}
                     <p class="card__why">
                       <strong>{{ row.coverage }}</strong> by their own testing
                       ({{ row.coverage_note }}). Left in the pack — whether to run it again is
@@ -467,6 +483,7 @@
                     </p>
                   {% endif %}
 
+                  {% if 'materiality' in benchmark.shows %}
                   <form class="card__rule" method="post"
                         action="{{ url_for('rule_on_scenario', key=stage.key, scenario_id=row.id) }}">
                     <input type="hidden" name="view" value="{{ benchmark.view }}">
@@ -489,6 +506,7 @@
                     {% endif %}
                     <button class="button button--quiet" type="submit">Save</button>
                   </form>
+                  {% endif %}
                 </div>
               </details>
             </li>

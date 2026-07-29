@@ -29,6 +29,25 @@ VIEWS = (
     ("all", "All scenarios"),
 )
 
+# Which columns a stage has actually produced by the time you are reading it, cumulative down
+# the pipeline. The reason to scope this rather than always show everything is that most of these
+# fields have a *default* -- every scenario carries "Medium" from the moment it is built -- and a
+# tier shown on the scenario-text page reads as a judgement when it is only an unset field. The
+# same goes for a run count derived from it, and for review columns nothing has filled in yet.
+#
+# Going back to an earlier stage therefore shows that stage's own reading rather than the current
+# state of the registry, which is the other half of the same idea: what you are looking at is what
+# that stage produced, not what later stages have since made of it.
+TEXT, MATERIALITY_COLUMNS, REVIEW, COVERAGE = "text", "materiality", "review", "coverage"
+
+STAGE_COLUMNS = {
+    "text": (TEXT,),
+    "materiality": (TEXT, MATERIALITY_COLUMNS),
+    "review": (TEXT, MATERIALITY_COLUMNS, REVIEW),
+    "coverage": (TEXT, MATERIALITY_COLUMNS, REVIEW, COVERAGE),
+    "issue": (TEXT, MATERIALITY_COLUMNS, REVIEW, COVERAGE),
+}
+
 ORIGIN_LABELS = {"graph": "Route", "probe": "Probe", "llm-proposed": "Proposed"}
 
 # Beyond this the page stops being a page. The rest stay one click away in the workbook, and the
@@ -75,7 +94,10 @@ def to_row(scenario: Scenario) -> Dict[str, object]:
         "turn_plan": scenario.turn_plan,
         "persona": scenario.persona.name,
         "turns": scenario.turn_count,
-        "category": scenario.category,
+        "category": scenario.effective_category,
+        "category_changed": bool(scenario.review_category),
+        "category_reason": scenario.review_category_rationale,
+        "declared_category": scenario.category,
         "materiality": scenario.effective_materiality,
         "materiality_source": _materiality_source(scenario),
         "materiality_reason": _reason(scenario),
@@ -93,20 +115,35 @@ def needs_attention(row: Dict[str, object]) -> bool:
     """Whether this scenario is asking the reviewer for something.
 
     A flag is a recommendation waiting on a decision, a proposal is a scenario nothing enumerated,
-    and a covered scenario is a candidate to drop. All three are things only a person can settle.
+    a re-read category is a declaration that looks wrong, and a covered scenario is a candidate to
+    drop. All four are things only a person can settle.
     """
-    return bool(row["flag"] or row["is_proposed"] or row["coverage"])
+    return bool(row["flag"] or row["is_proposed"] or row["coverage"] or row["category_changed"])
 
 
-def build_rows(scenarios: List[Scenario], view: str = "attention") -> Dict[str, object]:
+def build_rows(scenarios: List[Scenario], view: str = "attention",
+               stage: str = "issue") -> Dict[str, object]:
     """The rows to show, the view that produced them, and what was left out.
 
     Returns the counts as well as the rows, because a filtered list that does not say what it
-    filtered is a list that quietly loses scenarios.
+    filtered is a list that quietly loses scenarios, and the set of columns this stage has
+    produced -- see :data:`STAGE_COLUMNS` for why that is scoped rather than always complete.
     """
-    ordering = {tier: index for index, tier in enumerate(reversed(MATERIALITY))}
-    rows = sorted((to_row(s) for s in scenarios),
-                  key=lambda r: (ordering.get(r["materiality"], len(MATERIALITY)), r["id"]))
+    shows = set(STAGE_COLUMNS.get(stage, STAGE_COLUMNS["issue"]))
+    rows = [to_row(s) for s in scenarios]
+
+    # Ordering by tier only says something once a tier has been assigned. Before that every
+    # scenario carries the same default and the sort is an illusion of ranking, so they stay in
+    # the order the benchmark built them.
+    if MATERIALITY_COLUMNS in shows:
+        ordering = {tier: index for index, tier in enumerate(reversed(MATERIALITY))}
+        rows.sort(key=lambda r: (ordering.get(r["materiality"], len(MATERIALITY)), r["id"]))
+    else:
+        rows.sort(key=lambda r: r["id"])
+
+    views = [v for v in VIEWS if v[0] == "all" or MATERIALITY_COLUMNS in shows]
+    if view not in {key for key, _ in views}:
+        view = views[0][0]
 
     attention = [r for r in rows if needs_attention(r)]
     if view == "attention" and attention:
@@ -122,7 +159,8 @@ def build_rows(scenarios: List[Scenario], view: str = "attention") -> Dict[str, 
     return {
         "rows": selected[:PAGE_SIZE],
         "view": view,
-        "views": VIEWS,
+        "views": tuple(views),
+        "shows": shows,
         "shown": min(len(selected), PAGE_SIZE),
         "selected": len(selected),
         "total": len(rows),

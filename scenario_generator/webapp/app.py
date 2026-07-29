@@ -19,6 +19,7 @@ approved -- writing to the older interface costs nothing and removes a dependenc
 from __future__ import annotations
 
 import logging
+import shutil
 from collections import Counter
 from pathlib import Path
 import threading
@@ -93,6 +94,31 @@ STAGE_OUTPUTS: Dict[str, tuple] = {
     "coverage": (OVERLAP,),
     "issue": (PACK,),
 }
+
+# Each scenario stage also keeps a copy of the registry as it left it -- see _save_registry. They
+# are listed against their own stage so that clearing one clears its snapshot with it, and a
+# cleared stage stops showing a reading it is no longer claiming to have produced.
+for _key in ("benchmark", "text", "materiality", "review", "coverage", "issue"):
+    STAGE_OUTPUTS[_key] = STAGE_OUTPUTS.get(_key, ()) + (f"registry.{_key}.xlsx",)
+
+
+def _snapshot(key: str) -> str:
+    """What a stage's own copy of the registry is called."""
+    return f"registry.{key}.xlsx"
+
+
+def _save_registry(workspace: Workspace, key: str, intake: IntakeData, scenarios) -> None:
+    """Write the live registry, and keep a copy of it as this stage left it.
+
+    Every stage from the benchmark onward rewrites one registry, which means going back to an
+    earlier stage's page would otherwise show what *later* stages have since made of it -- a
+    scenario-text page listing tiers assigned after it ran, and proposals that did not exist.
+    The snapshot is what lets each stage show its own reading. It is a copy of a file already
+    being written rather than a second format, so nothing has to stay in step with it.
+    """
+    write_registry(str(workspace.root / REGISTRY), intake, scenarios)
+    shutil.copyfile(workspace.root / REGISTRY, workspace.root / _snapshot(key))
+    workspace.state(key).artifacts["registry"] = REGISTRY
 
 
 def _intake(workspace: Workspace) -> IntakeData:
@@ -219,8 +245,7 @@ def _run_benchmark(workspace: Workspace) -> Dict[str, object]:
     """Enumerate every route through the declared graph and add the applicable probes."""
     intake = _intake(workspace)
     scenarios = build_scenarios(intake, with_probes=True)
-    write_registry(str(workspace.root / REGISTRY), intake, scenarios)
-    workspace.state("benchmark").artifacts["registry"] = REGISTRY
+    _save_registry(workspace, "benchmark", intake, scenarios)
 
     probes = sum(1 for s in scenarios if s.is_probe)
     return {"Scenarios": len(scenarios), "Routes through the graph": len(scenarios) - probes,
@@ -233,8 +258,7 @@ def _run_text(workspace: Workspace, progress=None, cancel=None) -> Dict[str, obj
     scenarios = _scenarios(workspace, intake)
     ScenarioWriter(context=_context(workspace), progress=progress,
                   cancel=cancel).write(scenarios, intake)
-    write_registry(str(workspace.root / REGISTRY), intake, scenarios)
-    workspace.state("text").artifacts["registry"] = REGISTRY
+    _save_registry(workspace, "text", intake, scenarios)
 
     written = sum(1 for s in scenarios if s.description)
     return {"Scenarios written": written, "Turns scripted": sum(s.turn_count for s in scenarios)}
@@ -246,8 +270,7 @@ def _run_materiality(workspace: Workspace, progress=None, cancel=None) -> Dict[s
     scenarios = _scenarios(workspace, intake)
     MaterialityAssessor(context=_context(workspace), progress=progress,
                         cancel=cancel).assess(scenarios, intake)
-    write_registry(str(workspace.root / REGISTRY), intake, scenarios)
-    workspace.state("materiality").artifacts["registry"] = REGISTRY
+    _save_registry(workspace, "materiality", intake, scenarios)
 
     tiers = Counter(s.effective_materiality for s in scenarios)
     return {tier: tiers.get(tier, 0) for tier in MATERIALITY}
@@ -261,8 +284,7 @@ def _run_review(workspace: Workspace, progress=None, cancel=None) -> Dict[str, o
     scenarios, proposals = reviewer.review(scenarios, intake)
     scenarios = list(scenarios) + list(proposals)
 
-    write_registry(str(workspace.root / REGISTRY), intake, scenarios)
-    workspace.state("review").artifacts["registry"] = REGISTRY
+    _save_registry(workspace, "review", intake, scenarios)
 
     flagged = sum(1 for s in scenarios if getattr(s, "review_flag", ""))
     return {"Scenarios reviewed": len(scenarios) - len(proposals),
@@ -274,8 +296,8 @@ def _run_issue(workspace: Workspace) -> Dict[str, object]:
     intake = _intake(workspace)
     scenarios = _scenarios(workspace, intake)
     write_challenge_pack(str(workspace.root / PACK), intake, scenarios)
-    write_registry(str(workspace.root / REGISTRY), intake, scenarios)
-    workspace.state("issue").artifacts.update({"challenge_pack": PACK, "registry": REGISTRY})
+    _save_registry(workspace, "issue", intake, scenarios)
+    workspace.state("issue").artifacts["challenge_pack"] = PACK
 
     runs = sum(required_runs(s.effective_materiality) for s in scenarios)
     return {"Scenarios issued": len(scenarios), "Runs requested": runs,
@@ -315,6 +337,9 @@ def _run_coverage(workspace: Workspace) -> Dict[str, object]:
 
     workspace.state("coverage").artifacts["report"] = OVERLAP
     workspace.state("coverage").artifacts["registry"] = REGISTRY
+    # map_coverage annotates the registry in place, so the snapshot is taken from the file rather
+    # than written from scenarios this runner never loaded.
+    shutil.copyfile(workspace.root / REGISTRY, workspace.root / _snapshot("coverage"))
 
     return {"Benchmark scenarios": result.benchmark,
             "Covered by their testing": result.covered,
@@ -464,15 +489,26 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         return rows
 
     def _benchmark_for(workspace: Workspace, key: str):
-        """The scenarios as the page shows them, once there are any."""
-        if key not in SCENARIO_STAGES or not (workspace.root / REGISTRY).exists():
+        """The scenarios as this stage left them, once there are any.
+
+        A stage reads its own snapshot rather than the live registry, so coming back to the
+        scenario-text page after materiality has run shows the text as it was written, not the
+        text with tiers assigned afterwards beside it. Falling back to the live registry covers
+        a workspace built before snapshots existed, and the stage that has not run yet.
+        """
+        if key not in SCENARIO_STAGES:
+            return None
+        path = workspace.root / _snapshot(key)
+        if not path.exists():
+            path = workspace.root / REGISTRY
+        if not path.exists():
             return None
         try:
-            scenarios = _scenarios(workspace, _intake(workspace))
+            scenarios = read_scenarios(str(path), _intake(workspace))
         except Exception as exc:                           # never blank the page over this
             logger.warning("Could not read the benchmark for display: %s", exc)
             return None
-        return build_rows(scenarios, request.args.get("view", "attention"))
+        return build_rows(scenarios, request.args.get("view", "attention"), stage=key)
 
     def _answers_for(workspace: Workspace):
         """One row per question, so the reader can see coverage at a glance."""
