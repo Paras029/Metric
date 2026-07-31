@@ -79,7 +79,11 @@ def _title(scenario: Scenario) -> str:
     if not text:
         return f"{ORIGIN_LABELS.get(scenario.origin, scenario.origin)} {scenario.id}"
     sentence = text.split(". ")[0].strip().rstrip(".")
-    return sentence if len(sentence) <= 110 else sentence[:107].rstrip() + "…"
+    if len(sentence) <= 110:
+        return sentence
+    # Cut at the last word boundary rather than at the character. "files the dispute wi…" reads
+    # as a rendering fault; "files the dispute…" reads as a summary.
+    return sentence[:107].rsplit(" ", 1)[0].rstrip(" ,;:") + "…"
 
 
 def _materiality_source(scenario: Scenario) -> str:

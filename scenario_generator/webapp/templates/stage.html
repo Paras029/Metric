@@ -36,6 +36,7 @@
     <input type="hidden" name="question-{{ index }}" value="{{ row.question }}">
     <input class="field__input field__input--inline" type="text" name="answer-{{ index }}"
            value="{{ given or '' }}"
+           aria-label="{{ row.question }}"
            placeholder="{% if given %}Change this answer{% else %}Answer this{% endif %}">
   </span>
 </li>
@@ -54,7 +55,7 @@
         <div class="meter" role="img"
              aria-label="{{ progress.done }} of {{ progress.total }} stages complete">
           <span class="meter__fill"
-                style="width: {{ (progress.done / progress.total * 100) | round }}%"></span>
+                style="transform: scaleX({{ progress.done / progress.total }})"></span>
         </div>
         <p class="rail__count">
           <span class="mono">{{ progress.done }}/{{ progress.total }}</span> complete
@@ -102,15 +103,35 @@
       </div>
     {% endif %}
 
+    {# Title, purpose and the primary action on one line. The action belongs at the top: it is
+       what the person came to do, and a Run button reachable only after eight sections of reading
+       is a Run button nobody finds. #}
     <header class="head">
-      <p class="eyebrow">
-        Stage <span class="mono">{{ view.number }}</span> of
-        <span class="mono">{{ rail | length }}</span>
-        <span class="badge badge--{{ stage.mode }}">{{ stage.mode_label }}</span>
-      </p>
-      <h1 class="head__title">{{ stage.title }}</h1>
-      <p class="head__blurb">{{ stage.blurb }}</p>
+      <div class="head__text">
+        <h1 class="head__title">
+          {{ stage.title }}
+          <span class="badge badge--{{ stage.mode }}">{{ stage.mode_label }}</span>
+        </h1>
+        <p class="head__blurb">{{ stage.blurb }}</p>
+      </div>
+      <div class="head__actions">
+        <span class="head__step mono">{{ view.number }} / {{ rail | length }}</span>
+        {% if runnable and not workspace.is_blocked(stage.key) and state.status != 'running' %}
+          <form method="post" action="{{ url_for('run_stage', key=stage.key) }}">
+            <button class="button button--primary" type="submit">
+              {% if view.has_output %}Run again{% else %}Run this stage{% endif %}
+            </button>
+          </form>
+        {% endif %}
+      </div>
     </header>
+
+    {% if runnable and view.has_output and not workspace.is_blocked(stage.key) %}
+      <p class="block__foot">
+        Running again replaces the output below and marks every later stage out of date, so
+        nothing downstream is left claiming to reflect it.
+      </p>
+    {% endif %}
 
     {% if stage.detail %}
       <details class="about"{% if not view.has_output %} open{% endif %}>
@@ -120,10 +141,11 @@
     {% endif %}
 
     {% if state.status == 'running' %}
-      <section class="panel panel--running" id="running" data-stage="{{ stage.key }}">
-        <h2 class="panel__title">Running</h2>
-        <div class="meter meter--wide">
-          <span class="meter__fill" id="run-bar" style="width: {{ state.percent }}%"></span>
+      <section class="running" id="running" data-stage="{{ stage.key }}">
+        <h2 class="block__title">Running</h2>
+        <div class="meter">
+          <span class="meter__fill" id="run-bar"
+                style="transform: scaleX({{ state.percent / 100 }})"></span>
         </div>
         <p class="running__line">
           <span id="run-message">{{ state.progress.message or 'Starting' }}</span>
@@ -131,14 +153,15 @@
              through the whole run, which is the only thing the bar can mean. #}
           <span class="mono" id="run-count">{{ state.percent }}%</span>
         </p>
-        <p class="panel__foot">
+        <p class="block__foot">
           This keeps running if you navigate away or close the tab. Reading a long document is
           several minutes of model calls.
         </p>
-        <form method="post" action="{{ url_for('stop_stage', key=stage.key) }}" id="stop-form">
+        <form method="post" action="{{ url_for('stop_stage', key=stage.key) }}" id="stop-form"
+              class="running__actions">
           <button class="button button--quiet" type="submit" id="stop-button">Stop</button>
         </form>
-        <p class="panel__foot panel__foot--quiet" id="stop-note" hidden>
+        <p class="block__foot block__foot--quiet" id="stop-note" hidden>
           Stopping — calls already sent are finishing; nothing further will be sent.
         </p>
       </section>
@@ -161,32 +184,48 @@
       </div>
     {% endif %}
 
-    {% if view.has_output and state.summary %}
-      <section class="panel">
-        <h2 class="panel__title">
+    {# The coverage stage reports its own figures further down, recounted at whatever threshold is
+       currently set. Showing these as well would put two sets of numbers on one page that disagree
+       the moment the threshold moves. #}
+    {% if view.has_output and state.summary and stage.key != 'coverage' %}
+      <section class="block">
+        <h2 class="block__title">
           Result
           {% if state.status == 'stale' %}<span class="tag tag--stale">Out of date</span>{% endif %}
         </h2>
-        <dl class="figures">
-          {% for label, value in state.summary.items() %}
-            <div class="figures__cell">
-              <dt class="figures__label">{{ label }}</dt>
-              {# Counts read as figures; names and other text would break the grid at that size. #}
-              <dd class="figures__value {% if value is number %}mono{% else %}figures__value--text{% endif %}">
-                {{ value }}
-              </dd>
-            </div>
-          {% endfor %}
-        </dl>
+        {# Counts and names are separated: a sentence stretched across a cell built for a number
+           leaves the number unreadable and the rest of the row blank. #}
+        {% set counts = state.summary.items() | selectattr('1', 'number') | list %}
+        {% set named = state.summary.items() | rejectattr('1', 'number') | list %}
+        {% if counts %}
+          <dl class="figures">
+            {% for label, value in counts %}
+              <div class="figures__cell">
+                <dt class="figures__label">{{ label }}</dt>
+                <dd class="figures__value">{{ value }}</dd>
+              </div>
+            {% endfor %}
+          </dl>
+        {% endif %}
+        {% if named %}
+          <dl class="facts">
+            {% for label, value in named %}
+              <div class="facts__row">
+                <dt class="facts__label">{{ label }}</dt>
+                <dd class="facts__value">{{ value }}</dd>
+              </div>
+            {% endfor %}
+          </dl>
+        {% endif %}
         {% if state.updated_at %}
-          <p class="panel__foot">Last run <span class="mono">{{ state.updated_at }}</span></p>
+          <p class="block__foot">Last run <span class="mono">{{ state.updated_at }}</span></p>
         {% endif %}
       </section>
     {% endif %}
 
     {% if groups and produced %}
-      <section class="panel">
-        <h2 class="panel__title">What this stage produced</h2>
+      <section class="block">
+        <h2 class="block__title">Files this stage produced</h2>
         <ul class="files">
           {% for name, path in produced.items() %}
             <li class="files__row">
@@ -200,9 +239,9 @@
     {% endif %}
 
     {% if graph_svg %}
-      <section class="panel panel--graph">
-        <h2 class="panel__title">The declared graph</h2>
-        <p class="panel__body">
+      <section class="block">
+        <h2 class="block__title">The declared graph</h2>
+        <p class="block__body">
           <strong>Boxes are decisions</strong> — the points where the agent branches.
           <strong>Arrows are the states between them</strong>, each labelled with the outcome that
           took it there. Rounded boxes are the ways an interaction can end. Hover anything for its
@@ -211,7 +250,7 @@
         </p>
 
         {% if graph_facts.unreachable %}
-          <p class="graph__warning">
+          <p class="aside aside--bad">
             Not reachable from the start:
             <span class="mono">{{ graph_facts.unreachable | join(', ') }}</span>.
             A state nothing leads to is usually a gap in the intake rather than in the agent.
@@ -239,24 +278,24 @@
     {% endif %}
 
     {% if decisions %}
-      <section class="panel">
-        <h2 class="panel__title">Decisions</h2>
-        <p class="panel__body">
+      <section class="block">
+        <h2 class="block__title">Decisions</h2>
+        <p class="block__body">
           Mark a decision out of scope where it has already been reviewed elsewhere and is being
           reused as-is -- a plug-and-play sub-system covered by a separate engagement is the usual
           case. It stays in the graph, drawn muted, but the benchmark generates no scenario through
           it. Takes effect immediately; nothing here needs the intake re-uploaded.
         </p>
-        <ul class="problems">
+        <ul class="rows">
           {% for decision in decisions %}
-            <li class="problems__row">
-              <span class="problems__what">
+            <li class="rows__row">
+              <span class="rows__what">
                 <span class="mono">{{ decision.id }}</span> {{ decision.name }}
               </span>
-              <span class="problems__why">{{ decision.outcomes }}</span>
+              <span class="rows__why">{{ decision.outcomes }}</span>
               <form method="post"
                     action="{{ url_for('toggle_scope', decision_id=decision.id) }}">
-                <label class="drop__redact"
+                <label class="check"
                        title="Exclude this decision from the graph walk -- declared, but not tested">
                   <input type="checkbox" name="on" value="1"
                          {% if decision.out_of_scope %}checked{% endif %}
@@ -271,9 +310,9 @@
     {% endif %}
 
     {% if structure_review_available %}
-      <section class="panel" id="structure-review">
-        <h2 class="panel__title">Tidy the graph</h2>
-        <p class="panel__body">
+      <section class="block" id="structure-review">
+        <h2 class="block__title">Tidy the graph</h2>
+        <p class="block__body">
           One pass over the whole declared graph: proposes where a disconnected decision or state
           most plausibly belongs, and where two or more decisions look like alternate routes to
           the same fact rather than genuinely different branches -- which is usually what is
@@ -285,11 +324,11 @@
         </form>
 
         {% if structure_proposals %}
-          <ul class="problems" style="margin-top: .75rem;">
+          <ul class="rows">
             {% for item in structure_proposals %}
-              <li class="problems__row">
+              <li class="rows__row">
                 {% if item.kind == 'reconnect' %}
-                  <span class="problems__what">
+                  <span class="rows__what">
                     <span class="mono">{{ item.target_id }}</span>
                     {% if item.target_kind == 'decision' %}
                       reached from <span class="mono">{{ item.attach_to_state }}</span>
@@ -298,14 +337,14 @@
                     {% endif %}
                   </span>
                 {% else %}
-                  <span class="problems__what">
+                  <span class="rows__what">
                     Merge <span class="mono">{{ item.decisions | join(', ') }}</span>
                     into <span class="mono">{{ item.new_id }}</span> ({{ item.name }}):
                     {{ item.outcomes | join(' / ') }}
                     {% if item.importance %}· {{ item.importance }} importance{% endif %}
                   </span>
                 {% endif %}
-                <span class="problems__why">{{ item.rationale }}</span>
+                <span class="rows__why">{{ item.rationale }}</span>
                 <span class="proposal__actions">
                   <form method="post"
                         action="{{ url_for('apply_structure_proposal', proposal_id=item.id) }}">
@@ -325,9 +364,9 @@
 
     {% if intake_questions and (intake_questions.row_groups or intake_questions.cross_cutting) %}
       {% set ns = namespace(index=0) %}
-      <section class="panel" id="intake-questions">
-        <h2 class="panel__title">What the declaration still needs</h2>
-        <p class="panel__body">
+      <section class="block" id="intake-questions">
+        <h2 class="block__title">What the declaration still needs</h2>
+        <p class="block__body">
           Each question is addressed to the specific decision, state, capability, tool or persona
           it concerns. Answer what you can and press Save — nothing needs re-running yet; when
           you have answered what you want to for now, press <strong>Revise the intake</strong>
@@ -337,7 +376,7 @@
 
         <form method="post" action="{{ url_for('save_answers', key='intake') }}">
           {% for group in intake_questions.row_groups %}
-            <p class="questions__group-title">{{ group.label }}</p>
+            <p class="label questions__group-title">{{ group.label }}</p>
             <ul class="questions">
               {% for row in group.rows %}
                 {% set ns.index = ns.index + 1 %}
@@ -377,9 +416,9 @@
     {% endif %}
 
     {% if coverage and stage.key == 'coverage' %}
-      <section class="panel" id="coverage">
-        <h2 class="panel__title">What their conversations cover</h2>
-        <p class="panel__body">
+      <section class="block" id="coverage">
+        <h2 class="block__title">What their conversations cover</h2>
+        <p class="block__body">
           Every conversation they sent was matched to at most one scenario, decided by where the
           exchange <em>ends</em> rather than by what it passes through on the way. A conversation
           that authenticates and stops is not evidence for a scenario that authenticates and then
@@ -391,22 +430,22 @@
           {% for label, value in coverage.summary.items() %}
             <div class="figures__cell">
               <dt class="figures__label">{{ label }}</dt>
-              <dd class="figures__value mono">{{ value }}</dd>
+              <dd class="figures__value">{{ value }}</dd>
             </div>
           {% endfor %}
         </dl>
 
-        <form class="filters" method="post"
-              action="{{ url_for('set_coverage_threshold') }}">
-          <label class="filters__field">
-            Represented at
-            <input class="mono" type="number" name="threshold" min="1" style="width: 4.5rem"
-                   value="{{ coverage.threshold }}">
-          </label>
-          <button class="button button--quiet" type="submit">Recount</button>
-          <span class="switch__count">
-            conversations or more. Nothing is re-read — this recounts what is already mapped and
-            rewrites the workbook.
+        <form class="threshold" method="post" action="{{ url_for('set_coverage_threshold') }}">
+          <span class="threshold__line">
+            <label class="threshold__label" for="threshold">Represented at</label>
+            <input class="field__input threshold__input mono" id="threshold" type="number"
+                   name="threshold" min="1" value="{{ coverage.threshold }}">
+            <span class="threshold__label">conversations or more</span>
+            <button class="button button--quiet" type="submit">Recount</button>
+          </span>
+          <span class="threshold__note">
+            Nothing is re-read. This recounts what is already mapped and rewrites the workbook, so
+            trying a number costs a page load rather than another pass over every transcript.
           </span>
         </form>
 
@@ -438,22 +477,22 @@
                     {% if row.confidence %}<span>{{ row.confidence }} confidence</span>{% endif %}
                   </p>
                   {% if row.conversations %}
-                    <ul class="problems">
+                    <ul class="rows">
                       {% for conversation in row.conversations %}
-                        <li class="problems__row">
-                          <span class="problems__what">
+                        <li class="rows__row">
+                          <span class="rows__what">
                             <span class="mono">{{ conversation.id }}</span>
                             <span class="mark mark--tier">{{ conversation.confidence }}</span>
                             {% if conversation.group %}
                               filed under “{{ conversation.group }}”
                             {% endif %}
                           </span>
-                          <span class="problems__why">{{ conversation.reason }}</span>
+                          <span class="rows__why">{{ conversation.reason }}</span>
                         </li>
                       {% endfor %}
                     </ul>
                   {% else %}
-                    <p class="card__why card__why--flag">
+                    <p class="aside aside--warn">
                       Nothing they sent ends here. Either it is untested, or it was tested and not
                       submitted.
                     </p>
@@ -465,20 +504,20 @@
         </ul>
 
         {% if coverage.unmatched %}
-          <h3 class="card__label">Matched no scenario ({{ coverage.unmatched | length }})</h3>
-          <p class="panel__body">
+          <h3 class="label card__label">Matched no scenario ({{ coverage.unmatched | length }})</h3>
+          <p class="block__body">
             Worth reading rather than dismissing. A conversation that fits nothing is either a
             test of something the benchmark never enumerated — a candidate to add — or not a test
             of this agent at all.
           </p>
-          <ul class="problems">
+          <ul class="rows">
             {% for conversation in coverage.unmatched %}
-              <li class="problems__row">
-                <span class="problems__what">
+              <li class="rows__row">
+                <span class="rows__what">
                   <span class="mono">{{ conversation.id }}</span>
                   {% if conversation.group %}filed under “{{ conversation.group }}”{% endif %}
                 </span>
-                <span class="problems__why">
+                <span class="rows__why">
                   {% if conversation.intent %}{{ conversation.intent }} —{% endif %}
                   {% if conversation.ending %}ends {{ conversation.ending }}.{% endif %}
                   {{ conversation.reason }}
@@ -489,22 +528,22 @@
         {% endif %}
 
         {% if coverage.groups %}
-          <h3 class="card__label">Their own grouping</h3>
-          <p class="panel__body">
+          <h3 class="label card__label">Their own grouping</h3>
+          <p class="block__body">
             A team that grouped its conversations is making a claim — these are the same test —
             and it is checkable. Where a group splits across scenarios, one of the two readings is
             wrong and it is worth knowing which.
           </p>
-          <ul class="problems">
+          <ul class="rows">
             {% for group in coverage.groups %}
-              <li class="problems__row">
-                <span class="problems__what">
+              <li class="rows__row">
+                <span class="rows__what">
                   {{ group.group }}
                   <span class="mark {% if group.agrees %}mark--covered{% else %}mark--flag{% endif %}">
                     {{ group.total }} conversation{{ '' if group.total == 1 else 's' }}
                   </span>
                 </span>
-                <span class="problems__why">{{ group.verdict }}</span>
+                <span class="rows__why">{{ group.verdict }}</span>
               </li>
             {% endfor %}
           </ul>
@@ -513,16 +552,16 @@
     {% endif %}
 
     {% if stage.key == 'issue' %}
-      <section class="panel">
-        <h2 class="panel__title">What goes in the pack</h2>
-        <p class="panel__body">
+      <section class="block">
+        <h2 class="block__title">What goes in the pack</h2>
+        <p class="block__body">
           By default the pack carries the whole benchmark. Where the coverage stage has run, it can
           instead carry only what their own conversations under-cover — everything at or below the
           representation threshold. Leaving a scenario out says their evidence for it is accepted,
           so this is off unless you turn it on. The registry keeps every scenario either way.
         </p>
-        <form method="post" action="{{ url_for('set_pack_scope') }}">
-          <label class="drop__redact"
+        <form class="controls" method="post" action="{{ url_for('set_pack_scope') }}">
+          <label class="check"
                  title="Issue only the scenarios their conversations under-cover">
             <input type="checkbox" name="on" value="1"
                    {% if pack_gaps_only %}checked{% endif %}
@@ -531,13 +570,13 @@
           </label>
         </form>
         {% if pack_gaps_only and coverage %}
-          <p class="panel__foot">
+          <p class="block__foot">
             <span class="mono">{{ coverage.under_represented | length }}</span> of
             <span class="mono">{{ coverage.scenarios | length }}</span> scenarios sit at or below
             <span class="mono">{{ coverage.threshold }}</span> conversation{{ '' if coverage.threshold == 1 else 's' }}.
           </p>
         {% elif pack_gaps_only %}
-          <p class="panel__foot">
+          <p class="block__foot">
             The coverage stage has not mapped anything yet, so nothing can be held back — the pack
             will carry the whole benchmark until it has.
           </p>
@@ -545,10 +584,13 @@
       </section>
     {% endif %}
 
-    {% if benchmark %}
-      <section class="panel panel--benchmark">
-        <h2 class="panel__title">The benchmark so far</h2>
-        <p class="panel__body">
+    {# On the coverage stage the section above already lists every scenario, with the count of
+       their conversations against each. Repeating the benchmark here would put the same rows on
+       the same screen twice. #}
+    {% if benchmark and not (coverage and stage.key == 'coverage') %}
+      <section class="block">
+        <h2 class="block__title">The benchmark so far</h2>
+        <p class="block__body">
           What each scenario asks the agent to do, and what it is judged to be worth. Routes,
           expected outcomes and per-turn detail are in the registry workbook — this is the reading,
           and that is the record.
@@ -605,10 +647,12 @@
         {% endif %}
 
         <p class="switch__count">
-          Showing <span class="mono">{{ benchmark.shown }}</span> of
-          <span class="mono">{{ benchmark.total }}</span>
-          {%- if benchmark.selected != benchmark.total %}
-            (<span class="mono">{{ benchmark.selected }}</span> match the view and filters)
+          {%- if benchmark.selected == benchmark.total %}
+            Showing <span class="mono">{{ benchmark.shown }}</span> of
+            <span class="mono">{{ benchmark.total }}</span> scenarios
+          {%- else %}
+            <span class="mono">{{ benchmark.selected }}</span> of
+            <span class="mono">{{ benchmark.total }}</span> scenarios match this view
           {%- endif %}
           {%- if benchmark.selected > benchmark.shown %}
             — <span class="mono">{{ benchmark.selected - benchmark.shown }}</span> more; choose
@@ -648,7 +692,7 @@
                   <p class="card__text">{{ row.description or 'Not yet written.' }}</p>
 
                   {% if row.turn_plan %}
-                    <p class="card__label">What the tester does</p>
+                    <p class="label card__label">What the tester does</p>
                     <p class="card__text card__text--plan">{{ row.turn_plan }}</p>
                   {% endif %}
 
@@ -663,32 +707,32 @@
                   </p>
 
                   {% if 'materiality' in benchmark.shows and row.materiality_reason %}
-                    <p class="card__why">
+                    <p class="aside">
                       <strong>{{ row.materiality }}</strong>, from {{ row.materiality_source }} —
                       {{ row.materiality_reason }}
                     </p>
                   {% elif 'materiality' in benchmark.shows and row.overridden %}
-                    <p class="card__why"><strong>{{ row.materiality }}</strong> — your override.</p>
+                    <p class="aside"><strong>{{ row.materiality }}</strong> — your override.</p>
                   {% endif %}
                   {% if 'review' in benchmark.shows and row.category_changed %}
-                    <p class="card__why card__why--flag">
+                    <p class="aside aside--warn">
                       <strong>Reads as {{ row.category }}</strong>, not
                       {{ row.declared_category }} as declared — {{ row.category_reason }}
                       The fix is the Outcome Type on that state in the intake workbook.
                     </p>
                   {% endif %}
                   {% if 'review' in benchmark.shows and row.flag_reason %}
-                    <p class="card__why card__why--flag">
+                    <p class="aside aside--warn">
                       <strong>{{ row.flag }}</strong> — {{ row.flag_reason }}
                     </p>
                   {% endif %}
                   {% if 'review' in benchmark.shows and row.proposal_reason %}
-                    <p class="card__why">
+                    <p class="aside">
                       <strong>Proposed</strong> — {{ row.proposal_reason }}
                     </p>
                   {% endif %}
                   {% if 'coverage' in benchmark.shows and row.coverage_note %}
-                    <p class="card__why">
+                    <p class="aside">
                       <strong>{{ row.coverage }}</strong> by their own testing
                       ({{ row.coverage_note }}). Left in the pack — whether to run it again is
                       yours to decide.
@@ -711,7 +755,7 @@
                       {% if row.overridden %}<option value="Clear">Remove my override</option>{% endif %}
                     </select>
                     {% if row.flag %}
-                      <label class="card__check">
+                      <label class="check">
                         <input type="checkbox" name="clear_flag" value="1">
                         Dismiss the flag
                       </label>
@@ -732,9 +776,9 @@
     {% endif %}
 
     {% if answers %}
-      <section class="panel">
-        <h2 class="panel__title">What the documents answered</h2>
-        <p class="panel__body">
+      <section class="block">
+        <h2 class="block__title">What the documents answered</h2>
+        <p class="block__body">
           Each question was answered from every observation bearing on it, across all documents at
           once — the documents do not answer these in one place. Anything left unsettled is
           recorded rather than filled in.
@@ -768,8 +812,8 @@
     {% endif %}
 
     {% if state.artifacts and not groups %}
-      <section class="panel">
-        <h2 class="panel__title">Files</h2>
+      <section class="block">
+        <h2 class="block__title">Files this stage produced</h2>
         <ul class="files">
           {% for name, path in state.artifacts.items() %}
             <li class="files__row">
@@ -783,9 +827,9 @@
     {% endif %}
 
     {% if workspace.is_blocked(stage.key) %}
-      <section class="panel panel--action">
-        <h2 class="panel__title">Not yet available</h2>
-        <p class="panel__body">
+      <section class="block">
+        <h2 class="block__title">Not yet available</h2>
+        <p class="block__body">
           Finish the stage before this one first. Every stage builds on what the last one
           produced.
         </p>
@@ -793,12 +837,12 @@
     {% else %}
 
       {% if groups %}
-        <section class="panel panel--action">
-          <h2 class="panel__title">
-            {% if stage.key == 'coverage' %}Their own testing
+        <section class="block">
+          <h2 class="block__title">
+            {% if stage.key == 'coverage' %}What they submitted
             {% else %}What the model owner sent{% endif %}
           </h2>
-          <p class="panel__body">
+          <p class="block__body">
             {% if stage.key == 'coverage' %}
               The conversations they have already run, in whatever shape they sent them. Read to
               measure coverage and never as a description of the agent — their blind spots must not
@@ -848,7 +892,7 @@
                                   action="{{ url_for('toggle_redact', key=stage.key) }}">
                               <input type="hidden" name="group" value="{{ row.group.key }}">
                               <input type="hidden" name="name" value="{{ name }}">
-                              <label class="drop__redact"
+                              <label class="check"
                                      title="Redact this file before it is read, even if PII_REDACTION is off for the rest of the pack">
                                 <input type="checkbox" name="on" value="1"
                                        {% if name in row.redacted %}checked{% endif %}
@@ -880,9 +924,9 @@
       {% endif %}
 
       {% if stage.key == 'intake' %}
-        <section class="panel panel--action">
-          <h2 class="panel__title">Provide the intake workbook</h2>
-          <p class="panel__body">
+        <section class="block">
+          <h2 class="block__title">Provide the intake workbook</h2>
+          <p class="block__body">
             Upload a completed intake workbook, or run this stage to have one drafted from the
             documents. Uploading does not finish the stage — running it reads the workbook back and
             reports what it declares, which is the check worth having. Need a blank one?
@@ -891,44 +935,24 @@
           <form class="upload" method="post" enctype="multipart/form-data"
                 action="{{ url_for('upload', key=stage.key) }}">
             <input class="upload__input" type="file" name="files" accept=".xlsx,.xlsm">
-            <button class="button button--primary" type="submit">Upload</button>
+            <button class="button button--quiet" type="submit">Upload</button>
           </form>
         </section>
       {% endif %}
 
-      {# Every stage has something to run: adding material and reading it are one job, and the
-         stages that only take a file still confirm it by reading it back. #}
-      {% if runnable %}
-        <section class="panel panel--action">
-          <h2 class="panel__title">
-            {% if view.has_output %}Run this stage again{% else %}Run this stage{% endif %}
-          </h2>
-          <p class="panel__body">
-            {% if view.has_output %}
-              Replaces the output above, and marks every later stage out of date so nothing
-              downstream is left claiming to reflect it.
-            {% elif view.number > 1 %}
-              Uses what stage <span class="mono">{{ view.number - 1 }}</span> produced, together
-              with any notes added along the way.
-            {% else %}
-              Reads everything added above, together with any notes.
-            {% endif %}
-          </p>
-          <form method="post" action="{{ url_for('run_stage', key=stage.key) }}">
-            <button class="button button--primary" type="submit">
-              {% if view.has_output %}Run again{% else %}Run{% endif %}
-            </button>
-          </form>
-        </section>
-      {% endif %}
     {% endif %}
 
-    <section class="panel panel--notes">
-      <h2 class="panel__title">Additional information</h2>
-      <p class="panel__body">
-        Anything the documents do not say that a later stage should know. Given to every stage
-        that follows.
-      </p>
+    {# Everything that acts on the stage rather than reporting it: adding context, attaching a
+       late document, clearing the work. Four separate boxes competing with the result for
+       attention before; grouped here, they read as the margin of the page. #}
+    <footer class="footer">
+      <div class="footer__grid">
+      <section>
+        <h2 class="block__title">Additional information</h2>
+        <p class="block__body">
+          Anything the documents do not say that a later stage should know. Given to every stage
+          that follows.
+        </p>
 
       {% if notes %}
         <ul class="notes">
@@ -948,22 +972,27 @@
         <button class="button button--quiet" type="submit">Add</button>
       </form>
 
-      {# The documents stage has its own uploader a few inches up; a second one there would just
-         be two ways to do the same thing. Every other stage needs this to attach a late arrival,
-         which lands under supporting material and is read the next time the documents stage runs. #}
+      </section>
+
+      {# The documents stage has its own uploader further up; a second one there would be two ways
+         to do the same thing. Every other stage needs this to attach a late arrival. #}
       {% if stage.key != 'documents' %}
-        <form class="upload upload--extra" method="post" enctype="multipart/form-data"
-              action="{{ url_for('upload', key='documents') }}">
-          <input type="hidden" name="group" value="supporting">
-          <input class="upload__input" type="file" name="files" multiple
-                 accept=".pdf,.docx,.pptx,.xlsx,.xlsm,.csv,.png,.jpg,.jpeg,.md,.txt">
-          <button class="button button--quiet" type="submit">Add a document</button>
-          <span class="upload__note">
-            Filed under supporting material. Run the documents stage again to read it.
-          </span>
-        </form>
+        <section>
+          <h2 class="block__title">Add a late document</h2>
+          <p class="block__body">
+            Something that turned up after the pack was read. It is filed under supporting
+            material; run the documents stage again to read it in.
+          </p>
+          <form class="upload" method="post" enctype="multipart/form-data"
+                action="{{ url_for('upload', key='documents') }}">
+            <input type="hidden" name="group" value="supporting">
+            <input class="upload__input" type="file" name="files" multiple
+                   accept=".pdf,.docx,.pptx,.xlsx,.xlsm,.csv,.png,.jpg,.jpeg,.md,.txt">
+            <button class="button button--quiet" type="submit">Add a document</button>
+          </form>
+        </section>
       {% endif %}
-    </section>
+      </div>
 
     {% if view.has_output %}
       <div class="reset">
@@ -989,6 +1018,7 @@
         </form>
       </div>
     {% endif %}
+    </footer>
   </main>
 </div>
 
@@ -1136,7 +1166,7 @@
         .then(function (r) { return r.json(); })
         .then(function (p) {
           if (p.status !== 'running') { window.location.reload(); return; }
-          bar.style.width = p.percent + '%';
+          bar.style.transform = 'scaleX(' + (p.percent / 100) + ')';
           message.textContent = p.message || 'Working';
           count.textContent = p.percent + '%';
         })

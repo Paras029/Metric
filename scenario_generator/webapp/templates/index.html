@@ -4,11 +4,13 @@
 {% block body %}
 <main class="entry">
   <div class="entry__inner">
-    <p class="eyebrow">Independent validation</p>
+    {# No label above the title. The heading carries its own weight, and a kicker only pushes it
+       further down a screen whose whole job is one field and one button. #}
     <h1 class="entry__title">Scenario generator</h1>
     <p class="entry__lede">
       Build a test benchmark for an agentic AI system from the documentation its owner submitted,
-      issue it to them, and measure what their own testing already covers.
+      issue it to them, and measure what their own testing already covers. Independent of the team
+      that built it.
     </p>
 
     <form class="entry__form" method="post" action="{{ url_for('create_workspace') }}">
@@ -22,7 +24,7 @@
 
     {% if workspaces %}
       <section class="entry__recent">
-        <h2 class="entry__recent-title">Open a use case</h2>
+        <h2 class="label entry__recent-title">Open a use case</h2>
         <ul class="ledger">
           {% for workspace in workspaces %}
             {% set progress = workspace.progress() %}
