@@ -27,6 +27,7 @@ from ..core.intake import write_template
 from ..llm import config, prompt_loader
 from ..llm.gateway import ask_llm
 from ..utils import parse_json_object
+from ..utils.replies import at_least_one, objects as _objects, text as _text
 
 logger = logging.getLogger(__name__)
 
@@ -135,24 +136,6 @@ def revise_intake(context: str, current: str, complete: Optional[Callable[..., s
     return DraftedIntake(_validate(parse_json_object(reply)))
 
 
-def _objects(data: dict, key: str) -> List[dict]:
-    """The list at ``key``, keeping only the entries that are objects at all."""
-    return [entry for entry in (data.get(key) or []) if isinstance(entry, dict)]
-
-
-def _text(entry: dict, key: str) -> str:
-    return str(entry.get(key, "") or "").strip()
-
-
-def _positive_int(value, default: int = 1) -> int:
-    """A retry bound. Anything unreadable falls back to one attempt rather than to none."""
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        return default
-    return number if number >= 1 else default
-
-
 # A persona is a person arriving with an objective, and only two objectives are universal: to use
 # the service as intended, and to make it do something it should not. Anything past those has to
 # earn its place by changing what the agent does.
@@ -257,7 +240,7 @@ def _validate(data: dict) -> dict:
             "capability_id": _text(entry, "capability_id"), "inputs": _text(entry, "inputs"),
             "outcomes": outcomes,
             "input_source": source if source in INPUT_SOURCES else "User",
-            "max_attempts": _positive_int(entry.get("max_attempts")),
+            "max_attempts": at_least_one(entry.get("max_attempts")),
             "outcome_condition": _text(entry, "outcome_condition"),
         })
 

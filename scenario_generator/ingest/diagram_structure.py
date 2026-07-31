@@ -25,6 +25,7 @@ import re
 from typing import Dict, List, Sequence
 
 from ..core.models import CATEGORIES, INPUT_SOURCES
+from ..utils.replies import at_least_one, objects as _objects, string_list as _list, text as _text
 from ..utils.text import one_of
 
 # The parts a structure carries, in the order they are useful to read. Kept as one tuple so
@@ -33,21 +34,6 @@ PARTS = ("capabilities", "decisions", "states")
 
 _DECISION_ID = re.compile(r"^DEC-\d+$", re.I)
 _STATE_ID = re.compile(r"^S-\d+$", re.I)
-
-
-def _text(entry: dict, key: str) -> str:
-    return str(entry.get(key, "") or "").strip()
-
-
-def _list(entry: dict, key: str) -> List[str]:
-    raw = entry.get(key) or []
-    if isinstance(raw, str):                               # a single value sent unwrapped
-        raw = [raw]
-    return [str(item).strip() for item in raw if str(item).strip()]
-
-
-def _objects(data: dict, key: str) -> List[dict]:
-    return [entry for entry in (data.get(key) or []) if isinstance(entry, dict)]
 
 
 def empty() -> dict:
@@ -86,7 +72,7 @@ def clean(data: dict) -> dict:
             "inputs": _text(entry, "inputs"),
             "outcomes": _list(entry, "outcomes"),
             "input_source": one_of(entry.get("input_source"), INPUT_SOURCES, "User"),
-            "max_attempts": _attempts(entry.get("max_attempts")),
+            "max_attempts": at_least_one(entry.get("max_attempts")),
             "outcome_condition": _text(entry, "outcome_condition"),
         })
 
@@ -108,15 +94,6 @@ def clean(data: dict) -> dict:
         })
 
     return cleaned
-
-
-def _attempts(value: object) -> int:
-    """A retry bound. Anything unreadable falls back to one attempt rather than to none."""
-    try:
-        number = int(float(str(value).strip()))
-    except (TypeError, ValueError):
-        return 1
-    return number if number >= 1 else 1
 
 
 def _edges(structure: dict) -> Dict[str, str]:
