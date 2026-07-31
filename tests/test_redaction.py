@@ -15,7 +15,8 @@ from scenario_generator.ingest.extraction import build_corpus
 from scenario_generator.ingest.readers import Segment
 from scenario_generator.ingest.redaction import RedactionUnavailable, redact_segments
 from scenario_generator.llm import config
-from scenario_generator.webapp.app import _run_documents, create_app
+from scenario_generator.webapp.app import create_app
+from scenario_generator.webapp.runners import _run_documents
 from scenario_generator.webapp.workspace import Workspace
 
 
@@ -265,7 +266,7 @@ class TestThePerFileToggleReachesIngestion(unittest.TestCase):
             captured["should_redact"] = should_redact
             return _StubIngestResult()
 
-        with mock.patch("scenario_generator.webapp.app.ingest_documents", fake_ingest_documents):
+        with mock.patch("scenario_generator.webapp.runners.ingest_documents", fake_ingest_documents):
             _run_documents(self.workspace)
 
         should_redact = captured["should_redact"]
