@@ -16,10 +16,10 @@ from .core import (DecisionGraph, IntakeData, Scenario, build_probes, enumerate_
 from .io import (read_registry, read_scenarios, write_challenge_pack, write_overlap_report,
                 write_registry, write_scenario_graph)
 from .llm import (MaterialityAssessor, MetadataExtractor, ScenarioReviewer,
-                  ScenarioWriter)
+                  ScenarioWriter, describe_graph, describe_use_case)
 from .llm.reviewer import DEFAULT_PROPOSAL_LIMIT
 from .ingest import (DocumentExtractor, build_context_document, draft_intake, open_questions,
-                     read_owner_library, record_from_json, rejection_summary,
+                     read_owner_library, record_from_json, rejection_summary, revise_intake,
                      write_drafted_intake)
 
 logger = logging.getLogger("scenario_generator")
@@ -329,6 +329,38 @@ def draft_intake_workbook(context_path: str, output_path: str,
     logger.info("%d point(s) flagged for review. Wrote %s",
                 len(draft.review_notes), output_path)
     return DraftResult(draft=draft, path=output_path)
+
+
+def revise_intake_workbook(current_path: str, output_path: str, context_path: str = None,
+                           complete: Optional[Callable[..., str]] = None,
+                           evidence_path: Optional[str] = None, notes=None) -> "DraftResult":
+    """Revise an intake workbook in place, given what has been added since it was last written.
+
+    The counterpart to :func:`draft_intake_workbook` for a declaration that already exists --
+    drafted earlier, corrected by hand, or both. Re-running ``draft_intake_workbook`` would
+    silently discard any hand correction, because a fresh draft has no way to know one was ever
+    made; this reads ``current_path`` and hands the whole declaration to the model as what to
+    revise rather than what to replace, with instructions to change only what the new context and
+    notes actually require. See :func:`ingest.drafting.revise_intake`.
+
+    ``output_path`` may be the same file as ``current_path`` -- the usual case, an intake revised
+    where it stands -- or a different one, for a caller that wants to keep the prior version.
+    """
+    current = read_intake(current_path)
+    rendered = f"{describe_use_case(current)}\n\n{describe_graph(current)}"
+
+    context = load_context(context_path, notes)
+    structure = _diagram_structure(evidence_path or _evidence_beside(context_path or ""))
+    revision = revise_intake(context, rendered, complete=complete, structure=structure)
+    write_drafted_intake(Path(output_path), revision)
+
+    counts = revision.counts()
+    logger.info("Revised the intake: %d capabilities, %d decision points, %d states, %d "
+                "personas, %d tools.", counts["capabilities"], counts["decisions"],
+                counts["states"], counts["personas"], counts["tools"])
+    logger.info("%d point(s) still flagged for review. Wrote %s",
+                len(revision.review_notes), output_path)
+    return DraftResult(draft=revision, path=output_path)
 
 
 def _evidence_beside(context_path: str) -> Optional[str]:

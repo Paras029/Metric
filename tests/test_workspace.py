@@ -44,10 +44,9 @@ class TestReachability(unittest.TestCase):
         self.assertEqual(workspace.state("intake").status, READY)
         self.assertFalse(workspace.is_blocked("intake"))
 
-    def test_the_document_stages_are_open_but_not_required(self):
+    def test_the_document_stage_is_open_but_not_required(self):
         workspace = _workspace()
-        for key in ("documents", "questions"):
-            self.assertEqual(workspace.state(key).status, READY)
+        self.assertEqual(workspace.state("documents").status, READY)
 
     def test_a_stage_behind_a_required_one_is_locked(self):
         workspace = _workspace()

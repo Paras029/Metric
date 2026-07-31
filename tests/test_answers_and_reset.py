@@ -27,7 +27,7 @@ class TestAnsweringSeveralAtOnce(unittest.TestCase):
         for index, (question, answer) in enumerate(pairs, start=1):
             data[f"question-{index}"] = question
             data[f"answer-{index}"] = answer
-        return self.client.post("/stage/questions/answers", data=data)
+        return self.client.post("/stage/intake/answers", data=data)
 
     def _answered(self):
         return Workspace.load(self.workspace).answered_questions()

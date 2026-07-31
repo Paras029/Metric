@@ -9,7 +9,7 @@ Nothing here trusts a model's word about what a document says. Extraction propos
 deterministic check in :mod:`~scenario_generator.core.grounding` disposes.
 """
 from .context_document import build_context_document, open_questions, rejection_summary
-from .drafting import DraftedIntake, draft_intake, write_drafted_intake
+from .drafting import DraftedIntake, draft_intake, revise_intake, write_drafted_intake
 from .owner_library import UnreadableLibrary, read_owner_library
 from .extraction import (DocumentExtractor, IngestionFailed, build_corpus,
                          extract_documents, record_from_json, record_to_json)
@@ -19,5 +19,5 @@ __all__ = ["DocumentExtractor", "extract_documents", "record_to_json", "record_f
            "build_context_document", "open_questions", "rejection_summary", "IngestionFailed",
            "read_document", "chunk", "UnreadableDocument", "SUPPORTED_EXTENSIONS",
            "build_corpus",
-           "draft_intake", "write_drafted_intake", "DraftedIntake",
+           "draft_intake", "revise_intake", "write_drafted_intake", "DraftedIntake",
            "read_owner_library", "UnreadableLibrary"]

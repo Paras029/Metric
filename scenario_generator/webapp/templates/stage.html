@@ -23,30 +23,24 @@
 </svg>
 {% endmacro %}
 
-{# One open question. Everything on the page shares a single form, so each row carries the
-   question it answers alongside the field, and blanks are simply not saved. #}
-{% macro question_row(question, index, given) %}
-<li class="questions__row questions__row--{{ question.kind }}
-           {% if given %}questions__row--done{% endif %}">
-  <span class="questions__kind">
-    {% if given %}Answered
-    {% elif question.kind == 'gap' %}Not covered
-    {% elif question.kind == 'unknown' %}Blocking
-    {% else %}Confirm{% endif %}
-  </span>
+{# One gap in the current declaration, addressed to the row it concerns. Same answer mechanism
+   as an open question always has had -- see save_answers -- just addressed more specifically. #}
+{% macro gap_row(row, index, given) %}
+<li class="questions__row {% if given %}questions__row--done{% endif %}">
+  <span class="questions__kind">{% if given %}Answered{% else %}Open{% endif %}</span>
   <span class="questions__body">
-    <span class="questions__text">{{ question.question }}</span>
-    <span class="questions__detail">
-      {% if question.blocks %}<em class="questions__blocks">Blocks {{ question.blocks }}.</em>{% endif %}
-      {{ question.detail }}
+    <span class="questions__text">
+      {% if row.heading %}<span class="mono">{{ row.heading }}</span> — {% endif %}{{ row.question }}
     </span>
-    <input type="hidden" name="question-{{ index }}" value="{{ question.question }}">
+    <span class="questions__detail">{{ row.why }}</span>
+    <input type="hidden" name="question-{{ index }}" value="{{ row.question }}">
     <input class="field__input field__input--inline" type="text" name="answer-{{ index }}"
            value="{{ given or '' }}"
-           placeholder="{% if given %}Change this answer{% else %}Answer this, or leave it for the model owner{% endif %}">
+           placeholder="{% if given %}Change this answer{% else %}Answer this{% endif %}">
   </span>
 </li>
 {% endmacro %}
+
 
 {% block body %}
 <div class="shell">
@@ -331,22 +325,56 @@
       </section>
     {% endif %}
 
-    {% if problems %}
-      <section class="panel">
-        <h2 class="panel__title">What this declaration leaves out</h2>
+    {% if intake_questions and (intake_questions.row_groups or intake_questions.cross_cutting) %}
+      {% set ns = namespace(index=0) %}
+      <section class="panel" id="intake-questions">
+        <h2 class="panel__title">What the declaration still needs</h2>
         <p class="panel__body">
-          None of these stop the benchmark being built. Each one quietly narrows it, which is why
-          they are worth a minute: a branch that adds no routes is a part of the agent nothing
-          will ever test.
+          Each question is addressed to the specific decision, state, capability, tool or persona
+          it concerns. Answer what you can and press Save — nothing needs re-running yet; when
+          you have answered what you want to for now, press <strong>Revise the intake</strong>
+          below to fold the answers into the declaration. An answer already given can be changed,
+          and leaving the rest is fine.
         </p>
-        <ul class="problems">
-          {% for problem in problems %}
-            <li class="problems__row">
-              <span class="problems__what">{{ problem.what }}</span>
-              <span class="problems__why">{{ problem.why }}</span>
-            </li>
+
+        <form method="post" action="{{ url_for('save_answers', key='intake') }}">
+          {% for group in intake_questions.row_groups %}
+            <p class="questions__group-title">{{ group.label }}</p>
+            <ul class="questions">
+              {% for row in group.rows %}
+                {% set ns.index = ns.index + 1 %}
+                {{ gap_row(row, ns.index, answered.get(row.question)) }}
+              {% endfor %}
+            </ul>
           {% endfor %}
-        </ul>
+
+          {% if intake_questions.cross_cutting %}
+            <details class="questions__more" {% if not intake_questions.row_groups %}open{% endif %}>
+              <summary class="questions__more-summary">
+                {{ intake_questions.cross_cutting | length }} cross-cutting point{{ '' if intake_questions.cross_cutting | length == 1 else 's' }}
+                — not about any one row
+              </summary>
+              <ul class="questions">
+                {% for row in intake_questions.cross_cutting %}
+                  {% set ns.index = ns.index + 1 %}
+                  {{ gap_row(row, ns.index, answered.get(row.question)) }}
+                {% endfor %}
+              </ul>
+            </details>
+          {% endif %}
+
+          <div class="questions__foot">
+            <button class="button button--primary" type="submit">Save answers</button>
+          </div>
+        </form>
+
+        <form method="post" action="{{ url_for('revise_intake') }}" class="questions__revise">
+          <button class="button button--quiet" type="submit">Revise the intake with these answers</button>
+          <span class="switch__count">
+            Rewrites the declaration using every note and answer so far, alongside what is
+            already there — nothing is discarded that this revision does not touch.
+          </span>
+        </form>
       </section>
     {% endif %}
 
@@ -684,54 +712,6 @@
             </li>
           {% endfor %}
         </ul>
-      </section>
-    {% endif %}
-
-    {% if questions %}
-      {% set blocking = questions | rejectattr('deferred') | list %}
-      {% set deferred = questions | selectattr('deferred') | list %}
-      {% set outstanding = questions | rejectattr('question', 'in', answered) | list %}
-      <section class="panel">
-        <h2 class="panel__title">What is still unanswered</h2>
-        <p class="panel__body">
-          Only what stops the intake being filled in. Documentation is never complete, and the
-          rest of what these documents leave open is recorded in the context file rather than put
-          to anybody. Answer what you can and press Save — you can come back for the others, and
-          an answer already given can be changed. Nothing needs re-running: each answer is
-          recorded against its question and given to every stage that follows.
-        </p>
-
-        <form method="post" action="{{ url_for('save_answers', key=stage.key) }}">
-          <ul class="questions">
-            {% for question in blocking %}
-              {{ question_row(question, loop.index, answered.get(question.question)) }}
-            {% endfor %}
-          </ul>
-
-          {% if deferred %}
-            <details class="questions__more">
-              <summary class="questions__more-summary">
-                {{ deferred | length }} further point{{ '' if deferred | length == 1 else 's' }}
-                the documents left open — not blocking, shown in case you want them
-              </summary>
-              <ul class="questions">
-                {% for question in deferred %}
-                  {{ question_row(question, blocking | length + loop.index,
-                                  answered.get(question.question)) }}
-                {% endfor %}
-              </ul>
-            </details>
-          {% endif %}
-
-          <div class="questions__foot">
-            <button class="button button--primary" type="submit">Save answers</button>
-            <span class="questions__progress">
-              <span class="mono">{{ questions | length - outstanding | length }}</span>
-              of <span class="mono">{{ questions | length }}</span> answered
-              {%- if outstanding %} · leaving the rest is fine{% endif %}
-            </span>
-          </div>
-        </form>
       </section>
     {% endif %}
 

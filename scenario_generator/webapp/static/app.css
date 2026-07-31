@@ -647,8 +647,6 @@ ol, ul { list-style: none; padding: 0; }
   letter-spacing: .08em;
   text-transform: uppercase;
 }
-.questions__row--gap .questions__kind { color: var(--attention); }
-.questions__row--confirm .questions__kind { color: var(--blue-dark); }
 .questions__text { display: block; }
 .questions__detail {
   display: block;
@@ -727,8 +725,6 @@ ol, ul { list-style: none; padding: 0; }
 .answers__body { font-size: .86rem; color: var(--ink-soft); }
 .answers__counts { font-size: .74rem; color: var(--ink-faint); }
 .answers__row--missing .answers__heading { color: var(--ink-faint); }
-
-.questions__row--unknown .questions__kind { color: var(--attention); }
 
 /* ------------------------------------------------------------------ mode badge
  * The stage's mode reads beside its number rather than as a paragraph of its own. Someone who
@@ -1151,6 +1147,26 @@ ol, ul { list-style: none; padding: 0; }
 }
 .questions__more-summary:hover { color: var(--blue); }
 .questions__form { display: none; }
+
+.questions__group-title {
+  margin: 1.1rem 0 .2rem;
+  font-size: .78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  color: var(--ink-faint);
+}
+.questions__group-title:first-child { margin-top: 0; }
+.questions__revise {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .7rem;
+  margin-top: 1.1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line-soft);
+}
+.questions__revise .switch__count { margin: 0; max-width: 32rem; }
 
 /* ------------------------------------------------------------------ clearing work */
 .reset { margin-top: 2.25rem; display: grid; gap: .9rem; }

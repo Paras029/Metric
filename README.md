@@ -187,17 +187,39 @@ the intake stage, or pass it straight to `generate`.
 | # | Stage | Input | Output |
 |---|---|---|---|
 | 1 | Documents | The submitted pack: model documentation, their test scenarios, workflow diagrams, supporting material | A cited context document, and answers to eleven questions about the agent |
-| 2 | Open questions | The above | What stops the intake being filled in, as questions you answer inline |
-| 3 | Intake | A drafted or completed intake workbook | The agent as a decision graph, confirmed by you |
-| 4 | Benchmark | The intake | Every distinct route through the graph, plus applicable probes |
-| 5 | Scenario text | The benchmark | A description and tester script per scenario |
-| 6 | Materiality | The benchmark | A Low / Medium / High / Critical tier per scenario, driving run counts |
-| 7 | Final review | The whole benchmark | Settled materiality, checked categories, flagged weaknesses, proposed additions |
-| 8 | Coverage | Their scenario library | How much of the benchmark they already exercise, annotated onto each scenario |
-| 9 | Issue | The registry | The challenge pack to send, and the registry to keep |
+| 2 | Intake | A drafted or completed intake workbook | The agent as a decision graph, confirmed by you |
+| 3 | Benchmark | The intake | Every distinct route through the graph, plus applicable probes |
+| 4 | Scenario text | The benchmark | A description and tester script per scenario |
+| 5 | Materiality | The benchmark | A Low / Medium / High / Critical tier per scenario, driving run counts |
+| 6 | Final review | The whole benchmark | Settled materiality, checked categories, flagged weaknesses, proposed additions |
+| 7 | Coverage | Their scenario library | How much of the benchmark they already exercise, annotated onto each scenario |
+| 8 | Issue | The registry | The challenge pack to send, and the registry to keep |
 
-Stages 1, 2 and 8 are optional. Skip 1 and 2 if you already have an intake; skip 8 if the team
-submitted no testing of their own.
+Stages 1 and 7 are optional. Skip 1 if you already have an intake; skip 7 if the team submitted no
+testing of their own.
+
+**Gaps in the declaration are questions addressed to the row that needs them, not to the
+documents.** There used to be a separate "Open questions" stage asking about eleven broad facets
+of the evidence -- "what are the known risk areas?" -- which said which section of the documents
+was thin but never which decision, state, capability, tool or persona actually needed filling in.
+That is folded into the Intake stage now: once a workbook exists, drafted or uploaded, it is read
+for where it is structurally thin -- a decision with fewer than two outcomes, a capability with no
+type, a terminal state with no outcome type, a state nothing reaches, a persona with no stated
+objective -- and each gap becomes a question addressed to that specific row (see
+`core/gaps.py`). What the drafter itself flagged as inferred rather than read is folded in beside
+them, read back from the workbook's own "Review This" sheet. Anything genuinely cross-cutting --
+no state marked as the start, or a question the documents never addressed at all -- is kept, at
+the bottom, exactly where it belongs once the row-scoped questions have had first claim on your
+attention.
+
+Answering a gap question records a note, the same mechanism notes have always used, and nothing
+re-runs automatically. **Revise the intake with these answers**, a separate action on the same
+page, is what folds them in: it hands the model the *current* declaration -- drafted, hand-edited,
+or both -- alongside every note and answer, old and new, with instructions to change only what the
+new information actually requires and carry everything else forward untouched. This is
+deliberately not the same call as the first draft, and deliberately not automatic: a plain redraft
+has no way to tell your hand correction from something it should re-derive from scratch, and would
+silently discard it. Revise as many times as you like; each pass sees everything answered so far.
 
 Stage 1 reads `.pdf`, `.docx`, `.pptx`, `.xlsx`, `.xlsm`, `.csv`, `.md` and `.txt`, and describes
 `.png`, `.jpg` and `.jpeg` diagrams with a vision-capable model. Spreadsheets are read sheet by
@@ -442,7 +464,8 @@ pack.
 
 ```
 ingest              SOURCES... OUTPUT_PREFIX
-draft-intake        CONTEXT_FILE OUTPUT
+draft-intake        CONTEXT_FILE OUTPUT [--evidence FILE] [--note TEXT]
+revise-intake       CURRENT_WORKBOOK OUTPUT [--context FILE] [--evidence FILE] [--note TEXT]
 init-template       OUTPUT
 build-graph         INTAKE GRAPH_OUTPUT [--with-probes]
 build-probes        INTAKE GRAPH_INPUT GRAPH_OUTPUT
@@ -551,7 +574,6 @@ LLM_STAGE_<KEY>_CONCURRENCY      Per-call-site override of LLM_MAX_CONCURRENCY -
 LLM_MAX_CORPUS_CHARS             Default 2000000 (~500k tokens).
 LLM_INGEST_RESOLVE_PASSES        Default 2. How many times an open question is put
                                  back to the documents before it is put to a person.
-LLM_MAX_OPEN_QUESTIONS           Default 6. How many questions are shown at once.
 LLM_MAX_CONCURRENCY              Default 4. How many batched calls run at once.
 LLM_VISION                       "off" where the model does not accept images.
 LLM_MAX_IMAGE_BYTES              Default 4000000.

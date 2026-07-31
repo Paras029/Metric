@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = "ingest.system"
 _DRAFT_PROMPT = "intake.draft"
+_REVISE_PROMPT = "intake.revise"
 
 CAPABILITY_TYPES = ("Lookup", "Transactional", "Gating", "Advisory", "PII-handling")
 INPUT_SOURCES = ("User", "Tool", "Memory-Session", "Memory-CrossSession", "System-Context",
@@ -99,6 +100,30 @@ def draft_intake(context: str, complete: Optional[Callable[..., str]] = None,
     """
     complete = complete or ask_llm
     user = prompt_loader.render(_DRAFT_PROMPT, context=context,
+                                structure=_structure_block(structure))
+    system = prompt_loader.load(_SYSTEM_PROMPT)
+
+    try:
+        reply = complete(system, user, tier=config.stage_tier("INTAKE_DRAFT", config.JUDGEMENT))
+    except TypeError:                                      # a stub completion without the keywords
+        reply = complete(system, user)
+
+    return DraftedIntake(_validate(parse_json_object(reply)))
+
+
+def revise_intake(context: str, current: str, complete: Optional[Callable[..., str]] = None,
+                  structure: Optional[dict] = None) -> DraftedIntake:
+    """Ask for the intake revised in place, given what has been added since it was last written.
+
+    The distinction from :func:`draft_intake` is the whole point of this function: a draft starts
+    from nothing, and a revision starts from ``current`` -- whatever is declared right now,
+    whether that is an earlier draft, a hand correction, or both -- and is explicitly told to
+    change only what the new evidence and answers actually require. Calling ``draft_intake`` again
+    on a corrected workbook would silently discard the correction; this is what exists instead,
+    for the intake stage's "Revise with these answers" action.
+    """
+    complete = complete or ask_llm
+    user = prompt_loader.render(_REVISE_PROMPT, context=context, current=current,
                                 structure=_structure_block(structure))
     system = prompt_loader.load(_SYSTEM_PROMPT)
 

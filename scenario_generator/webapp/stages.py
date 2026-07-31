@@ -91,22 +91,15 @@ STAGES: Tuple[Stage, ...] = (
           "is recorded rather than filled in.",
           optional=True),
 
-    Stage("questions", "Open questions", REVIEW,
-          "What the documents did not cover. Your answers are recorded as evidence in their own "
-          "right, attributed to you rather than to a document.",
-          "Two kinds. A question no document addressed at all, and a specific point an otherwise "
-          "good answer could not settle. Answer what you can here; each answer is passed to "
-          "every later stage, so nothing needs re-running. What is left unanswered stays "
-          "unknown rather than being treated as something the agent does not do.",
-          optional=True),
-
     Stage("intake", "Intake", REVIEW,
           "The agent described as a decision graph. Drafted from the evidence, corrected by you. "
           "Nothing reaches the benchmark that is not here.",
           "The authoritative description of the agent, and the boundary of what can be tested. It "
-          "is drafted from the documents so the work is correction rather than transcription, "
-          "but it is not authoritative until you have read it — the Review This sheet says where "
-          "the draft is weakest. Upload a completed intake instead if you already have one."),
+          "is drafted from the documents so the work is correction rather than transcription, and "
+          "what it could not settle comes back as questions addressed to the specific decision, "
+          "state, capability, tool or persona that needs them — answer what you can, then revise "
+          "the declaration with those answers folded in. Upload a completed intake instead if you "
+          "already have one."),
 
     Stage("benchmark", "Benchmark", COMPUTED,
           "Every distinct route through the decision graph, plus the adversarial probes that "

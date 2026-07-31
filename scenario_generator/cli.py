@@ -13,7 +13,7 @@ from .ingest import SUPPORTED_EXTENSIONS
 from .llm import NullMaterialityAssessor, NullReviewer, NullWriter, metering
 from .pipeline import (assess_materiality, build_graph, build_pack, build_probes_stage,
                        draft_intake_workbook, generate, ingest_documents, map_coverage, refine,
-                       review)
+                       review, revise_intake_workbook)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -127,6 +127,21 @@ def main(argv: Optional[List[str]] = None) -> int:
                          help="something you know that the documents do not say, or an answer to "
                               "one of the open questions -- may be given more than once")
 
+    p_revise = sub.add_parser(
+        "revise-intake",
+        help="revise an existing intake workbook with new context, keeping what is unaffected")
+    p_revise.add_argument("current", help="the intake workbook to revise")
+    p_revise.add_argument("output", help="where to write the revised workbook -- "
+                                         "may be the same path, to revise it in place")
+    p_revise.add_argument("--context", default=None,
+                          help="the PREFIX_context.md written by ingest, if anything has changed")
+    p_revise.add_argument("--evidence", default=None,
+                          help="the PREFIX_evidence.json written by ingest, for the decision graph "
+                               "read out of any submitted diagrams (default: found beside context)")
+    p_revise.add_argument("--note", action="append", metavar="TEXT",
+                          help="an answer to a gap the current declaration left, or anything else "
+                               "learned since it was last written -- may be given more than once")
+
     p_serve = sub.add_parser("serve", help="run the local web interface")
     p_serve.add_argument("--port", type=int, default=5000)
     p_serve.add_argument("--workspaces", default="workspaces",
@@ -204,6 +219,12 @@ def _run_command(args) -> int:
         draft_intake_workbook(args.context, args.output, evidence_path=args.evidence,
                               notes=args.note)
         print(f"Drafted {args.output}. Read the 'Review This' sheet before relying on it.")
+        return 0
+
+    if args.command == "revise-intake":
+        revise_intake_workbook(args.current, args.output, context_path=args.context,
+                               evidence_path=args.evidence, notes=args.note)
+        print(f"Revised {args.output}. Read the 'Review This' sheet before relying on it.")
         return 0
 
     generate(args.intake, args.output_prefix,

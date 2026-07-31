@@ -19,6 +19,7 @@ approved -- writing to the older interface costs nothing and removes a dependenc
 from __future__ import annotations
 
 import logging
+import re
 import shutil
 from collections import Counter
 from pathlib import Path
@@ -30,9 +31,11 @@ from flask import (Flask, abort, jsonify, redirect, render_template, request, se
 from werkzeug.utils import secure_filename
 
 from ..core.evidence import FACETS
+from ..core.gaps import find_gaps
 from ..core.generation import required_runs
 from ..core.intake import (append_rows, attach_decision_to_state, merge_decisions, read_intake,
-                           set_decision_scope, set_state_reached_via, write_template)
+                           read_review_notes, set_decision_scope, set_state_reached_via,
+                           write_template)
 from ..core.models import MATERIALITY, IntakeData
 from ..ingest import open_questions, read_owner_library, record_from_json
 from ..ingest.context_document import FACET_HEADINGS
@@ -45,10 +48,10 @@ from ..llm import MaterialityAssessor, ScenarioReviewer, ScenarioWriter, config,
 from ..llm.cancellation import Stopped
 from ..llm.structure_review import review_structure
 from ..pipeline import (build_scenarios, draft_intake_workbook, ingest_documents, map_coverage,
-                        render_questions)
+                        revise_intake_workbook)
 from . import stagecancel
 from .draft import DECISION, STATE, PendingEdits, PendingItem, next_id
-from .graphview import completeness, graph_summary, render_svg
+from .graphview import graph_summary, render_svg
 from .scenarios import FILTER_FIELDS, PAGE_SIZE, build_rows
 from .stages import RUNNING, STAGE_BY_KEY, STAGES, STATUS_LABELS, downstream_of, index_of
 from .workspace import Workspace, stage_view
@@ -78,7 +81,6 @@ DRAFT_INTAKE = "drafted_intake.xlsx"
 REGISTRY = "registry.xlsx"
 EVIDENCE = "ingest_evidence.json"
 CONTEXT = "ingest_context.md"
-QUESTIONS = "open_questions.md"
 PACK = "challenge_pack.xlsx"
 OVERLAP = "coverage.xlsx"
 
@@ -90,7 +92,6 @@ OVERLAP = "coverage.xlsx"
 # its own remove -- deleting the pack because a later stage was re-run would be a rout.
 STAGE_OUTPUTS: Dict[str, tuple] = {
     "documents": (EVIDENCE, CONTEXT, "ingest_questions.md"),
-    "questions": (QUESTIONS,),
     "intake": (DRAFT_INTAKE,),
     "benchmark": (REGISTRY,),
     "coverage": (OVERLAP,),
@@ -201,23 +202,6 @@ def _run_documents(workspace: Workspace, progress=None, cancel=None) -> Dict[str
             "To put to the model owner": counts["to_ask"],
             "Minor points, recorded not asked": counts["set_aside"],
             "Unreadable files": unreadable}
-
-
-def _run_questions(workspace: Workspace) -> Dict[str, object]:
-    """Turn the evidence record into the list of things nobody's documents answered."""
-    record = _evidence_record(workspace)
-    if record is None:
-        raise ValueError("Extract the evidence first.")
-
-    questions = open_questions(record)
-    path = workspace.root / QUESTIONS
-    path.write_text(render_questions(questions), encoding="utf-8")
-    workspace.state("questions").artifacts["questions"] = QUESTIONS
-
-    gaps = sum(1 for q in questions if q["kind"] == "gap")
-    return {"Open questions": len(questions), "Categories not covered": gaps,
-            "Statements to confirm": len(questions) - gaps,
-            "Notes you have added": len(workspace.notes)}
 
 
 def _run_intake(workspace: Workspace) -> Dict[str, object]:
@@ -389,7 +373,6 @@ def _run_coverage(workspace: Workspace) -> Dict[str, object]:
 # document pack and the intake workbook -- are handled by the upload route instead.
 RUNNERS: Dict[str, Callable[..., Dict[str, object]]] = {
     "documents": _run_documents,
-    "questions": _run_questions,
     "intake": _run_intake,
     "benchmark": _run_benchmark,
     "text": _run_text,
@@ -453,7 +436,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         # The graph is drawn wherever the intake is available, since it is the clearest reading
         # of what the benchmark will and will not be able to reach. On the intake stage it is
         # drawn over the sketch buffer, so an addition can be seen in place before it is committed.
-        graph_svg, graph_facts, sketch, problems = "", {}, None, []
+        graph_svg, graph_facts, sketch = "", {}, None
         if key in ("intake", "benchmark") and intake is not None:
             try:
                 pending = PendingEdits.from_list(workspace.pending)
@@ -473,7 +456,6 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
                         # that produces it, so an outcome already taken has nothing to attach.
                         "outcomes": _free_outcomes(intake),
                         "capabilities": [c.id for c in intake.capabilities]}
-                    problems = completeness(intake)
             except Exception as exc:                       # a malformed intake must not blank it
                 logger.warning("Could not draw the graph: %s", exc)
 
@@ -498,11 +480,11 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             graph_svg=graph_svg,
             graph_facts=graph_facts,
             sketch=sketch,
-            problems=problems,
             decisions=decisions,
             structure_proposals=workspace.structure_proposals if key == "intake" else [],
             structure_review_available=key == "intake" and intake is not None,
-            questions=_questions_for(workspace) if key == "questions" else [],
+            intake_questions=_intake_questions_for(workspace, intake)
+                if key == "intake" else None,
             answered=workspace.answered_questions(),
             answers=_answers_for(workspace) if key == "documents" else [],
             groups=_group_rows(workspace, key),
@@ -596,21 +578,76 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             })
         return rows
 
-    def _questions_for(workspace: Workspace):
-        """The open questions, most blocking first, with the tail held back.
+    # Which kind of row a gap addresses, in the order they are worth reading -- a decision that
+    # names no outcome blocks enumeration entirely, so it comes before a persona's phrasing.
+    _GAP_GROUP_ORDER = (("use_case", "Use case"), ("decision", "Decisions"), ("state", "States"),
+                       ("capability", "Capabilities"), ("tool", "Tools"), ("persona", "Personas"))
 
-        A list long enough to be daunting is a list nobody works through, so only the ones that
-        most clearly stop the intake being filled in are put in front of the reader; the rest are
-        still there behind a toggle rather than dropped, because a question nobody sees is a
-        question nobody can decide about.
+    # A review note's own "field" text is free-form -- whatever the model wrote, not a schema
+    # this can rely on -- so only an unambiguous row id is trusted to place it in a group. Ids
+    # loose enough to false-match ordinary words (a persona's "P1" against any word starting with
+    # a "p") are left to fall through to cross-cutting rather than risk a wrong placement.
+    _ROW_ID_IN_TEXT = re.compile(r"\b(DEC-\d+|S-\d+|CAP-\d+)\b", re.I)
+    _KIND_BY_PREFIX = {"DEC": "decision", "S": "state", "CAP": "capability"}
+
+    def _intake_questions_for(workspace: Workspace, intake) -> Dict[str, list]:
+        """What the current declaration needs, addressed to the row that needs it.
+
+        Row-scoped gaps -- see core.gaps -- come first, grouped by the kind of row they concern,
+        because that is how a person filling them in thinks about the intake: one decision, one
+        state, one capability at a time. What is left is cross-cutting: a structural gap that is
+        not about any single row (no state marked as the start), and whatever the documents never
+        addressed at all, which is a property of the evidence rather than of the declaration and
+        so cannot be pinned to one. Both use the same answer mechanism as everything else that
+        adds context -- see :func:`save_answers` -- so answering one is recorded as a note under
+        its own question, exactly like an open question always has been.
         """
+        if intake is None:
+            return {"row_groups": [], "cross_cutting": []}
+
+        answered = workspace.answered_questions()
+
+        def _row(question: str, why: str, heading: str = "") -> dict:
+            return {"heading": heading, "question": question, "why": why,
+                   "answered": question in answered}
+
+        grouped: Dict[str, list] = {}
+        cross_cutting = []
+        for gap in find_gaps(intake):
+            row = _row(gap.question, gap.why, gap.heading)
+            if gap.kind:
+                grouped.setdefault(gap.kind, []).append(row)
+            else:
+                cross_cutting.append(row)
+
+        # The drafter's own hedges -- what it inferred rather than read, what it could not
+        # settle -- read back from the workbook. A softer signal than a structural gap: the row
+        # is filled in, but not with confidence, and only the model that wrote it knows why.
+        path = workspace.artifact_path("intake", "workbook")
+        if path:
+            for note in read_review_notes(str(path)):
+                field = str(note.get("field", ""))
+                text = str(note.get("note", ""))
+                if not text:
+                    continue
+                match = _ROW_ID_IN_TEXT.search(field) or _ROW_ID_IN_TEXT.search(text)
+                question = f"About {field}: is this right?" if field else "Worth checking:"
+                row = _row(question, text, match.group(1).upper() if match else field)
+                kind = _KIND_BY_PREFIX.get(match.group(1).upper().split("-")[0]) if match else None
+                if kind:
+                    grouped.setdefault(kind, []).append(row)
+                else:
+                    cross_cutting.append(row)
+
         record = _evidence_record(workspace)
-        if not record:
-            return []
-        questions = open_questions(record)
-        for index, question in enumerate(questions):
-            question["deferred"] = index >= config.MAX_OPEN_QUESTIONS
-        return questions
+        if record is not None:
+            for question in open_questions(record):
+                cross_cutting.append(_row(question["question"], question["detail"],
+                                          question["heading"]))
+
+        row_groups = [{"label": label, "rows": grouped[key]}
+                      for key, label in _GAP_GROUP_ORDER if grouped.get(key)]
+        return {"row_groups": row_groups, "cross_cutting": cross_cutting}
 
     @app.route("/stage/<key>/note", methods=["POST"])
     def add_note(key: str):
@@ -751,6 +788,35 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             return redirect(url_for("stage", key="intake",
                                     invalidated=", ".join(s.title for s in invalidated)))
         return redirect(url_for("stage", key="intake"))
+
+    @app.route("/stage/intake/revise", methods=["POST"])
+    def revise_intake():
+        """Revise the current declaration with every note and answer given so far.
+
+        Explicit rather than automatic -- nothing here runs the moment a question is answered,
+        because a redraft has to be given the current declaration as what to revise or it would
+        silently discard anything corrected by hand since the last one. See
+        :func:`pipeline.revise_intake_workbook`. What is passed as ``notes`` is every note the
+        workspace has ever recorded, old and new alike, the same accumulation every other pass
+        already reads through :func:`_context`.
+        """
+        workspace = _workspace()
+        path = workspace.artifact_path("intake", "workbook")
+        if not path:
+            abort(404)
+
+        extracted = workspace.root / CONTEXT
+        revise_intake_workbook(
+            str(path), str(path),
+            context_path=str(extracted) if extracted.exists() else None,
+            evidence_path=str(workspace.root / EVIDENCE),
+            notes=workspace.note_lines())
+
+        invalidated = workspace.invalidate_from("intake")
+        workspace.save()
+        logger.info("Revised %s with %d note(s).", path.name, len(workspace.notes))
+        return redirect(url_for("stage", key="intake",
+                                invalidated=", ".join(s.title for s in invalidated)))
 
     @app.route("/stage/intake/structure-review", methods=["POST"])
     def run_structure_review():

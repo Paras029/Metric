@@ -120,6 +120,39 @@ def read_intake(path: str) -> IntakeData:
     return IntakeData(use_case, personas, capabilities, decisions, states, tools)
 
 
+def read_review_notes(path: str) -> List[dict]:
+    """The drafter's own review notes, read back from the "Review This" sheet it wrote.
+
+    Nothing else persists a draft's self-assessment -- the workbook is the one place it lives,
+    the same as everything else this tool declares about the agent -- so recovering it later (to
+    fold into the intake stage's gap questions) means reading this sheet back rather than keeping
+    a second copy of it anywhere. Absent, unreadable, or from a hand-built workbook with no such
+    sheet, this returns no notes rather than raising: a missing self-assessment is not a reason to
+    keep the rest of the intake from being read.
+    """
+    try:
+        with sheets.open_for_reading(path, "an intake workbook") as workbook:
+            if "Review This" not in workbook.sheetnames:
+                return []
+            rows = sheets.read_rows(workbook["Review This"])
+    except Exception:
+        return []
+
+    notes: List[dict] = []
+    in_notes = False
+    for row in rows:
+        first = _cell(row, 0).strip()
+        if first == "Note":
+            in_notes = True
+            continue
+        if not in_notes:
+            continue
+        note = _cell(row, 2).strip()
+        if first and note:
+            notes.append({"field": first, "note": note})
+    return notes
+
+
 def read_owner_scenarios(path: str, sheet_name: str = "Scenarios") -> List[OwnerScenario]:
     """Read a modeling team's own scenario library: ID, Description, optional Decision Path."""
     with sheets.open_for_reading(path, "a scenario library") as workbook:
