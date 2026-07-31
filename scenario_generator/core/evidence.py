@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import asdict, dataclass, field
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 # What ingestion looks for, and why. The first six mirror the intake's own sheets, so a claim can
 # be routed to the cell it informs. The rest exist because scenario generation needs to know what

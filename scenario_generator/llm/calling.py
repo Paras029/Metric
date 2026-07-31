@@ -19,6 +19,7 @@ unchanged and simply does not get the speed.
 """
 from __future__ import annotations
 
+import functools
 import inspect
 import logging
 from typing import Any, Callable, List, Optional, Sequence, Union
@@ -58,7 +59,25 @@ def accepts(complete: Callable[..., str], name: str) -> bool:
 
     A callable whose signature cannot be read -- a builtin, or something wrapped in C -- is
     assumed not to, which degrades to the plain two-argument call rather than failing.
+
+    Cached where it can be. The answer is a property of the function and cannot change, and this
+    is asked two or three times for every call every batched pass makes; building a ``Signature``
+    is real reflection work to repeat several hundred times a run for a fixed answer. A callable
+    that is not hashable -- an ordinary dataclass instance with a ``__call__``, say -- is answered
+    directly instead of being refused.
     """
+    try:
+        return _accepts_cached(complete, name)
+    except TypeError:                                      # unhashable callable
+        return _accepts(complete, name)
+
+
+@functools.lru_cache(maxsize=256)
+def _accepts_cached(complete: Callable[..., str], name: str) -> bool:
+    return _accepts(complete, name)
+
+
+def _accepts(complete: Callable[..., str], name: str) -> bool:
     try:
         signature = inspect.signature(complete)
     except (TypeError, ValueError):

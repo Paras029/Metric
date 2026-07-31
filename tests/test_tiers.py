@@ -49,18 +49,21 @@ class TestTierDefinitions(unittest.TestCase):
     def test_the_tiers_are_ordered_by_how_much_room_the_work_needs(self):
         self.assertGreater(config.JUDGEMENT.max_tokens, config.MATERIALITY.max_tokens)
         self.assertGreaterEqual(config.MATERIALITY.max_tokens, config.STANDARD.max_tokens)
-        self.assertGreaterEqual(config.STANDARD.max_tokens, config.FAST.max_tokens)
 
     def test_only_the_judgement_tier_reasons_at_length(self):
         self.assertEqual(config.JUDGEMENT.reasoning_effort, "high")
         self.assertEqual(config.STANDARD.reasoning_effort, "minimal")
-        self.assertEqual(config.FAST.reasoning_effort, "minimal")
 
     def test_every_tier_falls_back_to_the_main_model(self):
         """Nothing changes until a smaller model is configured, which matters where a new model
         has to clear an approval before it can be used."""
-        for tier in (config.JUDGEMENT, config.MATERIALITY, config.STANDARD, config.FAST):
+        for tier in (config.JUDGEMENT, config.MATERIALITY, config.STANDARD):
             self.assertTrue(tier.model)
+
+    def test_every_tier_a_stage_can_ask_for_actually_exists(self):
+        """A tier nothing runs on is a knob documented in the README that changes nothing."""
+        named = {config.JUDGEMENT.name, config.MATERIALITY.name, config.STANDARD.name}
+        self.assertEqual(named, {"judgement", "materiality", "standard"})
 
     def test_materiality_retries_less_than_the_default(self):
         """Every chunk of the benchmark hits this tier at once, so a busy gateway means several
@@ -70,7 +73,7 @@ class TestTierDefinitions(unittest.TestCase):
 
     def test_the_corpus_limit_leaves_room_for_the_prompt_and_the_reply(self):
         """Four characters to a token, against a million-token input window."""
-        self.assertLess(config.MAX_CORPUS_CHARS / 4, 1_000_000)
+        self.assertLess(config.max_corpus_chars() / 4, 1_000_000)
 
 
 def _same_settings(tier, base) -> bool:

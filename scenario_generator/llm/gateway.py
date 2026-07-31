@@ -168,9 +168,10 @@ def _generation_parameters(tier: Optional["config.Tier"], temperature: Optional[
                         else tier.temperature if tier and tier.temperature is not None
                         else config.DEFAULT_TEMPERATURE),
         "max_tokens": (max_tokens if max_tokens is not None
-                       else tier.max_tokens if tier else config.DEFAULT_MAX_TOKENS),
+                       else tier.max_tokens if tier else config.STANDARD.max_tokens),
     }
-    effort = reasoning_effort or (tier.reasoning_effort if tier else config.REASONING_EFFORT)
+    effort = reasoning_effort or (tier.reasoning_effort if tier
+                                  else config.STANDARD.reasoning_effort)
     if effort:
         parameters["reasoning_effort"] = effort
     return parameters

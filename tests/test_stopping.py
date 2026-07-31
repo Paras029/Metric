@@ -125,9 +125,12 @@ class TestStoppingAStageThroughTheInterface(unittest.TestCase):
 
         def blocking_complete(system, user, **kwargs):
             # Stands in for a model call in flight when the stop is clicked: it is allowed to
-            # finish rather than being torn down, but nothing after it may be sent.
+            # finish rather than being torn down, but nothing after it may be sent. The wait is
+            # long because it must not expire on its own -- a call that returned early because a
+            # loaded machine took its timeout would let the next one be sent before the stop
+            # landed, and the test would be measuring the timeout rather than the stop.
             calls.append(user)
-            release.wait(timeout=5)
+            release.wait(timeout=60)
             return "{}"
 
         with mock.patch("scenario_generator.llm.materiality.ask_llm", blocking_complete):
@@ -140,12 +143,16 @@ class TestStoppingAStageThroughTheInterface(unittest.TestCase):
 
             stopped = self.client.post("/stage/materiality/stop")
             self.assertEqual(stopped.status_code, 302)
+            in_flight = len(calls)
             release.set()                                   # let the in-flight call finish
 
             status = self._settle("materiality")
 
         self.assertEqual(status, "stopped")
-        self.assertEqual(len(calls), 1, "no call may be sent after a stop is requested")
+        # The property is that nothing further was sent, not that exactly one call had been:
+        # how many were already in flight when the button was pressed is a matter of timing.
+        self.assertEqual(len(calls), in_flight,
+                         "no call may be sent after a stop is requested")
         page = self.client.get("/stage/materiality").data.decode()
         self.assertIn("Stopped", page)
 

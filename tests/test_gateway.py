@@ -174,13 +174,13 @@ def _echo(fails_on: str = "") -> _EchoModel:
 class TestBatching(_WithSafeChain):
     def test_one_reply_comes_back_per_message_in_the_same_order(self):
         with _install(lambda model_id: _echo()):
-            replies = gateway.ask_llm_batch("s", ["one", "two", "three"], tier=config.FAST)
+            replies = gateway.ask_llm_batch("s", ["one", "two", "three"], tier=config.STANDARD)
         self.assertEqual(list(replies), ["one", "two", "three"])
 
     def test_every_message_actually_reached_the_model(self):
         model = _echo()
         with _install(lambda model_id: model):
-            gateway.ask_llm_batch("s", ["alpha", "beta", "gamma"], tier=config.FAST)
+            gateway.ask_llm_batch("s", ["alpha", "beta", "gamma"], tier=config.STANDARD)
         self.assertEqual(sorted(model.seen), ["alpha", "beta", "gamma"])
 
     def test_an_empty_list_is_not_sent_anywhere(self):
@@ -191,7 +191,7 @@ class TestBatching(_WithSafeChain):
         it a different way, since it has to vary the message between calls."""
         hazardous = 'Return ONLY: {"resolved": [{"question": "...", "status": "answered"}]}'
         with _install(lambda model_id: _echo()):
-            replies = gateway.ask_llm_batch("s", [hazardous], tier=config.FAST)
+            replies = gateway.ask_llm_batch("s", [hazardous], tier=config.STANDARD)
         self.assertEqual(replies[0], hazardous)
 
     def test_one_failure_does_not_lose_the_others(self):
@@ -199,7 +199,7 @@ class TestBatching(_WithSafeChain):
         # correct -- a transient failure inside a batch deserves the same second chance a lone
         # call gets -- but it means real backoff delay unless sleep is short-circuited here.
         with _install(lambda model_id: _echo(fails_on="bad")), mock.patch("time.sleep"):
-            replies = gateway.ask_llm_batch("s", ["good-1", "bad", "good-2"], tier=config.FAST)
+            replies = gateway.ask_llm_batch("s", ["good-1", "bad", "good-2"], tier=config.STANDARD)
 
         self.assertEqual(replies[0], "good-1")
         self.assertIsInstance(replies[1], BaseException)
@@ -228,7 +228,7 @@ class TestBatching(_WithSafeChain):
                 return result
 
         with _install(lambda model_id: _CancellingEcho(messages=iter([]), seen=[], fails_on="")):
-            replies = gateway.ask_llm_batch("s", ["one", "two", "three"], tier=config.FAST,
+            replies = gateway.ask_llm_batch("s", ["one", "two", "three"], tier=config.STANDARD,
                                             max_concurrency=1, cancel=event)
 
         self.assertEqual(replies[0], "one")
@@ -248,7 +248,7 @@ class TestCallsAreCounted(_WithSafeChain):
     def test_a_batch_counts_once_per_message(self):
         with _install(lambda model_id: _echo()):
             with metering.counted() as calls:
-                gateway.ask_llm_batch("s", ["one", "two", "three"], tier=config.FAST)
+                gateway.ask_llm_batch("s", ["one", "two", "three"], tier=config.STANDARD)
         self.assertEqual(calls(), 3)
 
     def test_an_empty_batch_counts_nothing(self):
@@ -318,7 +318,7 @@ class TestGenerationParameters(_WithSafeChain):
                          config.JUDGEMENT.reasoning_effort)
 
     def test_an_explicit_argument_overrides_the_tier(self):
-        gateway.ask_llm("s", "u", tier=config.FAST, max_tokens=99, temperature=0.9)
+        gateway.ask_llm("s", "u", tier=config.STANDARD, max_tokens=99, temperature=0.9)
 
         self.assertEqual(self._received()["max_tokens"], 99)
         self.assertEqual(self._received()["temperature"], 0.9)
@@ -326,11 +326,11 @@ class TestGenerationParameters(_WithSafeChain):
     def test_each_tier_gets_its_own_model(self):
         """Two tiers can name the same model and still need different caps."""
         gateway.ask_llm("s", "u", tier=config.JUDGEMENT)
-        gateway.ask_llm("s", "u", tier=config.FAST)
+        gateway.ask_llm("s", "u", tier=config.STANDARD)
 
         self.assertEqual(len(gateway._models), 2)
         self.assertEqual({self._received(0)["max_tokens"], self._received(1)["max_tokens"]},
-                         {config.JUDGEMENT.max_tokens, config.FAST.max_tokens})
+                         {config.JUDGEMENT.max_tokens, config.STANDARD.max_tokens})
 
     def test_the_same_tier_is_built_once_and_reused(self):
         """Building reads a config file and sets up credentials; doing it per batch is waste."""

@@ -86,6 +86,9 @@ def read_table(sheet: Worksheet) -> "tuple[List[str], List[List[str]]]":
         if number == 1:
             header = ["" if v is None else str(v).strip() for v in (values or ())]
             continue
-        if values and values[0] not in (None, ""):
-            rows.append(["" if v is None else str(v).strip() for v in values])
+        # Judged on the trimmed value: a cell holding only a space is a blank row a person left
+        # behind, and letting it through produces a decision or a state with no id at all.
+        cells = ["" if v is None else str(v).strip() for v in (values or ())]
+        if cells and cells[0]:
+            rows.append(cells)
     return header, rows

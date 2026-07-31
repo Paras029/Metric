@@ -24,8 +24,8 @@ reading had no reason to connect, and every question that survives to the modell
 days. Whatever the documents still do not settle is carried to the intake stage, which decides
 what is actually blocking from the declaration itself rather than by asking a model to guess.
 
-Splitting, but only as a fallback. A corpus past ``MAX_CORPUS_CHARS`` is divided and the parts
-merged, with a warning. That is the exception now rather than the rule.
+Splitting, but only as a fallback. A corpus past ``config.max_corpus_chars()`` is divided and the
+parts merged, with a warning. That is the exception now rather than the rule.
 """
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 from ..core.evidence import (FACETS, KIND_IMAGE, Claim, DocumentRef, EvidenceRecord,
                              FacetAnswer, SourceRef)
-from ..core.grounding import locate
+from ..core.grounding import Source
 from ..llm import cancellation, config, prompt_loader
 from ..llm.calling import call
 from ..llm.gateway import ask_llm, ask_llm_with_images
@@ -61,10 +61,6 @@ _RESOLVE_PROMPT = "ingest.resolve"
 _DIAGRAM_READ_PROMPT = "ingest.diagram_read"
 _DIAGRAM_SYNTHESIZE_PROMPT = "ingest.diagram_synthesize"
 _DIAGRAM_REPAIR_PROMPT = "ingest.diagram_repair"
-
-# How much text goes into one reading call, from LLM_MAX_CORPUS_CHARS. A pack past this is split,
-# which reads worse than reading it whole, so the number is set to make that rare.
-MAX_CORPUS_CHARS = config.MAX_CORPUS_CHARS
 
 # The eleven questions asked in three calls rather than eleven. Grouped by what they have in
 # common, so each call answers questions that draw on the same parts of the document, and each
@@ -191,7 +187,12 @@ class DocumentExtractor:
         self._done = 0
         self._total = 0
         self._drawn_on: Set[str] = set()
-        self._lock = threading.Lock()                      # the reading calls run in parallel
+        # Every counter below is written from the pools that read the facet groups and the
+        # diagrams, so all of them go through this. ``x += 1`` on an attribute is a load, an add
+        # and a store, and two threads interleaving those lose one of the increments -- which for
+        # _calls and _failures means the failure rate that decides whether to abandon a run is
+        # computed from numbers that are quietly wrong.
+        self._lock = threading.Lock()
 
     # ------------------------------------------------------------------ entry point
     def run(self, paths: Sequence[Path]) -> EvidenceRecord:
@@ -278,6 +279,12 @@ class DocumentExtractor:
                 if answer:
                     merged[facet] = _merge(merged.get(facet), answer)
         return merged
+
+    def _called(self, failed: bool = False) -> None:
+        """Record one model call, and whether it failed. Called from several threads."""
+        with self._lock:
+            self._calls += 1
+            self._failures += int(failed)
 
     def _note_documents_used(self, names) -> None:
         """Record which documents a reading call said it drew on. Called from three threads."""
@@ -413,15 +420,15 @@ class DocumentExtractor:
         """One image, read on its own into boxes and arrows. None if the call failed."""
         user = prompt_loader.render(_DIAGRAM_READ_PROMPT, filename=path.name,
                                     position=f"{index} of {total}")
-        self._calls += 1
         try:
             reply = parse_json_object(call(
                 self._describe_images, prompt_loader.load(_SYSTEM_PROMPT), user,
                 tier=config.stage_tier("INGEST_DIAGRAM_READ", config.JUDGEMENT), images=[image]))
         except Exception as exc:
-            self._failures += 1
+            self._called(failed=True)
             logger.warning("Could not read diagram %s: %s", path.name, exc)
             return None
+        self._called()
         return reply if (reply.get("nodes") or reply.get("edges")) else None
 
     def _synthesize_diagrams(self, readings: List[Tuple[str, dict]],
@@ -441,15 +448,16 @@ class DocumentExtractor:
 
         user = prompt_loader.render(_DIAGRAM_SYNTHESIZE_PROMPT, facets=_facet_guide(),
                                     document=names, readings=blocks)
-        self._calls += 1
         try:
-            return parse_json_object(call(
+            reply = parse_json_object(call(
                 self._complete, prompt_loader.load(_SYSTEM_PROMPT), user,
                 tier=config.stage_tier("INGEST_DIAGRAM_SYNTHESIZE", config.JUDGEMENT)))
         except Exception as exc:
-            self._failures += 1
+            self._called(failed=True)
             logger.warning("Could not construct the workflow from the diagrams: %s", exc)
             return None
+        self._called()
+        return reply
 
     def _repair_structure(self, structure: dict, images: List[Tuple[str, bytes]],
                           names: str) -> dict:
@@ -479,15 +487,15 @@ class DocumentExtractor:
             structure=diagram_structure.render(structure),
             problems="\n".join(f"- {problem}" for problem in problems))
 
-        self._calls += 1
         try:
             reply = parse_json_object(call(
                 self._describe_images, prompt_loader.load(_SYSTEM_PROMPT), user,
                 tier=config.stage_tier("INGEST_DIAGRAM_REPAIR", config.JUDGEMENT), images=images))
         except Exception as exc:
-            self._failures += 1
+            self._called(failed=True)
             logger.warning("Could not check the diagrams again: %s", exc)
             return structure
+        self._called()
 
         repaired = diagram_structure.merge(structure, reply)
         remaining = diagram_structure.audit(repaired)
@@ -503,12 +511,14 @@ class DocumentExtractor:
         it is marked for confirmation rather than presented as established.
         """
         checked = 0
+        # Prepared once for the whole pass rather than per citation: see core.grounding.Source.
+        prepared = Source(corpus)
         for answer in record.answers:
             kept: List[str] = []
             for citation in getattr(answer, "citations", []) or []:
                 quote = str(citation.get("quote", "")).strip()
                 checked += 1
-                found, _ = locate(quote, corpus)
+                found, _ = prepared.locate(quote)
                 if not found:
                     continue
                 claim = Claim(
@@ -630,8 +640,10 @@ class DocumentExtractor:
         return len(FACET_GROUPS) * parts + diagram_calls + sweeps
 
     def _step(self, message: str) -> None:
-        self._done += 1
-        self._progress(message, self._done, self._total)
+        with self._lock:
+            self._done += 1
+            done = self._done
+        self._progress(message, done, self._total)
 
     def _ask(self, prompt: str, stage: str, **values) -> Optional[dict]:
         """One judgement-budget call, returning None rather than raising when it fails.
@@ -640,21 +652,24 @@ class DocumentExtractor:
         the resolution sweep are both JUDGEMENT-tier work but different calls a benchmark can want
         tuned independently, which a shared tier alone cannot express.
         """
-        self._calls += 1
         user = prompt_loader.render(prompt, **values)
         system = prompt_loader.load(_SYSTEM_PROMPT)
         try:
-            return parse_json_object(
+            reply = parse_json_object(
                 call(self._complete, system, user, tier=config.stage_tier(stage, config.JUDGEMENT)))
         except Exception as exc:
-            self._failures += 1
+            self._called(failed=True)
             logger.warning("A reading call failed: %s", exc)
             return None
+        self._called()
+        return reply
 
     def _stop_if_mostly_failing(self, phase: str) -> None:
-        if self._calls and self._failures / self._calls > MAX_FAILURE_RATE:
+        with self._lock:
+            calls, failures = self._calls, self._failures
+        if calls and failures / calls > MAX_FAILURE_RATE:
             raise IngestionFailed(
-                f"{self._failures} of {self._calls} model calls failed during {phase}. The output "
+                f"{failures} of {calls} model calls failed during {phase}. The output "
                 f"would not be a usable reading of these documents, so nothing was written. "
                 f"Check that SafeChain can reach the model named in your config.yml, and run it "
                 f"again.")

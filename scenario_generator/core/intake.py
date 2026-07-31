@@ -161,6 +161,12 @@ def read_owner_scenarios(path: str, sheet_name: str = "Scenarios") -> List[Owner
     to the final review, where knowing what they say they cover can inform what it proposes.
     """
     with sheets.open_for_reading(path, "a scenario library") as workbook:
+        if sheet_name not in workbook.sheetnames:
+            raise ValueError(
+                f"'{Path(path).name}' has no '{sheet_name}' sheet. This reads a list with one row "
+                f"per scenario: an id in the first column, a description in the second, and "
+                f"optionally a decision path in the third. It has: "
+                f"{', '.join(workbook.sheetnames)}.")
         rows = sheets.read_rows(workbook[sheet_name])
     return [OwnerScenario(_cell(r, 0), _cell(r, 1), _cell(r, 2))
             for r in rows if _cell(r, 0) and _cell(r, 1)]

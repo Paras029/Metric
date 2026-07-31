@@ -25,6 +25,10 @@ logger = logging.getLogger(__name__)
 MAX_DEPTH = 12
 MAX_PATHS = 1000
 
+# What an opening state says in its "Reached Via" cell when it is not reached by a decision at all.
+# Only consulted for states that name no decision edge: a state reached via "DEC-02=Reconnected"
+# is reached by a decision, and matching "connect" inside that outcome would make it a second
+# place the walk starts from and fill the benchmark with routes the agent cannot take.
 _START_HINT = re.compile(r"start|begin|connect|inbound", re.I)
 
 Path = List[Step]
@@ -40,7 +44,9 @@ class DecisionGraph:
             for edge in parse_reached_via(state.reached_via):
                 self._edges[edge].append(state.id)
 
-        self.start_states = [s.id for s in states if _START_HINT.search(s.reached_via or "")]
+        self.start_states = [s.id for s in states
+                             if not parse_reached_via(s.reached_via)
+                             and _START_HINT.search(s.reached_via or "")]
         if not self.start_states and states:
             self.start_states = [states[0].id]
 
@@ -153,11 +159,15 @@ def augment_variants(graph: DecisionGraph, paths: List[Path]) -> List[Path]:
     for decision in graph.decisions.values():
         if decision.out_of_scope:
             continue
-        for variant in decision.variants:
-            if (decision.id, variant) in already:
-                continue
-            prefix = _shortest_prefix_to(graph, decision.id)
-            extra.append(prefix + [Step(decision.id, variant, graph.successor(decision.id, variant))])
+        missing = [v for v in decision.variants if (decision.id, v) not in already]
+        if not missing:
+            continue
+        # One search per decision, not per outcome: the route *to* a decision is the same
+        # whichever of its outcomes is being reached for.
+        prefix = _shortest_prefix_to(graph, decision.id)
+        for variant in missing:
+            extra.append(prefix + [Step(decision.id, variant,
+                                        graph.successor(decision.id, variant))])
             already.add((decision.id, variant))
     return extra
 

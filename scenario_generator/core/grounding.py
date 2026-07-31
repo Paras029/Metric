@@ -82,50 +82,93 @@ def coverage(quote: str, source: str) -> float:
 _WINDOW_MULTIPLE = 2.5
 _MIN_ANCHOR_SHARE = 0.25
 
+# How many candidate neighbourhoods are scored before the best is taken. A quote's anchor can
+# legitimately appear more than once in a pack -- a policy sentence repeated in a summary and in
+# the section it summarises -- and the first occurrence is not always the one the quote came from.
+# Scoring a handful and keeping the best is what makes finding the anchor by search rather than by
+# exhaustive diff safe; past a few, the extra candidates are the same neighbourhood again.
+_MAX_ANCHORS = 6
 
-def _best_window(quote: str, source: str) -> str:
-    """The stretch of source around the quote's longest verbatim run, or empty if there is none.
 
-    One pass finds where the quote most nearly appears; the score is then computed against that
-    neighbourhood alone, so a real quote broken up by extraction still matches while an invented
-    one cannot borrow from elsewhere in the corpus.
+class Source:
+    """A source text prepared once, so many quotes can be checked against it cheaply.
+
+    Normalising a submitted pack costs tens of milliseconds and depends only on the source, so
+    doing it per quote meant a verification pass repeated it once for every citation. Held here
+    instead, and the quote is the only thing that changes between checks.
     """
-    matcher = SequenceMatcher(None, quote, source, autojunk=False)
-    anchor = matcher.find_longest_match(0, len(quote), 0, len(source))
-    if anchor.size < max(MIN_QUOTE_CHARS // 2, int(len(quote) * _MIN_ANCHOR_SHARE)):
-        return ""
 
-    width = int(len(quote) * _WINDOW_MULTIPLE)
-    start = max(0, anchor.b - anchor.a - (width - len(quote)) // 2)
-    return source[start:start + width]
+    def __init__(self, text: str) -> None:
+        self.text = normalise(text)
+
+    def __bool__(self) -> bool:
+        return bool(self.text)
+
+    def _windows(self, quote: str) -> List[str]:
+        """The stretches of source worth scoring this quote against, best-first is not required.
+
+        A quote earns a neighbourhood by having a verbatim run of at least ``_MIN_ANCHOR_SHARE`` of
+        its own length somewhere in the source -- the same bar as before, and the thing that stops
+        an invented sentence being assembled out of common words scattered across a pack.
+
+        The run is found by searching for it rather than by diffing the quote against the whole
+        source. ``SequenceMatcher.find_longest_match`` walks every position at which each character
+        of the quote occurs in the source, which against a six-hundred-thousand-character pack is
+        millions of steps per quote and was measured at over a second each; a real reading cites
+        dozens. ``str.find`` answers the same question -- is this run present, and where -- in one
+        pass of compiled string search. The bar being a *contiguous* run is what makes the two
+        interchangeable: a run either appears verbatim or it does not.
+        """
+        probe = max(MIN_QUOTE_CHARS // 2, int(len(quote) * _MIN_ANCHOR_SHARE))
+        if len(quote) < probe:
+            return []
+
+        width = int(len(quote) * _WINDOW_MULTIPLE)
+        lead = (width - len(quote)) // 2
+        starts, windows = set(), []
+        for offset in range(0, len(quote) - probe + 1):
+            at = self.text.find(quote[offset:offset + probe])
+            if at < 0:
+                continue
+            start = max(0, at - offset - lead)
+            if start in starts:
+                continue
+            starts.add(start)
+            windows.append(self.text[start:start + width])
+            if len(windows) >= _MAX_ANCHORS:
+                break
+        return windows
+
+    def locate(self, quote: str, threshold: float = MATCH_THRESHOLD) -> Tuple[bool, str]:
+        """Whether this source supports the quote, and why not when it does not."""
+        normalised_quote = normalise(quote)
+
+        if not normalised_quote:
+            return False, "no quote given"
+        if len(normalised_quote) < MIN_QUOTE_CHARS:
+            return False, f"quote shorter than {MIN_QUOTE_CHARS} characters"
+        if not self.text:
+            return False, "no source text to check against"
+        if normalised_quote in self.text:
+            return True, ""
+
+        windows = self._windows(normalised_quote)
+        if not windows:
+            return False, "quote not found in the cited source"
+
+        score = max(coverage(normalised_quote, window) for window in windows)
+        if score >= threshold:
+            return True, ""
+        return False, f"quote not found in the cited source (best match {score:.0%})"
 
 
 def locate(quote: str, source: str, threshold: float = MATCH_THRESHOLD) -> Tuple[bool, str]:
     """Whether a quote is supported by a source text, and why not when it is not.
 
-    Returns the reason alongside the verdict so a rejection can be recorded and explained rather
-    than leaving a claim to vanish without trace.
+    For one quote. Checking several against the same source should build a :class:`Source` once
+    and call its own ``locate`` -- see that class for why the difference is large.
     """
-    normalised_quote = normalise(quote)
-    normalised_source = normalise(source)
-
-    if not normalised_quote:
-        return False, "no quote given"
-    if len(normalised_quote) < MIN_QUOTE_CHARS:
-        return False, f"quote shorter than {MIN_QUOTE_CHARS} characters"
-    if not normalised_source:
-        return False, "no source text to check against"
-    if normalised_quote in normalised_source:
-        return True, ""
-
-    window = _best_window(normalised_quote, normalised_source)
-    if not window:
-        return False, "quote not found in the cited source"
-
-    score = coverage(normalised_quote, window)
-    if score >= threshold:
-        return True, ""
-    return False, f"quote not found in the cited source (best match {score:.0%})"
+    return Source(source).locate(quote, threshold)
 
 
 def verify(claims: Iterable[Claim], source: str,
@@ -138,12 +181,13 @@ def verify(claims: Iterable[Claim], source: str,
     confirmation before anything relies on them.
     """
     checked = []
+    prepared = Source(source)
     for claim in claims:
         if claim.source.kind in (KIND_IMAGE, KIND_HUMAN):
             claim.status = UNVERIFIABLE
             claim.note = claim.note or f"read from a {claim.source.kind} source; confirm by hand"
         else:
-            ok, reason = locate(claim.quote, source, threshold)
+            ok, reason = prepared.locate(claim.quote, threshold)
             claim.status = VERIFIED if ok else REJECTED
             claim.note = reason if not ok else claim.note
         checked.append(claim)

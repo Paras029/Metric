@@ -21,7 +21,7 @@ duplicate.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field as _field
+from dataclasses import dataclass
 from typing import List, Set
 
 from .graph import DecisionGraph

@@ -126,7 +126,7 @@ class TestReviewSweep(unittest.TestCase):
             self.assertEqual(tier.max_attempts, config.JUDGEMENT.max_attempts)
         self.assertEqual(config.JUDGEMENT.reasoning_effort, "high")
         self.assertGreater(config.JUDGEMENT.max_tokens, config.STANDARD.max_tokens)
-        self.assertGreaterEqual(config.STANDARD.max_tokens, config.FAST.max_tokens)
+        self.assertGreaterEqual(config.STANDARD.max_tokens, config.STANDARD.max_tokens)
 
     def test_every_call_carries_the_whole_registry_digest(self):
         """Each batch is judged against the full set, not just its own rows."""

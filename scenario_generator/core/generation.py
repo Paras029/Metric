@@ -113,13 +113,30 @@ def required_runs(materiality: str, mapping: dict = None) -> int:
     return (mapping or RUNS_BY_MATERIALITY).get(materiality, 1)
 
 
+def _started_at(path: Path, graph: DecisionGraph) -> str:
+    """Which start state this path actually opened from.
+
+    An agent can have more than one way in -- an inbound call and an inbound chat are two start
+    states over one graph -- and a path records where it went rather than where it began. Taking
+    the first start state regardless would have every scenario claim to be seeded from the same
+    place, and the seeded state is issued in the registry and read by the writer.
+
+    The path's first decision is offered by the state it opened from, so that is what identifies
+    it. Where more than one start offers it, or the path is empty, the first is as good as any.
+    """
+    if not path:
+        return graph.start_states[0]
+    offering = set(graph.states_offering(path[0].decision_id))
+    return next((s for s in graph.start_states if s in offering), graph.start_states[0])
+
+
 def instantiate_path(path: Path, graph: DecisionGraph, personas: List[Persona],
                      tools: List[Tool], origin: str) -> Scenario:
     category = categorise(path, graph)
     turn_meta = build_turn_meta(path, graph, tools)
     tool_names, state_changing = _scenario_tools(path, graph, tools)
 
-    start_state = graph.state(graph.start_states[0]) if graph.start_states else None
+    start_state = graph.state(_started_at(path, graph)) if graph.start_states else None
     terminal_state = graph.state(path[-1].next_state) if path else None
 
     capabilities = list(dict.fromkeys(
@@ -149,6 +166,9 @@ def instantiate_all(walked: List[Path], augmented: List[Path], graph: DecisionGr
                     personas: List[Persona], tools: List[Tool]) -> List[Scenario]:
     """All scenarios, ordered and assigned stable SC-xxx IDs."""
     scenarios = [instantiate_path(p, graph, personas, tools, "graph") for p in walked]
+    # "coverage-gap" here means a gap in what the *walk* covered -- an outcome the depth-first
+    # traversal never reached, given a route of its own by the variant sweep. It predates the
+    # coverage stage and is unrelated to it; see FUNCTIONAL_ORIGINS.
     scenarios += [instantiate_path(p, graph, personas, tools, "coverage-gap") for p in augmented]
 
     order = {"graph": 0, "coverage-gap": 1}

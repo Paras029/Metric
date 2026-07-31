@@ -12,8 +12,13 @@ CONFIDENCE = ["Low", "Medium", "High"]
 # free text. Anything unrecognised is kept verbatim and simply matches no predicate.
 CAPABILITY_TYPES = ["Lookup", "Transactional", "Gating", "Advisory", "PII-handling"]
 
-# Origins that represent the functional benchmark. Coverage matching runs over these only —
-# probes are excluded by origin, not by having an empty decision path.
+# Origins that represent the functional benchmark -- routes through the declared graph, however
+# they were reached. Probes are excluded by origin rather than by having an empty decision path,
+# which stops a proposal with no declared route from being mistaken for one.
+#
+# "coverage-gap" predates the coverage stage and has nothing to do with it: it marks a route the
+# depth-first walk did not reach and the variant sweep had to add. Renaming it would change a
+# value already written into every registry, so the name stays and this says what it means.
 FUNCTIONAL_ORIGINS = ("graph", "coverage-gap")
 
 # Where a decision's input arrives from. Only "User" steps become conversational turns; the rest
@@ -156,12 +161,14 @@ class Scenario:
     review_category: str = ""
     review_category_rationale: str = ""
 
-    # What the modelling team's own testing already covers, written by the coverage stage. An
-    # annotation and nothing more: it is recorded against the scenario and shown to a person, and
-    # never removes anything from the pack. Whether covering a scenario twice is waste or
-    # confirmation depends on how much their testing is trusted, and that is not a judgement this
-    # tool is in a position to make.
-    owner_coverage: str = ""              # "Covered", "Partially covered" or ""
+    # How much of the modelling team's own testing landed on this scenario, written by the
+    # coverage stage: a count of their conversations ("3 conversations"), and the ids behind it.
+    # An annotation and nothing more -- it is recorded against the scenario and shown to a person,
+    # and by itself removes nothing from the pack. Whether covering a scenario twice is waste or
+    # confirmation depends on how far their testing is trusted, which is a judgement for the
+    # person issuing the pack. It never reaches the pack itself: telling the team which scenarios
+    # are already considered answered would tell them which ones to concentrate on.
+    owner_coverage: str = ""
     owner_coverage_note: str = ""
 
     # Probe provenance. Empty for graph scenarios; MRMG-internal, never issued to the owner.
@@ -237,5 +244,3 @@ class OwnerScenario:
     id: str
     description: str
     declared_path: str = ""
-
-

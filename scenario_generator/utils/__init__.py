@@ -5,4 +5,4 @@ from .text import (is_yes, normalise_variant, one_of, parse_path_str, parse_reac
                    split_list)
 
 __all__ = ["chunks", "parse_json_object", "normalise_variant", "split_list",
-          "parse_reached_via", "parse_path_str", "is_yes"]
+          "parse_reached_via", "parse_path_str", "is_yes", "one_of"]

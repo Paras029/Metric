@@ -140,7 +140,7 @@ class TestCallingACompletionFunction(unittest.TestCase):
         def stub(system, user):
             return f"{system}|{user}"
 
-        self.assertEqual(call(stub, "S", "U", tier=config.FAST), "S|U")
+        self.assertEqual(call(stub, "S", "U", tier=config.STANDARD), "S|U")
 
     def test_a_gateway_that_takes_a_tier_is_given_one(self):
         seen = {}
@@ -168,7 +168,7 @@ class TestCallingACompletionFunction(unittest.TestCase):
             raise TypeError("cannot serialise the payload")
 
         with self.assertRaises(TypeError) as raised:
-            call(gateway, "S", "U", tier=config.FAST)
+            call(gateway, "S", "U", tier=config.STANDARD)
         self.assertIn("serialise", str(raised.exception))
 
     def test_extra_arguments_are_passed_only_where_they_fit(self):
@@ -201,8 +201,8 @@ class TestCallingInBatches(unittest.TestCase):
             seen.append(tier)
             return user
 
-        call_batch(stub, "S", ["a", "b"], tier=config.FAST)
-        self.assertEqual(seen, [config.FAST, config.FAST])
+        call_batch(stub, "S", ["a", "b"], tier=config.STANDARD)
+        self.assertEqual(seen, [config.STANDARD, config.STANDARD])
 
     def test_one_message_failing_does_not_stop_the_others(self):
         """Matches ask_llm_batch's own contract: a batch never fails as a whole."""
@@ -240,7 +240,7 @@ class TestCallingInBatches(unittest.TestCase):
             return user
 
         stub.batch = real_batch
-        result = call_batch(stub, "S", ["a", "b"], tier=config.FAST)
+        result = call_batch(stub, "S", ["a", "b"], tier=config.STANDARD)
         self.assertEqual(result, ["a", "b"])
 
     def test_an_empty_list_calls_nothing(self):

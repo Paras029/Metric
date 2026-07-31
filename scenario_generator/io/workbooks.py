@@ -14,7 +14,6 @@
 """
 from __future__ import annotations
 
-from pathlib import Path
 from typing import List
 
 from openpyxl import Workbook
@@ -67,6 +66,11 @@ _TURN_COLUMNS = ["SC ID", "Turn", "Decision ID", "Decision Name",
 _TURN_WIDTHS = [10, 7, 12, 26, 22, 28, 16, 18]
 
 
+def _at(row: List[str], index: int) -> str:
+    """One cell of a row, or empty where the row is shorter than the header promised."""
+    return row[index] if index < len(row) else ""
+
+
 def _write_metadata_sheet(workbook, scenarios: List[Scenario]) -> None:
     sheet = sheets.add_sheet(workbook, "Scenario_Metadata", _METADATA_COLUMNS, _METADATA_WIDTHS)
     sheets.write_rows(sheet, [[
@@ -111,10 +115,15 @@ def read_scenarios(path: str, intake: IntakeData) -> List[Scenario]:
     with sheets.open_for_reading(path, "a benchmark workbook") as workbook:
         turns_by_id: dict = {}
         for row in sheets.read_rows(workbook["Turn_Metadata"]):
-            turns_by_id.setdefault(row[0], []).append(TurnMeta(
-                index=int(row[1]), decision_id=row[2], decision_name=row[3],
-                expected_variant=row[4], expected_tool=row[5], next_state=row[6],
-                input_source=row[7] if len(row) > 7 and row[7] else "User"))
+            # Positional rather than numbered: these rows are written in order, and a registry
+            # that has been through a spreadsheet by hand can arrive with the turn number
+            # reformatted or blanked. Refusing to open the whole benchmark over one such cell
+            # would be a far worse outcome than renumbering from the order it is already in.
+            turns = turns_by_id.setdefault(row[0], [])
+            turns.append(TurnMeta(
+                index=len(turns) + 1, decision_id=_at(row, 2), decision_name=_at(row, 3),
+                expected_variant=_at(row, 4), expected_tool=_at(row, 5), next_state=_at(row, 6),
+                input_source=_at(row, 7) or "User"))
 
         text_by_id: dict = {}
         if "Scenario_Text" in workbook.sheetnames:

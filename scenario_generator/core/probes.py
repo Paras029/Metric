@@ -10,12 +10,16 @@ so extending the library never requires a new intake column.
 """
 from __future__ import annotations
 
+import logging
 import os
+import re
 from typing import Callable, Dict, List
 
 import yaml
 
 from .models import IntakeData, Persona, Scenario, TurnMeta
+
+logger = logging.getLogger(__name__)
 
 _LIBRARY_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                              "probe_library.yaml")
@@ -25,16 +29,32 @@ ADVERSARIAL_PERSONA = Persona(id="P-ADV", name="Adversarial or non-cooperative u
 
 
 # --------------------------------------------------------------------------- predicates
-def _capability_types(intake: IntakeData) -> set:
-    return {c.type.strip().title() for c in intake.capabilities if c.type}
+_NOT_ALPHANUMERIC = re.compile(r"[^a-z0-9]+")
+
+
+def _fold(text: str) -> str:
+    """A capability type reduced to what it says, not how it was typed.
+
+    The declared type decides which adversarial probes apply, and matching it literally meant
+    "PII-handling" applied them while "PII handling" -- the same answer with a space -- did not,
+    silently, with the missing probes visible nowhere. Case and separators are formatting; folding
+    them is not guessing at what the answer meant, which is why anything genuinely outside the
+    vocabulary still matches no predicate and still contributes no probes.
+    """
+    return _NOT_ALPHANUMERIC.sub("", str(text or "").strip().lower())
+
+
+def _has_capability(intake: IntakeData, wanted: str) -> bool:
+    folded = _fold(wanted)
+    return any(_fold(c.type) == folded for c in intake.capabilities if c.type)
 
 
 PREDICATES: Dict[str, Callable[[IntakeData], bool]] = {
     "always": lambda intake: True,
     "has_tools": lambda intake: bool(intake.tools),
     "touches_state_change": lambda intake: any(t.state_changing for t in intake.tools),
-    "has_authentication": lambda intake: "Gating" in _capability_types(intake),
-    "handles_pii": lambda intake: "Pii-Handling" in _capability_types(intake),
+    "has_authentication": lambda intake: _has_capability(intake, "Gating"),
+    "handles_pii": lambda intake: _has_capability(intake, "PII-handling"),
     "has_persistent_memory": lambda intake: any(d.input_source == "Memory-CrossSession"
                                                 for d in intake.decisions),
     "ingests_user_content": lambda intake: any(d.input_source == "Document"
@@ -45,11 +65,20 @@ PREDICATES: Dict[str, Callable[[IntakeData], bool]] = {
 def evaluate(expression: str, intake: IntakeData) -> bool:
     """Evaluate an `applies_when` expression — predicate names joined by `and`.
 
-    An unknown predicate reads as False, so a typo silently drops the probe rather than
-    applying it everywhere.
+    An unknown predicate reads as False, so a typo drops the probe rather than applying it
+    everywhere -- but it says so. A probe that quietly stops being generated is a hole in the
+    benchmark that nothing else in the pipeline will report.
     """
-    terms = [term.strip() for term in str(expression or "always").split(" and ")]
-    return all(PREDICATES.get(term, lambda intake: False)(intake) for term in terms)
+    result = True
+    for term in [term.strip() for term in str(expression or "always").split(" and ")]:
+        predicate = PREDICATES.get(term)
+        if predicate is None:
+            logger.warning("Probe condition '%s' is not a predicate this knows, so the probes "
+                           "that depend on it are not generated. Known predicates: %s.",
+                           term, ", ".join(sorted(PREDICATES)))
+            return False
+        result = result and predicate(intake)
+    return result
 
 
 # --------------------------------------------------------------------------- library

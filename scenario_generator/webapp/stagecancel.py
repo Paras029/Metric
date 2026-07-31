@@ -42,7 +42,16 @@ def stop(root: Path, stage_key: str) -> bool:
     return True
 
 
-def clear(root: Path, stage_key: str) -> None:
-    """Drop a stage's signal once its run has ended, however it ended."""
+def clear(root: Path, stage_key: str, event: threading.Event = None) -> None:
+    """Drop a stage's signal once its run has ended, however it ended.
+
+    Pass the event that run was given. A stage that fails is marked failed *before* its thread
+    reaches this, which leaves a window in which the stage reads as runnable again and a second
+    run can register a signal of its own -- and clearing by key alone would then throw away the
+    new run's signal instead of the old one's, leaving a stage that is genuinely running with
+    nothing listening for a stop. Clearing only what this run registered cannot do that.
+    """
+    key = _key(root, stage_key)
     with _guard:
-        _events.pop(_key(root, stage_key), None)
+        if event is None or _events.get(key) is event:
+            _events.pop(key, None)

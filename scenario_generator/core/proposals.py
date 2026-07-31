@@ -59,8 +59,6 @@ def instantiate_proposal(entry: dict, index: int, intake: IntakeData) -> Scenari
     persona = (intake.persona_by_id(persona_id)
                or next((p for p in intake.personas if p.is_default), intake.personas[0]))
 
-    category = str(entry.get("category", "")).strip()
-
     rationale = str(entry.get("rationale", "")).strip()
     if dropped:
         rationale = f"{rationale} ({dropped} proposed step(s) discarded as outside the " \

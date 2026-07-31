@@ -279,12 +279,6 @@ MATERIALITY = _tier("materiality", "LLM_MATERIALITY", 32_000, "medium", max_atte
 # the text is issued and read by people, so it stays on the main model by default.
 STANDARD = _tier("standard", "LLM", 16_000, "minimal")
 
-# Mapping the modelling team's free-text scenarios onto the intake's declared vocabulary. This is
-# classification against a closed list, with validation afterwards discarding anything outside
-# it -- the cheapest useful model that can follow the format is enough. Set LLM_FAST_MODEL_ID to
-# point it somewhere smaller.
-FAST = _tier("fast", "LLM_FAST", 8_000, "minimal")
-
 
 # --------------------------------------------------------------------------- per-stage overrides
 #
@@ -343,18 +337,17 @@ def stage_batch_size(stage: str, default: int) -> int:
 # of input; four characters to a token puts this near half a million tokens, which leaves ample
 # room for the prompt and the reply. A pack larger than this is split across calls, which reads
 # worse, so the number is set to make that rare.
-MAX_CORPUS_CHARS = setting("LLM_MAX_CORPUS_CHARS", "ingestion", "max_corpus_chars",
-                          default=2_000_000, cast=int)
+DEFAULT_MAX_CORPUS_CHARS = 2_000_000
 
 
 def max_corpus_chars() -> int:
     """The corpus limit, read at the point of use.
 
-    A function rather than the constant above because the interface runs for hours and a value
-    fixed at import cannot be changed without a restart.
+    A function rather than a constant because the interface runs for hours and a value fixed at
+    import cannot be changed without a restart.
     """
     return setting("LLM_MAX_CORPUS_CHARS", "ingestion", "max_corpus_chars",
-                   default=MAX_CORPUS_CHARS, cast=int)
+                   default=DEFAULT_MAX_CORPUS_CHARS, cast=int)
 
 
 # How many times a question the first reading left open is put back to the documents before it is
@@ -387,8 +380,3 @@ def stage_concurrency(stage: str, default: int = None) -> int:
     return setting(f"LLM_STAGE_{stage.upper()}_CONCURRENCY", "stages", stage.lower(),
                    "concurrency", default=fallback, cast=int)
 
-# Kept for callers that still read the older names.
-DEFAULT_MAX_TOKENS = STANDARD.max_tokens
-JUDGEMENT_MAX_TOKENS = JUDGEMENT.max_tokens
-REASONING_EFFORT = STANDARD.reasoning_effort
-JUDGEMENT_REASONING_EFFORT = JUDGEMENT.reasoning_effort

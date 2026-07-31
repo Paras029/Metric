@@ -30,7 +30,7 @@ from werkzeug.utils import secure_filename
 
 from ..core.evidence import FACETS
 from ..core.gaps import find_gaps
-from ..core.intake import read_intake, read_review_notes, set_decision_scope, write_template
+from ..core.intake import read_review_notes, set_decision_scope, write_template
 from ..core.models import MATERIALITY
 from ..ingest import open_questions
 from ..ingest.context_document import FACET_HEADINGS
@@ -45,7 +45,7 @@ from ..pipeline import revise_intake_workbook
 from . import stagecancel
 from .coverageview import coverage_view, stored_mappings, stored_report
 from .graphview import graph_summary, render_svg
-from .runners import (CONTEXT, EVIDENCE, OVERLAP, PACK, REGISTRY, RUNNERS, STAGE_OUTPUTS,
+from .runners import (CONTEXT, EVIDENCE, OVERLAP, REGISTRY, RUNNERS, STAGE_OUTPUTS,
                       _apply_proposal, _context, _evidence_record, _intake, _proposal_dicts,
                       _scenarios, _snapshot)
 from .scenarios import FILTER_FIELDS, PAGE_SIZE, build_rows
@@ -790,23 +790,11 @@ def _execute(root: Path, key: str, cancel) -> None:
         Workspace.load(root).mark_failed(key, str(exc))
         return
     finally:
-        stagecancel.clear(root, key)
+        stagecancel.clear(root, key, cancel)
 
     finished = Workspace.load(root)
     finished.stages[key].artifacts.update(workspace.stages[key].artifacts)
     finished.complete(key, summary=summary)
-
-
-def _free_outcomes(intake: IntakeData) -> list:
-    """Declared outcomes that no state is reached by yet.
-
-    These are exactly the loose ends in the declaration: a branch the documents named but whose
-    destination nobody wrote down. Offering them as the place to attach a new state turns the
-    completeness report into something a person can act on in one click.
-    """
-    taken = {s.reached_via.strip().lower().replace(" ", "") for s in intake.states}
-    return [f"{d.id}={v}" for d in intake.decisions for v in d.variants
-            if f"{d.id}={v}".lower().replace(" ", "") not in taken]
 
 
 def _refusal(names) -> str:
