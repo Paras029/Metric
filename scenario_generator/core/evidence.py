@@ -286,14 +286,6 @@ class EvidenceRecord:
                    structure=data.get("structure") or {})
 
 
-def group_by_facet(claims: Iterable[Claim]) -> "OrderedDict[str, List[Claim]]":
-    """Claims arranged in the order the facets are declared, for stable rendering."""
-    grouped: "OrderedDict[str, List[Claim]]" = OrderedDict((facet, []) for facet in FACETS)
-    for claim in claims:
-        grouped.setdefault(claim.facet, []).append(claim)
-    return grouped
-
-
 def summarise(record: EvidenceRecord) -> Dict[str, int]:
     """Counts worth showing a user after ingestion, and worth logging."""
     return {

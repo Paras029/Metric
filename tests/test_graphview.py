@@ -12,7 +12,7 @@ import unittest
 
 from scenario_generator.core.models import Decision, IntakeData, Persona, State, Tool
 from scenario_generator.webapp.graphview import (DECISION, START, TERMINAL, build_layout,
-                                                 completeness, graph_summary, render_svg)
+                                                 graph_summary, render_svg)
 
 _INTAKE = IntakeData(
     use_case={"Use case name": "Test", "Business objective": "Objective"},
@@ -253,57 +253,6 @@ class TestSummary(unittest.TestCase):
         self.assertEqual(facts["decisions"], 2)
         self.assertEqual(facts["outcomes"], 3)
         self.assertEqual(facts["unreachable"], [])
-
-
-class TestCompleteness(unittest.TestCase):
-    """What is wrong with the declaration, said as something a person can go and fix."""
-
-    def test_a_well_formed_intake_has_nothing_to_report(self):
-        intake = IntakeData(
-            use_case={}, personas=[], capabilities=[],
-            decisions=[Decision("DEC-01", "Auth", "", "", ["Pass", "Fail"])],
-            states=[State("S-00", "Start", "Opens", ["DEC-01"], False),
-                    State("S-01", "DEC-01=Pass", "In", [], True, "Happy path"),
-                    State("S-02", "DEC-01=Fail", "Out", [], True, "Termination")],
-            tools=[])
-        self.assertEqual(completeness(intake), [])
-
-    def test_the_sample_intake_reports_its_one_dead_branch(self):
-        """DEC-02 declares a single outcome, so it contributes no route."""
-        self.assertEqual([p["id"] for p in completeness(_INTAKE)], ["DEC-02"])
-
-    def test_a_decision_with_one_outcome_is_reported(self):
-        """It adds no branch, so nothing on it is ever tested."""
-        problems = completeness(_ORPHANED)
-        self.assertTrue(any("only one named outcome" in p["what"] for p in problems))
-
-    def test_an_outcome_leading_nowhere_is_reported(self):
-        intake = IntakeData(
-            use_case={}, personas=[], capabilities=[],
-            decisions=[Decision("DEC-01", "Auth", "", "", ["Pass", "Fail"])],
-            states=[State("S-00", "Start", "Opens", ["DEC-01"], False),
-                    State("S-01", "DEC-01=Pass", "In", [], True, "Happy path")],
-            tools=[])
-        problems = completeness(intake)
-        self.assertTrue(any("Fail lead nowhere" in p["what"] for p in problems))
-
-    def test_a_capability_nothing_branches_on_is_reported(self):
-        from scenario_generator.core.models import Capability
-
-        intake = IntakeData(
-            use_case={}, personas=[], capabilities=[Capability("CAP-09", "Unused", "Lookup")],
-            decisions=[Decision("DEC-01", "Auth", "CAP-01", "", ["Pass", "Fail"])],
-            states=[State("S-00", "Start", "Opens", ["DEC-01"], False),
-                    State("S-01", "DEC-01=Pass", "In", [], True, "Happy path"),
-                    State("S-02", "DEC-01=Fail", "Out", [], True, "Termination")],
-            tools=[])
-        self.assertTrue(any("CAP-09 has no decisions" in p["what"] for p in completeness(intake)))
-
-    def test_an_intake_with_no_start_is_reported(self):
-        intake = IntakeData(use_case={}, personas=[], capabilities=[], decisions=[],
-                            states=[], tools=[])
-        self.assertTrue(any("No state is marked as the start" in p["what"]
-                            for p in completeness(intake)))
 
 
 if __name__ == "__main__":

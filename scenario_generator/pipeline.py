@@ -173,7 +173,7 @@ def build_pack(intake_path: str, registry_path: str, pack_path: str) -> List[Sce
 
 def map_coverage(intake_path: str, registry_path: str, owner_path: str, report_path: str,
                  extractor: Optional[MetadataExtractor] = None,
-                 annotate_registry: bool = True) -> "CoverageResult":
+                 annotate_registry: bool = True, cancel=None) -> "CoverageResult":
     """Stage: map a modeling team's own scenarios onto a generated registry, write the overlap
     report. The benchmark is loaded from the registry, so its category and materiality are
     whatever refine()/assess_materiality() already assigned — coverage never recomputes them.
@@ -187,7 +187,7 @@ def map_coverage(intake_path: str, registry_path: str, owner_path: str, report_p
     logger.info("Read %d scenario(s) from %s (%s).",
                 len(owner_scenarios), Path(owner_path).name, how)
 
-    extractor = extractor or MetadataExtractor()
+    extractor = extractor or MetadataExtractor(cancel=cancel)
     default_persona = next((p.id for p in intake.personas if p.is_default), intake.personas[0].id)
     matches = match_scenarios(owner_scenarios, extractor.extract(owner_scenarios, intake),
                               benchmark, default_persona)

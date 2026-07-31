@@ -13,11 +13,11 @@ from .drafting import DraftedIntake, draft_intake, revise_intake, write_drafted_
 from .owner_library import UnreadableLibrary, read_owner_library
 from .extraction import (DocumentExtractor, IngestionFailed, build_corpus,
                          extract_documents, record_from_json, record_to_json)
-from .readers import SUPPORTED_EXTENSIONS, UnreadableDocument, chunk, read_document
+from .readers import SUPPORTED_EXTENSIONS, UnreadableDocument, read_document
 
 __all__ = ["DocumentExtractor", "extract_documents", "record_to_json", "record_from_json",
            "build_context_document", "open_questions", "rejection_summary", "IngestionFailed",
-           "read_document", "chunk", "UnreadableDocument", "SUPPORTED_EXTENSIONS",
+           "read_document", "UnreadableDocument", "SUPPORTED_EXTENSIONS",
            "build_corpus",
            "draft_intake", "revise_intake", "write_drafted_intake", "DraftedIntake",
            "read_owner_library", "UnreadableLibrary"]

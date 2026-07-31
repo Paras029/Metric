@@ -204,7 +204,7 @@ def _run_documents(workspace: Workspace, progress=None, cancel=None) -> Dict[str
             "Unreadable files": unreadable}
 
 
-def _run_intake(workspace: Workspace) -> Dict[str, object]:
+def _run_intake(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
     """Read the intake workbook and report the shape of what it declares.
 
     Where no workbook has been provided but the documents have been read, one is drafted from
@@ -262,7 +262,7 @@ def _apply_proposal(path: Path, entry: dict) -> bool:
     return False
 
 
-def _run_benchmark(workspace: Workspace) -> Dict[str, object]:
+def _run_benchmark(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
     """Enumerate every route through the declared graph and add the applicable probes."""
     intake = _intake(workspace)
     scenarios = build_scenarios(intake, with_probes=True)
@@ -312,7 +312,7 @@ def _run_review(workspace: Workspace, progress=None, cancel=None) -> Dict[str, o
             "Proposed additions": len(proposals), "Flagged for a second look": flagged}
 
 
-def _run_issue(workspace: Workspace) -> Dict[str, object]:
+def _run_issue(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
     """Write the challenge pack for the model owner and the registry kept internally."""
     intake = _intake(workspace)
     scenarios = _scenarios(workspace, intake)
@@ -325,7 +325,7 @@ def _run_issue(workspace: Workspace) -> Dict[str, object]:
             "Expected outcomes in the pack": 0}
 
 
-def _run_coverage(workspace: Workspace) -> Dict[str, object]:
+def _run_coverage(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
     """Match the model owner's own scenario library against this benchmark.
 
     The file may have arrived on either stage -- with the rest of the pack, or here on its own --
@@ -347,7 +347,7 @@ def _run_coverage(workspace: Workspace) -> Dict[str, object]:
 
     try:
         result = map_coverage(str(intake_path), str(workspace.root / REGISTRY), str(owner),
-                              str(workspace.root / OVERLAP))
+                              str(workspace.root / OVERLAP), cancel=cancel)
     except UnreadableLibrary as exc:
         # Their file, not our pipeline. Say which file and what was wrong with it, because the
         # fix is to ask them for a clearer one rather than to change anything here.
@@ -1045,9 +1045,16 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
         The stage is left exactly as it was before this run -- nothing partial is written -- so
         it comes back as ready to run again rather than as failed.
+
+        Where nothing is listening, the stage is marked stopped here instead. That is not a
+        failure to stop: it means the thread that was running it is already gone, so there is
+        nothing left to signal and the record is simply out of date. Without this a stage left
+        running by an interrupted process could be clicked at forever with no effect.
         """
         workspace = _workspace()
-        stagecancel.stop(workspace.root, key)
+        if not stagecancel.stop(workspace.root, key):
+            if workspace.state(key).status == RUNNING:
+                workspace.mark_stopped(key)
         return redirect(url_for("stage", key=key))
 
     @app.route("/stage/<key>/progress", methods=["GET"])
@@ -1125,10 +1132,12 @@ def _execute(root: Path, key: str, cancel) -> None:
     disk stays the one source of truth for what has happened -- the same record the polling
     request reads, and the same one the command line would read.
 
-    ``cancel`` is the stop signal ``run_stage`` registered before this thread was started. Only
-    the stages that make many model calls take it -- see :func:`_takes_progress`, which the two
-    always travel together with -- so a stop on any other stage is accepted without complaint but
-    has nothing to interrupt beyond the one call already in flight.
+    ``cancel`` is the stop signal ``run_stage`` registered before this thread was started, and
+    every runner takes it. It used to go only to the stages that make many model calls, which is
+    why stopping appeared to work on some stages and not others: the rest were called without it
+    and ran to completion no matter how often the button was pressed. A stage with nothing long
+    to interrupt simply finds it already unset, which costs nothing and is a great deal easier to
+    reason about than a list of which stages honour it.
     """
     workspace = Workspace.load(root)
 
@@ -1137,8 +1146,7 @@ def _execute(root: Path, key: str, cancel) -> None:
 
     try:
         with metering.counted() as calls:
-            summary = RUNNERS[key](workspace, progress=report, cancel=cancel) \
-                if _takes_progress(key) else RUNNERS[key](workspace)
+            summary = RUNNERS[key](workspace, progress=report, cancel=cancel)
         if calls():
             summary = dict(summary, **{"Model calls": calls()})
             logger.info("Stage %s finished in %d model call(s).", key, calls())
@@ -1158,18 +1166,6 @@ def _execute(root: Path, key: str, cancel) -> None:
     finished = Workspace.load(root)
     finished.stages[key].artifacts.update(workspace.stages[key].artifacts)
     finished.complete(key, summary=summary)
-
-
-def _takes_progress(key: str) -> bool:
-    """Which stages report progress, and can be stopped mid-run: the ones that make many model
-    calls.
-
-    Reading documents was the only long stage while benchmarks were small. Writing, weighing and
-    reviewing three hundred scenarios is dozens of batched calls each, and a stage that shows
-    nothing for four minutes is indistinguishable from one that has died -- and is exactly the
-    kind of run someone wants to be able to call off rather than sit through.
-    """
-    return key in ("documents", "text", "materiality", "review")
 
 
 def _free_outcomes(intake: IntakeData) -> list:

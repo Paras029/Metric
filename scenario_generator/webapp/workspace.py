@@ -21,7 +21,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 from .stages import (COMPLETE, FAILED, LOCKED, READY, RUNNING, STAGE_BY_KEY, STAGE_KEYS,
                      STALE, STAGES, STOPPED, Stage, downstream_of, index_of, required_before)
@@ -48,6 +48,35 @@ def _lock_for(path: Path) -> threading.Lock:
         if key not in _save_locks:
             _save_locks[key] = threading.Lock()
         return _save_locks[key]
+
+
+# The runs this process actually started, as (workspace, stage). A stage's work only ever happens
+# on a thread inside the process that marked it running, so this set is the whole truth about
+# whether a run recorded on disk is still alive: after a restart it is empty, which is precisely
+# correct -- every run that was in flight died with the process that was hosting it. Deliberately
+# not persisted, for the same reason the stop signals in :mod:`.stagecancel` are not.
+_live_runs: Set[Tuple[str, str]] = set()
+_live_guard = threading.Lock()
+
+
+def _run_key(root: Path, stage_key: str) -> Tuple[str, str]:
+    return (str(Path(root).resolve()), stage_key)
+
+
+def _mark_live(root: Path, stage_key: str) -> None:
+    with _live_guard:
+        _live_runs.add(_run_key(root, stage_key))
+
+
+def _is_live(root: Path, stage_key: str) -> bool:
+    with _live_guard:
+        return _run_key(root, stage_key) in _live_runs
+
+
+def forget_run(root: Path, stage_key: str) -> None:
+    """Drop a run from the live set once it has ended, however it ended."""
+    with _live_guard:
+        _live_runs.discard(_run_key(root, stage_key))
 
 
 # How long to keep retrying a Windows file-replace that is transiently refused. OneDrive and
@@ -145,7 +174,7 @@ class Workspace:
         # see core.intake.merge_decisions and friends -- so this list only ever holds what is
         # still open, not a sketch waiting on a separate commit.
         self.structure_proposals: List[dict] = list(structure_proposals or [])
-        self._settle()
+        self._reconciled = self._settle()
 
     # ----------------------------------------------------------------- added context
     def add_note(self, stage_key: str, text: str, question: str = "") -> None:
@@ -300,11 +329,17 @@ class Workspace:
         data = json.loads((root / STATE_FILE).read_text(encoding="utf-8"))
         stages = {key: StageState.from_dict(data.get("stages", {}).get(key, {}))
                   for key in STAGE_KEYS}
-        return cls(root=root, name=data.get("name", root.name),
-                   created_at=data.get("created_at", ""), stages=stages,
-                   notes=data.get("notes", []), pending=data.get("pending", []),
-                   redact_files=data.get("redact_files", []),
-                   structure_proposals=data.get("structure_proposals", []))
+        workspace = cls(root=root, name=data.get("name", root.name),
+                        created_at=data.get("created_at", ""), stages=stages,
+                        notes=data.get("notes", []), pending=data.get("pending", []),
+                        redact_files=data.get("redact_files", []),
+                        structure_proposals=data.get("structure_proposals", []))
+        # An interrupted run was reconciled during construction -- see _settle. Written back once,
+        # here, so the record on disk stops claiming something is running: after this save the
+        # reconciliation finds nothing, so a page polling every second does not write every second.
+        if workspace._reconciled:
+            workspace.save()
+        return workspace
 
     @classmethod
     def create(cls, base: Path, name: str) -> "Workspace":
@@ -324,8 +359,8 @@ class Workspace:
     def state(self, key: str) -> StageState:
         return self.stages[key]
 
-    def _settle(self) -> None:
-        """Recompute which stages are reachable.
+    def _settle(self) -> bool:
+        """Recompute which stages are reachable. Returns whether anything had to be reconciled.
 
         Only locked and ready are derived; anything that has actually run keeps the status it
         earned. A stage is ready once every *required* stage before it has produced something.
@@ -335,19 +370,36 @@ class Workspace:
         Optional stages do not gate anything. That is what lets a team that already has a
         completed intake workbook open the intake stage on a fresh workspace and work forward
         from there, without pretending to read documents they were never sent.
+
+        A stage recorded as running that this process never started is an *interrupted* run --
+        see :data:`_live_runs`. Its thread died with whatever process was hosting it, so nothing
+        is going to finish it or write its result, and leaving the record saying "running" strands
+        the stage forever: the page polls something that will never move, and the stop button has
+        no thread left to signal. It is reset here to stopped, which is exactly what it is.
         """
+        reconciled = False
         for stage in STAGES:
             current = self.stages[stage.key]
+            if current.status == RUNNING and not _is_live(self.root, stage.key):
+                current.status, current.updated_at = STOPPED, _now()
+                current.note = ("Interrupted before finishing -- the tool stopped while this was "
+                                "running. Nothing partial was written; run it again.")
+                current.progress = {}
+                reconciled = True
+                continue
             if current.status in (COMPLETE, STALE, RUNNING, FAILED, STOPPED):
                 continue
             satisfied = all(self.stages[earlier.key].status in (COMPLETE, STALE)
                             for earlier in required_before(stage.key))
             current.status = READY if satisfied else LOCKED
+        return reconciled
 
     def mark_running(self, key: str) -> None:
         """A stage has started. Its progress is written to disk so the page can read it."""
+        _mark_live(self.root, key)
         state = self.stages[key]
         state.status, state.updated_at = RUNNING, _now()
+        state.note = ""
         state.progress = {"message": "Starting", "done": 0, "total": 0}
         self.save()
 
@@ -363,6 +415,7 @@ class Workspace:
         self.save()
 
     def mark_failed(self, key: str, note: str) -> None:
+        forget_run(self.root, key)
         state = self.stages[key]
         state.status, state.note, state.updated_at = FAILED, note, _now()
         state.progress = {}
@@ -374,6 +427,7 @@ class Workspace:
         Nothing it would have written was, so the stage sits exactly where it was before this run
         started -- distinct from a failure, and just as ready to be run again.
         """
+        forget_run(self.root, key)
         state = self.stages[key]
         state.status, state.note, state.updated_at = STOPPED, "Stopped before finishing.", _now()
         state.progress = {}
@@ -386,6 +440,7 @@ class Workspace:
         Returns the stages that were invalidated, so the interface can say what just happened
         rather than leaving the user to notice on their own.
         """
+        forget_run(self.root, key)
         state = self.stages[key]
         state.status = COMPLETE
         state.updated_at = _now()

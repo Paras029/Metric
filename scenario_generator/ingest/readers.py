@@ -287,39 +287,3 @@ def read_document(path: Path) -> Tuple[DocumentRef, List[Segment]]:
         logger.warning("%s: %s", path.name, note)
 
     return DocumentRef(name=path.name, kind=kind, units=len(segments), note=note), segments
-
-
-def chunk(segments: List[Segment], budget: int = 6000, overlap: int = 1) -> List[Tuple[str, str]]:
-    """Group segments into passages small enough to send, keeping locators intact.
-
-    Returns (text, locator range) pairs. Segments are never split, because a boundary inside a
-    sentence costs a quote its verbatim match.
-
-    Consecutive chunks share their last ``overlap`` segments. A process described across a page
-    break is otherwise seen only as two halves, and neither half on its own says what the process
-    is -- the reader of each chunk sees a beginning with no end, or an end with no beginning. The
-    repetition costs a little in tokens and occasionally produces the same observation twice,
-    which the synthesis pass merges. Missing the fact entirely has no such remedy.
-    """
-    chunks: List[Tuple[str, str]] = []
-    buffer: List[Segment] = []
-    size = 0
-
-    def flush() -> None:
-        if not buffer:
-            return
-        text = "\n\n".join(f"[{s.locator}]\n{s.text}" for s in buffer)
-        span = (buffer[0].locator if len(buffer) == 1
-                else f"{buffer[0].locator}–{buffer[-1].locator}")
-        chunks.append((text, span))
-
-    for segment in segments:
-        if buffer and size + len(segment.text) > budget:
-            flush()
-            carried = buffer[-overlap:] if overlap else []
-            buffer = list(carried)
-            size = sum(len(s.text) for s in buffer)
-        buffer.append(segment)
-        size += len(segment.text)
-    flush()
-    return chunks
