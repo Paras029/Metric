@@ -225,45 +225,17 @@ class BenchmarkScenario:
     origin: str = "graph"
 
 
-# --------------------------------------------------------------------------- reverse mapping
+# --------------------------------------------------------------------------- their own material
 @dataclass(frozen=True)
 class OwnerScenario:
-    """One row of a modeling team's own scenario library."""
+    """One row of a modelling team's own scenario library, where they keep one.
+
+    Not what the coverage stage reads -- that works from transcripts, since a scenario list is a
+    claim about their testing rather than the testing itself. This is context handed to the final
+    review, so a proposal can take account of what they say they already cover.
+    """
     id: str
     description: str
     declared_path: str = ""
 
 
-@dataclass
-class ExtractedMeta:
-    """Metadata inferred from an owner scenario, constrained to the intake's vocabulary.
-
-    confidence is binary: 'Confident' when the owner text states the decisions and outcomes
-    unambiguously, else 'Watch-out'.
-    """
-    decision_path: List[Tuple[str, str]] = field(default_factory=list)
-    category: str = ""
-    capabilities: List[str] = field(default_factory=list)
-    persona_id: str = ""
-    confidence: str = "Watch-out"
-    rationale: str = ""
-
-    @property
-    def signature(self) -> Tuple[Tuple[str, str], ...]:
-        return tuple(self.decision_path)
-
-
-@dataclass
-class Match:
-    """One owner scenario judged against the benchmark.
-
-    verdict is set only when the owner's decision path matches a benchmark path exactly. Path and
-    persona are the two primary, direct deciders: both must align for 'Match'. Any other metadata
-    (category, capabilities) can only demote an otherwise-full match to 'Partial match' — never
-    decide a match on its own, and never override the path gate. `notes` records what disagreed.
-    """
-    owner: OwnerScenario
-    extracted: ExtractedMeta
-    scenario_id: str = ""
-    verdict: str = "No match"
-    notes: str = ""

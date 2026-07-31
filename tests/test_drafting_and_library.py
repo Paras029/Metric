@@ -1,4 +1,4 @@
-"""Drafting an intake, and reading a scenario library out of whatever shape it arrived in.
+"""Drafting an intake, and reading submitted conversations out of whatever shape they arrived in.
 
 Both exist to remove a wall of manual work, and both fail in the same direction if they are timid:
 a draft that fills nothing is a blank form with extra steps, and a reader that accepts one exact
@@ -12,7 +12,7 @@ from pathlib import Path
 from openpyxl import Workbook, load_workbook
 
 from scenario_generator.core.intake import read_intake
-from scenario_generator.ingest import (UnreadableLibrary, draft_intake, read_owner_library,
+from scenario_generator.ingest import (UnreadableConversations, draft_intake, read_conversations,
                                        write_drafted_intake)
 from scenario_generator.pipeline import build_scenarios
 
@@ -98,8 +98,13 @@ class TestDraftedIntake(unittest.TestCase):
         self.assertTrue(any(p.is_default for p in intake.personas))
 
 
-class TestOwnerLibrary(unittest.TestCase):
-    """Submissions arrive in whatever shape the owner already had."""
+class TestReadingWhateverShapeTheySent(unittest.TestCase):
+    """Submissions arrive in whatever shape the team already had them in.
+
+    The failure that matters is silent: a reader that recognises one layout reports a team as
+    having tested nothing when in fact their export used different column headings. Every case
+    here is a real submission shape, and each must come back read rather than refused.
+    """
 
     def setUp(self):
         self.dir = Path(tempfile.mkdtemp())
@@ -108,66 +113,59 @@ class TestOwnerLibrary(unittest.TestCase):
         book = Workbook()
         book.active.title = "Glossary"
         book.active.append(["Term", "Meaning"])
-        sheet = book.create_sheet("UAT Cases")
-        sheet.append(["Charge Verification — UAT pack v3"])
+        sheet = book.create_sheet("Chat Logs")
+        sheet.append(["Charge Verification — conversation export v3"])
         sheet.append([])
-        sheet.append(["Test Case ID", "Test Scenario", "Expected Route"])
-        sheet.append(["TC-001", "Cardmember passes identity verification first time.", ""])
-        sheet.append(["TC-002", "Cardmember fails verification three times.", ""])
-        path = self.dir / "uat.xlsx"
+        sheet.append(["Session ID", "Turn", "Role", "Utterance", "Test Case"])
+        sheet.append(["S-1", 1, "Customer", "I do not recognise this charge", "Dispute"])
+        sheet.append(["S-1", 2, "Advisor", "Confirm the last four of your SSN", "Dispute"])
+        sheet.append(["S-2", 1, "Customer", "My card was declined at the till", ""])
+        sheet.append(["S-2", 2, "Advisor", "I have released the hold on it", ""])
+        path = self.dir / "logs.xlsx"
         book.save(path)
 
-        found, how = read_owner_library(path)
-        self.assertEqual(len(found), 2)
-        self.assertEqual(found[0].id, "TC-001")
-        self.assertIn("UAT Cases", how)
+        found, how = read_conversations(path)
+        self.assertEqual([c.id for c in found], ["S-1", "S-2"])
+        self.assertEqual(found[0].group, "Dispute")
+        self.assertIn("Chat Logs", how)
 
     def test_a_semicolon_csv_with_unfamiliar_headings(self):
         path = self.dir / "cases.csv"
-        path.write_text("S.No;Narrative;Notes\n"
-                        "1;Member disputes a charge they do not recognise.;x\n"
-                        "2;Member asks for legal advice and is handed over.;y\n",
-                        encoding="utf-8")
-        found, _ = read_owner_library(path)
+        path.write_text(
+            'S.No;Narrative;Notes\n'
+            '1;"User: I dispute a charge I do not recognise\nAgent: filed for you";x\n'
+            '2;"User: I want legal advice\nAgent: passing you to a person";y\n',
+            encoding="utf-8")
+        found, _ = read_conversations(path)
         self.assertEqual(len(found), 2)
-        self.assertIn("disputes a charge", found[0].description)
-
-    def test_a_numbered_list_with_no_table_at_all(self):
-        path = self.dir / "list.md"
-        path.write_text("# Our testing\n\n"
-                        "1. Happy path where the member is verified and the dispute is filed.\n"
-                        "2. Member abandons the conversation midway through filing.\n",
-                        encoding="utf-8")
-        found, how = read_owner_library(path)
-        self.assertEqual(len(found), 2)
-        self.assertIn("numbered", how)
+        self.assertIn("dispute a charge", found[0].transcript)
 
     def test_the_widest_column_is_taken_where_no_heading_is_recognised(self):
         book = Workbook()
         sheet = book.active
         sheet.append(["Col A", "Col B"])
-        sheet.append(["x", "The member is verified and then files a dispute successfully."])
+        sheet.append(["x", "User: I was charged twice\nAgent: the duplicate is refunded"])
         path = self.dir / "odd.xlsx"
         book.save(path)
-        found, how = read_owner_library(path)
+        found, _ = read_conversations(path)
         self.assertEqual(len(found), 1)
-        self.assertIn("widest column", how)
+        self.assertEqual(len(found[0].turns), 2)
 
-    def test_a_file_that_is_not_a_scenario_list_is_refused_with_a_reason(self):
+    def test_a_file_that_holds_no_conversation_is_refused_with_a_reason(self):
         book = Workbook()
         book.active.append(["Setting", "Value"])
         book.active.append(["Region", "US"])
         path = self.dir / "config.xlsx"
         book.save(path)
-        with self.assertRaises(UnreadableLibrary):
-            read_owner_library(path)
+        with self.assertRaises(UnreadableConversations):
+            read_conversations(path)
 
     def test_an_unsupported_format_names_what_is_supported(self):
         path = self.dir / "thing.zip"
         path.write_text("x", encoding="utf-8")
-        with self.assertRaises(UnreadableLibrary) as caught:
-            read_owner_library(path)
-        self.assertIn(".xlsx", str(caught.exception))
+        with self.assertRaises(UnreadableConversations) as caught:
+            read_conversations(path)
+        self.assertIn("spreadsheet", str(caught.exception))
 
 
 if __name__ == "__main__":

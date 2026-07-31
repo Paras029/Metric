@@ -134,12 +134,16 @@ STAGES: Tuple[Stage, ...] = (
           "additions. It cannot remove anything — a flag is a recommendation to you."),
 
     Stage("coverage", "Coverage", JUDGED,
-          "What the model owner's own testing already covers, matched against this benchmark. "
-          "Skip it if they submitted none.",
-          "Matches the modelling team's own scenarios against the benchmark, in whatever format "
-          "they sent them. Reading this before the pack is issued is what lets it concentrate "
-          "on what they have not covered. Route and persona must both match, because the same "
-          "route walked by a different user is a different test.",
+          "How many of their own conversations land on each scenario, and which scenarios nothing "
+          "of theirs reaches. Skip it if they submitted none.",
+          "Reads the transcripts of the testing the modelling team has already done and maps each "
+          "conversation onto at most one scenario, decided by where the exchange ends rather than "
+          "by what it passes through — a conversation that authenticates and stops is not evidence "
+          "for a scenario that authenticates and then does something else. What comes out is a "
+          "count per scenario rather than a covered/not-covered flag, because one conversation and "
+          "forty are not the same evidence. Where they have grouped their conversations, the "
+          "grouping is checked against where the conversations actually landed rather than "
+          "trusted.",
           optional=True, requires=("intake", "benchmark")),
 
     Stage("issue", "Issue", COMPUTED,

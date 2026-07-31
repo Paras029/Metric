@@ -85,8 +85,8 @@ stages:
   reviewer_category:              # the declared ending, read back                 (materiality)
     batch_size: 20
   reviewer_propose: {}            # what enumeration could not reach               (judgement)
-  owner_extract:                  # their scenarios onto our vocabulary            (fast)
-    batch_size: 8
+  coverage_map:                   # their conversations onto our scenarios        (judgement)
+    batch_size: 5
 
 ingestion:
   # How much submitted text goes into one reading call. Four characters to a token puts this near

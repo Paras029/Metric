@@ -2,7 +2,6 @@
 
     ScenarioWriter       owner-facing description and turn plan.
     MaterialityAssessor  a separate sweep assigning materiality with cross-scenario context.
-    MetadataExtractor    maps a modeling team's free-text scenarios onto the intake vocabulary.
     ScenarioReviewer     final whole-registry sweep: revises materiality, proposes additions.
     review_structure     one intake-stage call proposing reconnections and consolidations.
 
@@ -12,7 +11,6 @@ case description, the declared graph, the benchmark digest -- lives in
 :mod:`~scenario_generator.llm.context`.
 """
 from .context import describe_graph, describe_use_case
-from .extractor import MetadataExtractor
 from .gateway import ask_llm
 from .materiality import MaterialityAssessor, NullMaterialityAssessor
 from .reviewer import NullReviewer, ScenarioReviewer
@@ -20,6 +18,6 @@ from .structure_review import Consolidation, Reconnection, StructureReview, revi
 from .writer import NullWriter, ScenarioWriter
 
 __all__ = ["ask_llm", "describe_use_case", "describe_graph", "ScenarioWriter", "NullWriter",
-          "MaterialityAssessor", "NullMaterialityAssessor", "MetadataExtractor",
+          "MaterialityAssessor", "NullMaterialityAssessor",
           "ScenarioReviewer", "NullReviewer", "review_structure", "StructureReview",
           "Reconnection", "Consolidation"]

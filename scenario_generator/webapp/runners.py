@@ -27,10 +27,12 @@ from ..core.intake import (attach_decision_to_state, merge_decisions, read_intak
 from ..core.models import MATERIALITY, IntakeData
 from ..ingest import record_from_json
 from ..ingest.groups import evidence_files, owner_scenario_file
-from ..ingest.owner_library import UnreadableLibrary
-from ..io import read_scenarios, write_challenge_pack, write_registry
+from ..ingest.conversations import UnreadableConversations
+from ..io import read_registry, read_scenarios, write_challenge_pack, write_registry
 from ..llm import MaterialityAssessor, ScenarioReviewer, ScenarioWriter
-from ..pipeline import (build_scenarios, draft_intake_workbook, ingest_documents, map_coverage)
+from ..pipeline import (build_scenarios, draft_intake_workbook, ingest_documents,
+                        map_conversation_coverage)
+from .coverageview import stored_report
 from .workspace import Workspace
 
 logger = logging.getLogger(__name__)
@@ -279,60 +281,99 @@ def _run_review(workspace: Workspace, progress=None, cancel=None) -> Dict[str, o
 
 
 def _run_issue(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
-    """Write the challenge pack for the model owner and the registry kept internally."""
+    """Write the challenge pack for the model owner and the registry kept internally.
+
+    Where the workspace is set to issue gaps only, the pack carries just the scenarios the team's
+    own conversations under-cover. This is the one place in the pipeline that takes scenarios
+    away rather than adding to them, and it is off unless someone turns it on: leaving a scenario
+    out is a decision to accept their evidence for it, which is a judgement about how far their
+    testing is trusted rather than anything this can work out.
+    """
     intake = _intake(workspace)
     scenarios = _scenarios(workspace, intake)
-    write_challenge_pack(str(workspace.root / PACK), intake, scenarios)
+
+    # The registry keeps every scenario regardless -- narrowing what is *issued* must not narrow
+    # what is on record, or the pack becomes the only surviving account of the benchmark.
     _save_registry(workspace, "issue", intake, scenarios)
+
+    issued, held_back = scenarios, 0
+    gaps = _under_represented(workspace)
+    if workspace.pack_gaps_only and gaps is not None:
+        issued = [s for s in scenarios if s.id in gaps]
+        held_back = len(scenarios) - len(issued)
+
+    write_challenge_pack(str(workspace.root / PACK), intake, issued)
     workspace.state("issue").artifacts["challenge_pack"] = PACK
 
-    runs = sum(required_runs(s.effective_materiality) for s in scenarios)
-    return {"Scenarios issued": len(scenarios), "Runs requested": runs,
-            "Expected outcomes in the pack": 0}
+    runs = sum(required_runs(s.effective_materiality) for s in issued)
+    summary = {"Scenarios issued": len(issued), "Runs requested": runs,
+               "Expected outcomes in the pack": 0}
+    if workspace.pack_gaps_only:
+        summary["Held back as already covered"] = held_back
+    return summary
+
+
+def _under_represented(workspace: Workspace):
+    """The ids coverage found under-represented, or None if coverage has not run.
+
+    None and the empty set mean different things and the caller has to tell them apart: nothing
+    mapped yet is not the same as everything covered, and filtering a pack down to nothing on the
+    strength of a stage that never ran would be the worst outcome available.
+    """
+    if not workspace.coverage_mappings():
+        return None
+    report = stored_report(workspace, read_registry(str(workspace.root / REGISTRY)))
+    if report is None:
+        return None
+    return {entry.scenario.id for entry in report.under_represented()}
 
 
 def _run_coverage(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
-    """Match the model owner's own scenario library against this benchmark.
+    """Map the conversations the modelling team actually ran onto this benchmark.
 
-    The file may have arrived on either stage -- with the rest of the pack, or here on its own --
+    The input is transcripts rather than a scenario list -- see :mod:`ingest.conversations` for
+    why. The file may have arrived on either stage, with the rest of the pack or here on its own,
     so both places are checked before the stage refuses to run.
     """
-    owner = owner_scenario_file(workspace.root) or workspace.artifact_path(
+    submitted = owner_scenario_file(workspace.root) or workspace.artifact_path(
         "coverage", "owner_scenarios")
-    if not owner:
+    if not submitted:
         raise ValueError(
-            "No scenario library from the model owner. Upload one here, or add it on the documents "
-            "stage under 'Their own test scenarios'. Skip this stage if they submitted none.")
+            "No conversations from the model owner. Upload the transcripts of what they ran here, "
+            "or add them on the documents stage under 'Their own test scenarios'. Skip this stage "
+            "if they submitted none.")
 
     intake_path = workspace.artifact_path("intake", "workbook")
     if not intake_path:
         raise ValueError("No intake workbook yet. Provide one at the intake stage.")
     if not (workspace.root / REGISTRY).exists():
-        raise ValueError("Build the benchmark first — there is nothing to match their scenarios "
+        raise ValueError("Build the benchmark first — there is nothing to map their conversations "
                          "against.")
 
     try:
-        result = map_coverage(str(intake_path), str(workspace.root / REGISTRY), str(owner),
-                              str(workspace.root / OVERLAP), cancel=cancel)
-    except UnreadableLibrary as exc:
-        # Their file, not our pipeline. Say which file and what was wrong with it, because the
-        # fix is to ask them for a clearer one rather than to change anything here.
+        result = map_conversation_coverage(
+            str(intake_path), str(workspace.root / REGISTRY), str(submitted),
+            str(workspace.root / OVERLAP), threshold=workspace.coverage_threshold,
+            progress=progress, cancel=cancel)
+    except UnreadableConversations as exc:
+        # Their file, not our pipeline. Say which file and what was wrong with it, because the fix
+        # is to ask them for a clearer one rather than to change anything here.
         raise ValueError(
-            f"'{Path(owner).name}' could not be read as a list of scenarios: {exc} Their file "
-            f"needs one row or numbered line per scenario, with a description of at least a few "
-            f"words. Send it back and ask for that, or attach a tidied copy here.") from exc
+            f"'{Path(submitted).name}' could not be read as conversations: {exc} It needs the "
+            f"turns of each exchange identifiable -- a conversation id with one row per turn, a "
+            f"transcript per row, or 'User:'/'Agent:' prefixes in a document. Send it back and "
+            f"ask for that, or attach a tidied copy here.") from exc
 
-    workspace.state("coverage").artifacts["report"] = OVERLAP
-    workspace.state("coverage").artifacts["registry"] = REGISTRY
-    # map_coverage annotates the registry in place, so the snapshot is taken from the file rather
-    # than written from scenarios this runner never loaded.
+    # The pipeline has already written the counts back into the registry. Snapshot it the same way
+    # every other scenario stage does, so this stage's page shows its own reading rather than
+    # whatever a later stage has since made of the same file.
     shutil.copyfile(workspace.root / REGISTRY, workspace.root / _snapshot("coverage"))
+    workspace.state("coverage").artifacts.update({"report": OVERLAP, "registry": REGISTRY})
+    workspace.save_coverage(result.mappings, result.how_read)
 
-    return {"Benchmark scenarios": result.benchmark,
-            "Covered by their testing": result.covered,
-            "Not covered": result.gaps,
-            "Their scenarios read": result.owner_scenarios,
-            "Read as": result.how_read}
+    counts = result.summary
+    return {**counts, "Read as": result.how_read,
+            "Represented at": f"{workspace.coverage_threshold}+ conversations"}
 
 
 # Every stage that does work has a runner. The two that only take input from the user -- the

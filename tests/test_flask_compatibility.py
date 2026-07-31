@@ -71,6 +71,8 @@ class TestEveryRouteIsReachable(unittest.TestCase):
             "/stage/intake/structure-review": ["POST"],
             "/stage/intake/structure-review/<proposal_id>/apply": ["POST"],
             "/stage/intake/structure-review/<proposal_id>/dismiss": ["POST"],
+            "/stage/coverage/threshold": ["POST"],
+            "/stage/issue/scope": ["POST"],
             "/stage/<key>/reset": ["POST"],
             "/stage/<key>/download/<name>": ["GET"],
             "/template": ["GET"],

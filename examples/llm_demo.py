@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # importable from anywhere
 
-from scenario_generator import generate, map_coverage, review
+from scenario_generator import generate, map_conversation_coverage, review
 
 INTAKE = "claims_intake.xlsx"
 PREFIX = "claims"
@@ -21,6 +21,10 @@ generate(INTAKE, PREFIX, with_probes=True)
 # Review it as a whole. Updates the registry in place, and may propose additions.
 review(INTAKE, REGISTRY, REGISTRY)
 
-# Map an owner's own scenario library onto the benchmark.
-# owner.xlsx needs a 'Scenarios' sheet: ID | Description | Decision Path (optional).
-map_coverage(INTAKE, REGISTRY, "owner.xlsx", f"{PREFIX}_overlap.xlsx")
+# Count how much of the benchmark the team's own conversations already exercise.
+# their_conversations.xlsx holds transcripts in any of the layouts ingest.conversations reads:
+# one row per turn with a conversation id, one row per whole transcript, or prose with
+# 'User:'/'Agent:' prefixes. threshold is how many conversations a scenario needs before it
+# counts as represented.
+map_conversation_coverage(INTAKE, REGISTRY, "their_conversations.xlsx",
+                          f"{PREFIX}_coverage.xlsx", threshold=1)

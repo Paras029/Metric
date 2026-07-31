@@ -11,16 +11,17 @@ from pathlib import Path
 from typing import Callable, List, Optional, Sequence
 
 from .core import (DecisionGraph, IntakeData, Scenario, build_probes, enumerate_paths,
-                   instantiate_all, load_context, match_scenarios, read_intake,
-                   read_owner_scenarios)
-from .io import (read_registry, read_scenarios, write_challenge_pack, write_overlap_report,
-                write_registry, write_scenario_graph)
-from .llm import (MaterialityAssessor, MetadataExtractor, ScenarioReviewer,
-                  ScenarioWriter, describe_graph, describe_use_case)
-from .llm.reviewer import DEFAULT_PROPOSAL_LIMIT
+                   instantiate_all, load_context, read_intake, read_owner_scenarios)
+from .core.representation import DEFAULT_THRESHOLD, build_report
+from .io import (read_registry, read_scenarios, write_challenge_pack, write_coverage_report,
+                 write_registry, write_scenario_graph)
 from .ingest import (DocumentExtractor, build_context_document, draft_intake, open_questions,
-                     read_owner_library, record_from_json, rejection_summary, revise_intake,
+                     read_conversations, record_from_json, rejection_summary, revise_intake,
                      write_drafted_intake)
+from .llm import (MaterialityAssessor, ScenarioReviewer, ScenarioWriter, describe_graph,
+                  describe_use_case)
+from .llm.conversation_mapping import ConversationMapper
+from .llm.reviewer import DEFAULT_PROPOSAL_LIMIT
 
 logger = logging.getLogger("scenario_generator")
 
@@ -171,53 +172,7 @@ def build_pack(intake_path: str, registry_path: str, pack_path: str) -> List[Sce
     return scenarios
 
 
-def map_coverage(intake_path: str, registry_path: str, owner_path: str, report_path: str,
-                 extractor: Optional[MetadataExtractor] = None,
-                 annotate_registry: bool = True, cancel=None) -> "CoverageResult":
-    """Stage: map a modeling team's own scenarios onto a generated registry, write the overlap
-    report. The benchmark is loaded from the registry, so its category and materiality are
-    whatever refine()/assess_materiality() already assigned — coverage never recomputes them.
-    """
-    intake = read_intake(intake_path)
-    benchmark = read_registry(registry_path)
-
-    # Read whatever shape the owner sent rather than demanding one layout; how it was read is
-    # logged, because a misread column is the kind of thing that quietly halves a coverage figure.
-    owner_scenarios, how = read_owner_library(Path(owner_path))
-    logger.info("Read %d scenario(s) from %s (%s).",
-                len(owner_scenarios), Path(owner_path).name, how)
-
-    extractor = extractor or MetadataExtractor(cancel=cancel)
-    default_persona = next((p.id for p in intake.personas if p.is_default), intake.personas[0].id)
-    matches = match_scenarios(owner_scenarios, extractor.extract(owner_scenarios, intake),
-                              benchmark, default_persona)
-    if annotate_registry:
-        annotated = annotate_coverage(registry_path, intake, matches)
-        logger.info("Annotated %d scenario(s) in the registry with what their testing covers. "
-                    "Nothing was removed -- whether to drop a covered scenario is your call.",
-                    annotated)
-
-    covered, gaps = write_overlap_report(report_path, intake, matches, benchmark)
-    logger.info("Owner covered %d/%d benchmark scenarios; %d gap(s). Wrote %s",
-                covered, len(benchmark), gaps, report_path)
-    return CoverageResult(covered=covered, gaps=gaps, benchmark=len(benchmark),
-                          owner_scenarios=len(owner_scenarios), report_path=report_path,
-                          how_read=how)
-
-
 # --------------------------------------------------------------------------- results
-
-@dataclass
-class CoverageResult:
-    """What map_coverage established, so a caller need not re-read the workbook it just wrote."""
-
-    covered: int
-    gaps: int
-    benchmark: int
-    owner_scenarios: int
-    report_path: str
-    how_read: str = ""
-
 
 @dataclass
 class IngestResult:
@@ -397,35 +352,84 @@ class DraftResult:
         return self.draft.counts()
 
 
-def annotate_coverage(registry_path: str, intake: IntakeData, matches) -> int:
-    """Record against each scenario what the modelling team's own testing already covers.
+@dataclass
+class ConversationCoverageResult:
+    """What the team's conversations turned out to cover."""
 
-    An annotation, not a filter. A covered scenario stays in the pack: whether running it again is
-    duplicated effort or independent confirmation depends on how far their testing is trusted,
-    and that is a judgement for the person issuing the pack rather than for this tool. What the
-    tool can do is put the fact in front of them.
+    report: object
+    mappings: list
+    how_read: str
+    report_path: str
+
+    @property
+    def summary(self) -> dict:
+        return self.report.summary()
+
+
+def map_conversation_coverage(intake_path: str, registry_path: str, conversations_path: str,
+                              report_path: str, mapper: Optional[ConversationMapper] = None,
+                              threshold: int = DEFAULT_THRESHOLD, annotate_registry: bool = True,
+                              progress=None, cancel=None) -> ConversationCoverageResult:
+    """Stage: map submitted conversations onto the benchmark and count what they cover.
+
+    The benchmark is read from the registry, so each scenario's category and materiality are
+    whatever the earlier stages assigned -- this never recomputes them. What it adds is volume:
+    how many of the team's conversations landed on each scenario, which of them landed on nothing,
+    and whether any grouping the team applied agrees with where the conversations actually went.
+
+    ``threshold`` is the line between represented and under-represented. It is a caller's
+    judgement rather than a property of the data -- see :mod:`.core.representation`.
+    """
+    intake = read_intake(intake_path)
+    benchmark = read_registry(registry_path)
+    texts = {s.id: s.description for s in read_scenarios(registry_path, intake)}
+
+    conversations, how = read_conversations(Path(conversations_path))
+    mapper = mapper or ConversationMapper(progress=progress, cancel=cancel)
+    mappings = mapper.map(conversations, benchmark, intake, texts)
+
+    report = build_report(mappings, benchmark, threshold=threshold)
+    write_coverage_report(report_path, report, mappings, texts)
+    if annotate_registry:
+        annotate_coverage(registry_path, intake, report)
+
+    counts = report.summary()
+    logger.info("%d conversation(s) covered %d of %d scenarios at a threshold of %d; "
+                "%d never exercised, %d matched nothing. Wrote %s",
+                counts["Conversations read"], counts["Represented"], counts["Benchmark scenarios"],
+                threshold, counts["Never exercised"], counts["Matched no scenario"], report_path)
+    return ConversationCoverageResult(report=report, mappings=mappings, how_read=how,
+                                      report_path=report_path)
+
+
+def annotate_coverage(registry_path: str, intake: IntakeData, report) -> int:
+    """Record against each scenario how much of the team's own testing landed on it.
+
+    An annotation, not a filter. A well-covered scenario stays in the registry and, unless someone
+    asks otherwise, in the pack: whether running it again is duplicated effort or independent
+    confirmation depends on how far their testing is trusted, and that is a judgement for the
+    person issuing the pack rather than for this tool. What the tool can do is put the count in
+    front of them.
+
+    The columns never reach the challenge pack -- see :func:`io.write_challenge_pack`. Telling the
+    modelling team which scenarios the validation team already considers answered would tell them
+    exactly which ones to concentrate on.
     """
     scenarios = read_scenarios(registry_path, intake)
-    verdicts = {}
-    for match in matches:
-        if match.scenario_id and match.verdict:
-            verdicts[match.scenario_id] = (match.verdict, match.owner.id)
+    counts = {entry.scenario.id: entry for entry in report.scenarios}
 
     annotated = 0
     for scenario in scenarios:
-        found = verdicts.get(scenario.id)
-        if not found:
+        entry = counts.get(scenario.id)
+        if entry is None or not entry.count:
             continue
-        verdict, owner_id = found
-        lowered = verdict.strip().lower()
-        if lowered.startswith("match"):
-            scenario.owner_coverage = "Covered"
-        elif "partial" in lowered:
-            scenario.owner_coverage = "Partially covered"
-        else:
-            continue
-        scenario.owner_coverage_note = f"Their {owner_id}" if owner_id else verdict
+        plural = "" if entry.count == 1 else "s"
+        scenario.owner_coverage = f"{entry.count} conversation{plural}"
+        scenario.owner_coverage_note = ", ".join(
+            filter(None, [entry.confidence_summary, ", ".join(entry.conversation_ids)]))
         annotated += 1
 
     write_registry(registry_path, intake, scenarios)
+    logger.info("Annotated %d scenario(s) with what their conversations cover. Nothing was "
+                "removed -- whether to drop a covered scenario is your call.", annotated)
     return annotated

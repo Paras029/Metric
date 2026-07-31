@@ -9,11 +9,12 @@ from pathlib import Path
 from typing import List, Optional
 
 from .core import write_template
+from .core.representation import DEFAULT_THRESHOLD
 from .ingest import SUPPORTED_EXTENSIONS
 from .llm import NullMaterialityAssessor, NullReviewer, NullWriter, metering
 from .pipeline import (assess_materiality, build_graph, build_pack, build_probes_stage,
-                       draft_intake_workbook, generate, ingest_documents, map_coverage, refine,
-                       review, revise_intake_workbook)
+                       draft_intake_workbook, generate, ingest_documents,
+                       map_conversation_coverage, refine, review, revise_intake_workbook)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -93,12 +94,18 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_pack.add_argument("registry")
     p_pack.add_argument("pack_output")
 
-    p_map = sub.add_parser("map-coverage",
-                           help="stage: map an owner scenario library onto a generated registry")
+    p_map = sub.add_parser(
+        "map-coverage",
+        help="stage: map the conversations a team has already run onto a generated registry")
     p_map.add_argument("intake")
     p_map.add_argument("registry")
-    p_map.add_argument("owner")
+    p_map.add_argument("conversations",
+                       help="their transcripts: one row per turn, a transcript per row, or a "
+                            "document of 'User:'/'Agent:' exchanges")
     p_map.add_argument("report")
+    p_map.add_argument("--threshold", type=int, default=DEFAULT_THRESHOLD,
+                       help="how many conversations a scenario needs before it counts as "
+                            "represented (default %(default)s)")
 
     p_ingest = sub.add_parser(
         "ingest",
@@ -203,7 +210,8 @@ def _run_command(args) -> int:
         return 0
 
     if args.command == "map-coverage":
-        map_coverage(args.intake, args.registry, args.owner, args.report)
+        map_conversation_coverage(args.intake, args.registry, args.conversations, args.report,
+                                  threshold=args.threshold, progress=_print_progress)
         return 0
 
     if args.command == "ingest":
@@ -254,6 +262,10 @@ def _collect_documents(sources: List[str]) -> List[str]:
     return found
 
 
-def _print_progress(message: str) -> None:
-    """Ingestion is slow enough that silence reads as a hang."""
+def _print_progress(message: str, done: int = 0, total: int = 0) -> None:
+    """Ingestion and coverage are slow enough that silence reads as a hang.
+
+    The counts are optional because not every pass knows how much work it has: ingestion reports
+    what it is doing, the batched passes report how far through they are.
+    """
     print(f"  {message}")

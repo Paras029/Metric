@@ -28,7 +28,7 @@ from ..ingest.conversations import Conversation
 from ..utils import chunks
 from ..utils.replies import text as _text
 from . import cancellation, config, prompt_loader
-from .calling import call_batch, parsed_reply
+from .calling import call, call_batch, parsed_reply
 from .context import describe_use_case
 from .gateway import ask_llm
 
@@ -64,6 +64,14 @@ class Mapping:
 
     Carried through the mapping untouched and never shown to the call that decides the match --
     see :func:`_render`. It exists so their grouping can be compared with ours afterwards.
+    """
+
+    answered: bool = True
+    """Whether the call actually returned a verdict for this conversation.
+
+    "No scenario fits" and "the call never came back about it" both leave ``scenario_id`` empty
+    but mean opposite things -- the first is a finding, the second is a dropped chunk. Kept apart
+    so the second can be retried rather than reported as a gap in the team's testing.
     """
 
     @property
@@ -135,7 +143,16 @@ class ConversationMapper:
         done = 0
         for chunk, reply in zip(pending, replies):
             cancellation.check(self._cancel)
-            mapped.extend(self._apply(chunk, reply, known))
+            for mapping, conversation in zip(self._apply(chunk, reply, known), chunk):
+                # A conversation a batch dropped is asked about on its own. It matters more here
+                # than in the other batched passes: a dropped conversation would otherwise be
+                # reported as matching nothing, which reads as a gap in their testing rather than
+                # as a call that did not come back, and understating coverage is the one error
+                # this stage must not make quietly.
+                if not mapping.answered:
+                    cancellation.check(self._cancel)
+                    mapping = self._map_one(conversation, benchmark, use_case, known)
+                mapped.append(mapping)
             done += len(chunk)
             self._progress(f"Mapped {done} of {len(conversations)} conversations",
                            done, len(conversations))
@@ -183,6 +200,23 @@ class ConversationMapper:
                 mapping.ending = _text(entry, "ending")
                 mapping.reason = _text(entry, "reason")
             else:
+                mapping.answered = False
                 mapping.reason = "The mapping call returned nothing for this conversation."
             mappings.append(mapping)
         return mappings
+
+    def _map_one(self, conversation: Conversation, benchmark: str, use_case: str,
+                 known: set) -> Mapping:
+        """One conversation a batch dropped, asked about on its own.
+
+        Rare enough, and small enough, that batching the mop-up too would not be worth the
+        complexity -- most runs refill nothing at all.
+        """
+        chunk = [conversation]
+        try:
+            reply = call(self._complete, prompt_loader.load(_SYSTEM_PROMPT),
+                         self._render(chunk, benchmark, use_case),
+                         tier=config.stage_tier("COVERAGE_MAP", config.JUDGEMENT))
+        except Exception as exc:                           # handled the same way _apply handles
+            reply = exc                                     # a failed call inside a batch
+        return self._apply(chunk, reply, known)[0]

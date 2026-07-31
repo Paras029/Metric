@@ -19,10 +19,11 @@ import json
 import unittest
 from typing import Callable, List
 
-from scenario_generator.core.models import (Capability, Decision, ExtractedMeta, IntakeData,
-                                            OwnerScenario, Persona, State, Tool)
+from scenario_generator.core.models import (BenchmarkScenario, Capability, Decision, IntakeData,
+                                            Persona, State, Tool)
 from scenario_generator.core.probes import build_probes
-from scenario_generator.llm.extractor import MetadataExtractor
+from scenario_generator.ingest.conversations import Conversation, Turn
+from scenario_generator.llm.conversation_mapping import ConversationMapper
 from scenario_generator.llm.materiality import MaterialityAssessor
 from scenario_generator.llm.reviewer import ScenarioReviewer
 from scenario_generator.llm.writer import ScenarioWriter
@@ -230,29 +231,42 @@ class TestReviewerBatchesTheAssessStep(unittest.TestCase):
         self.assertTrue(all(s.review_materiality == "Critical" for s in self.scenarios))
 
 
-class TestExtractorBatches(unittest.TestCase):
+class TestConversationMapperBatches(unittest.TestCase):
+    """Coverage mapping is the batched pass with the largest inputs, so its chunking matters most.
+
+    Its batch is smaller than everything else's on purpose -- a transcript dwarfs a scenario
+    description, and every call has to carry the whole benchmark alongside them.
+    """
+
     def setUp(self):
-        self.owner_scenarios = [OwnerScenario(f"OS-{n:03d}", f"They do thing number {n}.")
-                                for n in range(20)]
+        self.conversations = [
+            Conversation(id=f"C-{n:03d}",
+                         turns=[Turn("user", f"I need help with thing number {n}"),
+                                Turn("agent", "Done.")])
+            for n in range(20)]
+        self.scenarios = [BenchmarkScenario(id="SC-001", path_str="DEC-01=Pass",
+                                            category="Happy path", materiality="High",
+                                            capabilities=[], persona_id="P1", signature=())]
 
     def _respond(self, system, user):
-        ids = _ids_in(user)
-        return json.dumps({i: {"decision_path": [{"decision_id": "DEC-01", "variant": "Pass"}],
-                               "category": "", "capabilities": [], "persona_id": "",
-                               "confidence": "high", "rationale": "mapped"}
-                           for i in ids})
+        return json.dumps({i: {"scenario_id": "SC-001", "confidence": "high", "reason": "mapped"}
+                           for i in _ids_in(user)})
+
+    def _map(self, complete):
+        return ConversationMapper(complete=complete).map(
+            self.conversations, self.scenarios, _INTAKE)
 
     def test_one_call_covers_every_chunk(self):
-        """Twenty owner scenarios at the default batch size of eight is three chunks."""
+        """Twenty conversations at the default batch size of five is four chunks, sent together."""
         stub = _BatchStub(self._respond)
-        MetadataExtractor(complete=stub).extract(self.owner_scenarios, _INTAKE)
+        self._map(stub)
         self.assertEqual(len(stub.batch_calls), 1)
-        self.assertEqual(len(stub.batch_calls[0]), 3)
+        self.assertEqual(len(stub.batch_calls[0]), 4)
 
-    def test_every_owner_scenario_is_mapped(self):
-        stub = _BatchStub(self._respond)
-        results = MetadataExtractor(complete=stub).extract(self.owner_scenarios, _INTAKE)
-        self.assertTrue(all(isinstance(r, ExtractedMeta) and r.rationale == "mapped"
+    def test_every_conversation_comes_back_mapped(self):
+        results = self._map(_BatchStub(self._respond))
+        self.assertEqual(len(results), 20)
+        self.assertTrue(all(r.scenario_id == "SC-001" and r.confidence == "high"
                             for r in results))
 
     def test_a_chunk_the_batch_could_not_reach_is_refilled_individually(self):
@@ -266,17 +280,14 @@ class TestExtractorBatches(unittest.TestCase):
             return False
 
         stub = _BatchStub(self._respond, fail_when=fail_first_chunk)
-        results = MetadataExtractor(complete=stub).extract(self.owner_scenarios, _INTAKE)
+        results = self._map(stub)
 
-        self.assertTrue(all(r.rationale == "mapped" for r in results))
+        self.assertTrue(all(r.reason == "mapped" for r in results))
         self.assertTrue(stub.solo_calls)
 
     def test_a_plain_function_with_no_batch_attribute_still_works(self):
-        def plain(system, user, **kwargs):
-            return self._respond(system, user)
-
-        results = MetadataExtractor(complete=plain).extract(self.owner_scenarios, _INTAKE)
-        self.assertTrue(all(r.rationale == "mapped" for r in results))
+        results = self._map(lambda system, user, **kwargs: self._respond(system, user))
+        self.assertTrue(all(r.reason == "mapped" for r in results))
 
 
 if __name__ == "__main__":

@@ -186,13 +186,13 @@ the intake stage, or pass it straight to `generate`.
 
 | # | Stage | Input | Output |
 |---|---|---|---|
-| 1 | Documents | The submitted pack: model documentation, their test scenarios, workflow diagrams, supporting material | A cited context document, and answers to eleven questions about the agent |
+| 1 | Documents | The submitted pack: model documentation, the transcripts of their own testing, workflow diagrams, supporting material | A cited context document, and answers to eleven questions about the agent |
 | 2 | Intake | A drafted or completed intake workbook | The agent as a decision graph, confirmed by you |
 | 3 | Benchmark | The intake | Every distinct route through the graph, plus applicable probes |
 | 4 | Scenario text | The benchmark | A description and tester script per scenario |
 | 5 | Materiality | The benchmark | A Low / Medium / High / Critical tier per scenario, driving run counts |
 | 6 | Final review | The whole benchmark | Settled materiality, checked categories, flagged weaknesses, proposed additions |
-| 7 | Coverage | Their scenario library | How much of the benchmark they already exercise, annotated onto each scenario |
+| 7 | Coverage | The transcripts of their own testing | How many of their conversations land on each scenario, and which scenarios nothing of theirs reaches |
 | 8 | Issue | The registry | The challenge pack to send, and the registry to keep |
 
 Stages 1 and 7 are optional. Skip 1 if you already have an intake; skip 7 if the team submitted no
@@ -449,14 +449,53 @@ checked against the source. The evidence record is the machine-readable form of 
 
 ### Coverage report
 
-`Overlap` (each benchmark scenario and whether they covered it), `Owner_Incremental` (their
-scenarios falling outside the declared model), `Summary`.
+Three sheets. `Scenarios` is the answer: every benchmark scenario with how many of their
+conversations landed on it, least covered first, because the thin end of that list is what goes
+back to them. `Conversations` is the working — one row per transcript with the scenario it was
+matched to, how sure the match was, what the user wanted and how the exchange ended — so a figure
+on the first sheet can be traced to the conversations behind it. `Their grouping` appears only
+where they supplied one, and says whether it agrees with ours.
 
-Each covered scenario is also annotated in the registry, under `Their Coverage`. It is an
-annotation and nothing more — no scenario is dropped. Whether running something they have already
-tested is duplicated effort or independent confirmation depends on how far their testing is
-trusted, which is your call rather than the tool's. The annotation never appears in the challenge
-pack.
+**What the stage reads is transcripts, not a list of scenario titles.** A list of titles is a
+claim about their testing; the transcripts are the testing. Teams that have grouped their
+conversations under labels of their own are the exception rather than the rule, and requiring that
+grouping would put the measurement out of reach of exactly the submissions that need it. Any
+grouping they do supply is carried through and assessed against where the conversations actually
+landed — a group that splits across several scenarios is a disagreement worth someone's attention.
+
+Three layouts are read, and which one was used is reported back to you: one row per turn with a
+conversation id repeated down the sheet; one row per conversation with the whole transcript in a
+cell; or a document with no table at all, conversations separated by headings with `User:` /
+`Agent:` prefixes on each line. Spreadsheets, CSV, Word, PDF and plain text all work.
+
+**One conversation maps to exactly one scenario, and the match is decided by where the
+conversation ends.** A benchmark scenario is a complete route to a specific ending, and some
+routes are prefixes of others: a conversation that authenticates and stops is not the same test as
+one that authenticates and then goes on to verify a charge, even though the second contains the
+first. Filing the short one under the long one would report coverage that does not exist, so the
+matcher is told explicitly not to. "No scenario fits" is a first-class answer — it means either
+they are testing something the benchmark never enumerated, which is worth knowing, or that
+conversation is not a test of this agent.
+
+**Coverage is a count, not a flag.** One conversation against a scenario and forty against it are
+not the same evidence. *Represented* is a line drawn through the counts at a threshold you set on
+the stage page; changing it recounts what is already mapped and rewrites the workbook, without
+another pass over the transcripts. How much evidence is enough depends on how far their testing is
+trusted, which is a judgement the tool has no basis for making.
+
+The matcher's confidence in each mapping is shown beside the count, never folded into it. A
+scenario with five low-confidence mappings and one with five high-confidence mappings both have
+five, and which of those is convincing is exactly the sort of thing worth putting in front of a
+person.
+
+Each scenario is also annotated in the registry, under `Their Coverage`, with the count and the
+conversation ids behind it. By default that is an annotation and nothing more — no scenario is
+dropped, because whether running something they have already tested is duplicated effort or
+independent confirmation is your call rather than the tool's. The Issue stage offers a setting
+that narrows the pack to what they under-cover; it is off unless you turn it on, since leaving a
+scenario out says their evidence for it is accepted. The annotation never appears in the challenge
+pack either way — telling the modelling team which scenarios you already consider answered would
+tell them exactly which ones to concentrate on.
 
 ---
 
@@ -476,7 +515,7 @@ review              INTAKE REGISTRY_IN REGISTRY_OUT [--no-llm] [--context FILE] 
                                                     [--owner-scenarios FILE]
 build-pack          INTAKE REGISTRY PACK_OUTPUT
 generate            INTAKE OUTPUT_PREFIX [--no-llm] [--with-probes] [--context FILE] [--note TEXT]
-map-coverage        INTAKE REGISTRY OWNER_SCENARIOS REPORT
+map-coverage        INTAKE REGISTRY THEIR_CONVERSATIONS REPORT [--threshold N]
 serve               [--port N] [--workspaces DIR]
 ```
 
@@ -537,7 +576,7 @@ master, and setting nothing at this level changes nothing.
 | `REVIEWER_ASSESS` | Review's materiality + flagging sweep | Judgement | 6 |
 | `REVIEWER_CATEGORY` | Review's declared-category check | Materiality | 20 |
 | `REVIEWER_PROPOSE` | Review's addition proposals | Judgement | — |
-| `OWNER_EXTRACT` | Mapping the owner's scenarios onto the vocabulary | Fast | 8 |
+| `COVERAGE_MAP` | Mapping their conversations onto the benchmark | Judgement | 5 |
 
 For example, `LLM_STAGE_REVIEWER_CATEGORY_MODEL_ID=some-cheap-model` moves only the category
 check onto a smaller model, leaving materiality assessment on whatever `LLM_MATERIALITY_MODEL_ID`
@@ -710,8 +749,12 @@ would otherwise fail silently:
 - A submitted pack is read in a handful of model calls rather than one per passage.
 - A quote invented from fragments scattered across the pack is rejected; the match must be local.
 - A drafted intake produces a working benchmark without being edited.
-- A scenario library is read from a workbook with unfamiliar headings, a semicolon CSV, or a
-  numbered list with no table at all.
+- Submitted conversations are read from a workbook with unfamiliar headings and a cover sheet in
+  front of the data, a semicolon CSV, or a document with no table at all.
+- A conversation is matched to the scenario it *ends* on, never to a longer scenario that merely
+  contains it, and "nothing fits" is reported rather than forced to a nearest match.
+- Coverage counts conversations rather than flagging scenarios, and moving the representation
+  threshold recounts without another model call.
 - Changing a stage marks every later stage out of date, and out-of-date output is kept.
 - The interface uses no Flask API newer than 1.0.
 - Each pass runs on the tier its work needs, so a judgement call cannot be quietly demoted.
@@ -723,9 +766,9 @@ would otherwise fail silently:
 ```
 scenario_generator/
     core/       Intake parsing, decision graph, scenario generation, probes,
-                proposals, coverage matching, evidence, grounding.
+                proposals, representation counting, evidence, grounding.
     ingest/     Document readers, extraction, context assembly, intake
-                drafting, owner scenario library parsing.
+                drafting, submitted-conversation parsing.
     llm/        LangChain chain building, prompt loader, and the passes.
     prompts/    The prompt library, one file per prompt.
     io/         Workbook reading and writing.

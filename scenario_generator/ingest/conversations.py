@@ -16,9 +16,9 @@ carried along as one more column to be *assessed* rather than trusted. Three lay
     prose                 no table at all -- a document with conversations separated by headings
                           or blank lines, speaker prefixes on each line.
 
-As with :mod:`.owner_library`, the reader recognises rather than requires, and records how it
-read the file. A team whose format was not understood must never be reported as having tested
-nothing.
+The reader recognises rather than requires, and records how it read the file. A team whose format
+was not understood must never be reported as having tested nothing -- that is the failure mode
+this whole module is shaped around.
 """
 from __future__ import annotations
 
@@ -253,7 +253,17 @@ def _from_workbook(path: Path) -> Tuple[List[Conversation], str]:
     try:
         book = load_workbook(str(path), data_only=True, read_only=True)
     except Exception as exc:
-        raise UnreadableConversations(f"could not open the workbook ({exc})") from exc
+        # A .xlsx file is a zip archive; anything else under that extension fails here with a
+        # message that names the container format rather than the fix. The likely causes are all
+        # ones the sender can act on: an older .xls saved under the wrong extension, a download
+        # that did not finish, or a password-protected file -- openpyxl cannot open any of those,
+        # and the raw error ("File is not a zip file") does not say so.
+        raise UnreadableConversations(
+            f"{path.name} could not be opened as an Excel workbook ({exc}). This usually means "
+            f"the file is not really .xlsx underneath -- an older .xls saved with the wrong "
+            f"extension, a download that did not finish, or a password-protected file. Re-save an "
+            f"unprotected copy from Excel (File > Save As > Excel Workbook), or send it as .csv, "
+            f"which this reads just as well.") from exc
 
     try:
         best, best_error = None, None
@@ -342,6 +352,19 @@ def _from_docx(path: Path) -> Tuple[List[Conversation], str]:
     return _from_text("\n".join(p.text for p in document.paragraphs), path.name)
 
 
+def _from_pdf(path: Path) -> Tuple[List[Conversation], str]:
+    """A PDF of transcripts, read as prose. Tables in a PDF are not tables by the time they get
+    here -- the extracted text has lost the cells -- so the speaker prefixes are all there is to
+    go on, which is the same thing :func:`_from_text` already works from."""
+    from pypdf import PdfReader
+
+    try:
+        pages = PdfReader(str(path)).pages
+    except Exception as exc:
+        raise UnreadableConversations(f"could not open the PDF ({exc})") from exc
+    return _from_text("\n".join((page.extract_text() or "") for page in pages), path.name)
+
+
 def read_conversations(path: Path) -> Tuple[List[Conversation], str]:
     """Read submitted conversations. Returns them and a note of how the file was read.
 
@@ -357,13 +380,15 @@ def read_conversations(path: Path) -> Tuple[List[Conversation], str]:
         conversations, how = _from_csv(path)
     elif suffix == ".docx":
         conversations, how = _from_docx(path)
+    elif suffix == ".pdf":
+        conversations, how = _from_pdf(path)
     elif suffix in (".md", ".txt", ".json"):
         conversations, how = _from_text(
             path.read_text(encoding="utf-8", errors="replace"), path.name)
     else:
         raise UnreadableConversations(
             f"{suffix or 'that file type'} is not one this reads. Send the conversations as a "
-            f"spreadsheet, a CSV, a Word document or plain text.")
+            f"spreadsheet, a CSV, a Word document, a PDF or plain text.")
 
     logger.info("Read %d conversation(s) from %s (%s).", len(conversations), path.name, how)
     grouped = sum(1 for c in conversations if c.group)

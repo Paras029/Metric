@@ -32,16 +32,18 @@ from ..core.evidence import FACETS
 from ..core.gaps import find_gaps
 from ..core.intake import read_intake, read_review_notes, set_decision_scope, write_template
 from ..core.models import MATERIALITY
-from ..ingest import open_questions, read_owner_library
+from ..ingest import open_questions
 from ..ingest.context_document import FACET_HEADINGS
+from ..ingest.conversations import read_conversations
 from ..ingest.groups import (ALL_EXTENSIONS, DEFAULT_GROUP, GROUP_BY_KEY, GROUPS, MODEL_DOC,
                              OWNER_SCENARIOS, SUPPORTING, folder_for, files_in, remove_file)
-from ..io import read_scenarios, write_registry
+from ..io import read_registry, read_scenarios, write_coverage_report, write_registry
 from ..llm import metering
 from ..llm.cancellation import Stopped
 from ..llm.structure_review import review_structure
 from ..pipeline import revise_intake_workbook
 from . import stagecancel
+from .coverageview import coverage_view, stored_mappings, stored_report
 from .graphview import graph_summary, render_svg
 from .runners import (CONTEXT, EVIDENCE, OVERLAP, PACK, REGISTRY, RUNNERS, STAGE_OUTPUTS,
                       _apply_proposal, _context, _evidence_record, _intake, _proposal_dicts,
@@ -54,8 +56,8 @@ from .workspace import Workspace, stage_view
 SCENARIO_STAGES = ("text", "materiality", "review", "coverage", "issue")
 
 # Groups redaction can actually do something to: the two that carry text ingestion reads. A
-# diagram has no text to redact, and the owner's own scenario library never reaches build_corpus
-# at all -- it is read separately, only to measure coverage, at a later stage.
+# diagram has no text to redact, and the owner's own conversations never reach build_corpus at
+# all -- they are read separately, only to measure coverage, at a later stage.
 REDACTABLE_GROUPS = (MODEL_DOC, SUPPORTING)
 
 logger = logging.getLogger(__name__)
@@ -153,6 +155,8 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             answers=_answers_for(workspace) if key == "documents" else [],
             groups=_group_rows(workspace, key),
             benchmark=_benchmark_for(workspace, key, intake),
+            coverage=_coverage_for(workspace, key, intake),
+            pack_gaps_only=workspace.pack_gaps_only,
             materiality_tiers=MATERIALITY,
             produced={n: p for n, p in workspace.state(key).artifacts.items()
                       if not str(p).startswith("sources/")},
@@ -180,13 +184,14 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
                               if workspace.is_marked_for_redaction(group.key, f.name)}}
             if group.key == OWNER_SCENARIOS and files:
                 # Say how it was read now rather than when coverage runs, while there is still
-                # time to ask them for a clearer file.
+                # time to ask them for a clearer file. A transcript file that cannot be split into
+                # turns is the failure that matters, and it is invisible until someone looks.
                 try:
-                    found, how = read_owner_library(files[0])
+                    found, how = read_conversations(files[0])
                     plural = "" if len(found) == 1 else "s"
-                    row["note"] = f"{len(found)} scenario{plural} found — {how}"
+                    row["note"] = f"{len(found)} conversation{plural} found — {how}"
                 except Exception as exc:
-                    row["note"] = f"This cannot be read as a scenario list: {exc}"
+                    row["note"] = f"This cannot be read as conversations: {exc}"
                     row["problem"] = True
             rows.append(row)
         return rows
@@ -217,6 +222,26 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         filters = {field: request.args.get(f"filter_{field}", "") for field in FILTER_FIELDS}
         return build_rows(scenarios, request.args.get("view", "attention"), stage=key,
                           filters=filters, limit=_page_limit())
+
+    def _coverage_for(workspace: Workspace, key: str, intake):
+        """What the team's conversations covered, counted at the threshold currently set.
+
+        Recounted on every page view from the stored mappings rather than read back from the run's
+        own summary, so moving the threshold changes what is shown immediately. See
+        :mod:`.coverageview`.
+        """
+        if key not in ("coverage", "issue") or intake is None:
+            return None
+        path = workspace.root / REGISTRY
+        if not path.exists() or not workspace.coverage_mappings():
+            return None
+        try:
+            report = stored_report(workspace, read_registry(str(path)))
+            texts = {s.id: s.description for s in read_scenarios(str(path), intake)}
+        except Exception:
+            logger.exception("Could not rebuild the coverage report for display")
+            return None
+        return coverage_view(workspace, report, texts) if report else None
 
     def _page_limit() -> Optional[int]:
         """How many rows to render, from ``?limit=``: a number, ``all``, or the default."""
@@ -539,6 +564,52 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         workspace.pop_structure_proposal(proposal_id)
         workspace.save()
         return redirect(url_for("stage", key="intake", _anchor="structure-review"))
+
+    @app.route("/stage/coverage/threshold", methods=["POST"])
+    def set_coverage_threshold():
+        """Move the line between represented and under-represented, and re-report on the spot.
+
+        Deliberately not a re-run. The mappings are what the model produced and they do not change
+        with the threshold -- only the verdict drawn through them does -- so this recounts what is
+        already stored and rewrites the workbook from it. Answering "what if we asked for three
+        conversations each?" should cost a page load, not another pass over every transcript.
+        """
+        workspace = _workspace()
+        raw = (request.form.get("threshold") or "").strip()
+        if raw.isdigit():
+            workspace.set_coverage_threshold(int(raw))
+
+        mappings = stored_mappings(workspace)
+        path = workspace.root / REGISTRY
+        if mappings and path.exists():
+            intake = _intake(workspace)
+            benchmark = read_registry(str(path))
+            texts = {s.id: s.description for s in read_scenarios(str(path), intake)}
+            report = stored_report(workspace, benchmark)
+            write_coverage_report(str(workspace.root / OVERLAP), report, mappings, texts)
+            # The pack's contents can depend on this line -- see runners._run_issue -- so a pack
+            # written under the old threshold is no longer what this workspace would issue.
+            if workspace.pack_gaps_only:
+                workspace.invalidate_after("coverage")
+
+        workspace.save()
+        return redirect(url_for("stage", key="coverage", _anchor="coverage"))
+
+    @app.route("/stage/issue/scope", methods=["POST"])
+    def set_pack_scope():
+        """Choose whether the challenge pack carries the whole benchmark or only the gaps.
+
+        Off by default. Every other stage widens what the model owner is asked to run, and this is
+        the one control that narrows it: leaving a scenario out says their own conversations are
+        evidence enough for it. That is a judgement about how far their testing is trusted, so it
+        is asked for explicitly rather than applied because coverage happens to have run.
+        """
+        workspace = _workspace()
+        workspace.pack_gaps_only = bool(request.form.get("on"))
+        invalidated = workspace.invalidate_from("issue")
+        workspace.save()
+        return redirect(url_for("stage", key="issue",
+                                invalidated=", ".join(s.title for s in invalidated)))
 
     @app.route("/stage/<key>/scenario/<scenario_id>", methods=["POST"])
     def rule_on_scenario(key: str, scenario_id: str):

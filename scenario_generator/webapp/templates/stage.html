@@ -376,6 +376,175 @@
       </section>
     {% endif %}
 
+    {% if coverage and stage.key == 'coverage' %}
+      <section class="panel" id="coverage">
+        <h2 class="panel__title">What their conversations cover</h2>
+        <p class="panel__body">
+          Every conversation they sent was matched to at most one scenario, decided by where the
+          exchange <em>ends</em> rather than by what it passes through on the way. A conversation
+          that authenticates and stops is not evidence for a scenario that authenticates and then
+          goes on to do something else.
+          {% if coverage.how_read %}Read as {{ coverage.how_read }}.{% endif %}
+        </p>
+
+        <dl class="figures">
+          {% for label, value in coverage.summary.items() %}
+            <div class="figures__cell">
+              <dt class="figures__label">{{ label }}</dt>
+              <dd class="figures__value mono">{{ value }}</dd>
+            </div>
+          {% endfor %}
+        </dl>
+
+        <form class="filters" method="post"
+              action="{{ url_for('set_coverage_threshold') }}">
+          <label class="filters__field">
+            Represented at
+            <input class="mono" type="number" name="threshold" min="1" style="width: 4.5rem"
+                   value="{{ coverage.threshold }}">
+          </label>
+          <button class="button button--quiet" type="submit">Recount</button>
+          <span class="switch__count">
+            conversations or more. Nothing is re-read — this recounts what is already mapped and
+            rewrites the workbook.
+          </span>
+        </form>
+
+        <ul class="cards">
+          {% for row in coverage.scenarios %}
+            <li class="card">
+              <details class="card__body">
+                <summary class="card__head">
+                  <span class="card__id mono">{{ row.id }}</span>
+                  <span class="card__title">{{ row.description or row.route }}</span>
+                  <span class="card__marks">
+                    {% if not row.represented %}
+                      <span class="mark mark--flag">
+                        {% if row.count %}Under-represented{% else %}Never exercised{% endif %}
+                      </span>
+                    {% endif %}
+                    <span class="mark mark--covered">
+                      {{ row.count }} conversation{{ '' if row.count == 1 else 's' }}
+                    </span>
+                    <span class="mark mark--tier mark--tier-{{ row.materiality | lower }}">
+                      {{ row.materiality }}
+                    </span>
+                  </span>
+                </summary>
+                <div class="card__detail">
+                  <p class="card__facts">
+                    <span class="mono">{{ row.route }}</span>
+                    {% if row.category %}<span>{{ row.category }}</span>{% endif %}
+                    {% if row.confidence %}<span>{{ row.confidence }} confidence</span>{% endif %}
+                  </p>
+                  {% if row.conversations %}
+                    <ul class="problems">
+                      {% for conversation in row.conversations %}
+                        <li class="problems__row">
+                          <span class="problems__what">
+                            <span class="mono">{{ conversation.id }}</span>
+                            <span class="mark mark--tier">{{ conversation.confidence }}</span>
+                            {% if conversation.group %}
+                              filed under “{{ conversation.group }}”
+                            {% endif %}
+                          </span>
+                          <span class="problems__why">{{ conversation.reason }}</span>
+                        </li>
+                      {% endfor %}
+                    </ul>
+                  {% else %}
+                    <p class="card__why card__why--flag">
+                      Nothing they sent ends here. Either it is untested, or it was tested and not
+                      submitted.
+                    </p>
+                  {% endif %}
+                </div>
+              </details>
+            </li>
+          {% endfor %}
+        </ul>
+
+        {% if coverage.unmatched %}
+          <h3 class="card__label">Matched no scenario ({{ coverage.unmatched | length }})</h3>
+          <p class="panel__body">
+            Worth reading rather than dismissing. A conversation that fits nothing is either a
+            test of something the benchmark never enumerated — a candidate to add — or not a test
+            of this agent at all.
+          </p>
+          <ul class="problems">
+            {% for conversation in coverage.unmatched %}
+              <li class="problems__row">
+                <span class="problems__what">
+                  <span class="mono">{{ conversation.id }}</span>
+                  {% if conversation.group %}filed under “{{ conversation.group }}”{% endif %}
+                </span>
+                <span class="problems__why">
+                  {% if conversation.intent %}{{ conversation.intent }} —{% endif %}
+                  {% if conversation.ending %}ends {{ conversation.ending }}.{% endif %}
+                  {{ conversation.reason }}
+                </span>
+              </li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+
+        {% if coverage.groups %}
+          <h3 class="card__label">Their own grouping</h3>
+          <p class="panel__body">
+            A team that grouped its conversations is making a claim — these are the same test —
+            and it is checkable. Where a group splits across scenarios, one of the two readings is
+            wrong and it is worth knowing which.
+          </p>
+          <ul class="problems">
+            {% for group in coverage.groups %}
+              <li class="problems__row">
+                <span class="problems__what">
+                  {{ group.group }}
+                  <span class="mark {% if group.agrees %}mark--covered{% else %}mark--flag{% endif %}">
+                    {{ group.total }} conversation{{ '' if group.total == 1 else 's' }}
+                  </span>
+                </span>
+                <span class="problems__why">{{ group.verdict }}</span>
+              </li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      </section>
+    {% endif %}
+
+    {% if stage.key == 'issue' %}
+      <section class="panel">
+        <h2 class="panel__title">What goes in the pack</h2>
+        <p class="panel__body">
+          By default the pack carries the whole benchmark. Where the coverage stage has run, it can
+          instead carry only what their own conversations under-cover — everything at or below the
+          representation threshold. Leaving a scenario out says their evidence for it is accepted,
+          so this is off unless you turn it on. The registry keeps every scenario either way.
+        </p>
+        <form method="post" action="{{ url_for('set_pack_scope') }}">
+          <label class="drop__redact"
+                 title="Issue only the scenarios their conversations under-cover">
+            <input type="checkbox" name="on" value="1"
+                   {% if pack_gaps_only %}checked{% endif %}
+                   onchange="this.form.submit()">
+            Issue only what their testing under-covers
+          </label>
+        </form>
+        {% if pack_gaps_only and coverage %}
+          <p class="panel__foot">
+            <span class="mono">{{ coverage.under_represented | length }}</span> of
+            <span class="mono">{{ coverage.scenarios | length }}</span> scenarios sit at or below
+            <span class="mono">{{ coverage.threshold }}</span> conversation{{ '' if coverage.threshold == 1 else 's' }}.
+          </p>
+        {% elif pack_gaps_only %}
+          <p class="panel__foot">
+            The coverage stage has not mapped anything yet, so nothing can be held back — the pack
+            will carry the whole benchmark until it has.
+          </p>
+        {% endif %}
+      </section>
+    {% endif %}
+
     {% if benchmark %}
       <section class="panel panel--benchmark">
         <h2 class="panel__title">The benchmark so far</h2>
@@ -626,16 +795,17 @@
       {% if groups %}
         <section class="panel panel--action">
           <h2 class="panel__title">
-            {% if stage.key == 'coverage' %}Their scenario library
+            {% if stage.key == 'coverage' %}Their own testing
             {% else %}What the model owner sent{% endif %}
           </h2>
           <p class="panel__body">
             {% if stage.key == 'coverage' %}
-              Whatever shape they sent it in. It is read to measure coverage and never as a
-              description of the agent — their blind spots must not become the benchmark's.
+              The conversations they have already run, in whatever shape they sent them. Read to
+              measure coverage and never as a description of the agent — their blind spots must not
+              become the benchmark's.
             {% else %}
-              Keep the kinds apart. Each is read differently, and their scenario library is used to
-              measure coverage rather than to describe the agent.
+              Keep the kinds apart. Each is read differently, and their own conversations are used
+              to measure coverage rather than to describe the agent.
             {% endif %}
           </p>
 

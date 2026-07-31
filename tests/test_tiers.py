@@ -17,7 +17,7 @@ from unittest import mock
 from scenario_generator.core.models import Decision, IntakeData, Persona, State, Tool
 from scenario_generator.core.probes import build_probes
 from scenario_generator.llm import config
-from scenario_generator.llm.extractor import MetadataExtractor
+from scenario_generator.llm.conversation_mapping import ConversationMapper
 from scenario_generator.llm.materiality import MaterialityAssessor
 from scenario_generator.llm.reviewer import ScenarioReviewer
 from scenario_generator.llm.writer import ScenarioWriter
@@ -234,15 +234,22 @@ class TestWhichPassUsesWhichTier(unittest.TestCase):
         self.assertTrue(recorder.tiers)
         self.assertTrue(all(_same_settings(t, config.STANDARD) for t in recorder.tiers))
 
-    def test_mapping_owner_scenarios_runs_on_the_fast_tier(self):
-        """Classification against a closed list, with validation discarding anything outside it."""
-        from scenario_generator.core.models import OwnerScenario
+    def test_mapping_their_conversations_runs_on_the_judgement_tier(self):
+        """Deciding which of several overlapping routes a transcript actually ends on is the
+        hardest judgement in the pipeline, and getting it wrong reports coverage that is not
+        there -- so it gets the strongest tier rather than the cheapest."""
+        from scenario_generator.core.models import BenchmarkScenario
+        from scenario_generator.ingest.conversations import Conversation, Turn
 
         recorder = _Recorder()
-        MetadataExtractor(complete=recorder).extract(
-            [OwnerScenario("OS-1", "The user authenticates.", "")], _INTAKE)
+        ConversationMapper(complete=recorder).map(
+            [Conversation(id="C1", turns=[Turn("user", "I want to dispute a charge here")])],
+            [BenchmarkScenario(id="SC-001", path_str="DEC-01=Pass", category="Happy path",
+                               materiality="High", capabilities=[], persona_id="P1",
+                               signature=())],
+            _INTAKE)
         self.assertTrue(recorder.tiers)
-        self.assertTrue(all(_same_settings(t, config.FAST) for t in recorder.tiers))
+        self.assertTrue(all(_same_settings(t, config.JUDGEMENT) for t in recorder.tiers))
 
 
 if __name__ == "__main__":

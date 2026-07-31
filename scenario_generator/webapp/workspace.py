@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
+from ..core.representation import DEFAULT_THRESHOLD
 from .stages import (COMPLETE, FAILED, LOCKED, READY, RUNNING, STAGE_BY_KEY, STAGE_KEYS,
                      STALE, STAGES, STOPPED, Stage, downstream_of, index_of, required_before)
 
@@ -152,7 +153,10 @@ class Workspace:
                  stages: Optional[Dict[str, StageState]] = None,
                  notes: Optional[List[dict]] = None,
                  redact_files: Optional[List[str]] = None,
-                 structure_proposals: Optional[List[dict]] = None) -> None:
+                 structure_proposals: Optional[List[dict]] = None,
+                 coverage_threshold: int = None,
+                 coverage: Optional[dict] = None,
+                 pack_gaps_only: bool = False) -> None:
         self.root = Path(root)
         self.name = name or self.root.name
         self.created_at = created_at or _now()
@@ -169,6 +173,19 @@ class Workspace:
         # core.intake.merge_decisions and friends -- so this list only ever holds what is
         # still open.
         self.structure_proposals: List[dict] = list(structure_proposals or [])
+        # How many of the team's conversations a scenario needs before it counts as represented.
+        # A judgement about how far their testing is trusted, so it belongs to the workspace and
+        # to the person using it -- see core.representation.
+        self.coverage_threshold: int = int(coverage_threshold or DEFAULT_THRESHOLD)
+        # The last coverage run, kept so the page can show it without re-reading the workbook and
+        # so changing the threshold re-reports what is already mapped rather than re-running the
+        # model over every conversation again.
+        self.coverage: dict = dict(coverage or {})
+        # Whether the challenge pack carries only the scenarios their own testing under-covers.
+        # Off by default, and deliberately so: every other stage adds to what the model owner is
+        # asked for, and this is the one setting that takes things away. Narrowing the pack is a
+        # decision to trust their evidence for everything left out, which is the user's to make.
+        self.pack_gaps_only: bool = bool(pack_gaps_only)
         self._reconciled = self._settle()
 
     # ----------------------------------------------------------------- added context
@@ -259,6 +276,30 @@ class Workspace:
         else:
             self.redact_files.discard(key)
 
+    # ----------------------------------------------------------------- coverage
+    def save_coverage(self, mappings, how_read: str = "") -> None:
+        """Keep what the last coverage run found, flat enough to re-read without the model.
+
+        Only the mappings are expensive to produce -- everything the page shows is counted from
+        them. Storing them rather than the counts is what lets the representation threshold be
+        moved and the answer recomputed instantly, which is the whole reason it is a setting.
+        """
+        self.coverage = {
+            "how_read": how_read,
+            "mappings": [{"conversation_id": m.conversation_id, "scenario_id": m.scenario_id,
+                          "confidence": m.confidence, "intent": m.intent, "ending": m.ending,
+                          "reason": m.reason, "declared_group": m.declared_group}
+                         for m in mappings],
+        }
+        self.save()
+
+    def coverage_mappings(self) -> List[dict]:
+        return list(self.coverage.get("mappings") or [])
+
+    def set_coverage_threshold(self, threshold: int) -> None:
+        """Move the line between represented and under-represented. Does not save."""
+        self.coverage_threshold = max(1, int(threshold))
+
     # ----------------------------------------------------------------- structure review
     def set_structure_proposals(self, proposals: List[dict]) -> None:
         """Replace the open proposals with a freshly run structure review's results.
@@ -307,6 +348,9 @@ class Workspace:
                    "notes": list(self.notes),
                    "redact_files": sorted(self.redact_files),
                    "structure_proposals": list(self.structure_proposals),
+                   "coverage_threshold": self.coverage_threshold,
+                   "coverage": dict(self.coverage),
+                   "pack_gaps_only": self.pack_gaps_only,
                    "stages": {k: v.to_dict() for k, v in self.stages.items()}}
 
         with _lock_for(self.state_path):
@@ -328,7 +372,10 @@ class Workspace:
                         created_at=data.get("created_at", ""), stages=stages,
                         notes=data.get("notes", []),
                         redact_files=data.get("redact_files", []),
-                        structure_proposals=data.get("structure_proposals", []))
+                        structure_proposals=data.get("structure_proposals", []),
+                        coverage_threshold=data.get("coverage_threshold"),
+                        coverage=data.get("coverage", {}),
+                        pack_gaps_only=data.get("pack_gaps_only", False))
         # An interrupted run was reconciled during construction -- see _settle. Written back once,
         # here, so the record on disk stops claiming something is running: after this save the
         # reconciliation finds nothing, so a page polling every second does not write every second.

@@ -62,13 +62,14 @@ def _intake_workbook(directory: Path) -> Path:
     return path
 
 
-def _owner_workbook(directory: Path) -> Path:
-    path = directory / "owner.xlsx"
+def _conversation_workbook(directory: Path) -> Path:
+    """What the modelling team submits: transcripts, under their own grouping where they have one."""
+    path = directory / "their_conversations.xlsx"
     book = Workbook()
     sheet = book.active
-    sheet.title = "Scenarios"
-    sheet.append(["ID", "Description", "Decision Path"])
-    sheet.append(["OS-1", "The user authenticates successfully.", ""])
+    sheet.append(["Conversation ID", "Turn", "Speaker", "Message", "Scenario"])
+    sheet.append(["C1", 1, "Customer", "I need to get into my account", "Sign in"])
+    sheet.append(["C1", 2, "Agent", "You are authenticated, how can I help?", "Sign in"])
     book.save(path)
     return path
 
@@ -86,7 +87,7 @@ class TestEveryStageRuns(unittest.TestCase):
         (scratch / "notes.md").write_text(_SOURCE, encoding="utf-8")
 
         uploads = (("documents", scratch / "notes.md", "model_doc"),
-                   ("documents", _owner_workbook(scratch), "owner_scenarios"),
+                   ("documents", _conversation_workbook(scratch), "owner_scenarios"),
                    ("intake", _intake_workbook(scratch), ""))
         for key, path, group in uploads:
             with open(path, "rb") as handle:
@@ -114,7 +115,7 @@ class TestEveryStageRuns(unittest.TestCase):
             "scenario_generator.llm.writer.ask_llm": lambda s, u, **k: "{}",
             "scenario_generator.llm.materiality.ask_llm": lambda s, u, **k: "{}",
             "scenario_generator.llm.reviewer.ask_llm": lambda s, u, **k: '{"proposals": []}',
-            "scenario_generator.llm.extractor.ask_llm": lambda s, u, **k: "{}",
+            "scenario_generator.llm.conversation_mapping.ask_llm": lambda s, u, **k: "{}",
         }
         stack = [mock.patch(target, stub) for target, stub in patches.items()]
         for patch in stack:
@@ -131,26 +132,37 @@ class TestEveryStageRuns(unittest.TestCase):
         self.assertEqual({s.key for s in STAGES} - set(RUNNERS), set())
 
 
-class TestCoverageReturnsItsResult(unittest.TestCase):
-    """map_coverage used to return None while a caller counted what it returned."""
+class TestCoverageReportsWhatItMapped(unittest.TestCase):
+    """The stage returns its result, and every conversation read is accounted for in it."""
 
-    def test_map_coverage_reports_what_it_matched(self):
-        from scenario_generator.pipeline import build_scenarios, map_coverage
+    def _run(self, scratch, reply):
+        from scenario_generator.pipeline import build_scenarios, map_conversation_coverage
         from scenario_generator.core.intake import read_intake
         from scenario_generator.io import write_registry
 
-        scratch = Path(tempfile.mkdtemp())
         intake_path = _intake_workbook(scratch)
         intake = read_intake(str(intake_path))
         write_registry(str(scratch / "registry.xlsx"), intake, build_scenarios(intake))
 
-        with mock.patch("scenario_generator.llm.extractor.ask_llm", lambda s, u, **k: "{}"):
-            result = map_coverage(str(intake_path), str(scratch / "registry.xlsx"),
-                                  str(_owner_workbook(scratch)), str(scratch / "overlap.xlsx"))
+        with mock.patch("scenario_generator.llm.conversation_mapping.ask_llm",
+                        lambda s, u, **k: reply):
+            return map_conversation_coverage(
+                str(intake_path), str(scratch / "registry.xlsx"),
+                str(_conversation_workbook(scratch)), str(scratch / "coverage.xlsx"))
 
-        self.assertIsNotNone(result)
-        self.assertEqual(result.owner_scenarios, 1)
-        self.assertEqual(result.covered + result.gaps, result.benchmark)
+    def test_a_matched_conversation_lands_in_its_scenarios_bucket(self):
+        scratch = Path(tempfile.mkdtemp())
+        result = self._run(scratch, json.dumps(
+            {"C1": {"scenario_id": "SC-001", "confidence": "high", "reason": "ends signed in"}}))
+
+        self.assertEqual(len(result.mappings), 1)
+        self.assertEqual(result.report.summary()["Mapped to a scenario"], 1)
+        self.assertTrue((scratch / "coverage.xlsx").exists())
+
+    def test_a_conversation_the_call_says_nothing_about_is_reported_as_unmatched(self):
+        result = self._run(Path(tempfile.mkdtemp()), "{}")
+        self.assertEqual(result.report.unmatched, ["C1"])
+        self.assertEqual(result.report.summary()["Matched no scenario"], 1)
 
 
 if __name__ == "__main__":

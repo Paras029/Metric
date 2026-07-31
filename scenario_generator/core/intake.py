@@ -1,4 +1,4 @@
-"""Read a filled intake workbook, read an owner's scenario library, and write the blank
+"""Read a filled intake workbook, read an owner's declared scenario list, and write the blank
 template. Assumes a well-formed workbook, with row 1 of each sheet as the header.
 """
 from __future__ import annotations
@@ -154,7 +154,12 @@ def read_review_notes(path: str) -> List[dict]:
 
 
 def read_owner_scenarios(path: str, sheet_name: str = "Scenarios") -> List[OwnerScenario]:
-    """Read a modeling team's own scenario library: ID, Description, optional Decision Path."""
+    """Read a modelling team's own declared scenario list: ID, Description, optional Decision Path.
+
+    Not the coverage stage's input -- that reads transcripts, since a list of scenario titles is a
+    claim about their testing rather than the testing itself. This is the optional context handed
+    to the final review, where knowing what they say they cover can inform what it proposes.
+    """
     with sheets.open_for_reading(path, "a scenario library") as workbook:
         rows = sheets.read_rows(workbook[sheet_name])
     return [OwnerScenario(_cell(r, 0), _cell(r, 1), _cell(r, 2))

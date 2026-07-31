@@ -15,16 +15,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Tuple
+from typing import List
 
 from openpyxl import Workbook
 
 from . import sheets
-from ..core.coverage import coverage_gaps, coverage_summary, incremental_owner
 from ..core.generation import (fallback_description, fallback_turn_plan, recommended_turns,
                                 required_runs, turn_plan_lines)
 from ..utils.text import parse_path_str
-from ..core.models import (FUNCTIONAL_ORIGINS, BenchmarkScenario, IntakeData, Match, Scenario,
+from ..core.models import (FUNCTIONAL_ORIGINS, BenchmarkScenario, IntakeData, Scenario,
                            Step, TurnMeta)
 from ..core.probes import ADVERSARIAL_PERSONA
 
@@ -272,53 +271,51 @@ def read_registry(path: str, functional_only: bool = True) -> List[BenchmarkScen
     return benchmark
 
 
-def write_overlap_report(path: str, intake: IntakeData, matches: List[Match],
-                         benchmark: List[BenchmarkScenario]) -> Tuple[int, int]:
-    """Overlap between the generated benchmark and owner-supplied scenarios. Returns (covered, gaps)."""
+def write_coverage_report(path: str, report, mappings, texts: dict = None) -> None:
+    """What the modelling team's conversations cover, as a workbook.
+
+    Three sheets, in the order the questions get asked. *Scenarios* is the answer -- every
+    benchmark scenario with how many of their conversations landed on it, least covered first,
+    because the thin end of that list is what goes back to them. *Conversations* is the working:
+    one row per transcript with the scenario it was matched to and how sure the match was, so a
+    figure on the first sheet can be traced to the exchanges behind it. *Their grouping* appears
+    only where they supplied one, and says whether it agrees with ours.
+    """
+    texts = texts or {}
     workbook = Workbook()
     workbook.remove(workbook.active)
 
-    # Keep the strongest match per benchmark scenario (Match over Partial, Confident over Watch-out).
-    rank = {("Match", "Confident"): 4, ("Match", "Watch-out"): 3,
-            ("Partial match", "Confident"): 2, ("Partial match", "Watch-out"): 1}
-    best: dict = {}
-    for m in matches:
-        if not m.scenario_id:
-            continue
-        current = best.get(m.scenario_id)
-        if current is None or rank.get((m.verdict, m.extracted.confidence), 0) > \
-                rank.get((current.verdict, current.extracted.confidence), 0):
-            best[m.scenario_id] = m
+    scenarios = sheets.add_sheet(
+        workbook, "Scenarios",
+        ["SC ID", "Category", "Materiality", "Conversations", "Represented?",
+         "Confidence Split", "Conversation IDs", "Description"],
+        [10, 14, 12, 14, 14, 22, 38, 60])
+    sheets.write_rows(scenarios, [
+        [entry.scenario.id, entry.scenario.category, entry.scenario.materiality, entry.count,
+         "Yes" if entry.represented(report.threshold) else "No",
+         entry.confidence_summary, ", ".join(entry.conversation_ids),
+         texts.get(entry.scenario.id, "")]
+        for entry in report.scenarios])
 
-    overlap = sheets.add_sheet(workbook, "Overlap",
-                              ["SC ID", "Category", "Decision Path", "Materiality",
-                               "Match Verdict", "Match Notes", "Extraction Confidence",
-                               "Matched Owner ID", "Owner Rationale"],
-                              [10, 14, 42, 12, 14, 40, 20, 16, 50])
-    rows = []
-    for b in benchmark:
-        m = best.get(b.id)
-        rows.append([b.id, b.category, b.path_str, b.materiality,
-                     m.verdict if m else "No match",
-                     m.notes if m else "",
-                     m.extracted.confidence if m else "-",
-                     m.owner.id if m else "-",
-                     m.extracted.rationale if m else ""])
-    sheets.write_rows(overlap, rows)
+    conversations = sheets.add_sheet(
+        workbook, "Conversations",
+        ["Conversation ID", "Mapped To", "Confidence", "What They Wanted", "How It Ended",
+         "Why", "Filed By The Team As"],
+        [18, 12, 12, 44, 44, 60, 22])
+    sheets.write_rows(conversations, [
+        [m.conversation_id, m.scenario_id or "— none —", m.confidence, m.intent, m.ending,
+         m.reason, m.declared_group]
+        for m in mappings])
 
-    # Owner scenarios whose path matched nothing — tested beyond the declared model.
-    inc = sheets.add_sheet(workbook, "Owner_Incremental",
-                           ["Owner ID", "Owner Description", "Inferred Path", "Match Notes",
-                            "Extraction Confidence", "Rationale"], [12, 52, 34, 44, 20, 50])
-    sheets.write_rows(inc, [[
-        m.owner.id, m.owner.description,
-        " -> ".join(f"{d}={v}" for d, v in m.extracted.decision_path) or "-",
-        m.notes, m.extracted.confidence, m.extracted.rationale]
-        for m in incremental_owner(matches)])
-
-    summary = sheets.add_sheet(workbook, "Summary", ["Measure", "Value"], [40, 60])
-    sheets.write_rows(summary, [list(pair) for pair in coverage_summary(matches, benchmark)])
+    if report.groups:
+        grouping = sheets.add_sheet(
+            workbook, "Their Grouping",
+            ["Their Label", "Conversations", "Agrees?", "Maps To", "Verdict"],
+            [26, 14, 10, 30, 70])
+        sheets.write_rows(grouping, [
+            [g.group, g.total, "Yes" if g.agrees else "No",
+             ", ".join(f"{k} ({v})" for k, v in sorted(g.scenario_counts.items())),
+             g.verdict]
+            for g in report.groups])
 
     workbook.save(path)
-    gaps = coverage_gaps(matches, benchmark)
-    return len(benchmark) - len(gaps), len(gaps)
