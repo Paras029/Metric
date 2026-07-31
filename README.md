@@ -543,49 +543,43 @@ For example, `LLM_STAGE_REVIEWER_CATEGORY_MODEL_ID=some-cheap-model` moves only 
 check onto a smaller model, leaving materiality assessment on whatever `LLM_MATERIALITY_MODEL_ID`
 (or `LLM_MODEL_ID`) says, even though both share the Materiality tier by default.
 
+Settings live in two files, split by who owns the answer.
+
+**`.env`** — yours and your machine's: the SafeChain credentials, which model to call, where
+SafeChain is. Never committed, and short enough to read at a glance.
+
+**`tuning.yml`** — how the work is run: the tier table above, per-stage overrides, batch sizes,
+concurrency, how hard ingestion tries, redaction. None of it is secret, all of it is worth a team
+agreeing once, and as a table it is legible in a way forty `KEY=value` lines are not. It is
+committed, so a change to it is reviewed like any other change. Delete a key and the built-in
+default applies; delete the file and the tool runs exactly as it ships.
+
+Every setting in `tuning.yml` also has an environment variable name, and the environment always
+wins. That is how you override one setting on one machine for one run without editing a shared
+file — and it means an existing `.env` full of `LLM_*` settings keeps working untouched.
+
+```yaml
+# tuning.yml — the shape of it; see the file itself for every key and what it is for.
+defaults:      {temperature: 0.3, max_attempts: 4}
+tiers:
+  judgement:   {max_tokens: 65536, reasoning_effort: high}
+  materiality: {max_tokens: 32000, reasoning_effort: medium, max_attempts: 2}
+  standard:    {max_tokens: 16000, reasoning_effort: minimal}
+  fast:        {max_tokens: 8000,  reasoning_effort: minimal}
+concurrency: 4
+stages:
+  writer:            {batch_size: 8}
+  materiality_assess: {batch_size: 10}
+  reviewer_assess:   {batch_size: 6}
+  reviewer_category: {batch_size: 20}
+ingestion:     {max_corpus_chars: 2000000, resolve_passes: 2, vision: true}
+redaction:     {enabled: false, mode: masking}
 ```
-LLM_TEMPERATURE                  Default 0.3.
-LLM_MAX_ATTEMPTS                 Default 4. Retries for any tier that does not set its own.
-LLM_JUDGEMENT_MAX_TOKENS         Default 65536.
-LLM_JUDGEMENT_REASONING_EFFORT   Default "high".
-LLM_JUDGEMENT_MODEL_ID           Defaults to LLM_MODEL_ID.
-LLM_JUDGEMENT_TEMPERATURE        Defaults to LLM_TEMPERATURE.
-LLM_MATERIALITY_MAX_TOKENS       Default 32000.
-LLM_MATERIALITY_REASONING_EFFORT Default "medium".
-LLM_MATERIALITY_MODEL_ID         Defaults to LLM_MODEL_ID.
-LLM_MATERIALITY_MAX_ATTEMPTS     Default 2.
-LLM_MATERIALITY_TEMPERATURE      Defaults to LLM_TEMPERATURE.
-LLM_MAX_TOKENS                   Default 16000. (The Standard tier reuses the master prefix --
-                                 there is no separate LLM_STANDARD_*.)
-LLM_REASONING_EFFORT             Default "minimal".
-LLM_FAST_MAX_TOKENS              Default 8000.
-LLM_FAST_REASONING_EFFORT        Default "minimal".
-LLM_FAST_MODEL_ID                Defaults to LLM_MODEL_ID.
-LLM_FAST_TEMPERATURE             Defaults to LLM_TEMPERATURE.
-LLM_STAGE_<KEY>_MODEL_ID         Per-call-site override -- see the table above for <KEY>.
-LLM_STAGE_<KEY>_MAX_TOKENS       Per-call-site override.
-LLM_STAGE_<KEY>_TEMPERATURE      Per-call-site override.
-LLM_STAGE_<KEY>_REASONING_EFFORT Per-call-site override.
-LLM_STAGE_<KEY>_MAX_ATTEMPTS     Per-call-site override.
-LLM_STAGE_<KEY>_BATCH_SIZE       Per-call-site override, where the call site batches. Rows
-                                 per call, not calls in flight -- see Batching below.
-LLM_STAGE_<KEY>_CONCURRENCY      Per-call-site override of LLM_MAX_CONCURRENCY -- calls in
-                                 flight at once, not rows per call.
-LLM_MAX_CORPUS_CHARS             Default 2000000 (~500k tokens).
-LLM_INGEST_RESOLVE_PASSES        Default 2. How many times an open question is put
-                                 back to the documents before it is put to a person.
-LLM_MAX_CONCURRENCY              Default 4. How many batched calls run at once.
-LLM_VISION                       "off" where the model does not accept images.
-LLM_MAX_IMAGE_BYTES              Default 4000000.
-PII_REDACTION                    Default "off". Redact submitted documents before any
-                                 model call. Requires the internal pii-redactor package.
-PII_REDACTION_MODE               Default "masking".
-PII_REDACTION_REPLACEMENT_TEXT   Default "[REDACTED]".
-PII_REDACTION_SENSITIVITY        strict | balanced | loose. Blank takes the engine default.
-PII_REDACTION_EXCLUDE_ENTITIES   Comma-separated detector labels to switch off.
-PII_REDACTION_ALLOW              Comma-separated terms to never mask.
-PII_REDACTION_THRESHOLDS         Comma-separated name=score pairs.
-```
+
+The environment-variable name for any of these is the one documented above: a tier field is
+`LLM_<TIER>_<FIELD>`, a stage field is `LLM_STAGE_<KEY>_<FIELD>`, and the loose ones keep the
+names they always had (`LLM_MAX_CONCURRENCY`, `LLM_MAX_CORPUS_CHARS`,
+`LLM_INGEST_RESOLVE_PASSES`, `LLM_VISION`, `PII_REDACTION`, and so on).
 
 Each tier's values are bound to its model with LangChain's `bind`, so a chain carries its own cap
 and effort wherever it is used.

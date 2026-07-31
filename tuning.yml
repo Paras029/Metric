@@ -1,0 +1,120 @@
+# How the work is run. Nothing here is secret and nothing here is machine-specific, so this file
+# is committed and shared: a change to it is reviewable like any other change, and a team agrees
+# it once rather than each person half-remembering it in their own .env.
+#
+# Credentials and which model to call live in .env instead, which is yours and is never committed.
+#
+# Everything below is optional. Delete a line and the built-in default applies; delete the whole
+# file and the tool runs exactly as it ships. An environment variable of the same name always wins
+# over the value here, which is how you override one setting for one run without editing this.
+
+defaults:
+  temperature: 0.3
+  # Retries for a gateway that is briefly busy. Anything the model rejects on its merits is
+  # raised rather than repeated -- retrying a malformed request only wastes the time it takes to
+  # fail again.
+  max_attempts: 4
+
+# Calls run on one of four tiers, because the work genuinely differs. Each falls back to the model
+# named in .env, so nothing changes until you name a smaller one here.
+#
+# max_tokens is the *output* cap, not the context window. Reasoning tokens come out of the same
+# budget as the reply, so a high effort against a small cap truncates the JSON rather than
+# shortening the answer -- which is why each tier sets both together.
+tiers:
+  # Reading documents, drafting and revising the intake, the final review. These read a lot,
+  # reason at length, and have to justify what they conclude.
+  judgement:
+    max_tokens: 65536
+    reasoning_effort: high
+    # model: a-smaller-model
+
+  # Weighing each scenario against its peers. Judgement-shaped, but every chunk of the benchmark
+  # is in flight against it at once, which is what makes it worth separating: point it somewhere
+  # smaller without touching document reading, and let it retry a busy gateway less hard.
+  materiality:
+    max_tokens: 32000
+    reasoning_effort: medium
+    max_attempts: 2
+
+  # Writing each scenario up for the modelling team. Mechanical, but people read the result.
+  standard:
+    max_tokens: 16000
+    reasoning_effort: minimal
+
+  # Mapping the modelling team's free text onto the intake's closed vocabulary. Classification,
+  # with validation discarding anything outside the list -- the cheapest model that follows the
+  # output format is enough, and this is the first saving worth making.
+  fast:
+    max_tokens: 8000
+    reasoning_effort: minimal
+
+# How many of the batched calls are in flight at once. This caps overlap, not call count: a large
+# benchmark cannot open more connections than the gateway is willing to hold. Raise it if yours
+# comfortably takes more; lower it if calls start failing under load.
+concurrency: 4
+
+# Per call site, one level finer than a tier. A tier is shared by every call doing the same *kind*
+# of work -- weighing materiality and checking the review's declared category are both
+# materiality-tier work, but they are two different calls a benchmark can want tuned differently.
+#
+# batch_size is how many rows go into one call; concurrency is how many such calls run at once.
+# They are independent: smaller batches with higher concurrency means more, smaller calls sent
+# more in parallel, which is usually faster and always cheaper to retry.
+#
+# Anything omitted falls back to the stage's tier. Every key is optional; these are the defaults.
+stages:
+  # Ingestion — one call each, no batching.
+  ingest_read: {}                 # each facet group, read from the whole corpus   (judgement)
+  ingest_resolve: {}              # the resolution sweep                           (judgement)
+  ingest_diagram_read: {}         # one diagram image, read on its own             (judgement)
+  ingest_diagram_synthesize: {}   # every image's reading, joined into one graph   (judgement)
+  ingest_diagram_repair: {}       # unresolved points, put back to the images      (judgement)
+
+  # Intake — one call each.
+  intake_draft: {}                # drafting or revising the intake                (judgement)
+  structure_review: {}            # reconnection and consolidation proposals       (judgement)
+
+  # The benchmark passes, which batch.
+  writer:                         # writing scenario text                          (standard)
+    batch_size: 8
+  materiality_assess:             # a tier per scenario, judged against its peers  (materiality)
+    batch_size: 10
+  reviewer_assess:                # materiality settled + weak scenarios flagged   (judgement)
+    batch_size: 6
+  reviewer_category:              # the declared ending, read back                 (materiality)
+    batch_size: 20
+  reviewer_propose: {}            # what enumeration could not reach               (judgement)
+  owner_extract:                  # their scenarios onto our vocabulary            (fast)
+    batch_size: 8
+
+ingestion:
+  # How much submitted text goes into one reading call. Four characters to a token puts this near
+  # 500k tokens, well inside a million-token window. A pack larger than this is split across
+  # calls, which reads worse than reading it whole, so the number is set to make that rare.
+  max_corpus_chars: 2000000
+
+  # How many times a question the first reading left open is put back to the documents before a
+  # person is asked. Each pass is one call over the whole corpus, and each question it settles is
+  # one the modelling team never has to answer. 0 skips the sweep and asks considerably more.
+  resolve_passes: 2
+
+  # Whether the model accepts images alongside text. Off where the gateway rejects the multimodal
+  # request shape: diagrams are then recorded as needing a written description rather than failing
+  # the run.
+  vision: true
+  max_image_bytes: 4000000
+
+# Redacting PII out of submitted documents before any of their text reaches a model call.
+# Off by default so the tool runs unmodified wherever the internal pii-redactor package has not
+# been installed. Once on, a passage that cannot be redacted stops the run rather than being sent
+# unredacted -- this is not a best-effort extra.
+redaction:
+  enabled: false
+  mode: masking
+  replacement_text: "[REDACTED]"
+  # strict | balanced | loose. Omit to take the engine's own default.
+  # sensitivity: balanced
+  # exclude_entities: [PERSON, LOCATION]
+  # allow: [American Express, New York]
+  # thresholds: {secondary_pii_email: 0.7}

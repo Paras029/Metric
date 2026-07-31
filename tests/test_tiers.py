@@ -9,7 +9,9 @@ judgement pass silently demoted to a small model produces plausible output that 
 nobody notices, and a mechanical pass left on the large one costs time on every run forever.
 """
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from scenario_generator.core.models import Decision, IntakeData, Persona, State, Tool
@@ -154,6 +156,61 @@ class TestStageOverrideCascade(unittest.TestCase):
             tier = config._tier("judgement", "LLM_JUDGEMENT", 65_536, "high")
         parameters = _generation_parameters(tier, None, None, None)
         self.assertEqual(parameters["temperature"], 0.9)
+
+
+class TestSettingsCascade(unittest.TestCase):
+    """Environment, then tuning.yml, then the built-in default -- in that order.
+
+    The split exists so a shared, reviewable file can hold how the work is run while .env holds
+    only what is yours. What must not break is either end of it: a machine that overrides one
+    setting locally, and a checkout with no tuning file at all.
+    """
+
+    def setUp(self):
+        config.reload_tuning()
+
+    def tearDown(self):
+        config.TUNING_PATH = "tuning.yml"
+        config.reload_tuning()
+
+    def _with_tuning(self, body: str) -> None:
+        path = Path(tempfile.mkdtemp()) / "tuning.yml"
+        path.write_text(body, encoding="utf-8")
+        config.TUNING_PATH = str(path)
+        config.reload_tuning()
+
+    def test_the_tuning_file_supplies_a_value_the_environment_does_not(self):
+        self._with_tuning("stages:\n  writer:\n    batch_size: 4\n")
+        self.assertEqual(config.stage_batch_size("WRITER", 8), 4)
+
+    def test_the_environment_still_wins_over_the_file(self):
+        self._with_tuning("stages:\n  writer:\n    batch_size: 4\n")
+        with mock.patch.dict(os.environ, {"LLM_STAGE_WRITER_BATCH_SIZE": "9"}):
+            self.assertEqual(config.stage_batch_size("WRITER", 8), 9)
+
+    def test_no_tuning_file_falls_through_to_the_built_in_default(self):
+        config.TUNING_PATH = str(Path(tempfile.mkdtemp()) / "absent.yml")
+        config.reload_tuning()
+        self.assertEqual(config.stage_batch_size("WRITER", 8), 8)
+
+    def test_an_unreadable_tuning_file_does_not_stop_a_run(self):
+        self._with_tuning("{{{ not yaml at all")
+        self.assertEqual(config.stage_batch_size("WRITER", 8), 8)
+
+    def test_a_value_of_the_wrong_type_falls_back_rather_than_raising(self):
+        self._with_tuning("stages:\n  writer:\n    batch_size: not-a-number\n")
+        self.assertEqual(config.stage_batch_size("WRITER", 8), 8)
+
+    def test_a_list_setting_reads_from_yaml_as_a_list(self):
+        """Comma-separated in the environment, a real list in YAML -- both arrive as a list."""
+        self.assertEqual(config._csv(["American Express", "New York"]),
+                         ["American Express", "New York"])
+        self.assertEqual(config._csv("American Express,New York"),
+                         ["American Express", "New York"])
+
+    def test_thresholds_read_from_yaml_as_a_mapping(self):
+        self.assertEqual(config._thresholds({"secondary_pii_email": 0.7}),
+                         {"secondary_pii_email": {"score": 0.7}})
 
 
 class TestWhichPassUsesWhichTier(unittest.TestCase):

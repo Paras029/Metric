@@ -18,6 +18,8 @@ matters where a new model has to clear an approval before it can be used.
 import logging
 import os
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -65,6 +67,82 @@ def missing_credentials() -> list:
             if not os.getenv(name, "").strip()]
 
 
+# --------------------------------------------------------------------------- where settings live
+#
+# Two files, split by who owns the answer.
+#
+# ``.env`` holds what is yours and your machine's: credentials, which model to call, where
+# SafeChain is. It is never committed, differs per person, and is short enough to read at a glance.
+#
+# ``tuning.yml`` holds how the work is run: output caps, reasoning effort, batch sizes,
+# concurrency, how hard ingestion tries. None of it is secret, all of it is worth a team agreeing
+# on once, and as a table it is legible in a way forty ``KEY=value`` lines with comments between
+# them are not. It is committed, so a change to it is reviewable like any other change.
+#
+# An environment variable still wins over the file wherever both are set. That is what keeps an
+# existing ``.env`` working untouched, and leaves a way to override one setting on one machine for
+# one run without editing a shared file.
+TUNING_PATH = os.getenv("TUNING_PATH", "tuning.yml")
+
+_tuning_cache: Optional[dict] = None
+
+
+def tuning() -> dict:
+    """The tuning file, read once. An absent or unreadable file means built-in defaults."""
+    global _tuning_cache
+    if _tuning_cache is None:
+        path = Path(TUNING_PATH)
+        try:
+            import yaml
+
+            loaded = yaml.safe_load(path.read_text(encoding="utf-8")) if path.exists() else None
+            _tuning_cache = loaded if isinstance(loaded, dict) else {}
+        except Exception as exc:                           # a broken file must not stop a run
+            logger.warning("Could not read %s (%s); using built-in defaults.", path, exc)
+            _tuning_cache = {}
+    return _tuning_cache
+
+
+def reload_tuning() -> None:
+    """Forget the cached tuning file, so an edit takes effect without a restart."""
+    global _tuning_cache
+    _tuning_cache = None
+
+
+def _from_file(*path: str):
+    """One value from the tuning file by its path, or None where it is not set."""
+    node: object = tuning()
+    for key in path:
+        if not isinstance(node, dict) or key not in node:
+            return None
+        node = node[key]
+    return node
+
+
+def _truthy(value: object) -> bool:
+    return str(value).strip().lower() not in ("0", "off", "false", "no", "")
+
+
+def setting(env: str, *path: str, default=None, cast=None):
+    """One setting: the environment first, then the tuning file, then the built-in default.
+
+    ``cast`` is applied to whichever of the first two supplied it, so a value typed as an int in
+    the YAML and the same value typed as a string in the environment arrive here the same way.
+    """
+    raw = os.getenv(env)
+    if raw is None or not str(raw).strip():
+        raw = _from_file(*path)
+    if raw is None:
+        return default
+    if cast is None:
+        return raw
+    try:
+        return cast(raw)
+    except (TypeError, ValueError):
+        logger.warning("%s is not a valid value (%r); using %r.", env, raw, default)
+        return default
+
+
 # The model each tier asks SafeChain for. These are the names SafeChain knows, which are the keys
 # in the config.yml the team shares -- not a provider's own path-style identifier.
 LLM_MODEL_ID = os.getenv("LLM_MODEL_ID", "gemini-2.5-pro")
@@ -72,13 +150,15 @@ LLM_MODEL_ID = os.getenv("LLM_MODEL_ID", "gemini-2.5-pro")
 # Whether the configured model accepts images alongside text. Set LLM_VISION=off where the
 # gateway rejects the multimodal request shape -- diagram reading then degrades to asking a
 # person to describe the flow, rather than the run failing.
-LLM_VISION = os.getenv("LLM_VISION", "on").strip().lower() not in ("0", "off", "false", "no")
+LLM_VISION = _truthy(setting("LLM_VISION", "ingestion", "vision", default="on"))
 
 # Base64 inflates an image by about a third, and gateways cap the request body. Anything larger
 # is refused with a reason rather than sent and rejected.
-MAX_IMAGE_BYTES = int(os.getenv("LLM_MAX_IMAGE_BYTES", "4000000"))
+MAX_IMAGE_BYTES = setting("LLM_MAX_IMAGE_BYTES", "ingestion", "max_image_bytes",
+                         default=4_000_000, cast=int)
 
-DEFAULT_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.3"))
+DEFAULT_TEMPERATURE = setting("LLM_TEMPERATURE", "defaults", "temperature",
+                             default=0.3, cast=float)
 
 
 # --------------------------------------------------------------------------- redaction
@@ -89,30 +169,38 @@ DEFAULT_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.3"))
 # only place these are read. Off by default so the tool runs unmodified wherever the internal
 # redaction package (pii-redactor, built on ee_utils.redaction) has not been installed; turn it
 # on once it has, for anything but a local run against material that was never sensitive.
-PII_REDACTION = os.getenv("PII_REDACTION", "off").strip().lower() not in ("0", "off", "false", "no")
+PII_REDACTION = _truthy(setting("PII_REDACTION", "redaction", "enabled", default="off"))
 
 # masking | substitution | disabled, and the text a masked span is replaced with.
-PII_REDACTION_MODE = os.getenv("PII_REDACTION_MODE", "masking")
-PII_REDACTION_REPLACEMENT_TEXT = os.getenv("PII_REDACTION_REPLACEMENT_TEXT", "[REDACTED]")
+PII_REDACTION_MODE = setting("PII_REDACTION_MODE", "redaction", "mode", default="masking")
+PII_REDACTION_REPLACEMENT_TEXT = setting("PII_REDACTION_REPLACEMENT_TEXT", "redaction",
+                                        "replacement_text", default="[REDACTED]")
 
 # strict | balanced | loose -- how aggressive the engine's fallback masking is. Left unset
 # (rather than defaulted here) so the engine's own default applies unless a value is given.
-PII_REDACTION_SENSITIVITY = os.getenv("PII_REDACTION_SENSITIVITY", "").strip() or None
+PII_REDACTION_SENSITIVITY = setting("PII_REDACTION_SENSITIVITY", "redaction",
+                                   "sensitivity", default=None)
 
 
-def _csv(raw: str) -> list:
-    return [item.strip() for item in raw.split(",") if item.strip()]
+def _csv(raw) -> list:
+    """A comma-separated string or an already-a-list from the tuning file, either way a list."""
+    if isinstance(raw, (list, tuple)):
+        return [str(item).strip() for item in raw if str(item).strip()]
+    return [item.strip() for item in str(raw or "").split(",") if item.strip()]
 
 
 # Detector labels to switch off, and terms to leave alone regardless of what the engine would
 # otherwise mask -- both comma-separated, e.g. PII_REDACTION_ALLOW=American Express,New York.
-PII_REDACTION_EXCLUDE_ENTITIES = _csv(os.getenv("PII_REDACTION_EXCLUDE_ENTITIES", ""))
-PII_REDACTION_ALLOW = _csv(os.getenv("PII_REDACTION_ALLOW", ""))
+PII_REDACTION_EXCLUDE_ENTITIES = _csv(setting("PII_REDACTION_EXCLUDE_ENTITIES", "redaction",
+                                             "exclude_entities", default=""))
+PII_REDACTION_ALLOW = _csv(setting("PII_REDACTION_ALLOW", "redaction", "allow", default=""))
 
 
-def _thresholds(raw: str) -> dict:
+def _thresholds(raw) -> dict:
     """``name=score,name=score`` from the environment, as the ``{"name": {"score": score}}``
     shape the engine expects -- e.g. PII_REDACTION_THRESHOLDS=secondary_pii_email=0.7."""
+    if isinstance(raw, dict):
+        return {str(k): {"score": float(v)} for k, v in raw.items()}
     thresholds = {}
     for item in _csv(raw):
         name, _, score = item.partition("=")
@@ -126,7 +214,8 @@ def _thresholds(raw: str) -> dict:
     return thresholds
 
 
-PII_REDACTION_THRESHOLDS = _thresholds(os.getenv("PII_REDACTION_THRESHOLDS", ""))
+PII_REDACTION_THRESHOLDS = _thresholds(setting("PII_REDACTION_THRESHOLDS", "redaction",
+                                              "thresholds", default=""))
 
 
 # How many times a call is retried before it is reported as failed, where a tier does not set its
@@ -135,7 +224,8 @@ PII_REDACTION_THRESHOLDS = _thresholds(os.getenv("PII_REDACTION_THRESHOLDS", "")
 # again. A tier under heavier concurrent load -- more chunks in flight, each one retrying -- can
 # turn a brief gateway hiccup into a pile of simultaneous retries, which is what the per-tier
 # override below exists to relieve independently of this default.
-DEFAULT_MAX_ATTEMPTS = int(os.getenv("LLM_MAX_ATTEMPTS", "4"))
+DEFAULT_MAX_ATTEMPTS = setting("LLM_MAX_ATTEMPTS", "defaults", "max_attempts",
+                              default=4, cast=int)
 
 
 @dataclass(frozen=True)
@@ -148,19 +238,23 @@ class Tier:
     max_tokens: int
     reasoning_effort: str
     max_attempts: int = DEFAULT_MAX_ATTEMPTS
-    temperature: float = None                             # set below; None means "use the default"
+    temperature: float = None
 
 
 def _tier(name: str, prefix: str, max_tokens: int, effort: str,
-         max_attempts: int = DEFAULT_MAX_ATTEMPTS) -> Tier:
-    """Build a tier from the environment, falling back to the main model where none is set."""
+          max_attempts: int = None) -> Tier:
+    """Build a tier from the environment, then ``tuning.yml``, then these built-in defaults."""
     return Tier(
         name=name,
-        model=os.getenv(f"{prefix}_MODEL_ID", "").strip() or LLM_MODEL_ID,
-        max_tokens=int(os.getenv(f"{prefix}_MAX_TOKENS", str(max_tokens))),
-        reasoning_effort=os.getenv(f"{prefix}_REASONING_EFFORT", effort),
-        max_attempts=int(os.getenv(f"{prefix}_MAX_ATTEMPTS", str(max_attempts))),
-        temperature=float(os.getenv(f"{prefix}_TEMPERATURE", str(DEFAULT_TEMPERATURE))),
+        model=setting(f"{prefix}_MODEL_ID", "tiers", name, "model", default="") or LLM_MODEL_ID,
+        max_tokens=setting(f"{prefix}_MAX_TOKENS", "tiers", name, "max_tokens",
+                           default=max_tokens, cast=int),
+        reasoning_effort=setting(f"{prefix}_REASONING_EFFORT", "tiers", name, "reasoning_effort",
+                                 default=effort),
+        max_attempts=setting(f"{prefix}_MAX_ATTEMPTS", "tiers", name, "max_attempts",
+                             default=max_attempts or DEFAULT_MAX_ATTEMPTS, cast=int),
+        temperature=setting(f"{prefix}_TEMPERATURE", "tiers", name, "temperature",
+                            default=DEFAULT_TEMPERATURE, cast=float),
     )
 
 
@@ -218,33 +312,39 @@ STAGE_KEYS = (
 
 
 def stage_tier(stage: str, base: Tier) -> Tier:
-    """``base`` with any ``LLM_STAGE_<stage>_*`` override applied, field by field.
+    """``base`` with any override for this one call site applied, field by field.
 
-    Read at the point of use rather than built once, the same reason :func:`max_corpus_chars` is a
-    function and not a constant: the interface runs for hours, and a value fixed at import cannot
-    be changed without restarting it.
+    Read at the point of use rather than built once, the same reason :func:`max_corpus_chars` is
+    a function and not a constant: the interface runs for hours, and a value fixed at import
+    cannot be changed without restarting it.
     """
-    prefix = f"LLM_STAGE_{stage.upper()}"
+    key, prefix = stage.lower(), f"LLM_STAGE_{stage.upper()}"
     return Tier(
-        name=f"{base.name}:{stage.lower()}",
-        model=os.getenv(f"{prefix}_MODEL_ID", "").strip() or base.model,
-        max_tokens=int(os.getenv(f"{prefix}_MAX_TOKENS", str(base.max_tokens))),
-        reasoning_effort=os.getenv(f"{prefix}_REASONING_EFFORT", base.reasoning_effort),
-        max_attempts=int(os.getenv(f"{prefix}_MAX_ATTEMPTS", str(base.max_attempts))),
-        temperature=float(os.getenv(f"{prefix}_TEMPERATURE", str(base.temperature))),
+        name=f"{base.name}:{key}",
+        model=setting(f"{prefix}_MODEL_ID", "stages", key, "model", default="") or base.model,
+        max_tokens=setting(f"{prefix}_MAX_TOKENS", "stages", key, "max_tokens",
+                           default=base.max_tokens, cast=int),
+        reasoning_effort=setting(f"{prefix}_REASONING_EFFORT", "stages", key, "reasoning_effort",
+                                 default=base.reasoning_effort),
+        max_attempts=setting(f"{prefix}_MAX_ATTEMPTS", "stages", key, "max_attempts",
+                             default=base.max_attempts, cast=int),
+        temperature=setting(f"{prefix}_TEMPERATURE", "stages", key, "temperature",
+                            default=base.temperature, cast=float),
     )
 
 
 def stage_batch_size(stage: str, default: int) -> int:
     """How many items one call in ``stage`` covers, or ``default`` where nothing overrides it."""
-    return int(os.getenv(f"LLM_STAGE_{stage.upper()}_BATCH_SIZE", str(default)))
+    return setting(f"LLM_STAGE_{stage.upper()}_BATCH_SIZE", "stages", stage.lower(),
+                   "batch_size", default=default, cast=int)
 
 
 # How much submitted text goes into one reading call. Gemini 2.5 Pro takes about a million tokens
 # of input; four characters to a token puts this near half a million tokens, which leaves ample
 # room for the prompt and the reply. A pack larger than this is split across calls, which reads
 # worse, so the number is set to make that rare.
-MAX_CORPUS_CHARS = int(os.getenv("LLM_MAX_CORPUS_CHARS", "2000000"))
+MAX_CORPUS_CHARS = setting("LLM_MAX_CORPUS_CHARS", "ingestion", "max_corpus_chars",
+                          default=2_000_000, cast=int)
 
 
 def max_corpus_chars() -> int:
@@ -253,14 +353,16 @@ def max_corpus_chars() -> int:
     A function rather than the constant above because the interface runs for hours and a value
     fixed at import cannot be changed without a restart.
     """
-    return int(os.getenv("LLM_MAX_CORPUS_CHARS", str(MAX_CORPUS_CHARS)))
+    return setting("LLM_MAX_CORPUS_CHARS", "ingestion", "max_corpus_chars",
+                   default=MAX_CORPUS_CHARS, cast=int)
 
 
 # How many times a question the first reading left open is put back to the documents before it is
 # put to the modelling team. Each pass is one call over the whole corpus, and each one that lands
 # saves the team a question. The last pass also triages what is left: a question only a person can
 # answer is worth asking, and one that does not change what gets tested is not worth anyone's time.
-INGEST_RESOLVE_PASSES = int(os.getenv("LLM_INGEST_RESOLVE_PASSES", "2"))
+INGEST_RESOLVE_PASSES = setting("LLM_INGEST_RESOLVE_PASSES", "ingestion", "resolve_passes",
+                               default=2, cast=int)
 
 # Batching is two separate numbers, and it is easy to conflate them. "Batch size" (stage_batch_size,
 # above) is how many rows -- scenarios, chunks of text -- go into the payload of *one* call: it
@@ -270,7 +372,7 @@ INGEST_RESOLVE_PASSES = int(os.getenv("LLM_INGEST_RESOLVE_PASSES", "2"))
 # judge. Turning batch size down and concurrency up sends more, smaller calls, more of them at
 # once, which is usually faster and always cheaper per call to retry; turning batch size up sends
 # fewer, larger calls that each risk more work if one of them fails.
-MAX_CONCURRENCY = int(os.getenv("LLM_MAX_CONCURRENCY", "4"))
+MAX_CONCURRENCY = setting("LLM_MAX_CONCURRENCY", "concurrency", default=4, cast=int)
 
 
 def stage_concurrency(stage: str, default: int = None) -> int:
@@ -282,7 +384,8 @@ def stage_concurrency(stage: str, default: int = None) -> int:
     is not a property of a tier.
     """
     fallback = default if default is not None else MAX_CONCURRENCY
-    return int(os.getenv(f"LLM_STAGE_{stage.upper()}_CONCURRENCY", str(fallback)))
+    return setting(f"LLM_STAGE_{stage.upper()}_CONCURRENCY", "stages", stage.lower(),
+                   "concurrency", default=fallback, cast=int)
 
 # Kept for callers that still read the older names.
 DEFAULT_MAX_TOKENS = STANDARD.max_tokens
