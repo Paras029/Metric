@@ -246,7 +246,7 @@ def render(structure: dict) -> str:
             if state["next_decisions"]:
                 detail.append(f"leads to {', '.join(state['next_decisions'])}")
             if state["is_terminal"]:
-                detail.append(f"ends the interaction"
+                detail.append("ends the interaction"
                               + (f" ({state['outcome_type']})" if state["outcome_type"] else ""))
             lines.append(f"- {state['id']}: {state['description']} — {'; '.join(detail)}")
 

@@ -6,7 +6,7 @@ import unittest
 
 from scenario_generator.core.evidence import (KIND_HUMAN, KIND_IMAGE, REJECTED, UNVERIFIABLE,
                                               VERIFIED, Claim, EvidenceRecord, SourceRef)
-from scenario_generator.core.grounding import locate, normalise, rejection_report, verify
+from scenario_generator.core.grounding import locate, normalise, verify
 
 _SOURCE = (
     "3.2 Identity verification\n\n"
@@ -91,9 +91,12 @@ class TestVerify(unittest.TestCase):
         self.assertEqual(len(record.usable()), 1)
         self.assertEqual(len(record.rejected()), 1)
 
-    def test_rejections_are_reported_rather_than_silent(self):
-        claims = verify([_claim("Disputes may be raised within ninety days")], _SOURCE)
-        self.assertEqual(len(rejection_report(claims)), 1)
+    def test_a_rejection_says_why_rather_than_vanishing(self):
+        """A pass discarding a third of what it extracted is telling you something; a claim that
+        disappears without a reason attached loses that signal."""
+        claim = verify([_claim("Disputes may be raised within ninety days")], _SOURCE)[0]
+        self.assertEqual(claim.status, "rejected")
+        self.assertTrue(claim.note)
 
 
 class TestEvidenceRecord(unittest.TestCase):

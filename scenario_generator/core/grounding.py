@@ -192,14 +192,3 @@ def verify(claims: Iterable[Claim], source: str,
             claim.note = reason if not ok else claim.note
         checked.append(claim)
     return checked
-
-
-def rejection_report(claims: Iterable[Claim]) -> List[str]:
-    """One line per rejected claim, for the run log and the gap report.
-
-    Rejections are reported rather than silently dropped. A pass that discards a third of what it
-    extracted is telling you something about the documents or the prompt, and that signal is lost
-    if the count never surfaces.
-    """
-    return [f"{claim.source}: {claim.note or 'unsupported'} — {claim.statement[:120]}"
-            for claim in claims if claim.status == REJECTED]

@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 from scenario_generator.webapp.stages import (COMPLETE, LOCKED, READY, STAGES, STALE,
-                                              downstream_of, predecessor)
+                                              downstream_of, index_of)
 from scenario_generator.webapp.workspace import Workspace, slugify
 
 
@@ -18,12 +18,10 @@ def _workspace():
 
 
 class TestStageOrder(unittest.TestCase):
-    def test_the_first_stage_has_no_predecessor(self):
-        self.assertIsNone(predecessor(STAGES[0].key))
-
-    def test_every_later_stage_depends_on_the_one_before_it(self):
-        for earlier, later in zip(STAGES, STAGES[1:]):
-            self.assertEqual(predecessor(later.key).key, earlier.key)
+    def test_the_pipeline_is_in_the_order_it_is_declared_in(self):
+        self.assertEqual(index_of(STAGES[0].key), 0)
+        for position, stage in enumerate(STAGES):
+            self.assertEqual(index_of(stage.key), position)
 
     def test_downstream_is_everything_after_and_nothing_before(self):
         keys = [s.key for s in downstream_of("intake")]
@@ -33,7 +31,7 @@ class TestStageOrder(unittest.TestCase):
 
     def test_an_unknown_stage_is_an_error_rather_than_a_guess(self):
         with self.assertRaises(KeyError):
-            predecessor("not-a-stage")
+            index_of("not-a-stage")
 
 
 class TestReachability(unittest.TestCase):

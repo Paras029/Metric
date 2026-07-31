@@ -16,7 +16,7 @@ Presenting these identically would be the single most misleading thing this inte
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 COMPUTED = "computed"
 JUDGED = "judged"
@@ -165,12 +165,6 @@ def index_of(key: str) -> int:
         return STAGE_KEYS.index(key)
     except ValueError:
         raise KeyError(f"unknown stage: {key}") from None
-
-
-def predecessor(key: str) -> Optional[Stage]:
-    """The stage immediately before this one, or None for the first."""
-    position = index_of(key)
-    return STAGES[position - 1] if position else None
 
 
 def required_before(key: str) -> List[Stage]:

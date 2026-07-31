@@ -10,7 +10,7 @@ import unittest
 
 from scenario_generator.core.generation import instantiate_all
 from scenario_generator.core.graph import DecisionGraph, enumerate_paths
-from scenario_generator.core.models import Capability, Decision, IntakeData, Persona, State, Tool
+from scenario_generator.core.models import Capability, Decision, IntakeData, Persona, State
 from scenario_generator.core.probes import build_probes, evaluate
 
 

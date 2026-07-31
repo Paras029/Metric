@@ -126,10 +126,38 @@ def redact_segments(segments: List[Segment], mapping: Optional[dict] = None,
     for segment in segments:
         try:
             result = redact_text(segment.text, engine_config, current_mapping=mapping)
+            text, mapping = _unpack(result, mapping)
+        except RedactionUnavailable:
+            raise
         except Exception as exc:
             raise RedactionUnavailable(
                 f"Redaction failed on a submitted passage ({exc}). Redaction is required for "
                 f"this document, so nothing from it is read further until this is fixed.") from exc
-        mapping = result.mapping
-        redacted.append(Segment(text=result.text, locator=segment.locator))
+        redacted.append(Segment(text=text, locator=segment.locator))
     return redacted, mapping
+
+
+def _unpack(result: Any, mapping: Optional[dict]) -> Tuple[str, Optional[dict]]:
+    """The redacted text and the carried mapping, whichever shape the engine returns them in.
+
+    The same reason :func:`_accepted` filters config arguments: the engine's exact surface was
+    taken from an integration guide rather than from running code. A result object carrying
+    ``.text`` and ``.mapping`` is what the guide describes and what is handled first, but a plain
+    string and a (text, mapping) pair are both shapes this kind of API arrives in, and reading the
+    wrong one would fail with an AttributeError naming an attribute rather than saying that
+    redaction could not be relied on. What is never done is fall back to the unredacted text --
+    that is the one outcome this module exists to make impossible.
+    """
+    if isinstance(result, str):
+        return result, mapping
+    if isinstance(result, tuple) and len(result) == 2:
+        return str(result[0]), result[1]
+
+    text = getattr(result, "text", None)
+    if not isinstance(text, str):
+        raise RedactionUnavailable(
+            f"The redaction engine returned {type(result).__name__}, which carries no redacted "
+            f"text this can read. Nothing from this document is read further: passing the "
+            f"original through would defeat the point of having redaction on. Check the installed "
+            f"pii-redactor version against the integration guide.")
+    return text, getattr(result, "mapping", mapping)

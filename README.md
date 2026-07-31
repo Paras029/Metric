@@ -529,20 +529,18 @@ the same files these commands produce. A use case can move between the two freel
 
 ## Configuration
 
-Calls run on one of four tiers, because the work genuinely differs. Each tier takes its own model,
+Calls run on one of three tiers, because the work genuinely differs. Each tier takes its own model,
 output cap, reasoning effort and retry count.
 
 | Tier | Used by | Output cap | Reasoning | Retries | Model |
 |---|---|---|---|---|---|
-| **Judgement** | reading documents, drafting the intake, review | 65,536 | high | 4 | `LLM_JUDGEMENT_MODEL_ID` |
+| **Judgement** | reading documents, drafting the intake, review, mapping their conversations | 65,536 | high | 4 | `LLM_JUDGEMENT_MODEL_ID` |
 | **Materiality** | weighing each scenario against its peers | 32,000 | medium | 2 | `LLM_MATERIALITY_MODEL_ID` |
 | **Standard** | writing scenario text | 16,000 | minimal | 4 | `LLM_MODEL_ID` |
-| **Fast** | mapping their scenarios onto the intake vocabulary | 8,000 | minimal | 4 | `LLM_FAST_MODEL_ID` |
 
-Every tier falls back to `LLM_MODEL_ID`, so nothing changes until you name a smaller model.
-Pointing the fast tier somewhere cheap is the first saving worth making: that pass is
-classification against a closed list, and anything outside the list is discarded by validation
-regardless.
+Every tier falls back to `LLM_MODEL_ID`, so nothing changes until you name a smaller model. Every
+tier is used: a fourth existed for a pass the coverage rework replaced, which meant `LLM_FAST_*`
+was documented here and changed nothing at all.
 
 Materiality is split out from judgement rather than sharing it, because it is also the tier under
 the most concurrent load: every chunk of the benchmark is sent at once (see Batching below), so a
