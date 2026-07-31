@@ -267,11 +267,27 @@ INGEST_RESOLVE_PASSES = int(os.getenv("LLM_INGEST_RESOLVE_PASSES", "2"))
 # and the questions that mattered are lost among the ones that did not.
 MAX_OPEN_QUESTIONS = int(os.getenv("LLM_MAX_OPEN_QUESTIONS", "6"))
 
-# How many batched calls a pass sends at once. Writing, materiality and review each split a
-# benchmark into chunks and used to send them one after another; batching sends several chunks'
-# calls concurrently instead, and this caps how many are ever in flight together, so a large
-# benchmark cannot open more connections than the gateway is prepared to hold at once.
+# Batching is two separate numbers, and it is easy to conflate them. "Batch size" (stage_batch_size,
+# above) is how many rows -- scenarios, chunks of text -- go into the payload of *one* call: it
+# decides call *count* for a fixed amount of work, and a bigger batch is fewer, larger calls, not
+# faster ones. MAX_CONCURRENCY is how many of those calls are ever in flight to the gateway *at
+# once*: it decides call *overlap*, not count, and does not change what any single call is asked to
+# judge. Turning batch size down and concurrency up sends more, smaller calls, more of them at
+# once, which is usually faster and always cheaper per call to retry; turning batch size up sends
+# fewer, larger calls that each risk more work if one of them fails.
 MAX_CONCURRENCY = int(os.getenv("LLM_MAX_CONCURRENCY", "4"))
+
+
+def stage_concurrency(stage: str, default: int = None) -> int:
+    """How many of one stage's batched calls run at once, from ``LLM_STAGE_<stage>_CONCURRENCY``.
+
+    Falls back to ``default`` where the caller has one worth preferring over the global cap (a
+    pass with unusually large individual calls, say), and from there to ``LLM_MAX_CONCURRENCY`` --
+    the same stage-then-global shape as :func:`stage_tier`, minus the tier step, since concurrency
+    is not a property of a tier.
+    """
+    fallback = default if default is not None else MAX_CONCURRENCY
+    return int(os.getenv(f"LLM_STAGE_{stage.upper()}_CONCURRENCY", str(fallback)))
 
 # Kept for callers that still read the older names.
 DEFAULT_MAX_TOKENS = STANDARD.max_tokens

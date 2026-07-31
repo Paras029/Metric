@@ -51,8 +51,26 @@ STAGE_COLUMNS = {
 ORIGIN_LABELS = {"graph": "Route", "probe": "Probe", "llm-proposed": "Proposed"}
 
 # Beyond this the page stops being a page. The rest stay one click away in the workbook, and the
-# count of what is not shown is always stated rather than left for someone to discover.
-PAGE_SIZE = 60
+# count of what is not shown is always stated rather than left for someone to discover. A person
+# can ask for more -- see PAGE_SIZE_OPTIONS -- so this is a starting point, not a hard cap.
+PAGE_SIZE = 50
+PAGE_SIZE_OPTIONS = (50, 100, 250, "all")
+
+# Columns a person can narrow the list to, each mapped to the row field it reads and, where the
+# vocabulary is closed, the values worth offering even before any scenario has one -- so the
+# dropdown does not visibly change shape as a benchmark moves through materiality and review.
+# Persona and flag are left off this map (open-ended or benchmark-specific) and are populated
+# from whatever the rows actually contain instead.
+FILTER_FIELDS: Dict[str, str] = {
+    "category": "category", "materiality": "materiality", "origin": "origin",
+    "persona": "persona", "flag": "flag", "coverage": "coverage",
+}
+_CLOSED_FILTER_VALUES = {
+    "materiality": tuple(reversed(MATERIALITY)),
+    "origin": tuple(ORIGIN_LABELS.values()),
+}
+# Only offered once a stage has actually produced the column -- see STAGE_COLUMNS above.
+_FILTER_REQUIRES = {"materiality": MATERIALITY_COLUMNS, "flag": REVIEW, "coverage": COVERAGE}
 
 
 def _title(scenario: Scenario) -> str:
@@ -121,13 +139,41 @@ def needs_attention(row: Dict[str, object]) -> bool:
     return bool(row["flag"] or row["is_proposed"] or row["coverage"] or row["category_changed"])
 
 
-def build_rows(scenarios: List[Scenario], view: str = "attention",
-               stage: str = "issue") -> Dict[str, object]:
-    """The rows to show, the view that produced them, and what was left out.
+def _filter_options(rows: List[Dict[str, object]], shows: set) -> Dict[str, List[str]]:
+    """Distinct values worth offering per filterable column.
+
+    Scoped twice over: to the columns this stage has actually produced (the same reasoning as
+    :data:`STAGE_COLUMNS` -- a coverage filter on the scenario-text page would offer to filter a
+    column that does not exist yet), and to values with more than one option, since a dropdown
+    that can only ever narrow to everything is not a filter.
+    """
+    options: Dict[str, List[str]] = {}
+    for field, row_key in FILTER_FIELDS.items():
+        requires = _FILTER_REQUIRES.get(field)
+        if requires and requires not in shows:
+            continue
+        present = {str(r[row_key]) for r in rows if r.get(row_key)}
+        if field in _CLOSED_FILTER_VALUES:
+            values = [v for v in _CLOSED_FILTER_VALUES[field] if v in present]
+        else:
+            values = sorted(present)
+        if len(values) > 1:
+            options[field] = values
+    return options
+
+
+def build_rows(scenarios: List[Scenario], view: str = "attention", stage: str = "issue",
+               filters: Dict[str, str] = None, limit: int = PAGE_SIZE) -> Dict[str, object]:
+    """The rows to show, the view and filters that produced them, and what was left out.
 
     Returns the counts as well as the rows, because a filtered list that does not say what it
     filtered is a list that quietly loses scenarios, and the set of columns this stage has
     produced -- see :data:`STAGE_COLUMNS` for why that is scoped rather than always complete.
+
+    ``filters`` narrows within the view rather than replacing it -- picking "Critical and high"
+    and then a persona shows critical-and-high scenarios for that persona, not one or the other.
+    ``limit`` caps how many of the narrowed set are actually rendered; ``None`` renders all of
+    them, for the person who has decided fifty is not enough for this benchmark.
     """
     shows = set(STAGE_COLUMNS.get(stage, STAGE_COLUMNS["issue"]))
     rows = [to_row(s) for s in scenarios]
@@ -156,12 +202,29 @@ def build_rows(scenarios: List[Scenario], view: str = "attention",
     else:
         selected = rows
 
+    # Options are read off the view, before the filters narrow it further -- a person choosing
+    # between personas should see every persona the current view has, not only the one they
+    # already picked, which is what reading the options after filtering would leave them with.
+    filter_options = _filter_options(selected, shows)
+
+    active = {field: value for field, value in (filters or {}).items()
+             if value and field in FILTER_FIELDS}
+    for field, value in active.items():
+        row_key = FILTER_FIELDS[field]
+        selected = [r for r in selected if str(r.get(row_key)) == value]
+
+    shown_rows = selected if limit is None else selected[:limit]
+
     return {
-        "rows": selected[:PAGE_SIZE],
+        "rows": shown_rows,
         "view": view,
         "views": tuple(views),
         "shows": shows,
-        "shown": min(len(selected), PAGE_SIZE),
+        "filter_options": filter_options,
+        "active_filters": active,
+        "limit": limit,
+        "limit_options": PAGE_SIZE_OPTIONS,
+        "shown": len(shown_rows),
         "selected": len(selected),
         "total": len(rows),
         "attention": len(attention),

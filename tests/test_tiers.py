@@ -126,6 +126,24 @@ class TestStageOverrideCascade(unittest.TestCase):
         with mock.patch.dict(os.environ, {"LLM_STAGE_TEST_STAGE_BATCH_SIZE": "3"}):
             self.assertEqual(config.stage_batch_size("TEST_STAGE", 6), 3)
 
+    def test_concurrency_falls_back_to_the_global_cap_unset(self):
+        self.assertEqual(config.stage_concurrency("A_STAGE_NOBODY_OVERRIDES"), config.MAX_CONCURRENCY)
+
+    def test_concurrency_falls_back_to_a_given_default_unset(self):
+        self.assertEqual(config.stage_concurrency("A_STAGE_NOBODY_OVERRIDES", default=2), 2)
+
+    def test_concurrency_override_wins_over_both(self):
+        with mock.patch.dict(os.environ, {"LLM_STAGE_TEST_STAGE_CONCURRENCY": "9"}):
+            self.assertEqual(config.stage_concurrency("TEST_STAGE", default=2), 9)
+
+    def test_concurrency_and_batch_size_are_independent_knobs(self):
+        """Batch size is rows per call; concurrency is calls in flight -- setting one must not
+        move the other."""
+        with mock.patch.dict(os.environ, {"LLM_STAGE_TEST_STAGE_BATCH_SIZE": "3"}):
+            self.assertEqual(config.stage_concurrency("TEST_STAGE"), config.MAX_CONCURRENCY)
+        with mock.patch.dict(os.environ, {"LLM_STAGE_TEST_STAGE_CONCURRENCY": "9"}):
+            self.assertEqual(config.stage_batch_size("TEST_STAGE", 6), 6)
+
     def test_tier_level_temperature_override_is_read_by_the_gateway(self):
         """A tier that sets its own temperature is what chat_model actually bills for -- see
         gateway._generation_parameters, which now reads tier.temperature rather than always

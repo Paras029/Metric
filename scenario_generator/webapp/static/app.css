@@ -931,7 +931,34 @@ ol, ul { list-style: none; padding: 0; }
 }
 .switch__option:hover { border-color: var(--blue); color: var(--blue); }
 .switch__option--on { background: var(--deep); border-color: var(--deep); color: #fff; }
-.switch__count { margin-left: auto; font-size: .78rem; color: var(--ink-faint); }
+.switch__count { margin: .5rem 0 0; font-size: .78rem; color: var(--ink-faint); }
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .8rem;
+  margin-top: .7rem;
+}
+.filters__field {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.filters__field select {
+  font: inherit;
+  font-weight: 500;
+  color: var(--ink);
+  padding: .22rem .4rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--paper);
+}
+.filters__clear { font-size: .78rem; color: var(--blue); text-decoration: none; }
+.filters__clear:hover { text-decoration: underline; }
 
 .cards { margin-top: .3rem; }
 .card { border-bottom: 1px solid var(--line-soft); }

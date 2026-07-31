@@ -23,7 +23,7 @@ import shutil
 from collections import Counter
 from pathlib import Path
 import threading
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Optional
 
 from flask import (Flask, abort, jsonify, redirect, render_template, request, send_file,
                    session, url_for)
@@ -49,7 +49,7 @@ from ..pipeline import (build_scenarios, draft_intake_workbook, ingest_documents
 from . import stagecancel
 from .draft import DECISION, STATE, PendingEdits, PendingItem, next_id
 from .graphview import completeness, graph_summary, render_svg
-from .scenarios import build_rows
+from .scenarios import FILTER_FIELDS, PAGE_SIZE, build_rows
 from .stages import RUNNING, STAGE_BY_KEY, STAGES, STATUS_LABELS, downstream_of, index_of
 from .workspace import Workspace, stage_view
 
@@ -565,7 +565,18 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         except Exception as exc:                           # never blank the page over this
             logger.warning("Could not read the benchmark for display: %s", exc)
             return None
-        return build_rows(scenarios, request.args.get("view", "attention"), stage=key)
+        filters = {field: request.args.get(f"filter_{field}", "") for field in FILTER_FIELDS}
+        return build_rows(scenarios, request.args.get("view", "attention"), stage=key,
+                          filters=filters, limit=_page_limit())
+
+    def _page_limit() -> Optional[int]:
+        """How many rows to render, from ``?limit=``: a number, ``all``, or the default."""
+        raw = request.args.get("limit", "")
+        if raw == "all":
+            return None
+        if raw.isdigit():
+            return int(raw)
+        return PAGE_SIZE
 
     def _answers_for(workspace: Workspace):
         """One row per question, so the reader can see coverage at a glance."""

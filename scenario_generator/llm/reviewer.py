@@ -145,13 +145,15 @@ class ScenarioReviewer:
 
         done = self._sweep(
             assess_chunks, "Reviewed",
-            config.stage_tier("REVIEWER_ASSESS", config.JUDGEMENT), done, total, len(scenarios),
+            config.stage_tier("REVIEWER_ASSESS", config.JUDGEMENT),
+            config.stage_concurrency("REVIEWER_ASSESS"), done, total, len(scenarios),
             lambda chunk: self._render_assess(chunk, preamble, shared, signals),
             self._apply_assessment)
 
         done = self._sweep(
             category_chunks, "Checked the category of",
-            config.stage_tier("REVIEWER_CATEGORY", config.MATERIALITY), done, total,
+            config.stage_tier("REVIEWER_CATEGORY", config.MATERIALITY),
+            config.stage_concurrency("REVIEWER_CATEGORY"), done, total,
             len(routed),
             lambda chunk: self._render_category(chunk, preamble, shared),
             self._apply_category)
@@ -162,8 +164,9 @@ class ScenarioReviewer:
         self._progress("Review complete", total, total)
         return scenarios, proposals
 
-    def _sweep(self, pending: List[List[Scenario]], label: str, tier, done: int, total: int,
-               subject_count: int, render: Callable[[List[Scenario]], str],
+    def _sweep(self, pending: List[List[Scenario]], label: str, tier, concurrency: int,
+               done: int, total: int, subject_count: int,
+               render: Callable[[List[Scenario]], str],
                apply_reply: Callable[[List[Scenario], object], None]) -> int:
         """One column judged across the whole benchmark. Returns the running progress count.
 
@@ -174,7 +177,8 @@ class ScenarioReviewer:
         if not pending:
             return done
         replies = call_batch(self._complete, prompt_loader.load(_SYSTEM_PROMPT),
-                             [render(chunk) for chunk in pending], tier=tier, cancel=self._cancel)
+                             [render(chunk) for chunk in pending], tier=tier,
+                             max_concurrency=concurrency, cancel=self._cancel)
 
         seen = 0
         for chunk, reply in zip(pending, replies):

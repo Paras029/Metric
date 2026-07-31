@@ -383,6 +383,22 @@ than as a structural link. Dismissing a proposal discards it without touching an
 
 ## What you get
 
+### The scenario list, on screen
+
+Every scenario-bearing stage (text, materiality, review, coverage, issue) shows the benchmark as
+cards rather than a spreadsheet — see `webapp/scenarios.py`. Three view tabs narrow to a starting
+point (**Needs attention** — anything flagged, proposed, re-categorised or covered by the owner's
+own testing; **Critical and high**; **All**), and dropdown filters narrow further within whichever
+tab is active: by category, materiality, origin, persona, review flag or coverage status, whichever
+of those the current stage has actually produced. A dropdown only appears once there is more than
+one value to choose between — a benchmark with one persona never offers a persona filter that could
+only ever select everything.
+
+50 rows render at a time by default; the **Show** control raises that to 100, 250 or all of them.
+The page always states how many matched the view and filters versus how many are actually
+rendered, so a shorter list always says whether that is because nothing else matched or because
+the rest is one click away.
+
 ### Challenge pack — issued to the modelling team
 
 Five sheets: `Instructions`, `Scenarios`, `Turn_Plan`, `Run_Log`, `Run_Summary`.
@@ -528,7 +544,10 @@ LLM_STAGE_<KEY>_MAX_TOKENS       Per-call-site override.
 LLM_STAGE_<KEY>_TEMPERATURE      Per-call-site override.
 LLM_STAGE_<KEY>_REASONING_EFFORT Per-call-site override.
 LLM_STAGE_<KEY>_MAX_ATTEMPTS     Per-call-site override.
-LLM_STAGE_<KEY>_BATCH_SIZE       Per-call-site override, where the call site batches.
+LLM_STAGE_<KEY>_BATCH_SIZE       Per-call-site override, where the call site batches. Rows
+                                 per call, not calls in flight -- see Batching below.
+LLM_STAGE_<KEY>_CONCURRENCY      Per-call-site override of LLM_MAX_CONCURRENCY -- calls in
+                                 flight at once, not rows per call.
 LLM_MAX_CORPUS_CHARS             Default 2000000 (~500k tokens).
 LLM_INGEST_RESOLVE_PASSES        Default 2. How many times an open question is put
                                  back to the documents before it is put to a person.
@@ -581,15 +600,25 @@ much work the stage asked for, not how many times the transport had to ask for i
 
 ### Batching
 
-Writing scenario text, weighing materiality, reviewing the benchmark and mapping owner scenarios
-each split a large benchmark into chunks. Every chunk's call now goes out together rather than one
-after another — nothing in one chunk's answer depends on another's, so there is no reason the
-second should wait for the first to come back. `LLM_MAX_CONCURRENCY` caps how many are in flight
-at once; raise it if your gateway comfortably takes more, lower it if calls start failing under
-load.
+"Batching" is two separate numbers, and they answer two different questions.
 
-The chunk size is different at each stage, and each was picked for what that particular call is
-actually weighing, not from one shared default:
+**Batch size** — how many rows go into the payload of *one* call. This decides how many calls a
+fixed amount of work turns into: a benchmark of 100 scenarios at a batch size of 10 is 10 calls; at
+20, it is 5 larger calls. It does not change how much is sent in total, only how it is divided up,
+and dividing it up too coarsely is what lets a single scenario's judgement get lost inside a call
+that is weighing twenty others at the same time.
+
+**Concurrency** — how many of those calls are ever in flight to the gateway *at once*.
+`LLM_MAX_CONCURRENCY` caps this globally; it does not change call count or what any single call is
+asked to judge, only how much they overlap. Turning it up does not make one call faster, but it can
+make a whole stage finish faster by not waiting for calls to return one at a time.
+
+The two compose: a smaller batch size with higher concurrency sends more calls, more of them at
+once — usually the faster and cheaper-to-retry combination, since a dropped call repeats less
+work. A larger batch size sends fewer, heavier calls, each risking more if one of them fails.
+
+The default batch size differs by stage, and each was picked for what that particular call is
+actually weighing, not from one shared number:
 
 - **Scenario text** (8 scenarios a call) writes each one mostly independently — the only shared
   context is the use case and house style — so the chunk exists purely to amortise that shared
@@ -606,15 +635,21 @@ actually weighing, not from one shared default:
   chunk without the same loss of attention per item.
 
 None of this is tuned to a model's context window; every call here is far short of it. It is tuned
-to how much one call can weigh carefully at once, which is a much smaller number. A batch size is
-a constructor argument on each pass's class (`ScenarioWriter(batch_size=...)` and so on) if a
-particular benchmark's shape calls for a different balance.
+to how much one call can weigh carefully at once, which is a much smaller number.
+
+Both numbers are customisable per call site, the same `LLM_STAGE_<KEY>_*` cascade described under
+Per-stage overrides above: `LLM_STAGE_<KEY>_BATCH_SIZE` for rows per call,
+`LLM_STAGE_<KEY>_CONCURRENCY` for calls in flight, falling back to `LLM_MAX_CONCURRENCY` where the
+stage does not set its own. `LLM_STAGE_REVIEWER_ASSESS_BATCH_SIZE=4` and
+`LLM_STAGE_REVIEWER_ASSESS_CONCURRENCY=8`, say, sends smaller, more careful review calls while
+keeping more of them in flight at once.
 
 Document ingestion reads its three question groups in parallel, each image in a submitted diagram
 pack is read on its own and in parallel with the others, and parsing several submitted files
 (PDF, Word, Excel...) into text also happens in parallel — none of that is affected by
-`LLM_MAX_CONCURRENCY`, since none of it is chunked the way the stages above are: there are only
-ever a few facet groups or a few files in flight at once regardless of benchmark size.
+`LLM_MAX_CONCURRENCY` or the per-stage concurrency override, since none of it is chunked the way
+the stages above are: there are only ever a few facet groups or a few files in flight at once
+regardless of benchmark size.
 
 ---
 

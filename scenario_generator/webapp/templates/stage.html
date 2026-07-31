@@ -479,15 +479,62 @@
             <a class="switch__option {% if benchmark.view == key %}switch__option--on{% endif %}"
                href="{{ url_for('stage', key=stage.key, view=key) }}">{{ label }}</a>
           {% endfor %}
-          <span class="switch__count">
-            Showing <span class="mono">{{ benchmark.shown }}</span> of
-            <span class="mono">{{ benchmark.total }}</span>
-            {%- if benchmark.selected > benchmark.shown %}
-              — <span class="mono">{{ benchmark.selected - benchmark.shown }}</span> more in the
-              workbook
-            {%- endif %}
-          </span>
         </div>
+
+        {% if benchmark.filter_options or benchmark.total > benchmark.limit_options[0] %}
+          <form class="filters" method="get" action="{{ url_for('stage', key=stage.key) }}">
+            <input type="hidden" name="view" value="{{ benchmark.view }}">
+            {% for field, values in benchmark.filter_options.items() %}
+              <label class="filters__field">
+                {{ field | capitalize }}
+                <select name="filter_{{ field }}" onchange="this.form.submit()">
+                  <option value="">Any</option>
+                  {% for value in values %}
+                    <option value="{{ value }}"
+                      {% if benchmark.active_filters.get(field) == value %}selected{% endif %}>
+                      {{ value }}
+                    </option>
+                  {% endfor %}
+                </select>
+              </label>
+            {% endfor %}
+            {# Every other active filter has to survive a change to one of them. #}
+            {% for field, value in benchmark.active_filters.items() %}
+              {% if field not in benchmark.filter_options %}
+                <input type="hidden" name="filter_{{ field }}" value="{{ value }}">
+              {% endif %}
+            {% endfor %}
+            <label class="filters__field">
+              Show
+              <select name="limit" onchange="this.form.submit()">
+                {% for option in benchmark.limit_options %}
+                  <option value="{{ option }}"
+                    {% if (option == 'all' and benchmark.limit is none)
+                          or (option != 'all' and option == benchmark.limit) %}selected{% endif %}>
+                    {{ option if option == 'all' else option }}
+                  </option>
+                {% endfor %}
+              </select>
+            </label>
+            {% if benchmark.active_filters %}
+              <a class="filters__clear" href="{{ url_for('stage', key=stage.key, view=benchmark.view) }}">
+                Clear filters
+              </a>
+            {% endif %}
+          </form>
+        {% endif %}
+
+        <p class="switch__count">
+          Showing <span class="mono">{{ benchmark.shown }}</span> of
+          <span class="mono">{{ benchmark.total }}</span>
+          {%- if benchmark.selected != benchmark.total %}
+            (<span class="mono">{{ benchmark.selected }}</span> match the view and filters)
+          {%- endif %}
+          {%- if benchmark.selected > benchmark.shown %}
+            — <span class="mono">{{ benchmark.selected - benchmark.shown }}</span> more; choose
+            "Show" above to see them
+          {%- endif %}
+        </p>
 
         <ul class="cards">
           {% for row in benchmark.rows %}

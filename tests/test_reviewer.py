@@ -98,7 +98,7 @@ class TestReviewSweep(unittest.TestCase):
 
     def _fake(self, revision=None, proposals=None):
         def complete(system, user, max_tokens=None, reasoning_effort=None, tier=None,
-                     model=None):
+                     model=None, **kwargs):
             self.seen.append({"user": user, "tier": tier, "effort": reasoning_effort,
                               "max_tokens": max_tokens})
             if '{"proposals"' in user:

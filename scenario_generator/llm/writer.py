@@ -73,6 +73,7 @@ class ScenarioWriter:
             system = prompt_loader.load(_SYSTEM_PROMPT)
             replies = call_batch(self._complete, system, [self._render(c, intake) for c in pending],
                                  tier=config.stage_tier("WRITER", config.STANDARD),
+                                 max_concurrency=config.stage_concurrency("WRITER"),
                                  cancel=self._cancel)
 
             for chunk, reply in zip(pending, replies):

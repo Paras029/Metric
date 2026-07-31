@@ -137,5 +137,60 @@ class TestWhichScenariosAreShown(unittest.TestCase):
         self.assertEqual(result["attention"], 3)
 
 
+class TestFilteringAndPageSize(unittest.TestCase):
+    def _mixed(self):
+        return [
+            _scenario("SC-001", materiality="Low"),
+            _scenario("SC-002", materiality="Critical"),
+            _scenario("SC-003", materiality="Medium", review_flag="Redundant"),
+            _scenario("SC-004", materiality="Medium", origin="llm-proposed"),
+            _scenario("SC-005", materiality="Medium", owner_coverage="Covered"),
+        ]
+
+    def test_a_filter_narrows_within_the_view_rather_than_replacing_it(self):
+        result = build_rows(self._mixed(), "all", filters={"materiality": "Medium"})
+        self.assertEqual({r["id"] for r in result["rows"]}, {"SC-003", "SC-004", "SC-005"})
+        self.assertEqual(result["active_filters"], {"materiality": "Medium"})
+
+    def test_an_unknown_filter_value_matches_nothing_rather_than_erroring(self):
+        result = build_rows(self._mixed(), "all", filters={"materiality": "Nonexistent"})
+        self.assertEqual(result["rows"], [])
+
+    def test_filter_options_reflect_the_view_not_the_whole_benchmark(self):
+        """Choosing between personas should offer what the current view actually has."""
+        result = build_rows(self._mixed(), "high")
+        self.assertEqual(result["rows"][0]["id"], "SC-002")
+        # Only one materiality value survives the "high" view, so it is not offered as a choice.
+        self.assertNotIn("materiality", result["filter_options"])
+
+    def test_a_column_the_stage_has_not_produced_is_never_offered(self):
+        result = build_rows(self._mixed(), "all", stage="text")
+        self.assertNotIn("materiality", result["filter_options"])
+        self.assertNotIn("coverage", result["filter_options"])
+
+    def test_a_single_valued_column_is_not_offered_as_a_filter(self):
+        """A dropdown that can only narrow to everything is not a filter."""
+        same_origin = [_scenario(f"SC-{n:03d}") for n in range(3)]
+        result = build_rows(same_origin, "all")
+        self.assertNotIn("origin", result["filter_options"])
+
+    def test_limit_caps_the_rendered_rows_without_changing_the_counts(self):
+        scenarios = [_scenario(f"SC-{n:03d}") for n in range(10)]
+        result = build_rows(scenarios, "all", limit=3)
+        self.assertEqual(len(result["rows"]), 3)
+        self.assertEqual(result["shown"], 3)
+        self.assertEqual(result["selected"], 10)
+        self.assertEqual(result["total"], 10)
+
+    def test_limit_none_shows_everything_selected(self):
+        scenarios = [_scenario(f"SC-{n:03d}") for n in range(PAGE_SIZE + 5)]
+        result = build_rows(scenarios, "all", limit=None)
+        self.assertEqual(len(result["rows"]), PAGE_SIZE + 5)
+        self.assertEqual(result["shown"], PAGE_SIZE + 5)
+
+    def test_the_default_page_size_is_fifty(self):
+        self.assertEqual(PAGE_SIZE, 50)
+
+
 if __name__ == "__main__":
     unittest.main()

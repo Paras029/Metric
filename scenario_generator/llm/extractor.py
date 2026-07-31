@@ -39,6 +39,7 @@ class MetadataExtractor:
         replies = call_batch(self._complete, prompt_loader.load(_SYSTEM_PROMPT),
                              [self._render(chunk, intake) for chunk in pending],
                              tier=config.stage_tier("OWNER_EXTRACT", config.FAST),
+                             max_concurrency=config.stage_concurrency("OWNER_EXTRACT"),
                              cancel=self._cancel)
 
         for chunk, reply in zip(pending, replies):
