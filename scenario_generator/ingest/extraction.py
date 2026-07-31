@@ -21,9 +21,8 @@ confirmation rather than trusted.
 The resolution sweep. Questions the first reading left open are put back to the documents,
 directly, more than once. A question asked directly is often answered by material a general
 reading had no reason to connect, and every question that survives to the modelling team costs
-days. The last sweep also divides what is still open in two: the things only a person can settle,
-which are worth asking, and the things that would not change which scenarios exist, which are
-not. Only the first kind reaches the interface; both are recorded.
+days. Whatever the documents still do not settle is carried to the intake stage, which decides
+what is actually blocking from the declaration itself rather than by asking a model to guess.
 
 Splitting, but only as a fallback. A corpus past ``MAX_CORPUS_CHARS`` is divided and the parts
 merged, with a warning. That is the exception now rather than the rule.
@@ -38,7 +37,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
 
-from ..core.evidence import (FACETS, INTAKE_PARTS, KIND_IMAGE, Claim, DocumentRef, EvidenceRecord,
+from ..core.evidence import (FACETS, KIND_IMAGE, Claim, DocumentRef, EvidenceRecord,
                              FacetAnswer, SourceRef)
 from ..core.grounding import locate
 from ..llm import cancellation, config, prompt_loader
@@ -66,10 +65,6 @@ _DIAGRAM_REPAIR_PROMPT = "ingest.diagram_repair"
 # How much text goes into one reading call, from LLM_MAX_CORPUS_CHARS. A pack past this is split,
 # which reads worse than reading it whole, so the number is set to make that rare.
 MAX_CORPUS_CHARS = config.MAX_CORPUS_CHARS
-
-# What the resolution sweep may conclude about a question it could not answer from the documents.
-ASK_THE_TEAM = "ask_the_team"
-NOT_MATERIAL = "not_material"
 
 # The eleven questions asked in three calls rather than eleven. Grouped by what they have in
 # common, so each call answers questions that draw on the same parts of the document, and each
@@ -537,7 +532,7 @@ class DocumentExtractor:
 
     # ------------------------------------------------------------------ resolution sweep
     def _resolve_unknowns(self, record: EvidenceRecord, corpus: str) -> None:
-        """Put what is still open back to the documents, then triage what survives.
+        """Put what is still open back to the documents, pass after pass.
 
         Each pass takes only what the pass before it left open, so the questions narrow and the
         prompt shortens. The final pass is told to rule on anything it still cannot answer:
@@ -584,14 +579,13 @@ class DocumentExtractor:
         reply = self._ask(_RESOLVE_PROMPT, "INGEST_RESOLVE",
                           established=established or "Nothing yet.",
                           questions="\n".join(f"- {q}" for _, q in outstanding),
-                          corpus=corpus,
-                          triage=prompt_loader.load("ingest.triage") if last else "")
+                          corpus=corpus)
         if reply is None:
             return
 
         by_question = {str(r.get("question", "")).strip().lower(): r
                        for r in (reply.get("resolved") or []) if isinstance(r, dict)}
-        settled, to_ask, set_aside = 0, 0, 0
+        settled, to_ask = 0, 0
 
         for facet, question in outstanding:
             target = record.answer_for(facet)
@@ -609,23 +603,12 @@ class DocumentExtractor:
                     target.answer = answer_text
                 settled += 1
             elif last:
-                # Nothing settled it, so it is one of two kinds of leftover, and the sweep has to
-                # justify asking by naming which part of the intake the question blocks. A ruling
-                # of ask_the_team with no part named does not earn the ask -- documentation is
-                # always incomplete, and "worth being sure about" is not a blocked intake.
-                blocked = str(found.get("blocks", "")).strip().lower() if found else ""
-                if status == NOT_MATERIAL or (status == ASK_THE_TEAM
-                                              and blocked not in INTAKE_PARTS):
-                    set_aside += 1
-                elif status == ASK_THE_TEAM:
-                    target.must_ask = list(target.must_ask) + [question]
-                    target.blocks = dict(target.blocks, **{question: blocked})
-                    to_ask += 1
-                else:
-                    # No ruling at all. Asked rather than dropped: a question nobody judged is
-                    # the one failure this arrangement exists to avoid.
-                    target.must_ask = list(target.must_ask) + [question]
-                    to_ask += 1
+                # Nothing in the documents settled it, so it goes to a person. What it costs
+                # them to see is one line; what it costs to drop something that mattered is a
+                # part of the agent nobody tests. The intake stage decides what is actually
+                # blocking, structurally, from the declaration itself -- see core.gaps.
+                target.must_ask = list(target.must_ask) + [question]
+                to_ask += 1
 
         if last:
             for answer in record.answers:
@@ -633,9 +616,9 @@ class DocumentExtractor:
 
         logger.info("Pass %d of %d settled %d of %d outstanding point(s) from the documents.",
                     number, self._passes, settled, len(outstanding))
-        if last and (to_ask or set_aside):
-            logger.info("%d point(s) need a person; %d were judged not to change what gets "
-                        "tested and are recorded but not asked.", to_ask, set_aside)
+        if last and to_ask:
+            logger.info("%d point(s) the documents did not settle are carried to the intake "
+                        "stage.", to_ask)
 
     # ------------------------------------------------------------------ shared
     def _estimate_calls(self, corpus: Corpus) -> int:

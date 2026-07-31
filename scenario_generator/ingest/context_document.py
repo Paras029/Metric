@@ -19,7 +19,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from typing import List
 
-from ..core.evidence import BLOCKING_ORDER, FACETS, EvidenceRecord
+from ..core.evidence import FACET_ORDER, FACETS, EvidenceRecord
 from . import diagram_structure
 
 FACET_HEADINGS = {
@@ -133,9 +133,8 @@ def build_context_document(record: EvidenceRecord, use_case_name: str = "") -> s
     return "\n".join(lines).strip() + "\n"
 
 
-# What each blocked part of the intake means for the person reading the question. Stated because
-# "blocks: decisions" is a justification only to somebody who already knows the schema.
-BLOCKING_REASONS = {
+# Why an unanswered facet matters, in terms of what the intake cannot say without it.
+FACET_STAKES = {
     "use_case": "Without this the intake cannot say what the agent is for.",
     "personas": "Without this the intake cannot say who the agent serves.",
     "capabilities": "Without this a capability cannot be listed in the intake.",
@@ -198,7 +197,7 @@ def open_questions(record: EvidenceRecord) -> List[dict]:
         questions.append({
             "kind": "gap",
             "facet": facet,
-            "blocks": facet if facet in BLOCKING_REASONS else "",
+            "blocks": facet if facet in FACET_STAKES else "",
             "heading": FACET_HEADINGS.get(facet, facet),
             "question": FACET_QUESTIONS.get(facet, f"What does the agent do about {facet}?"),
             "detail": "No submitted document settled this.",
@@ -213,22 +212,20 @@ def open_questions(record: EvidenceRecord) -> List[dict]:
         if facet in unanswered or unknown.strip().lower() in seen:
             continue
         seen.add(unknown.strip().lower())
-        blocks = record.blocked_part(unknown)
         questions.append({
             "kind": "unknown",
             "facet": facet,
-            "blocks": blocks,
+            "blocks": "",
             "heading": FACET_HEADINGS.get(facet, facet),
             "question": unknown,
-            "detail": BLOCKING_REASONS.get(
-                blocks, "The documents answered this question in part, but not this."),
+            "detail": "The documents answered this question in part, but not this.",
         })
 
     questions += _confirmation_groups(record)
 
     kinds = {"gap": 0, "unknown": 1, "confirm": 2}
     questions.sort(key=lambda q: (kinds.get(q["kind"], 3),
-                                  BLOCKING_ORDER.get(q["blocks"], len(BLOCKING_ORDER))))
+                                  FACET_ORDER.get(q["facet"], len(FACET_ORDER))))
     return questions
 
 

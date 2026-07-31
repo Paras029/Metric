@@ -1066,65 +1066,8 @@ ol, ul { list-style: none; padding: 0; }
  * hidden -- that is the state it is actually in, and pretending otherwise is how a half-made
  * edit gets written.
  */
-.sketch { margin-top: 1rem; }
-.sketch__row {
-  padding: .65rem .8rem;
-  margin-bottom: .5rem;
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--blue);
-  border-radius: 4px;
-  background: #FBFCFE;
-}
-.sketch__row--loose { border-left-color: var(--attention); background: #FEFBF4; }
-.sketch__head { display: flex; align-items: baseline; flex-wrap: wrap; gap: .5rem; }
-.sketch__id { font-size: .76rem; color: var(--ink-faint); }
-.sketch__name { font-size: .88rem; font-weight: 600; color: var(--deep); }
-.sketch__kind {
-  font-size: .68rem;
-  font-weight: 650;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-}
-.sketch__detail { display: block; margin-top: .2rem; font-size: .8rem; color: var(--ink-soft); }
-.sketch__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: .5rem;
-  margin-top: .55rem;
-}
-.sketch__actions form { display: flex; align-items: center; gap: .4rem; margin: 0; }
 
-.sketch__commit {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: .75rem;
-  margin: 1rem 0 1.4rem;
-  padding-top: .9rem;
-  border-top: 1px solid var(--line-soft);
-}
-.sketch__note { font-size: .8rem; color: var(--ink-faint); flex: 1; min-width: 16rem; }
 
-.sketch__forms {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
-  gap: 1rem;
-  margin-top: 1rem;
-}
-.sketch__form {
-  display: flex;
-  flex-direction: column;
-  gap: .5rem;
-  padding: 1rem;
-  border: 1px dashed #C3D2E6;
-  border-radius: var(--radius);
-  background: linear-gradient(180deg, #FBFCFE, var(--paper));
-}
-.sketch__form-title { font-size: .88rem; font-weight: 620; color: var(--deep); }
-.sketch__form .button { align-self: flex-start; margin-top: .2rem; }
-.tag--draft { background: #E7F1FC; color: var(--blue-dark); }
 
 /* ------------------------------------------------------------------ answering in one pass */
 .questions__foot {
@@ -1172,3 +1115,5 @@ ol, ul { list-style: none; padding: 0; }
 .reset { margin-top: 2.25rem; display: grid; gap: .9rem; }
 .reset form { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; }
 .reset__note { font-size: .78rem; color: var(--ink-faint); flex: 1; min-width: 18rem; }
+
+.proposal__actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .45rem; }

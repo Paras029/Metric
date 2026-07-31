@@ -33,7 +33,7 @@ from werkzeug.utils import secure_filename
 from ..core.evidence import FACETS
 from ..core.gaps import find_gaps
 from ..core.generation import required_runs
-from ..core.intake import (append_rows, attach_decision_to_state, merge_decisions, read_intake,
+from ..core.intake import (attach_decision_to_state, merge_decisions, read_intake,
                            read_review_notes, set_decision_scope, set_state_reached_via,
                            write_template)
 from ..core.models import MATERIALITY, IntakeData
@@ -50,7 +50,6 @@ from ..llm.structure_review import review_structure
 from ..pipeline import (build_scenarios, draft_intake_workbook, ingest_documents, map_coverage,
                         revise_intake_workbook)
 from . import stagecancel
-from .draft import DECISION, STATE, PendingEdits, PendingItem, next_id
 from .graphview import graph_summary, render_svg
 from .scenarios import FILTER_FIELDS, PAGE_SIZE, build_rows
 from .stages import RUNNING, STAGE_BY_KEY, STAGES, STATUS_LABELS, downstream_of, index_of
@@ -200,7 +199,6 @@ def _run_documents(workspace: Workspace, progress=None, cancel=None) -> Dict[str
             "Observations kept": counts["usable"],
             "Discarded as unsupported": counts["rejected"],
             "To put to the model owner": counts["to_ask"],
-            "Minor points, recorded not asked": counts["set_aside"],
             "Unreadable files": unreadable}
 
 
@@ -434,28 +432,12 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
                 logger.warning("Could not read the intake: %s", exc)
 
         # The graph is drawn wherever the intake is available, since it is the clearest reading
-        # of what the benchmark will and will not be able to reach. On the intake stage it is
-        # drawn over the sketch buffer, so an addition can be seen in place before it is committed.
-        graph_svg, graph_facts, sketch = "", {}, None
+        # of what the benchmark will and will not be able to reach.
+        graph_svg, graph_facts = "", {}
         if key in ("intake", "benchmark") and intake is not None:
             try:
-                pending = PendingEdits.from_list(workspace.pending)
-                drawn = pending.merged(intake) if key == "intake" and pending else intake
-                graph_svg = render_svg(drawn, pending.ids(DECISION), pending.ids(STATE))
-                graph_facts = graph_summary(drawn, pending.ids(DECISION), pending.ids(STATE))
-                if key == "intake":
-                    sketch = {
-                        "rows": pending.rows(intake), "count": len(pending),
-                        "unattached": pending.unattached(intake),
-                        # Only states the interaction can continue from. Nothing follows a state
-                        # that ends the conversation, so offering one would let a person attach a
-                        # decision nothing could ever reach.
-                        "states": [s.id for s in intake.states if not s.is_terminal],
-                        "decisions": [d.id for d in intake.decisions],
-                        # Outcomes that no state already claims: a state is defined by the outcome
-                        # that produces it, so an outcome already taken has nothing to attach.
-                        "outcomes": _free_outcomes(intake),
-                        "capabilities": [c.id for c in intake.capabilities]}
+                graph_svg = render_svg(intake)
+                graph_facts = graph_summary(intake)
             except Exception as exc:                       # a malformed intake must not blank it
                 logger.warning("Could not draw the graph: %s", exc)
 
@@ -479,7 +461,6 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             note_total=len(workspace.notes),
             graph_svg=graph_svg,
             graph_facts=graph_facts,
-            sketch=sketch,
             decisions=decisions,
             structure_proposals=workspace.structure_proposals if key == "intake" else [],
             structure_review_available=key == "intake" and intake is not None,
@@ -872,115 +853,6 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         workspace.pop_structure_proposal(proposal_id)
         workspace.save()
         return redirect(url_for("stage", key="intake", _anchor="structure-review"))
-
-    # ----------------------------------------------------------------- sketching the intake
-    #
-    # Additions are held against the workspace and merged into the intake for display only, so the
-    # graph can be tried out before the workbook is touched. The workbook stays the one authority
-    # for what the benchmark is built from; this is a sketch pad in front of it.
-
-    @app.route("/stage/intake/sketch", methods=["POST"])
-    def sketch_intake():
-        """Add a decision or a state to the sketch buffer."""
-        workspace = _workspace()
-        intake = _intake(workspace)
-        pending = PendingEdits.from_list(workspace.pending)
-
-        kind = request.form.get("kind", DECISION)
-        if kind == STATE:
-            identifier = next_id("S", [s.id for s in intake.states] + pending.ids(STATE))
-            item = PendingItem(
-                kind=STATE, id=identifier,
-                name=(request.form.get("name") or "").strip(),
-                reached_via=(request.form.get("reached_via") or "").strip(),
-                next_decisions=[d.strip() for d in
-                                request.form.getlist("next_decisions") if d.strip()],
-                is_terminal=bool(request.form.get("is_terminal")),
-                outcome_type=(request.form.get("outcome_type") or "").strip())
-        else:
-            identifier = next_id("DEC", [d.id for d in intake.decisions] + pending.ids(DECISION))
-            item = PendingItem(
-                kind=DECISION, id=identifier,
-                name=(request.form.get("name") or "").strip(),
-                capability=(request.form.get("capability") or "").strip(),
-                outcomes=[o.strip() for o in
-                          (request.form.get("outcomes") or "").split("/") if o.strip()],
-                input_source=(request.form.get("input_source") or "User").strip())
-
-        if not item.name:
-            workspace.state("intake").note = "Give the new element a name before adding it."
-            workspace.save()
-            return redirect(url_for("stage", key="intake"))
-
-        pending.add(item)
-        workspace.pending = pending.to_list()
-        workspace.save()
-        return redirect(url_for("stage", key="intake", _anchor="sketch"))
-
-    @app.route("/stage/intake/sketch/<item_id>/attach", methods=["POST"])
-    def attach_sketch(item_id: str):
-        """Give a sketched element somewhere to sit, so it moves into the flow."""
-        workspace = _workspace()
-        pending = PendingEdits.from_list(workspace.pending)
-        item = next((i for i in pending.items if i.id == item_id), None)
-        if item is None:
-            abort(404)
-
-        target = (request.form.get("target") or "").strip()
-        if item.kind == STATE:
-            # A state is defined by the outcome that produces it, so attaching one is naming that.
-            item.reached_via = target
-        else:
-            # A decision is reached *from* a state, so attaching one means that state has to name
-            # it as a next step. Where the state is itself a sketch the change lands on it now;
-            # where it is already declared, it is recorded against the decision and the commit
-            # amends the declared row.
-            sketched = next((i for i in pending.items
-                             if i.kind == STATE and i.id == target), None)
-            if sketched is not None:
-                if item.id not in sketched.next_decisions:
-                    sketched.next_decisions.append(item.id)
-            else:
-                item.reached_from = target
-
-        workspace.pending = pending.to_list()
-        workspace.save()
-        return redirect(url_for("stage", key="intake", _anchor="sketch"))
-
-    @app.route("/stage/intake/sketch/<item_id>/remove", methods=["POST"])
-    def remove_sketch(item_id: str):
-        workspace = _workspace()
-        pending = PendingEdits.from_list(workspace.pending)
-        pending.remove(item_id)
-        workspace.pending = pending.to_list()
-        workspace.save()
-        return redirect(url_for("stage", key="intake", _anchor="sketch"))
-
-    @app.route("/stage/intake/sketch/commit", methods=["POST"])
-    def commit_sketch():
-        """Write the sketched additions into the intake workbook and empty the buffer.
-
-        Rows are appended, so everything else in the workbook -- including anything edited there by
-        hand -- survives. Once written, the benchmark and everything after it no longer reflect
-        the intake, so they are marked out of date.
-        """
-        workspace = _workspace()
-        path = workspace.artifact_path("intake", "workbook")
-        if not path:
-            raise ValueError("No intake workbook to write these into.")
-
-        pending = PendingEdits.from_list(workspace.pending)
-        decisions, states = pending.as_workbook_rows()
-        added = append_rows(str(path), decisions=decisions, states=states,
-                            links=pending.links())
-
-        pending.clear()
-        workspace.pending = pending.to_list()
-        invalidated = workspace.invalidate_after("intake")
-        workspace.save()
-        logger.info("Wrote %d sketched row(s) into %s.", added, path.name)
-        return redirect(url_for("stage", key="intake",
-                                invalidated=", ".join(s.title for s in invalidated)))
 
     @app.route("/stage/<key>/scenario/<scenario_id>", methods=["POST"])
     def rule_on_scenario(key: str, scenario_id: str):

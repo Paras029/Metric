@@ -135,14 +135,12 @@
           This keeps running if you navigate away or close the tab. Reading a long document is
           several minutes of model calls.
         </p>
-        {% if stage.key in ('documents', 'text', 'materiality', 'review') %}
-          <form method="post" action="{{ url_for('stop_stage', key=stage.key) }}" id="stop-form">
-            <button class="button button--quiet" type="submit" id="stop-button">Stop</button>
-          </form>
-          <p class="panel__foot panel__foot--quiet" id="stop-note" hidden>
-            Stopping — calls already sent are finishing; nothing further will be sent.
-          </p>
-        {% endif %}
+        <form method="post" action="{{ url_for('stop_stage', key=stage.key) }}" id="stop-form">
+          <button class="button button--quiet" type="submit" id="stop-button">Stop</button>
+        </form>
+        <p class="panel__foot panel__foot--quiet" id="stop-note" hidden>
+          Stopping — calls already sent are finishing; nothing further will be sent.
+        </p>
       </section>
     {% endif %}
 
@@ -308,7 +306,7 @@
                   </span>
                 {% endif %}
                 <span class="problems__why">{{ item.rationale }}</span>
-                <span class="sketch__actions">
+                <span class="proposal__actions">
                   <form method="post"
                         action="{{ url_for('apply_structure_proposal', proposal_id=item.id) }}">
                     <button class="button button--quiet" type="submit">Apply</button>
@@ -375,121 +373,6 @@
             already there — nothing is discarded that this revision does not touch.
           </span>
         </form>
-      </section>
-    {% endif %}
-
-    {% if sketch %}
-      <section class="panel panel--action" id="sketch">
-        <h2 class="panel__title">
-          Try a change before committing it
-          {% if sketch.count %}<span class="tag tag--draft">{{ sketch.count }} not yet saved</span>{% endif %}
-        </h2>
-        <p class="panel__body">
-          Add a decision or a state here and it appears in the graph above, dashed. Anything not
-          yet connected to something sits in a row underneath until you give it somewhere to go.
-          Nothing reaches the intake workbook — or the benchmark — until you press
-          <em>Write these into the intake</em>. For edits to what is already declared, change the
-          workbook itself and upload it again.
-        </p>
-
-        {% if sketch.rows %}
-          <ul class="sketch">
-            {% for row in sketch.rows %}
-              <li class="sketch__row {% if not row.attached %}sketch__row--loose{% endif %}">
-                <span class="sketch__head">
-                  <span class="sketch__id mono">{{ row.id }}</span>
-                  <span class="sketch__name">{{ row.name }}</span>
-                  <span class="sketch__kind">{{ 'Decision' if row.kind == 'decision' else 'State' }}</span>
-                </span>
-                <span class="sketch__detail">{{ row.detail }} · {{ row.where }}</span>
-
-                <span class="sketch__actions">
-                  {% if not row.attached %}
-                    <form method="post"
-                          action="{{ url_for('attach_sketch', item_id=row.id) }}">
-                      <select class="card__select" name="target" required>
-                        <option value="">
-                          {% if row.kind == 'decision' %}Reached from…{% else %}Reached via…{% endif %}
-                        </option>
-                        {% if row.kind == 'decision' %}
-                          {% for state_id in sketch.states %}
-                            <option value="{{ state_id }}">{{ state_id }}</option>
-                          {% endfor %}
-                        {% else %}
-                          {% for outcome in sketch.outcomes %}
-                            <option value="{{ outcome }}">{{ outcome }}</option>
-                          {% endfor %}
-                        {% endif %}
-                      </select>
-                      <button class="button button--quiet" type="submit">Attach</button>
-                    </form>
-                  {% endif %}
-                  <form method="post" action="{{ url_for('remove_sketch', item_id=row.id) }}">
-                    <button class="drop__remove" type="submit">Discard</button>
-                  </form>
-                </span>
-              </li>
-            {% endfor %}
-          </ul>
-
-          <form class="sketch__commit" method="post" action="{{ url_for('commit_sketch') }}">
-            <button class="button button--primary" type="submit">Write these into the intake</button>
-            <span class="sketch__note">
-              {% if sketch.unattached %}
-                <span class="mono">{{ sketch.unattached | join(', ') }}</span> still have nowhere
-                to sit — they will be written, but nothing will reach them until you say what does.
-              {% else %}
-                Appended to the workbook. Everything already in it is left alone.
-              {% endif %}
-            </span>
-          </form>
-        {% endif %}
-
-        <div class="sketch__forms">
-          <form class="sketch__form" method="post" action="{{ url_for('sketch_intake') }}">
-            <input type="hidden" name="kind" value="decision">
-            <p class="sketch__form-title">Add a decision</p>
-            <input class="field__input" type="text" name="name" required
-                   placeholder="What it decides, e.g. Eligibility check">
-            <input class="field__input" type="text" name="outcomes"
-                   placeholder="Outcomes, separated by / — e.g. Eligible / Not eligible">
-            <select class="card__select" name="capability">
-              <option value="">Capability (optional)</option>
-              {% for capability in sketch.capabilities %}
-                <option value="{{ capability }}">{{ capability }}</option>
-              {% endfor %}
-            </select>
-            <select class="card__select" name="input_source">
-              {% for source in ['User', 'Tool', 'Memory-Session', 'Memory-CrossSession',
-                                'System-Context', 'Document'] %}
-                <option value="{{ source }}">{{ source }}</option>
-              {% endfor %}
-            </select>
-            <button class="button button--quiet" type="submit">Add to the sketch</button>
-          </form>
-
-          <form class="sketch__form" method="post" action="{{ url_for('sketch_intake') }}">
-            <input type="hidden" name="kind" value="state">
-            <p class="sketch__form-title">Add a state</p>
-            <input class="field__input" type="text" name="name" required
-                   placeholder="Where the interaction has got to, e.g. Referred to an adviser">
-            <select class="card__select" name="reached_via">
-              <option value="">Reached via… (optional for now)</option>
-              {% for outcome in sketch.outcomes %}
-                <option value="{{ outcome }}">{{ outcome }}</option>
-              {% endfor %}
-            </select>
-            <select class="card__select" name="next_decisions" multiple size="3">
-              {% for decision_id in sketch.decisions %}
-                <option value="{{ decision_id }}">{{ decision_id }}</option>
-              {% endfor %}
-            </select>
-            <label class="card__check">
-              <input type="checkbox" name="is_terminal" value="1"> Ends the interaction
-            </label>
-            <button class="button button--quiet" type="submit">Add to the sketch</button>
-          </form>
-        </div>
       </section>
     {% endif %}
 

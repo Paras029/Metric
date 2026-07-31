@@ -151,7 +151,6 @@ class Workspace:
     def __init__(self, root: Path, name: str = "", created_at: str = "",
                  stages: Optional[Dict[str, StageState]] = None,
                  notes: Optional[List[dict]] = None,
-                 pending: Optional[List[dict]] = None,
                  redact_files: Optional[List[str]] = None,
                  structure_proposals: Optional[List[dict]] = None) -> None:
         self.root = Path(root)
@@ -160,19 +159,15 @@ class Workspace:
         self.stages: Dict[str, StageState] = stages or {
             key: StageState() for key in STAGE_KEYS}
         self.notes: List[dict] = list(notes or [])
-        # Intake edits sketched in the interface and not yet written to the workbook. Held here
-        # rather than in the workbook so the workbook stays the one authority for what the
-        # benchmark is built from, and a half-finished idea cannot reach it.
-        self.pending: List[dict] = list(pending or [])
         # Which uploaded files must be redacted before their text is read, independent of the
         # PII_REDACTION setting -- keyed "group/name" since a filename alone is not unique across
         # upload groups. A person marking one sensitive upload should not have to switch redaction
         # on for the whole pack to get it.
         self.redact_files: Set[str] = set(redact_files or [])
         # What the optional structure-review pass has proposed and not yet been applied or
-        # dismissed. Unlike ``pending``, applying one of these writes straight to the workbook --
-        # see core.intake.merge_decisions and friends -- so this list only ever holds what is
-        # still open, not a sketch waiting on a separate commit.
+        # dismissed. Applying one writes straight to the workbook -- see
+        # core.intake.merge_decisions and friends -- so this list only ever holds what is
+        # still open.
         self.structure_proposals: List[dict] = list(structure_proposals or [])
         self._reconciled = self._settle()
 
@@ -309,7 +304,7 @@ class Workspace:
         """
         self.root.mkdir(parents=True, exist_ok=True)
         payload = {"name": self.name, "created_at": self.created_at,
-                   "notes": list(self.notes), "pending": list(self.pending),
+                   "notes": list(self.notes),
                    "redact_files": sorted(self.redact_files),
                    "structure_proposals": list(self.structure_proposals),
                    "stages": {k: v.to_dict() for k, v in self.stages.items()}}
@@ -331,7 +326,7 @@ class Workspace:
                   for key in STAGE_KEYS}
         workspace = cls(root=root, name=data.get("name", root.name),
                         created_at=data.get("created_at", ""), stages=stages,
-                        notes=data.get("notes", []), pending=data.get("pending", []),
+                        notes=data.get("notes", []),
                         redact_files=data.get("redact_files", []),
                         structure_proposals=data.get("structure_proposals", []))
         # An interrupted run was reconciled during construction -- see _settle. Written back once,

@@ -53,15 +53,12 @@ FACETS: "OrderedDict[str, str]" = OrderedDict([
 KIND_IMAGE = "image"
 KIND_HUMAN = "human"
 
-# The parts of the intake a question can block. A question that cannot name one of these is not
-# asked: the intake can be filled without it, and that is the only test that matters once it is
-# accepted that documentation is never complete.
-INTAKE_PARTS = ("use_case", "personas", "capabilities", "decisions", "states", "tools")
-
-# Which blocked part is worth asking about first. A branch with unnamed outcomes cannot be
-# enumerated at all, so nothing on it is ever tested; an undescribed tool costs one column.
-BLOCKING_ORDER = {"decisions": 0, "states": 1, "capabilities": 2, "use_case": 3,
-                  "personas": 4, "tools": 5}
+# Which facet is worth reading about first, where several are outstanding. A branch with unnamed
+# outcomes cannot be enumerated at all, so nothing on it is ever tested; an undescribed tool costs
+# one column. Only an ordering -- what actually blocks the intake is decided structurally from the
+# declaration itself, at the intake stage; see :mod:`scenario_generator.core.gaps`.
+FACET_ORDER = {"decisions": 0, "states": 1, "capabilities": 2, "use_case": 3,
+               "personas": 4, "tools": 5}
 
 VERIFIED = "verified"
 UNVERIFIABLE = "unverifiable"
@@ -138,14 +135,6 @@ class FacetAnswer:
     only this list is put in front of a person.
     """
 
-    blocks: Dict[str, str] = field(default_factory=dict)
-    """Which part of the intake each asked question blocks, keyed by the question.
-
-    A question earns its place by naming what it stops -- one of the intake's own six parts. This
-    is both the justification shown to the reader and the filter: a question that cannot name what
-    it blocks is not asked, because documentation is always incomplete and "this would be good to
-    know" is not a reason to spend a modelling team's fortnight.
-    """
 
     triaged: bool = False
     """Whether the division above has been made. Where it has not, every unknown is asked."""
@@ -246,27 +235,16 @@ class EvidenceRecord:
     def questions_for_people(self) -> List[Tuple[str, str]]:
         """The unknowns worth putting to a person, as (facet, question).
 
-        Where an answer has been triaged this is the subset that blocks the intake; where it has
-        not -- an older record, or a run whose resolution sweep did not complete -- it is
-        everything, because the alternative is quietly dropping questions nobody has judged.
+        Everything the resolution sweep could not settle from the documents. Whether one of these
+        actually blocks a part of the intake is not decided here: the intake stage reads that off
+        the declaration directly -- see :mod:`scenario_generator.core.gaps` -- and these are shown
+        alongside as the cross-cutting remainder.
         """
         questions = []
         for answer in self.answers:
             questions += [(answer.facet, q)
                           for q in (answer.must_ask if answer.triaged else answer.unknowns)]
         return questions
-
-    def blocked_part(self, question: str) -> str:
-        """Which part of the intake this question stops being filled in, if it was recorded."""
-        for answer in self.answers:
-            found = answer.blocks.get(question)
-            if found:
-                return found
-        return ""
-
-    def set_aside(self) -> int:
-        """How many unknowns triage judged not worth asking. Reported rather than hidden."""
-        return sum(len(a.unknowns) - len(a.must_ask) for a in self.answers if a.triaged)
 
     def to_dict(self) -> dict:
         return {"documents": [asdict(d) for d in self.documents],
@@ -298,7 +276,6 @@ def summarise(record: EvidenceRecord) -> Dict[str, int]:
         "answered": sum(1 for a in record.answers if a.is_answered),
         "unknowns": len(record.open_unknowns()),
         "to_ask": len(record.questions_for_people()),
-        "set_aside": record.set_aside(),
         "readable": sum(1 for d in record.documents if d.kind != "unreadable"),
         "drawn_on": sum(1 for d in record.documents if d.drawn_on),
     }

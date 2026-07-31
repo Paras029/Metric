@@ -42,8 +42,6 @@ Do not resolve a question by inference from how such systems usually work. A que
 marked answered is worse than one left open, because the open one gets asked and the wrong one
 gets built on.
 
-{{triage}}
-
 WHAT TO RETURN
 
 For each question, in the order given:
@@ -54,16 +52,12 @@ For each question, in the order given:
 - `evidence`: list of `{"quote": "...", "document": "...", "locator": "..."}` supporting it.
   Empty where there is none.
 - `still_open`: for `partial`, what remains to be asked. Empty otherwise.
-- `blocks`: required for `ask_the_team`, empty otherwise. Which single part of the intake cannot
-  be filled in without this: `use_case`, `personas`, `capabilities`, `decisions`, `states` or
-  `tools`.
 
 OUTPUT
 
 Return ONLY a JSON object of the form:
 
 {"resolved": [{"question": "...", "status": "answered", "answer": "...",
-"evidence": [{"quote": "...", "document": "...", "locator": "..."}], "still_open": "",
-"blocks": ""}]}
+"evidence": [{"quote": "...", "document": "...", "locator": "..."}], "still_open": ""}]}
 
 No markdown fences and no text outside the JSON. Keep each string value on a single line.

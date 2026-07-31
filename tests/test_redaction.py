@@ -231,7 +231,7 @@ class _StubSummary(dict):
 
     def __init__(self):
         super().__init__(documents=1, readable=1, drawn_on=0, answered=0, usable=0,
-                         rejected=0, to_ask=0, set_aside=0)
+                         rejected=0, to_ask=0)
 
 
 class _StubIngestResult:
