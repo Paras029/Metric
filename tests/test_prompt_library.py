@@ -43,6 +43,8 @@ _CONTRACT = {
     "ingest.diagram_repair": {"document", "structure", "problems"},
     "intake.draft": {"context", "structure"},
     "intake.revise": {"context", "current", "structure"},
+    "coverage.system": set(),
+    "coverage.map": {"use_case", "scenarios", "conversations"},
     "structure_review.system": set(),
     "structure_review.task": {"use_case", "structure", "hints", "context"},
 }
