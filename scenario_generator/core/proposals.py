@@ -12,7 +12,8 @@ from __future__ import annotations
 from typing import List, Tuple
 
 from ..utils.text import one_of
-from .models import (CATEGORIES, MATERIALITY, IntakeData, Scenario, Step, TurnMeta)
+from .models import (CATEGORIES, MATERIALITY, ORIGIN_PROPOSED, IntakeData, Scenario,
+                     Step, TurnMeta)
 
 
 def _validate_path(entry: dict, intake: IntakeData) -> Tuple[List[Step], int]:
@@ -75,7 +76,7 @@ def instantiate_proposal(entry: dict, index: int, intake: IntakeData) -> Scenari
         tools=[],
         touches_state_change=bool(entry.get("touches_state_change")),
         turn_meta=_turn_meta(steps, entry, intake),
-        origin="llm-proposed",
+        origin=ORIGIN_PROPOSED,
     )
     scenario.description = str(entry.get("description", "")).strip()
     scenario.turn_plan = str(entry.get("turn_plan", "")).strip()

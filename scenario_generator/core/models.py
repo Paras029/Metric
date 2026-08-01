@@ -12,14 +12,32 @@ CONFIDENCE = ["Low", "Medium", "High"]
 # free text. Anything unrecognised is kept verbatim and simply matches no predicate.
 CAPABILITY_TYPES = ["Lookup", "Transactional", "Gating", "Advisory", "PII-handling"]
 
+# Where a scenario came from. One vocabulary, named here, because five modules produce and consume
+# these and a bare string in each is how a value drifts into a workbook that nothing recognises.
+ORIGIN_GRAPH = "graph"                 # a route the depth-first walk reached
+ORIGIN_VARIANT_GAP = "variant-gap"     # an outcome the walk missed, given a route of its own
+ORIGIN_PROBE = "probe"                 # path-independent, from the probe library
+ORIGIN_PROPOSED = "llm-proposed"       # added by the review, and marked as such wherever it shows
+
+ORIGINS = (ORIGIN_GRAPH, ORIGIN_VARIANT_GAP, ORIGIN_PROBE, ORIGIN_PROPOSED)
+
 # Origins that represent the functional benchmark -- routes through the declared graph, however
 # they were reached. Probes are excluded by origin rather than by having an empty decision path,
 # which stops a proposal with no declared route from being mistaken for one.
-#
-# "coverage-gap" predates the coverage stage and has nothing to do with it: it marks a route the
-# depth-first walk did not reach and the variant sweep had to add. Renaming it would change a
-# value already written into every registry, so the name stays and this says what it means.
-FUNCTIONAL_ORIGINS = ("graph", "coverage-gap")
+FUNCTIONAL_ORIGINS = (ORIGIN_GRAPH, ORIGIN_VARIANT_GAP)
+
+# What older registries call the same thing. "coverage-gap" was this value's name before the
+# coverage stage existed and had nothing to do with it -- it always meant a gap in what the *walk*
+# covered, and reading it as coverage was a mistake waiting to be made. Registries already written
+# carry the old spelling, so it is translated on the way in rather than left to fall outside
+# FUNCTIONAL_ORIGINS and quietly drop those scenarios out of the challenge pack.
+LEGACY_ORIGINS = {"coverage-gap": ORIGIN_VARIANT_GAP}
+
+
+def canonical_origin(raw: str) -> str:
+    """One origin's settled name, translating what an older registry called it."""
+    origin = str(raw or "").strip()
+    return LEGACY_ORIGINS.get(origin, origin)
 
 # Where a decision's input arrives from. Only "User" steps become conversational turns; the rest
 # are internal, which is what makes planner and non-conversational agents representable.
@@ -181,11 +199,11 @@ class Scenario:
 
     @property
     def is_probe(self) -> bool:
-        return self.origin == "probe"
+        return self.origin == ORIGIN_PROBE
 
     @property
     def is_proposed(self) -> bool:
-        return self.origin == "llm-proposed"
+        return self.origin == ORIGIN_PROPOSED
 
     @property
     def effective_materiality(self) -> str:

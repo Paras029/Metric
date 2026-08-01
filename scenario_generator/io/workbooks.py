@@ -22,8 +22,9 @@ from . import sheets
 from ..core.generation import (fallback_description, fallback_turn_plan, recommended_turns,
                                 required_runs, turn_plan_lines)
 from ..utils.text import parse_path_str
-from ..core.models import (FUNCTIONAL_ORIGINS, BenchmarkScenario, IntakeData, Scenario,
-                           Step, TurnMeta)
+from ..core.models import (FUNCTIONAL_ORIGINS, ORIGIN_GRAPH, ORIGIN_PROBE,
+                           BenchmarkScenario, IntakeData, Scenario, Step, TurnMeta,
+                           canonical_origin)
 from ..core.probes import ADVERSARIAL_PERSONA
 
 
@@ -145,8 +146,10 @@ def read_scenarios(path: str, intake: IntakeData) -> List[Scenario]:
             return _row[index] if index is not None and index < len(_row) else ""
 
         turn_meta = turns_by_id.get(cell("SC ID"), [])
-        origin = cell("Origin")
-        is_probe = origin == "probe"
+        # Translated on the way in, so a registry written before an origin was renamed reads as
+        # the thing it always was rather than falling outside every check that names origins.
+        origin = canonical_origin(cell("Origin"))
+        is_probe = origin == ORIGIN_PROBE
 
         # Synthetic turn rows (probes, and proposals with no declared route) carry "-" as their
         # decision id. Reconstructing a path from those would invent one that never existed.
@@ -265,7 +268,7 @@ def read_registry(path: str, functional_only: bool = True) -> List[BenchmarkScen
             index = at.get(name)
             return _row[index] if index is not None and index < len(_row) else ""
 
-        origin = cell("Origin") or "graph"
+        origin = canonical_origin(cell("Origin")) or ORIGIN_GRAPH
         if functional_only and origin not in FUNCTIONAL_ORIGINS:
             continue
         benchmark.append(BenchmarkScenario(

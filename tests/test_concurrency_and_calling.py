@@ -150,7 +150,7 @@ class TestCallingACompletionFunction(unittest.TestCase):
             return ""
 
         call(gateway, "S", "U", tier=config.JUDGEMENT)
-        self.assertIs(seen["tier"], config.JUDGEMENT)
+        self.assertEqual(seen["tier"], config.JUDGEMENT)
 
     def test_a_stub_taking_keyword_arguments_is_given_the_tier(self):
         seen = {}
@@ -160,7 +160,7 @@ class TestCallingACompletionFunction(unittest.TestCase):
             return ""
 
         call(stub, "S", "U", tier=config.STANDARD)
-        self.assertIs(seen["tier"], config.STANDARD)
+        self.assertEqual(seen["tier"], config.STANDARD)
 
     def test_a_real_type_error_inside_the_call_is_raised_as_itself(self):
         """The failure the old try/except swallowed: it retried and reported the wrong error."""

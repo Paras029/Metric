@@ -19,7 +19,6 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -82,31 +81,41 @@ def missing_credentials() -> list:
 # An environment variable still wins over the file wherever both are set. That is what keeps an
 # existing ``.env`` working untouched, and leaves a way to override one setting on one machine for
 # one run without editing a shared file.
-TUNING_PATH = os.getenv("TUNING_PATH", "tuning.yml")
+DEFAULT_TUNING_PATH = "tuning.yml"
 
-_tuning_cache: Optional[dict] = None
+# Keyed on the path it was read from, so pointing TUNING_PATH somewhere else is picked up rather
+# than answered out of the previous file's cache.
+_tuning_cache: dict = {}
+
+
+def tuning_path() -> str:
+    return os.getenv("TUNING_PATH", "").strip() or DEFAULT_TUNING_PATH
 
 
 def tuning() -> dict:
-    """The tuning file, read once. An absent or unreadable file means built-in defaults."""
-    global _tuning_cache
-    if _tuning_cache is None:
-        path = Path(TUNING_PATH)
+    """The tuning file, read once per path. An absent or unreadable file means built-in defaults."""
+    name = tuning_path()
+    if name not in _tuning_cache:
+        path = Path(name)
         try:
             import yaml
 
             loaded = yaml.safe_load(path.read_text(encoding="utf-8")) if path.exists() else None
-            _tuning_cache = loaded if isinstance(loaded, dict) else {}
+            _tuning_cache[name] = loaded if isinstance(loaded, dict) else {}
         except Exception as exc:                           # a broken file must not stop a run
             logger.warning("Could not read %s (%s); using built-in defaults.", path, exc)
-            _tuning_cache = {}
-    return _tuning_cache
+            _tuning_cache[name] = {}
+    return _tuning_cache[name]
 
 
 def reload_tuning() -> None:
-    """Forget the cached tuning file, so an edit takes effect without a restart."""
-    global _tuning_cache
-    _tuning_cache = None
+    """Forget the cached tuning file, so an edit takes effect without a restart.
+
+    This is the whole of what has to be forgotten. Every setting below is resolved at the moment
+    it is read rather than at import -- see :func:`__getattr__` -- so nothing else is holding a
+    value that an edit would have to invalidate.
+    """
+    _tuning_cache.clear()
 
 
 def _from_file(*path: str):
@@ -143,22 +152,54 @@ def setting(env: str, *path: str, default=None, cast=None):
         return default
 
 
-# The model each tier asks SafeChain for. These are the names SafeChain knows, which are the keys
-# in the config.yml the team shares -- not a provider's own path-style identifier.
-LLM_MODEL_ID = os.getenv("LLM_MODEL_ID", "gemini-2.5-pro")
+# ----------------------------------------------------------------- resolved when they are read
+#
+# Everything from here down is a function, and the module answers the settled-on constant names
+# from those functions -- see :func:`__getattr__` at the foot of the file. ``config.JUDGEMENT``
+# and ``config.PII_REDACTION`` read exactly as they always have at the call site and are resolved
+# at the moment they are read.
+#
+# This is not a style preference. The interface runs for hours against one process, and a value
+# fixed at import cannot be changed without restarting it -- which made ``reload_tuning`` a
+# half-truth, taking effect for the per-stage overrides and silently not for the model, the tiers,
+# the concurrency cap or whether redaction is on. Half a configuration reloading is worse than
+# none, because the half that does not is invisible.
+#
+# The ``_BUILTIN_*`` values are the genuine constants: what applies when nothing is configured
+# anywhere. Those are fixed at import because they are fixed, full stop.
 
-# Whether the configured model accepts images alongside text. Set LLM_VISION=off where the
-# gateway rejects the multimodal request shape -- diagram reading then degrades to asking a
-# person to describe the flow, rather than the run failing.
-LLM_VISION = _truthy(setting("LLM_VISION", "ingestion", "vision", default="on"))
+_BUILTIN_MODEL_ID = "gemini-2.5-pro"
+_BUILTIN_TEMPERATURE = 0.3
+_BUILTIN_MAX_ATTEMPTS = 4
+_BUILTIN_MAX_IMAGE_BYTES = 4_000_000
+_BUILTIN_MAX_CORPUS_CHARS = 2_000_000
+_BUILTIN_CONCURRENCY = 4
+_BUILTIN_RESOLVE_PASSES = 2
 
-# Base64 inflates an image by about a third, and gateways cap the request body. Anything larger
-# is refused with a reason rather than sent and rejected.
-MAX_IMAGE_BYTES = setting("LLM_MAX_IMAGE_BYTES", "ingestion", "max_image_bytes",
-                         default=4_000_000, cast=int)
 
-DEFAULT_TEMPERATURE = setting("LLM_TEMPERATURE", "defaults", "temperature",
-                             default=0.3, cast=float)
+def llm_model_id() -> str:
+    """The model every tier falls back to. A name SafeChain knows -- a key in the shared
+    config.yml, not a provider's own path-style identifier."""
+    return os.getenv("LLM_MODEL_ID", "").strip() or _BUILTIN_MODEL_ID
+
+
+def llm_vision() -> bool:
+    """Whether the configured model accepts images alongside text. Set LLM_VISION=off where the
+    gateway rejects the multimodal request shape -- diagram reading then degrades to asking a
+    person to describe the flow, rather than the run failing."""
+    return _truthy(setting("LLM_VISION", "ingestion", "vision", default="on"))
+
+
+def max_image_bytes() -> int:
+    """Base64 inflates an image by about a third, and gateways cap the request body. Anything
+    larger is refused with a reason rather than sent and rejected."""
+    return setting("LLM_MAX_IMAGE_BYTES", "ingestion", "max_image_bytes",
+                   default=_BUILTIN_MAX_IMAGE_BYTES, cast=int)
+
+
+def default_temperature() -> float:
+    return setting("LLM_TEMPERATURE", "defaults", "temperature",
+                   default=_BUILTIN_TEMPERATURE, cast=float)
 
 
 # --------------------------------------------------------------------------- redaction
@@ -169,17 +210,24 @@ DEFAULT_TEMPERATURE = setting("LLM_TEMPERATURE", "defaults", "temperature",
 # only place these are read. Off by default so the tool runs unmodified wherever the internal
 # redaction package (pii-redactor, built on ee_utils.redaction) has not been installed; turn it
 # on once it has, for anything but a local run against material that was never sensitive.
-PII_REDACTION = _truthy(setting("PII_REDACTION", "redaction", "enabled", default="off"))
+def pii_redaction() -> bool:
+    return _truthy(setting("PII_REDACTION", "redaction", "enabled", default="off"))
 
-# masking | substitution | disabled, and the text a masked span is replaced with.
-PII_REDACTION_MODE = setting("PII_REDACTION_MODE", "redaction", "mode", default="masking")
-PII_REDACTION_REPLACEMENT_TEXT = setting("PII_REDACTION_REPLACEMENT_TEXT", "redaction",
-                                        "replacement_text", default="[REDACTED]")
 
-# strict | balanced | loose -- how aggressive the engine's fallback masking is. Left unset
-# (rather than defaulted here) so the engine's own default applies unless a value is given.
-PII_REDACTION_SENSITIVITY = setting("PII_REDACTION_SENSITIVITY", "redaction",
-                                   "sensitivity", default=None)
+def pii_redaction_mode() -> str:
+    """masking | substitution | disabled."""
+    return setting("PII_REDACTION_MODE", "redaction", "mode", default="masking")
+
+
+def pii_redaction_replacement_text() -> str:
+    return setting("PII_REDACTION_REPLACEMENT_TEXT", "redaction",
+                   "replacement_text", default="[REDACTED]")
+
+
+def pii_redaction_sensitivity():
+    """strict | balanced | loose -- how aggressive the engine's fallback masking is. Left unset
+    (rather than defaulted here) so the engine's own default applies unless a value is given."""
+    return setting("PII_REDACTION_SENSITIVITY", "redaction", "sensitivity", default=None)
 
 
 def _csv(raw) -> list:
@@ -189,11 +237,16 @@ def _csv(raw) -> list:
     return [item.strip() for item in str(raw or "").split(",") if item.strip()]
 
 
-# Detector labels to switch off, and terms to leave alone regardless of what the engine would
-# otherwise mask -- both comma-separated, e.g. PII_REDACTION_ALLOW=American Express,New York.
-PII_REDACTION_EXCLUDE_ENTITIES = _csv(setting("PII_REDACTION_EXCLUDE_ENTITIES", "redaction",
-                                             "exclude_entities", default=""))
-PII_REDACTION_ALLOW = _csv(setting("PII_REDACTION_ALLOW", "redaction", "allow", default=""))
+def pii_redaction_exclude_entities() -> list:
+    """Detector labels to switch off, comma-separated."""
+    return _csv(setting("PII_REDACTION_EXCLUDE_ENTITIES", "redaction",
+                        "exclude_entities", default=""))
+
+
+def pii_redaction_allow() -> list:
+    """Terms to leave alone regardless of what the engine would otherwise mask, comma-separated --
+    e.g. PII_REDACTION_ALLOW=American Express,New York."""
+    return _csv(setting("PII_REDACTION_ALLOW", "redaction", "allow", default=""))
 
 
 def _thresholds(raw) -> dict:
@@ -214,18 +267,19 @@ def _thresholds(raw) -> dict:
     return thresholds
 
 
-PII_REDACTION_THRESHOLDS = _thresholds(setting("PII_REDACTION_THRESHOLDS", "redaction",
-                                              "thresholds", default=""))
+def pii_redaction_thresholds() -> dict:
+    return _thresholds(setting("PII_REDACTION_THRESHOLDS", "redaction", "thresholds", default=""))
 
 
-# How many times a call is retried before it is reported as failed, where a tier does not set its
-# own. Retries cover a gateway that is busy or briefly unreachable; anything the model rejects on
-# its merits is raised, since repeating a malformed request only wastes the time it takes to fail
-# again. A tier under heavier concurrent load -- more chunks in flight, each one retrying -- can
-# turn a brief gateway hiccup into a pile of simultaneous retries, which is what the per-tier
-# override below exists to relieve independently of this default.
-DEFAULT_MAX_ATTEMPTS = setting("LLM_MAX_ATTEMPTS", "defaults", "max_attempts",
-                              default=4, cast=int)
+def default_max_attempts() -> int:
+    """How many times a call is retried before it is reported as failed, where a tier does not set
+    its own. Retries cover a gateway that is busy or briefly unreachable; anything the model
+    rejects on its merits is raised, since repeating a malformed request only wastes the time it
+    takes to fail again. A tier under heavier concurrent load -- more chunks in flight, each one
+    retrying -- can turn a brief gateway hiccup into a pile of simultaneous retries, which is what
+    the per-tier override exists to relieve independently of this default."""
+    return setting("LLM_MAX_ATTEMPTS", "defaults", "max_attempts",
+                   default=_BUILTIN_MAX_ATTEMPTS, cast=int)
 
 
 @dataclass(frozen=True)
@@ -237,7 +291,7 @@ class Tier:
     model: str
     max_tokens: int
     reasoning_effort: str
-    max_attempts: int = DEFAULT_MAX_ATTEMPTS
+    max_attempts: int = _BUILTIN_MAX_ATTEMPTS
     temperature: float = None
 
 
@@ -246,15 +300,15 @@ def _tier(name: str, prefix: str, max_tokens: int, effort: str,
     """Build a tier from the environment, then ``tuning.yml``, then these built-in defaults."""
     return Tier(
         name=name,
-        model=setting(f"{prefix}_MODEL_ID", "tiers", name, "model", default="") or LLM_MODEL_ID,
+        model=setting(f"{prefix}_MODEL_ID", "tiers", name, "model", default="") or llm_model_id(),
         max_tokens=setting(f"{prefix}_MAX_TOKENS", "tiers", name, "max_tokens",
                            default=max_tokens, cast=int),
         reasoning_effort=setting(f"{prefix}_REASONING_EFFORT", "tiers", name, "reasoning_effort",
                                  default=effort),
         max_attempts=setting(f"{prefix}_MAX_ATTEMPTS", "tiers", name, "max_attempts",
-                             default=max_attempts or DEFAULT_MAX_ATTEMPTS, cast=int),
+                             default=max_attempts or default_max_attempts(), cast=int),
         temperature=setting(f"{prefix}_TEMPERATURE", "tiers", name, "temperature",
-                            default=DEFAULT_TEMPERATURE, cast=float),
+                            default=default_temperature(), cast=float),
     )
 
 
@@ -265,7 +319,8 @@ def _tier(name: str, prefix: str, max_tokens: int, effort: str,
 # from the same budget as the reply, so a high effort against a small cap truncates the JSON
 # instead of shortening the answer -- which is why the cap and the effort are set together and
 # why the cap is generous.
-JUDGEMENT = _tier("judgement", "LLM_JUDGEMENT", 65_536, "high")
+def judgement() -> Tier:
+    return _tier("judgement", "LLM_JUDGEMENT", 65_536, "high")
 
 # Weighing materiality. Judgement-shaped work -- it reasons about a scenario against its peers --
 # but unlike drafting or review it runs as many concurrent chunk calls as the benchmark has
@@ -273,11 +328,13 @@ JUDGEMENT = _tier("judgement", "LLM_JUDGEMENT", 65_536, "high")
 # hiccup into a pile of simultaneous retries, so this tier gets its own retry ladder, shorter than
 # the default, and its own model setting, separate from JUDGEMENT, so it can be pointed at
 # something smaller without changing what drafting or review use.
-MATERIALITY = _tier("materiality", "LLM_MATERIALITY", 32_000, "medium", max_attempts=2)
+def materiality() -> Tier:
+    return _tier("materiality", "LLM_MATERIALITY", 32_000, "medium", max_attempts=2)
 
 # Writing each scenario up for the modelling team. Mechanical and bounded by the batch size, but
 # the text is issued and read by people, so it stays on the main model by default.
-STANDARD = _tier("standard", "LLM", 16_000, "minimal")
+def standard() -> Tier:
+    return _tier("standard", "LLM", 16_000, "minimal")
 
 
 # --------------------------------------------------------------------------- per-stage overrides
@@ -337,9 +394,6 @@ def stage_batch_size(stage: str, default: int) -> int:
 # of input; four characters to a token puts this near half a million tokens, which leaves ample
 # room for the prompt and the reply. A pack larger than this is split across calls, which reads
 # worse, so the number is set to make that rare.
-DEFAULT_MAX_CORPUS_CHARS = 2_000_000
-
-
 def max_corpus_chars() -> int:
     """The corpus limit, read at the point of use.
 
@@ -347,15 +401,16 @@ def max_corpus_chars() -> int:
     import cannot be changed without a restart.
     """
     return setting("LLM_MAX_CORPUS_CHARS", "ingestion", "max_corpus_chars",
-                   default=DEFAULT_MAX_CORPUS_CHARS, cast=int)
+                   default=_BUILTIN_MAX_CORPUS_CHARS, cast=int)
 
 
 # How many times a question the first reading left open is put back to the documents before it is
 # put to the modelling team. Each pass is one call over the whole corpus, and each one that lands
 # saves the team a question. The last pass also triages what is left: a question only a person can
 # answer is worth asking, and one that does not change what gets tested is not worth anyone's time.
-INGEST_RESOLVE_PASSES = setting("LLM_INGEST_RESOLVE_PASSES", "ingestion", "resolve_passes",
-                               default=2, cast=int)
+def ingest_resolve_passes() -> int:
+    return setting("LLM_INGEST_RESOLVE_PASSES", "ingestion", "resolve_passes",
+                   default=_BUILTIN_RESOLVE_PASSES, cast=int)
 
 # Batching is two separate numbers, and it is easy to conflate them. "Batch size" (stage_batch_size,
 # above) is how many rows -- scenarios, chunks of text -- go into the payload of *one* call: it
@@ -365,7 +420,8 @@ INGEST_RESOLVE_PASSES = setting("LLM_INGEST_RESOLVE_PASSES", "ingestion", "resol
 # judge. Turning batch size down and concurrency up sends more, smaller calls, more of them at
 # once, which is usually faster and always cheaper per call to retry; turning batch size up sends
 # fewer, larger calls that each risk more work if one of them fails.
-MAX_CONCURRENCY = setting("LLM_MAX_CONCURRENCY", "concurrency", default=4, cast=int)
+def max_concurrency() -> int:
+    return setting("LLM_MAX_CONCURRENCY", "concurrency", default=_BUILTIN_CONCURRENCY, cast=int)
 
 
 def stage_concurrency(stage: str, default: int = None) -> int:
@@ -376,7 +432,51 @@ def stage_concurrency(stage: str, default: int = None) -> int:
     the same stage-then-global shape as :func:`stage_tier`, minus the tier step, since concurrency
     is not a property of a tier.
     """
-    fallback = default if default is not None else MAX_CONCURRENCY
+    fallback = default if default is not None else max_concurrency()
     return setting(f"LLM_STAGE_{stage.upper()}_CONCURRENCY", "stages", stage.lower(),
                    "concurrency", default=fallback, cast=int)
 
+
+# --------------------------------------------------------------------------- the settled names
+#
+# Every call site reads ``config.JUDGEMENT``, ``config.PII_REDACTION`` and the rest as attributes,
+# which is the right thing for them to read: what a pass wants is "the judgement tier", not "the
+# judgement tier as of whenever this module happened to be imported". Answering those names from
+# the resolvers above is what makes the second reading the true one, without a single call site
+# having to say so.
+#
+# Nothing in this package imports these names directly (``from .config import JUDGEMENT`` would
+# bind once and go stale, which is the very thing this exists to prevent); there is a test that
+# says so, in tests/test_settings_surface.py.
+_LIVE = {
+    "LLM_MODEL_ID": llm_model_id,
+    "LLM_VISION": llm_vision,
+    "MAX_IMAGE_BYTES": max_image_bytes,
+    "DEFAULT_TEMPERATURE": default_temperature,
+    "DEFAULT_MAX_ATTEMPTS": default_max_attempts,
+    "MAX_CORPUS_CHARS": max_corpus_chars,
+    "MAX_CONCURRENCY": max_concurrency,
+    "INGEST_RESOLVE_PASSES": ingest_resolve_passes,
+    "JUDGEMENT": judgement,
+    "MATERIALITY": materiality,
+    "STANDARD": standard,
+    "PII_REDACTION": pii_redaction,
+    "PII_REDACTION_MODE": pii_redaction_mode,
+    "PII_REDACTION_REPLACEMENT_TEXT": pii_redaction_replacement_text,
+    "PII_REDACTION_SENSITIVITY": pii_redaction_sensitivity,
+    "PII_REDACTION_EXCLUDE_ENTITIES": pii_redaction_exclude_entities,
+    "PII_REDACTION_ALLOW": pii_redaction_allow,
+    "PII_REDACTION_THRESHOLDS": pii_redaction_thresholds,
+}
+
+
+def __getattr__(name: str):
+    """Resolve a setting at the moment it is read. See :data:`_LIVE`."""
+    resolve = _LIVE.get(name)
+    if resolve is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return resolve()
+
+
+def __dir__() -> list:
+    return sorted(list(globals()) + list(_LIVE))

@@ -19,7 +19,8 @@ from __future__ import annotations
 from typing import Dict, List
 
 from ..core.generation import required_runs
-from ..core.models import MATERIALITY, Scenario
+from ..core.models import (MATERIALITY, ORIGIN_GRAPH, ORIGIN_PROBE, ORIGIN_PROPOSED,
+                           ORIGIN_VARIANT_GAP, Scenario)
 
 # What each view narrows to. "Needs attention" is first because it is the reason to open this
 # panel at all: a benchmark of three hundred scenarios is not read end to end, it is triaged.
@@ -48,7 +49,15 @@ STAGE_COLUMNS = {
     "issue": (TEXT, MATERIALITY_COLUMNS, REVIEW, COVERAGE),
 }
 
-ORIGIN_LABELS = {"graph": "Route", "probe": "Probe", "llm-proposed": "Proposed"}
+# Every origin gets a label. One was missing, so a scenario the variant sweep added showed its
+# raw slug on the page and could never be selected in the origin filter, which is built from
+# these values.
+ORIGIN_LABELS = {
+    ORIGIN_GRAPH: "Route",
+    ORIGIN_VARIANT_GAP: "Added route",
+    ORIGIN_PROBE: "Probe",
+    ORIGIN_PROPOSED: "Proposed",
+}
 
 # Beyond this the page stops being a page. The rest stay one click away in the workbook, and the
 # count of what is not shown is always stated rather than left for someone to discover. A person

@@ -1,7 +1,7 @@
 """Path-independent probes: load the library, decide which apply to an intake, and turn them
 into Scenario objects.
 
-Probes carry no decision path. They are distinguished from graph scenarios by `origin="probe"`,
+Probes carry no decision path. They are distinguished from graph scenarios by their origin,
 which is what excludes them from coverage matching — an empty signature is not a reliable
 discriminator once other scenario kinds exist.
 
@@ -17,7 +17,7 @@ from typing import Callable, Dict, List
 
 import yaml
 
-from .models import IntakeData, Persona, Scenario, TurnMeta
+from .models import ORIGIN_PROBE, IntakeData, Persona, Scenario, TurnMeta
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +134,7 @@ def instantiate_probe(probe: dict, index: int, personas: List[Persona]) -> Scena
         tools=[],
         touches_state_change=False,
         turn_meta=_probe_turn_meta(probe),
-        origin="probe",
+        origin=ORIGIN_PROBE,
     )
     scenario.probe_id = probe["id"]
     scenario.probe_family = probe.get("family", "")

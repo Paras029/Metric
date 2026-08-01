@@ -12,9 +12,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scenario_generator.ingest import (IngestionFailed, UnreadableDocument, build_context_document,
-                                       build_corpus, extract_documents, open_questions,
-                                       read_document, record_from_json, record_to_json)
+from scenario_generator.ingest import (IngestionFailed, build_context_document, build_corpus,
+                                       extract_documents, open_questions, record_from_json,
+                                       record_to_json)
 
 # One process described across three separate sections, the way real documentation does it.
 _SCATTERED = """# Handling a request

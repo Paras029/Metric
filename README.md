@@ -509,6 +509,7 @@ init-template       OUTPUT
 build-graph         INTAKE GRAPH_OUTPUT [--with-probes]
 build-probes        INTAKE GRAPH_INPUT GRAPH_OUTPUT
 refine              INTAKE GRAPH_INPUT OUTPUT_PREFIX [--no-llm] [--context FILE] [--note TEXT]
+                                                     (writes the registry; build-pack writes the pack)
 assess-materiality  INTAKE REGISTRY_IN REGISTRY_OUT [--no-llm] [--context FILE] [--note TEXT]
 review              INTAKE REGISTRY_IN REGISTRY_OUT [--no-llm] [--context FILE] [--note TEXT]
                                                     [--max-proposals N] [--pack FILE]

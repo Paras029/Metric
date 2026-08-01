@@ -63,19 +63,26 @@ def build_probes_stage(intake_path: str, graph_path: str, output_path: str) -> L
 
 def refine(intake_path: str, graph_path: str, output_prefix: str, writer=None,
            context_path: str = None, notes=None) -> List[Scenario]:
-    """Stage 2: graph file -> LLM description and turn plan -> challenge pack + registry.
+    """Stage 2: graph file -> LLM description and turn plan -> registry.
 
     Category and persona are already fixed deterministically by build-graph; materiality is not
-    assessed here — run `assess_materiality` next.
+    assessed here -- run ``assess_materiality`` next, then ``review``, then ``build_pack``.
+
+    No challenge pack is written here. It used to be, and it was wrong every time: the pack's
+    requested run counts come from materiality, which at this point is the untouched default on
+    every scenario, so what it wrote said "run each of these three times" and was superseded by
+    the next command in the sequence. A workbook that is stale the moment it is written is worse
+    than one that does not exist, because only the second is obviously missing. The pack is built
+    from the registry's final state -- see :func:`build_pack`, which exists for exactly this.
     """
     intake = read_intake(intake_path)
     scenarios = read_scenarios(graph_path, intake)
 
     (writer or ScenarioWriter(context=load_context(context_path, notes))).write(scenarios, intake)
 
-    write_challenge_pack(f"{output_prefix}_challenge_pack.xlsx", intake, scenarios)
     write_registry(f"{output_prefix}_registry.xlsx", intake, scenarios)
-    logger.info("Wrote %s_challenge_pack.xlsx and %s_registry.xlsx", output_prefix, output_prefix)
+    logger.info("Wrote %s_registry.xlsx. Assess materiality and review before building the pack.",
+                output_prefix)
     return scenarios
 
 
@@ -110,7 +117,9 @@ def generate(intake_path: str, output_prefix: str, writer=None,
 
     write_challenge_pack(f"{output_prefix}_challenge_pack.xlsx", intake, scenarios)
     write_registry(f"{output_prefix}_registry.xlsx", intake, scenarios)
-    logger.info("Wrote %s_challenge_pack.xlsx and %s_registry.xlsx", output_prefix, output_prefix)
+    logger.info("Wrote %s_challenge_pack.xlsx and %s_registry.xlsx. The pack reflects a benchmark "
+                "that has not been reviewed; run review and rebuild it before issuing.",
+                output_prefix, output_prefix)
     return scenarios
 
 

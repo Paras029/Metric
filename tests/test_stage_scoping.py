@@ -33,7 +33,7 @@ class TestColumnScoping(unittest.TestCase):
     """build_rows on its own, without a workspace behind it."""
 
     def setUp(self):
-        from scenario_generator.core.models import Decision, IntakeData, Persona, State, Tool
+        from scenario_generator.core.models import Decision, IntakeData, Persona, State
         intake = IntakeData(
             use_case={"Use case name": "T", "Business objective": "O"},
             personas=[Persona("P1", "Default", [], True)],

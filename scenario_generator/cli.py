@@ -37,8 +37,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_probes.add_argument("graph_input")
     p_probes.add_argument("graph_output", help="pass the same path as graph_input to update in place")
 
-    p_refine = sub.add_parser("refine",
-                              help="stage 2: LLM description and turn plan on a graph file")
+    p_refine = sub.add_parser(
+        "refine",
+        help="stage 2: LLM description and turn plan on a graph file, into a registry")
     p_refine.add_argument("intake")
     p_refine.add_argument("graph_input")
     p_refine.add_argument("output_prefix")

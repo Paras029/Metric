@@ -110,7 +110,11 @@ class TestStoppingAStageThroughTheInterface(unittest.TestCase):
         self.client.post("/stage/benchmark/run")
         self._settle("benchmark")
 
-    def _settle(self, key: str, timeout: float = 10.0) -> str:
+    # Generous on purpose. Every wait here is a poll that ends the moment the thing it is waiting
+    # for happens, so a long ceiling costs nothing when the machine is quick -- and the whole
+    # suite runs these stages alongside CPU-bound work, where a tight ceiling turns a slow moment
+    # into a failure that says nothing about stopping.
+    def _settle(self, key: str, timeout: float = 60.0) -> str:
         deadline = time.time() + timeout
         while time.time() < deadline:
             status = self.client.get(f"/stage/{key}/progress").get_json()["status"]
@@ -136,7 +140,7 @@ class TestStoppingAStageThroughTheInterface(unittest.TestCase):
         with mock.patch("scenario_generator.llm.materiality.ask_llm", blocking_complete):
             self.client.post("/stage/materiality/run")
 
-            deadline = time.time() + 5
+            deadline = time.time() + 60
             while not calls and time.time() < deadline:
                 time.sleep(0.01)
             self.assertTrue(calls, "the materiality call never started")

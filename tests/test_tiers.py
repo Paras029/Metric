@@ -170,16 +170,20 @@ class TestSettingsCascade(unittest.TestCase):
     """
 
     def setUp(self):
+        # Pointed by the environment, the way a person would point it: the module holds no
+        # assignable copy of the path, so there is nothing to patch that the reader consults.
+        self._env = mock.patch.dict(os.environ, {}, clear=False)
+        self._env.start()
         config.reload_tuning()
 
     def tearDown(self):
-        config.TUNING_PATH = "tuning.yml"
+        self._env.stop()
         config.reload_tuning()
 
     def _with_tuning(self, body: str) -> None:
         path = Path(tempfile.mkdtemp()) / "tuning.yml"
         path.write_text(body, encoding="utf-8")
-        config.TUNING_PATH = str(path)
+        os.environ["TUNING_PATH"] = str(path)
         config.reload_tuning()
 
     def test_the_tuning_file_supplies_a_value_the_environment_does_not(self):
@@ -192,7 +196,7 @@ class TestSettingsCascade(unittest.TestCase):
             self.assertEqual(config.stage_batch_size("WRITER", 8), 9)
 
     def test_no_tuning_file_falls_through_to_the_built_in_default(self):
-        config.TUNING_PATH = str(Path(tempfile.mkdtemp()) / "absent.yml")
+        os.environ["TUNING_PATH"] = str(Path(tempfile.mkdtemp()) / "absent.yml")
         config.reload_tuning()
         self.assertEqual(config.stage_batch_size("WRITER", 8), 8)
 

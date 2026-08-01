@@ -10,7 +10,8 @@ import re
 from typing import Dict, List, Optional, Tuple
 
 from .graph import DecisionGraph, Path
-from .models import RUNS_BY_MATERIALITY, Persona, Scenario, Step, Tool, TurnMeta
+from .models import (ORIGIN_GRAPH, ORIGIN_VARIANT_GAP, RUNS_BY_MATERIALITY, Persona,
+                     Scenario, Step, Tool, TurnMeta)
 
 _NUMBERED_LINE = re.compile(r"^\s*\d+\s*[\.\)]\s*(.+)$")
 
@@ -165,13 +166,11 @@ def instantiate_path(path: Path, graph: DecisionGraph, personas: List[Persona],
 def instantiate_all(walked: List[Path], augmented: List[Path], graph: DecisionGraph,
                     personas: List[Persona], tools: List[Tool]) -> List[Scenario]:
     """All scenarios, ordered and assigned stable SC-xxx IDs."""
-    scenarios = [instantiate_path(p, graph, personas, tools, "graph") for p in walked]
-    # "coverage-gap" here means a gap in what the *walk* covered -- an outcome the depth-first
-    # traversal never reached, given a route of its own by the variant sweep. It predates the
-    # coverage stage and is unrelated to it; see FUNCTIONAL_ORIGINS.
-    scenarios += [instantiate_path(p, graph, personas, tools, "coverage-gap") for p in augmented]
+    scenarios = [instantiate_path(p, graph, personas, tools, ORIGIN_GRAPH) for p in walked]
+    scenarios += [instantiate_path(p, graph, personas, tools, ORIGIN_VARIANT_GAP)
+                  for p in augmented]
 
-    order = {"graph": 0, "coverage-gap": 1}
+    order = {ORIGIN_GRAPH: 0, ORIGIN_VARIANT_GAP: 1}
     scenarios.sort(key=lambda s: (order.get(s.origin, 9), s.category, len(s.path)))
     for index, scenario in enumerate(scenarios, start=1):
         scenario.id = f"SC-{index:03d}"
