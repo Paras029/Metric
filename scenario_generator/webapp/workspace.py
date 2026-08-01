@@ -14,10 +14,12 @@ data loss -- but the interface stops presenting them as current.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import threading
 import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,6 +28,8 @@ from typing import Dict, List, Optional, Set, Tuple
 from ..core.representation import DEFAULT_THRESHOLD
 from .stages import (COMPLETE, FAILED, LOCKED, READY, RUNNING, STAGE_BY_KEY, STAGE_KEYS,
                      STALE, STAGES, STOPPED, Stage, downstream_of, index_of, required_before)
+
+logger = logging.getLogger(__name__)
 
 STATE_FILE = "workspace.json"
 _SAFE_NAME = re.compile(r"[^a-z0-9]+")
@@ -51,12 +55,18 @@ def _lock_for(path: Path) -> threading.Lock:
         return _save_locks[key]
 
 
-# The runs this process actually started, as (workspace, stage). A stage's work only ever happens
-# on a thread inside the process that marked it running, so this set is the whole truth about
-# whether a run recorded on disk is still alive: after a restart it is empty, which is precisely
-# correct -- every run that was in flight died with the process that was hosting it. Deliberately
-# not persisted, for the same reason the stop signals in :mod:`.stagecancel` are not.
-_live_runs: Set[Tuple[str, str]] = set()
+# The runs this process actually started, as (workspace, stage) -> the id of the run that owns the
+# stage. A stage's work only ever happens on a thread inside the process that marked it running,
+# so this is the whole truth about whether a run recorded on disk is still alive: after a restart
+# it is empty, which is precisely correct -- every run that was in flight died with the process
+# hosting it. Deliberately not persisted, for the same reason the stop signals in
+# :mod:`.stagecancel` are not.
+#
+# It holds the run id rather than only the key because a run ending has to forget *itself*: a
+# thread unwinding after the stage was started again would otherwise remove the marker the newer
+# run had just installed, and :meth:`Workspace._settle` would then read a genuinely running stage
+# as one that died with an interrupted process.
+_live_runs: Dict[Tuple[str, str], str] = {}
 _live_guard = threading.Lock()
 
 
@@ -64,9 +74,9 @@ def _run_key(root: Path, stage_key: str) -> Tuple[str, str]:
     return (str(Path(root).resolve()), stage_key)
 
 
-def _mark_live(root: Path, stage_key: str) -> None:
+def _mark_live(root: Path, stage_key: str, run_id: str = "") -> None:
     with _live_guard:
-        _live_runs.add(_run_key(root, stage_key))
+        _live_runs[_run_key(root, stage_key)] = run_id
 
 
 def _is_live(root: Path, stage_key: str) -> bool:
@@ -74,10 +84,16 @@ def _is_live(root: Path, stage_key: str) -> bool:
         return _run_key(root, stage_key) in _live_runs
 
 
-def forget_run(root: Path, stage_key: str) -> None:
-    """Drop a run from the live set once it has ended, however it ended."""
+def forget_run(root: Path, stage_key: str, run_id: str = None) -> None:
+    """Drop a run from the live set once it has ended, however it ended.
+
+    Only its own: a run with no id is from before ids existed and clears the entry outright, but
+    one that knows which run it is leaves a newer run's marker alone.
+    """
+    key = _run_key(root, stage_key)
     with _live_guard:
-        _live_runs.discard(_run_key(root, stage_key))
+        if run_id is None or _live_runs.get(key) in (None, "", run_id):
+            _live_runs.pop(key, None)
 
 
 # How long to keep retrying a Windows file-replace that is transiently refused. OneDrive and
@@ -125,6 +141,15 @@ class StageState:
     artifacts: Dict[str, str] = field(default_factory=dict)
     summary: Dict[str, object] = field(default_factory=dict)
     progress: Dict[str, object] = field(default_factory=dict)
+    run_id: str = ""
+    """Which run of this stage the recorded status belongs to.
+
+    A stage's thread writes its verdict when it unwinds, which is not always before the person
+    watching has started the stage again: stop a long run, see it stop, press Run -- and the old
+    thread's "stopped" could land after the new run had begun, so the new run read as stopped
+    while it was still working, or as failed with the previous run's error. Every terminal write
+    carries the id of the run making it and is dropped if the stage has moved on since.
+    """
 
     @property
     def percent(self) -> int:
@@ -136,14 +161,14 @@ class StageState:
     def to_dict(self) -> dict:
         return {"status": self.status, "updated_at": self.updated_at, "note": self.note,
                 "artifacts": dict(self.artifacts), "summary": dict(self.summary),
-                "progress": dict(self.progress)}
+                "progress": dict(self.progress), "run_id": self.run_id}
 
     @classmethod
     def from_dict(cls, data: dict) -> "StageState":
         return cls(status=data.get("status", LOCKED), updated_at=data.get("updated_at", ""),
                    note=data.get("note", ""), artifacts=dict(data.get("artifacts", {})),
                    summary=dict(data.get("summary", {})),
-                   progress=dict(data.get("progress", {})))
+                   progress=dict(data.get("progress", {})), run_id=data.get("run_id", ""))
 
 
 class Workspace:
@@ -343,24 +368,53 @@ class Workspace:
         :func:`_replace` covers the moment something outside Python -- a sync client, a virus
         scanner -- is holding the destination open at the same instant.
         """
-        self.root.mkdir(parents=True, exist_ok=True)
-        payload = {"name": self.name, "created_at": self.created_at,
-                   "notes": list(self.notes),
-                   "redact_files": sorted(self.redact_files),
-                   "structure_proposals": list(self.structure_proposals),
-                   "coverage_threshold": self.coverage_threshold,
-                   "coverage": dict(self.coverage),
-                   "pack_gaps_only": self.pack_gaps_only,
-                   "stages": {k: v.to_dict() for k, v in self.stages.items()}}
-
         with _lock_for(self.state_path):
-            pending = self.state_path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
-            try:
-                pending.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-                _replace(pending, self.state_path)
-            finally:
-                if pending.exists():
-                    pending.unlink()
+            self._write()
+
+    def _payload(self) -> dict:
+        return {"name": self.name, "created_at": self.created_at,
+                "notes": list(self.notes),
+                "redact_files": sorted(self.redact_files),
+                "structure_proposals": list(self.structure_proposals),
+                "coverage_threshold": self.coverage_threshold,
+                "coverage": dict(self.coverage),
+                "pack_gaps_only": self.pack_gaps_only,
+                "stages": {k: v.to_dict() for k, v in self.stages.items()}}
+
+    def _write(self) -> None:
+        """Write the record. The caller holds the lock -- see :meth:`save` and :meth:`_commit`."""
+        self.root.mkdir(parents=True, exist_ok=True)
+        pending = self.state_path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
+        try:
+            pending.write_text(json.dumps(self._payload(), indent=2), encoding="utf-8")
+            _replace(pending, self.state_path)
+        finally:
+            if pending.exists():
+                pending.unlink()
+
+    def _commit(self, key: str, run_id: Optional[str], change) -> bool:
+        """Apply a run's verdict, but only if the stage has not moved on. Returns whether it did.
+
+        Read, check and write happen together under the file lock. Checking this instance's copy
+        instead would leave a window between loading the record and saving it in which another run
+        could start -- and the write that followed would not merely be out of date, it would put
+        the whole record back to what it was when this run loaded it, run id included.
+        """
+        with _lock_for(self.state_path):
+            if run_id and self.state_path.exists():
+                try:
+                    current = json.loads(self.state_path.read_text(encoding="utf-8"))
+                    recorded = current.get("stages", {}).get(key, {}).get("run_id", "")
+                except (OSError, ValueError):                # unreadable: this run is all we have
+                    recorded = ""
+                if recorded and recorded != run_id:
+                    logger.info("A finished run of %s reported after the stage was started again; "
+                                "its result is dropped rather than overwriting the newer run.",
+                                key)
+                    return False
+            change()
+            self._write()
+        return True
 
     @classmethod
     def load(cls, root: Path) -> "Workspace":
@@ -436,14 +490,36 @@ class Workspace:
             current.status = READY if satisfied else LOCKED
         return reconciled
 
-    def mark_running(self, key: str) -> None:
-        """A stage has started. Its progress is written to disk so the page can read it."""
-        _mark_live(self.root, key)
+    def mark_running(self, key: str) -> str:
+        """A stage has started. Returns the id of this run, which its verdict must carry back.
+
+        Progress is written to disk so the page can read it, and so can the thread doing the work:
+        the record is the one source of truth for what has happened, not anything held in memory.
+        """
         state = self.stages[key]
         state.status, state.updated_at = RUNNING, _now()
         state.note = ""
+        state.run_id = uuid.uuid4().hex
         state.progress = {"message": "Starting", "done": 0, "total": 0}
+        _mark_live(self.root, key, state.run_id)
         self.save()
+        return state.run_id
+
+    def owns(self, key: str, run_id: Optional[str]) -> bool:
+        """Whether a run's verdict is still the one this stage is waiting for.
+
+        Read from the record rather than from this instance, which may have been loaded before
+        another run started. A run with no id predates this and is trusted, so nothing that used
+        to write a status has to be changed for it to keep working.
+        """
+        if not run_id or not self.state_path.exists():
+            return True
+        try:
+            current = json.loads(self.state_path.read_text(encoding="utf-8"))
+            recorded = current.get("stages", {}).get(key, {}).get("run_id", "")
+        except (OSError, ValueError):
+            return True
+        return not recorded or recorded == run_id
 
     def report_progress(self, key: str, message: str, done: int = 0, total: int = 0) -> None:
         """Record where a running stage has got to.
@@ -456,46 +532,56 @@ class Workspace:
         state.progress = {"message": message, "done": done, "total": total}
         self.save()
 
-    def mark_failed(self, key: str, note: str) -> None:
-        forget_run(self.root, key)
-        state = self.stages[key]
-        state.status, state.note, state.updated_at = FAILED, note, _now()
-        state.progress = {}
-        self.save()
+    def mark_failed(self, key: str, note: str, run_id: str = None) -> None:
+        def change():
+            state = self.stages[key]
+            state.status, state.note, state.updated_at = FAILED, note, _now()
+            state.progress = {}
 
-    def mark_stopped(self, key: str) -> None:
+        if self._commit(key, run_id, change):
+            forget_run(self.root, key, run_id)
+
+    def mark_stopped(self, key: str, run_id: str = None) -> None:
         """A stage was asked to stop and unwound before finishing.
 
         Nothing it would have written was, so the stage sits exactly where it was before this run
         started -- distinct from a failure, and just as ready to be run again.
         """
-        forget_run(self.root, key)
-        state = self.stages[key]
-        state.status, state.note, state.updated_at = STOPPED, "Stopped before finishing.", _now()
-        state.progress = {}
-        self.save()
+        def change():
+            state = self.stages[key]
+            state.status, state.updated_at = STOPPED, _now()
+            state.note, state.progress = "Stopped before finishing.", {}
+
+        if self._commit(key, run_id, change):
+            forget_run(self.root, key, run_id)
 
     def complete(self, key: str, artifacts: Optional[Dict[str, str]] = None,
-                 summary: Optional[Dict[str, object]] = None, note: str = "") -> List[Stage]:
+                 summary: Optional[Dict[str, object]] = None, note: str = "",
+                 run_id: str = None) -> List[Stage]:
         """Record a stage as done and mark everything downstream of it out of date.
 
         Returns the stages that were invalidated, so the interface can say what just happened
         rather than leaving the user to notice on their own.
         """
-        forget_run(self.root, key)
-        state = self.stages[key]
-        state.status = COMPLETE
-        state.updated_at = _now()
-        state.note = note
-        state.progress = {}
-        if artifacts:
-            state.artifacts.update(artifacts)
-        if summary is not None:
-            state.summary = dict(summary)
+        invalidated: List[Stage] = []
 
-        invalidated = self.invalidate_after(key)
-        self._settle()
-        self.save()
+        def change():
+            nonlocal invalidated
+            state = self.stages[key]
+            state.status = COMPLETE
+            state.updated_at = _now()
+            state.note = note
+            state.progress = {}
+            if artifacts:
+                state.artifacts.update(artifacts)
+            if summary is not None:
+                state.summary = dict(summary)
+            invalidated = self.invalidate_after(key)
+            self._settle()
+
+        if not self._commit(key, run_id, change):
+            return []
+        forget_run(self.root, key, run_id)
         return invalidated
 
     def invalidate_after(self, key: str) -> List[Stage]:

@@ -659,13 +659,13 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         if workspace.state(key).status == RUNNING:
             return redirect(url_for("stage", key=key))
 
-        workspace.mark_running(key)
+        run_id = workspace.mark_running(key)
         root = workspace.root
         # Registered here, in the request that starts the run, rather than inside the thread it
         # starts -- so a stop clicked in the instant after this returns always finds a signal
         # waiting for it, rather than racing the new thread to create one.
         event = stagecancel.start(root, key)
-        threading.Thread(target=_execute, args=(root, key, event), daemon=True).start()
+        threading.Thread(target=_execute, args=(root, key, event, run_id), daemon=True).start()
         return redirect(url_for("stage", key=key))
 
     @app.route("/stage/<key>/stop", methods=["POST"])
@@ -754,12 +754,17 @@ if __name__ == "__main__":
     main()
 
 
-def _execute(root: Path, key: str, cancel) -> None:
+def _execute(root: Path, key: str, cancel, run_id: str = None) -> None:
     """Run one stage on a background thread, reporting progress as it goes.
 
     The workspace is re-read here rather than handed across the thread boundary, so the record on
     disk stays the one source of truth for what has happened -- the same record the polling
     request reads, and the same one the command line would read.
+
+    ``run_id`` identifies this run, and every verdict below carries it. A thread unwinding is not
+    always faster than the person watching: stop a long run, see it stop, press Run again, and
+    this thread's "stopped" could otherwise land on top of the run that had already started. See
+    :meth:`Workspace.owns`.
 
     ``cancel`` is the stop signal ``run_stage`` registered before this thread was started, and
     every runner takes it. It used to go only to the stages that make many model calls, which is
@@ -783,18 +788,20 @@ def _execute(root: Path, key: str, cancel) -> None:
         # Nothing this run would have written was: the pass raises before its caller reaches the
         # write. The workspace is exactly where it was before the run started.
         logger.info("Stage %s stopped by the user.", key)
-        Workspace.load(root).mark_stopped(key)
+        Workspace.load(root).mark_stopped(key, run_id=run_id)
         return
     except Exception as exc:                              # surfaced in the panel, not swallowed
         logger.exception("Stage %s failed", key)
-        Workspace.load(root).mark_failed(key, str(exc))
+        Workspace.load(root).mark_failed(key, str(exc), run_id=run_id)
         return
     finally:
         stagecancel.clear(root, key, cancel)
 
     finished = Workspace.load(root)
+    if not finished.owns(key, run_id):
+        return
     finished.stages[key].artifacts.update(workspace.stages[key].artifacts)
-    finished.complete(key, summary=summary)
+    finished.complete(key, summary=summary, run_id=run_id)
 
 
 def _refusal(names) -> str:

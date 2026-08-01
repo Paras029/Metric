@@ -16,6 +16,7 @@ from scenario_generator.core.intake import write_template
 from scenario_generator.llm import cancellation
 from scenario_generator.llm.calling import call_batch
 from scenario_generator.webapp.app import create_app
+from scenario_generator.webapp.workspace import Workspace
 
 
 def _intake_workbook(directory: Path) -> Path:
@@ -97,6 +98,7 @@ class TestStoppingAStageThroughTheInterface(unittest.TestCase):
         self.app = create_app(self.root)
         self.client = self.app.test_client()
         self.client.post("/workspaces", data={"name": "Stoppable"})
+        self.slug = "stoppable"
 
         scratch = Path(tempfile.mkdtemp())
         intake_path = _intake_workbook(scratch)
@@ -165,6 +167,65 @@ class TestStoppingAStageThroughTheInterface(unittest.TestCase):
         with mock.patch("scenario_generator.llm.materiality.ask_llm", lambda s, u, **k: "{}"):
             self.client.post("/stage/materiality/run")
             self.assertEqual(self._settle("materiality"), "complete")
+
+    def test_a_finished_run_never_overwrites_the_status_of_a_newer_one(self):
+        """The failure the test above kept tripping over, reproduced directly.
+
+        A stage's thread writes its verdict as it unwinds, and that is not always faster than the
+        person watching: stop a long run, see it stop, press Run again, and the old thread's
+        "stopped" lands on a stage that has already started working. The new run then reads as
+        stopped -- or, if the old run failed, as failed with the previous run's error.
+        """
+        workspace = Workspace.load(self.root / self.slug)
+        first = workspace.mark_running("materiality")
+
+        # The person presses Run again before the first thread has finished unwinding.
+        restarted = Workspace.load(self.root / self.slug)
+        second = restarted.mark_running("materiality")
+        self.assertNotEqual(first, second)
+
+        # Now the first run reports. Both verdicts, because both are written the same way.
+        Workspace.load(self.root / self.slug).mark_stopped("materiality", run_id=first)
+        self.assertEqual(Workspace.load(self.root / self.slug).state("materiality").status,
+                         "running")
+        Workspace.load(self.root / self.slug).mark_failed("materiality", "old error",
+                                                          run_id=first)
+        state = Workspace.load(self.root / self.slug).state("materiality")
+        self.assertEqual(state.status, "running")
+        self.assertNotIn("old error", state.note)
+
+        # The run that owns the stage still settles it.
+        Workspace.load(self.root / self.slug).complete("materiality", summary={"Scenarios": 1},
+                                                       run_id=second)
+        self.assertEqual(Workspace.load(self.root / self.slug).state("materiality").status,
+                         "complete")
+
+    def test_a_finished_run_does_not_unmark_a_newer_one_as_alive(self):
+        """The other half of the same race, and the one that survived the first fix.
+
+        A run ending clears the marker that says its stage is alive in this process. Clearing it
+        by stage alone removed the marker a newer run had just installed -- and the reconciler,
+        which exists to catch a stage left running by an interrupted process, then read a stage
+        that was genuinely working as one whose thread had died.
+        """
+        workspace = Workspace.load(self.root / self.slug)
+        first = workspace.mark_running("materiality")
+        stale = Workspace.load(self.root / self.slug)      # the old thread, before it unwinds
+
+        second = Workspace.load(self.root / self.slug).mark_running("materiality")
+        stale.mark_stopped("materiality", run_id=first)
+
+        state = Workspace.load(self.root / self.slug).state("materiality")
+        self.assertEqual(state.status, "running")
+        self.assertEqual(state.run_id, second)
+
+    def test_a_verdict_with_no_run_id_is_still_honoured(self):
+        """Nothing that used to write a status has to be changed for it to keep working."""
+        workspace = Workspace.load(self.root / self.slug)
+        workspace.mark_running("materiality")
+        Workspace.load(self.root / self.slug).mark_stopped("materiality")
+        self.assertEqual(Workspace.load(self.root / self.slug).state("materiality").status,
+                         "stopped")
 
     def test_stopping_a_stage_nobody_is_listening_to_is_a_quiet_no_op(self):
         """Nothing is running, so there is nothing to stop -- and nothing should break either."""
