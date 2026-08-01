@@ -9,7 +9,7 @@ Your job has two parts, in this order:
 1. **Join them into one graph.** An arrow recorded under `continues_offpage` in one image is the
    same arrow as whatever picks it up in another; follow it and connect the two. A box drawn in
    two images so the join makes sense is one box, not two.
-2. **Write that graph down in the vocabulary the validation team's intake uses**, which is what
+2. **Write that graph down in the vocabulary the validator's intake uses**, which is what
    the rest of this exercise is built from.
 
 THE READINGS

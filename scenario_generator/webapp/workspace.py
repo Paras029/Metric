@@ -277,7 +277,7 @@ class Workspace:
         """
         if not self.notes:
             return ""
-        return "\n".join(["NOTES ADDED BY THE VALIDATION TEAM", ""]
+        return "\n".join(["NOTES ADDED BY THE VALIDATOR", ""]
                          + [f"- {line}" for line in self.note_lines()])
 
     # ----------------------------------------------------------------- redaction

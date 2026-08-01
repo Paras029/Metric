@@ -3,7 +3,7 @@
 Every other pass sees one narrow slice — a batch of scenarios, or one owner scenario at a time.
 This pass is given the whole picture: what the validation is for, what the agent is, its full
 declared structure, what each registry field means, the deterministic redundancy evidence, a
-digest of every scenario generated, and, where available, the scenarios the agent's own team
+digest of every scenario generated, and, where available, the scenarios the model owner
 submitted. It runs with raised reasoning effort and smaller batches because it is asked to weigh
 rather than classify.
 
@@ -198,7 +198,7 @@ class ScenarioReviewer:
             "THE AGENT UNDER TEST\n\n"
             "An agentic AI system: software that holds a conversation, decides what to do at each "
             "step, and calls tools to act on those decisions. This one is described below exactly "
-            f"as the team that built it declared it.\n\n{describe_use_case(intake)}",
+            f"as the model owner declared it.\n\n{describe_use_case(intake)}",
             "ITS DECLARED STRUCTURE\n\n"
             "A state is a position the interaction can be in; a decision is a branch point with "
             "named outcomes; an outcome leads to another state or ends the interaction. This is "

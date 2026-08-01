@@ -28,14 +28,12 @@ MIN_QUOTE_CHARS = 16
 
 # How much of the quote must be found, in order, in the source.
 #
-# This was 0.90 and rejected too much. The number trades two failures against each other, and
-# they are not equally costly here. A fabricated quote is caught at almost any threshold, because
-# invented text shares little with the document. A real quote fails when the model tidied
-# punctuation, joined two sentences, or dropped a clause -- all of which are faithful readings
-# expressed loosely. Losing those is how extraction ends up thin, and a benchmark built on a thin
-# reading of the documentation is the expensive outcome. Verification is also now run against the
-# whole document rather than a single passage, which removes the other large source of false
-# rejections: a quote that legitimately straddles a chunk boundary.
+# The number trades two failures against each other, and they are not equally costly here. A
+# fabricated quote is caught at almost any threshold, because invented text shares little with the
+# document. A real quote fails when the model tidied punctuation, joined two sentences, or dropped
+# a clause -- all of which are faithful readings expressed loosely. Losing those is how extraction
+# ends up thin, and a benchmark built on a thin reading of the documentation is the expensive
+# outcome, so the threshold sits where loose-but-faithful quotes survive.
 MATCH_THRESHOLD = 0.78
 
 _HYPHEN_BREAK = re.compile(r"(\w)[-‐-―]\s*\n\s*(\w)")
@@ -93,9 +91,10 @@ _MAX_ANCHORS = 6
 class Source:
     """A source text prepared once, so many quotes can be checked against it cheaply.
 
-    Normalising a submitted pack costs tens of milliseconds and depends only on the source, so
-    doing it per quote meant a verification pass repeated it once for every citation. Held here
-    instead, and the quote is the only thing that changes between checks.
+    Normalising a submitted pack costs tens of milliseconds and depends only on the source, so a
+    verification pass that normalised per quote would repeat that work once for every citation.
+    The prepared text is held here instead, and the quote is the only thing that changes between
+    checks.
     """
 
     def __init__(self, text: str) -> None:
@@ -105,19 +104,19 @@ class Source:
         return bool(self.text)
 
     def _windows(self, quote: str) -> List[str]:
-        """The stretches of source worth scoring this quote against, best-first is not required.
+        """The stretches of source worth scoring this quote against, in no particular order.
 
         A quote earns a neighbourhood by having a verbatim run of at least ``_MIN_ANCHOR_SHARE`` of
-        its own length somewhere in the source -- the same bar as before, and the thing that stops
-        an invented sentence being assembled out of common words scattered across a pack.
+        its own length somewhere in the source. That bar is what stops an invented sentence being
+        assembled out of common words scattered across a pack.
 
         The run is found by searching for it rather than by diffing the quote against the whole
         source. ``SequenceMatcher.find_longest_match`` walks every position at which each character
-        of the quote occurs in the source, which against a six-hundred-thousand-character pack is
-        millions of steps per quote and was measured at over a second each; a real reading cites
-        dozens. ``str.find`` answers the same question -- is this run present, and where -- in one
-        pass of compiled string search. The bar being a *contiguous* run is what makes the two
-        interchangeable: a run either appears verbatim or it does not.
+        of the quote occurs in the source, which against a six-hundred-thousand-character pack runs
+        to millions of steps per quote -- and a real reading cites dozens. ``str.find`` answers the
+        same question -- is this run present, and where -- in one pass of compiled string search.
+        The bar being a *contiguous* run is what makes the two interchangeable: a run either
+        appears verbatim or it does not.
         """
         probe = max(MIN_QUOTE_CHARS // 2, int(len(quote) * _MIN_ANCHOR_SHARE))
         if len(quote) < probe:

@@ -154,7 +154,7 @@ def read_review_notes(path: str) -> List[dict]:
 
 
 def read_owner_scenarios(path: str, sheet_name: str = "Scenarios") -> List[OwnerScenario]:
-    """Read a modelling team's own declared scenario list: ID, Description, optional Decision Path.
+    """Read a model owner's declared scenario list: ID, Description, optional Decision Path.
 
     Not the coverage stage's input -- that reads transcripts, since a list of scenario titles is a
     claim about their testing rather than the testing itself. This is the optional context handed
@@ -231,8 +231,8 @@ def set_decision_scope(path: str, decision_id: str, out_of_scope: bool) -> bool:
     person is expected to flip while looking at the graph rather than while looking at a
     spreadsheet, so the interface writes it directly instead of making a full workbook round trip
     the only way to set it. ``sheet.cell(...)`` rather than indexing the row tuple, because a
-    workbook drafted before this column existed has fewer than nine columns and indexing past the
-    end of a short row raises; writing by row and column number extends the sheet instead.
+    workbook that omits this column has fewer than nine columns and indexing past the end of a
+    short row raises; writing by row and column number extends the sheet instead.
     """
     workbook = _open_for_editing(path)
     if "L3 Decisions" not in workbook.sheetnames:

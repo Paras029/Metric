@@ -4,15 +4,15 @@ The documents are read **whole**. Every submitted file is turned into text with 
 intact, joined into one corpus, and put to the model in a handful of calls that each answer a
 group of related questions across all of it at once.
 
-This replaced a passage-at-a-time survey followed by a per-question synthesis. That shape existed
-to work around a context window too small to hold a document, and cost roughly thirty calls for a
-sixty-page pack -- thirty chances to fail, thirty waits, and thirty readings each blind to the
-rest of the document. The models this runs against hold a million tokens; a sixty-page document is
-about forty thousand. The workaround was solving a problem that had gone away, and the reading is
-better for being whole: a threshold in an appendix and the process it governs in section three
-are in front of the model together rather than in two calls that never meet.
+Reading whole is what makes the reading good. The alternative -- surveying a passage at a time and
+synthesising per question -- is a workaround for a context window too small to hold a document,
+and it costs roughly thirty calls for a sixty-page pack: thirty chances to fail, thirty waits, and
+thirty readings each blind to the rest of the document. The models this runs against hold a
+million tokens and a sixty-page document is about forty thousand, so there is no window to work
+around. A threshold in an appendix and the process it governs in section three are in front of the
+model together rather than in two calls that never meet.
 
-Three things survive from the old design because they earn their place.
+Three things guard that reading.
 
 Grounding. Every answer cites verbatim quotes, and each is checked against the corpus. A quote
 that cannot be found is dropped, and an answer that loses all of its evidence is marked for
@@ -20,12 +20,12 @@ confirmation rather than trusted.
 
 The resolution sweep. Questions the first reading left open are put back to the documents,
 directly, more than once. A question asked directly is often answered by material a general
-reading had no reason to connect, and every question that survives to the modelling team costs
+reading had no reason to connect, and every question that survives to the model owner costs
 days. Whatever the documents still do not settle is carried to the intake stage, which decides
 what is actually blocking from the declaration itself rather than by asking a model to guess.
 
 Splitting, but only as a fallback. A corpus past ``config.max_corpus_chars()`` is divided and the
-parts merged, with a warning. That is the exception now rather than the rule.
+parts merged, with a warning. That is the exception rather than the rule.
 """
 from __future__ import annotations
 

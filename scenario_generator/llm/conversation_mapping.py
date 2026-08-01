@@ -1,8 +1,9 @@
-"""Mapping the conversations a team actually ran onto the scenarios we generated.
+"""Mapping the conversations the model owner actually ran onto the generated benchmark.
 
-The coverage question is "what does their testing already cover", and the honest way to answer it
-is from the transcripts rather than from whatever they filed the transcripts under. A team's own
-scenario labels are frequently absent, and where present are frequently the thing being checked.
+The coverage question is "what does the model owner's testing already cover", and the honest way
+to answer it is from the transcripts rather than from whatever the transcripts were filed under.
+The model owner's own scenario labels are frequently absent, and where present are frequently the
+thing being checked.
 
 One conversation maps to at most one scenario, and the discriminator is **where it ends**. A
 benchmark scenario is a complete route to a specific ending, and some routes are prefixes of
@@ -11,7 +12,7 @@ and then goes on to verify a charge, even though the second contains the first. 
 route alone silently files the short one under the long one and reports coverage that does not
 exist. The prompt is explicit about this because it is the mistake that matters.
 
-"Nothing fits" is a first-class answer, not a failure. It means either the team is testing
+"Nothing fits" is a first-class answer, not a failure. It means either the model owner is testing
 something the benchmark never enumerated -- worth knowing, and a candidate to add -- or that
 conversation is not a test of this agent. Either reading is more useful than a nearest-fit match
 nobody can trust.
@@ -60,10 +61,11 @@ class Mapping:
     ending: str = ""
     reason: str = ""
     declared_group: str = ""
-    """What the team filed this conversation under, where they filed it at all.
+    """What the model owner filed this conversation under, where it was filed at all.
 
     Carried through the mapping untouched and never shown to the call that decides the match --
-    see :func:`_render`. It exists so their grouping can be compared with ours afterwards.
+    see :func:`_render`. It exists so the model owner's grouping can be compared with the
+    validator's afterwards.
     """
 
     answered: bool = True
@@ -71,7 +73,7 @@ class Mapping:
 
     "No scenario fits" and "the call never came back about it" both leave ``scenario_id`` empty
     but mean opposite things -- the first is a finding, the second is a dropped chunk. Kept apart
-    so the second can be retried rather than reported as a gap in the team's testing.
+    so the second can be retried rather than reported as a gap in the model owner's testing.
     """
 
     @property
@@ -146,9 +148,9 @@ class ConversationMapper:
             for mapping, conversation in zip(self._apply(chunk, reply, known), chunk):
                 # A conversation a batch dropped is asked about on its own. It matters more here
                 # than in the other batched passes: a dropped conversation would otherwise be
-                # reported as matching nothing, which reads as a gap in their testing rather than
-                # as a call that did not come back, and understating coverage is the one error
-                # this stage must not make quietly.
+                # reported as matching nothing, which reads as a gap in the model owner's testing
+                # rather than as a call that did not come back, and understating coverage is
+                # the one error this stage must not make quietly.
                 if not mapping.answered:
                     cancellation.check(self._cancel)
                     mapping = self._map_one(conversation, benchmark, use_case, known)
@@ -163,10 +165,10 @@ class ConversationMapper:
         return mapped
 
     def _render(self, chunk: List[Conversation], benchmark: str, use_case: str) -> str:
-        """The prompt for one chunk. The team's own label is shown but marked as not evidence."""
+        """The prompt for one chunk. The declared label is shown but marked as not evidence."""
         payload = [{
             "id": conversation.id,
-            "filed_by_the_team_as": conversation.group or "(not grouped)",
+            "filed_by_the_model_owner_as": conversation.group or "(not grouped)",
             "transcript": _transcript(conversation),
         } for conversation in chunk]
         return prompt_loader.render(

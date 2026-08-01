@@ -68,8 +68,8 @@ class Stage:
 
     Empty means every required stage before it, which is the ordinary case: the pipeline is mostly
     a chain and each step consumes the last one's output. Stating it explicitly is for the stages
-    that are not — measuring what the modelling team's own testing covers needs the benchmark and
-    nothing after it, and gating it on the review as well would mean their file could not be
+    that are not — measuring what the model owner's testing covers needs the benchmark and
+    nothing after it, and gating it on the review as well would mean the transcripts could not be
     submitted until the last model pass had finished, for no reason.
     """
 
@@ -114,7 +114,7 @@ STAGES: Tuple[Stage, ...] = (
           "This is what the model owner reads.",
           "Writes each scenario as instructions a tester can follow without knowing how the agent "
           "was built. The expected outcome is withheld from this step: what it produces is "
-          "issued to the modelling team, and text that revealed the answer would leave the "
+          "issued to the model owner, and text that revealed the answer would leave the "
           "exercise measuring nothing."),
 
     Stage("materiality", "Materiality", JUDGED,
@@ -134,22 +134,22 @@ STAGES: Tuple[Stage, ...] = (
           "additions. It cannot remove anything — a flag is a recommendation to you."),
 
     Stage("coverage", "Coverage", JUDGED,
-          "How many of their own conversations land on each scenario, and which scenarios nothing "
-          "of theirs reaches. Skip it if they submitted none.",
-          "Reads the transcripts of the testing the modelling team has already done and maps each "
+          "How many of the model owner's conversations land on each scenario, and which scenarios "
+          "none of them reach. Skip it if the model owner submitted none.",
+          "Reads the transcripts of the testing the model owner has already done and maps each "
           "conversation onto at most one scenario, decided by where the exchange ends rather than "
           "by what it passes through — a conversation that authenticates and stops is not evidence "
           "for a scenario that authenticates and then does something else. What comes out is a "
           "count per scenario rather than a covered/not-covered flag, because one conversation and "
-          "forty are not the same evidence. Where they have grouped their conversations, the "
-          "grouping is checked against where the conversations actually landed rather than "
-          "trusted.",
+          "forty are not the same evidence. Where the model owner has grouped the conversations, "
+          "that grouping is checked against where the conversations actually landed rather than "
+          "taken as given.",
           optional=True, requires=("intake", "benchmark")),
 
     Stage("issue", "Issue", COMPUTED,
           "The challenge pack to send the model owner, and the registry you keep. The pack "
           "carries no expected outcomes.",
-          "Writes the two workbooks. The challenge pack goes to the modelling team and carries no "
+          "Writes the two workbooks. The challenge pack goes to the model owner and carries no "
           "expected outcome, decision path or materiality. The registry stays with you and holds "
           "the ground truth. The pack is derived from the registry, so rebuild it after anything "
           "that changes the registry."),

@@ -4,7 +4,7 @@ An independent team is about to build a test benchmark for an AI agent it did no
 Everything the benchmark can test comes from what is understood about the agent here, so a fact
 you miss is a fact nobody tests, and nobody finds out.
 
-You have the complete documentation the modelling team submitted, below. Read all of it and
+You have the complete documentation the model owner submitted, below. Read all of it and
 answer the questions in this section.
 
 WHAT WAS SUBMITTED
@@ -71,7 +71,7 @@ An object keyed by the question ids given above. For each:
   granularity: a dozen exact points beats three broad ones.
 - `unknowns`: at most three per question, and only where the missing fact would change which
   scenarios get written or how one of them is judged. Write each as the question you would put to
-  the team that submitted the documents.
+  the model owner who submitted the documents.
 - `evidence`: list of `{"quote": "...", "document": "...", "locator": "..."}`.
 - `confidence`: `High`, `Medium` or `Low` — how completely the documents answer the question.
 

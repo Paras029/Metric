@@ -56,8 +56,8 @@ from .workspace import Workspace, stage_view
 SCENARIO_STAGES = ("text", "materiality", "review", "coverage", "issue")
 
 # Groups redaction can actually do something to: the two that carry text ingestion reads. A
-# diagram has no text to redact, and the owner's own conversations never reach build_corpus at
-# all -- they are read separately, only to measure coverage, at a later stage.
+# diagram has no text to redact, and the model owner's own conversations never reach
+# build_corpus at all -- they are read separately, only to measure coverage, at a later stage.
 REDACTABLE_GROUPS = (MODEL_DOC, SUPPORTING)
 
 logger = logging.getLogger(__name__)
@@ -224,7 +224,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
                           filters=filters, limit=_page_limit())
 
     def _coverage_for(workspace: Workspace, key: str, intake):
-        """What the team's conversations covered, counted at the threshold currently set.
+        """What the model owner's conversations covered, at the threshold currently set.
 
         Recounted on every page view from the stored mappings rather than read back from the run's
         own summary, so moving the threshold changes what is shown immediately. See
@@ -600,9 +600,10 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         """Choose whether the challenge pack carries the whole benchmark or only the gaps.
 
         Off by default. Every other stage widens what the model owner is asked to run, and this is
-        the one control that narrows it: leaving a scenario out says their own conversations are
-        evidence enough for it. That is a judgement about how far their testing is trusted, so it
-        is asked for explicitly rather than applied because coverage happens to have run.
+        the one control that narrows it: leaving a scenario out says the model owner's own
+        conversations are evidence enough for it. That is a judgement about how far the model
+        owner's testing is trusted, so it is asked for explicitly rather than applied because
+        coverage happens to have run.
         """
         workspace = _workspace()
         workspace.pack_gaps_only = bool(request.form.get("on"))
@@ -767,11 +768,10 @@ def _execute(root: Path, key: str, cancel, run_id: str = None) -> None:
     :meth:`Workspace.owns`.
 
     ``cancel`` is the stop signal ``run_stage`` registered before this thread was started, and
-    every runner takes it. It used to go only to the stages that make many model calls, which is
-    why stopping appeared to work on some stages and not others: the rest were called without it
-    and ran to completion no matter how often the button was pressed. A stage with nothing long
-    to interrupt simply finds it already unset, which costs nothing and is a great deal easier to
-    reason about than a list of which stages honour it.
+    *every* runner takes it -- not only the ones that make many model calls. Handing it to all of
+    them is what makes stopping mean the same thing everywhere: a stage with nothing long to
+    interrupt simply finds it unset, which costs nothing and is a great deal easier to reason
+    about than a list of which stages honour it.
     """
     workspace = Workspace.load(root)
 

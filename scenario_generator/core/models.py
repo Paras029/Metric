@@ -26,11 +26,10 @@ ORIGINS = (ORIGIN_GRAPH, ORIGIN_VARIANT_GAP, ORIGIN_PROBE, ORIGIN_PROPOSED)
 # which stops a proposal with no declared route from being mistaken for one.
 FUNCTIONAL_ORIGINS = (ORIGIN_GRAPH, ORIGIN_VARIANT_GAP)
 
-# What older registries call the same thing. "coverage-gap" was this value's name before the
-# coverage stage existed and had nothing to do with it -- it always meant a gap in what the *walk*
-# covered, and reading it as coverage was a mistake waiting to be made. Registries already written
-# carry the old spelling, so it is translated on the way in rather than left to fall outside
-# FUNCTIONAL_ORIGINS and quietly drop those scenarios out of the challenge pack.
+# Spellings an older registry may carry for an origin above. A registry is a file on disk that
+# outlives any one run, so a value read out of one is translated to its settled name on the way in
+# rather than left to fall outside FUNCTIONAL_ORIGINS and quietly drop those scenarios out of the
+# challenge pack.
 LEGACY_ORIGINS = {"coverage-gap": ORIGIN_VARIANT_GAP}
 
 
@@ -44,7 +43,7 @@ def canonical_origin(raw: str) -> str:
 INPUT_SOURCES = ["User", "Tool", "Memory-Session", "Memory-CrossSession",
                  "System-Context", "Document"]
 
-# Runs the modeling team is asked to execute per scenario. PLACEHOLDER — pending MRMG sign-off.
+# Runs the model owner is asked to execute per scenario. PLACEHOLDER — pending MRMG sign-off.
 RUNS_BY_MATERIALITY = {"Low": 1, "Medium": 3, "High": 5, "Critical": 10}
 
 
@@ -179,7 +178,7 @@ class Scenario:
     review_category: str = ""
     review_category_rationale: str = ""
 
-    # How much of the modelling team's own testing landed on this scenario, written by the
+    # How much of the model owner's testing landed on this scenario, written by the
     # coverage stage: a count of their conversations ("3 conversations"), and the ids behind it.
     # An annotation and nothing more -- it is recorded against the scenario and shown to a person,
     # and by itself removes nothing from the pack. Whether covering a scenario twice is waste or
@@ -253,7 +252,7 @@ class BenchmarkScenario:
 # --------------------------------------------------------------------------- their own material
 @dataclass(frozen=True)
 class OwnerScenario:
-    """One row of a modelling team's own scenario library, where they keep one.
+    """One row of a model owner's scenario library, where they keep one.
 
     Not what the coverage stage reads -- that works from transcripts, since a scenario list is a
     claim about their testing rather than the testing itself. This is context handed to the final

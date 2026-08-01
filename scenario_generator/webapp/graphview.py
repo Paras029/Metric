@@ -2,7 +2,7 @@
 
 **Boxes are decisions. Arrows are the states they lead to.** That is the way the intake is
 actually authored — a state's `reached_via` is written as `DEC-01=Pass`, so a state is defined by
-the decision outcome that produces it — and it is how a modelling team draws its own agent: the
+the decision outcome that produces it — and it is how a model owner draws its own agent: the
 boxes are the points where something is decided, and what runs between them is where the
 interaction has got to.
 

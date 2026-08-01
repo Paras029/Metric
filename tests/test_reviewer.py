@@ -115,9 +115,9 @@ class TestReviewSweep(unittest.TestCase):
         budget, so the two only make sense together -- which is why a tier carries both."""
         ScenarioReviewer(complete=self._fake(), batch_size=4).review(self.scenarios, _INTAKE)
         self.assertTrue(self.seen)
-        # Every call site now runs through config.stage_tier, which builds a freshly named Tier
-        # per call even where nothing overrides it -- so this checks the tier's substance (model,
-        # budget, effort, retries) rather than object identity with the JUDGEMENT constant itself.
+        # config.stage_tier builds a freshly named Tier per call site even where nothing
+        # overrides it, so this checks the tier's substance (model, budget, effort, retries)
+        # rather than object identity with the JUDGEMENT constant itself.
         for call in self.seen:
             tier = call["tier"]
             self.assertEqual(tier.model, config.JUDGEMENT.model)
@@ -187,12 +187,12 @@ class TestReviewSweep(unittest.TestCase):
     def test_owner_scenarios_are_shown_only_when_supplied(self):
         reviewer = ScenarioReviewer(complete=self._fake(), batch_size=4)
         reviewer.review(self.scenarios, _INTAKE)
-        self.assertNotIn("WHAT THE AGENT'S OWN TEAM SUBMITTED", self.seen[0]["user"])
+        self.assertNotIn("WHAT THE MODEL OWNER SUBMITTED", self.seen[0]["user"])
 
         self.seen.clear()
         reviewer.review(self.scenarios, _INTAKE,
                         [OwnerScenario("OWN-1", "Their own happy path test.")])
-        self.assertIn("WHAT THE AGENT'S OWN TEAM SUBMITTED", self.seen[0]["user"])
+        self.assertIn("WHAT THE MODEL OWNER SUBMITTED", self.seen[0]["user"])
         self.assertIn("Their own happy path test.", self.seen[0]["user"])
 
     def test_probes_are_left_out_of_the_category_sweep(self):

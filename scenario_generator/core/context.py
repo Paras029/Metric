@@ -40,8 +40,8 @@ def load_context(path: str = None, notes=None) -> str:
 
 
 def _notes_block(notes) -> str:
-    """Free-text notes, labelled so a model reads them as the validation team's own input."""
+    """Free-text notes, labelled so a model reads them as the validator's own input."""
     cleaned = [str(n).strip() for n in (notes or []) if str(n).strip()]
     if not cleaned:
         return ""
-    return "NOTES ADDED BY THE VALIDATION TEAM\n\n" + "\n".join(f"- {n}" for n in cleaned)
+    return "NOTES ADDED BY THE VALIDATOR\n\n" + "\n".join(f"- {n}" for n in cleaned)

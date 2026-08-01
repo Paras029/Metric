@@ -1,13 +1,11 @@
 """Writing, materiality, review and extraction, sending their chunks concurrently.
 
-Each of these passes used to call the model once per chunk, in sequence, each call waiting for
-the one before it to come back. Nothing in one chunk's answer depends on another's -- writing one
-scenario's text does not need to know what another scenario's text turned out to be, and the same
-is true of a materiality verdict, a review verdict, and a mapped owner scenario. So the calls now
-go out together, and what these tests pin is that the pass actually asks for that rather than
-merely tolerating it: a completion function that offers batching is used through exactly one call
-per pass (or per group, for the writer, which uses two prompts), not silently still called once
-per chunk.
+Nothing in one chunk's answer depends on another's -- writing one scenario's text does not need
+to know what another scenario's text turned out to be, and the same is true of a materiality
+verdict, a review verdict, and a mapped conversation. So the calls go out together rather than one
+at a time, and what these tests pin is that each pass actually asks for that rather than merely
+tolerating it: a completion function that offers batching is used through exactly one call per
+pass (or per group, for the writer, which uses two prompts), not quietly once per chunk.
 
 The other half of what is pinned is that batching cannot make a partial failure worse. A chunk a
 batch dropped, and a chunk whose call inside the batch raised outright, both have to reach the

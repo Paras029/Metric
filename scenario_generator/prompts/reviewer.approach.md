@@ -1,7 +1,7 @@
 HOW THIS BENCHMARK WAS BUILT
 
-1. The team that built the agent completed a structured intake describing it as a decision
-   graph -- capabilities, decision points with named outcomes, states, personas and tools.
+1. The model owner completed a structured intake describing the agent as a decision graph --
+   capabilities, decision points with named outcomes, states, personas and tools.
 2. That graph was walked exhaustively. Every distinct route through it became one scenario, with
    its route recorded as the expected outcome. Routes are deduplicated by their sequence of
    (decision, outcome) pairs, and any declared outcome the walk missed received its own focused

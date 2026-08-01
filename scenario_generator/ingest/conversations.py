@@ -1,4 +1,4 @@
-"""Reading the conversations a modelling team actually ran, out of whatever they sent.
+"""Reading the conversations a model owner actually ran, out of whatever they sent.
 
 This is the coverage stage's input, and it is deliberately a different thing from a scenario
 library. A team that has tested an agent has *transcripts* -- what a user said, what the agent
@@ -80,7 +80,7 @@ class Turn:
 
 @dataclass
 class Conversation:
-    """One exchange the modelling team ran, and whatever they filed it under."""
+    """One exchange the model owner ran, and whatever they filed it under."""
 
     id: str
     turns: List[Turn] = field(default_factory=list)
@@ -393,6 +393,6 @@ def read_conversations(path: Path) -> Tuple[List[Conversation], str]:
     logger.info("Read %d conversation(s) from %s (%s).", len(conversations), path.name, how)
     grouped = sum(1 for c in conversations if c.group)
     if grouped:
-        logger.info("%d of them carry the team's own scenario label, which will be assessed "
+        logger.info("%d of them carry the model owner's own scenario label, which will be assessed "
                     "rather than taken as given.", grouped)
     return conversations, how

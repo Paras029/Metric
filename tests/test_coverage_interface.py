@@ -146,7 +146,7 @@ class TestTheCoveragePage(unittest.TestCase):
         book = load_workbook(self._workspace().root / "registry.xlsx")
         sheet = book["Scenario_Metadata"]
         headers = [c.value for c in sheet[1]]
-        column = headers.index("Their Coverage")
+        column = headers.index("Owner Coverage")
         rows = {row[0]: row[column] for row in sheet.iter_rows(min_row=2, values_only=True)}
         self.assertEqual(rows[target], "2 conversations")
 

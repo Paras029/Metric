@@ -136,7 +136,7 @@ def _evidence_record(workspace: Workspace):
 def _run_documents(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
     """Read every submitted document, then answer each question from all of them at once.
 
-    Only the groups that describe the agent are read (``evidence_files``) -- the owner's own
+    Only the groups that describe the agent are read (``evidence_files``) -- the model owner's own
     scenarios are excluded, since reading them as evidence would let their blind spots into the
     benchmark by the back door, which is the thing an independent benchmark exists to avoid.
     """
@@ -242,7 +242,7 @@ def _run_benchmark(workspace: Workspace, progress=None, cancel=None) -> Dict[str
 
 
 def _run_text(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
-    """Write each scenario up for the team that owns the agent."""
+    """Write each scenario up for the model owner."""
     intake = _intake(workspace)
     scenarios = _scenarios(workspace, intake)
     ScenarioWriter(context=_context(workspace), progress=progress,
@@ -283,11 +283,11 @@ def _run_review(workspace: Workspace, progress=None, cancel=None) -> Dict[str, o
 def _run_issue(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
     """Write the challenge pack for the model owner and the registry kept internally.
 
-    Where the workspace is set to issue gaps only, the pack carries just the scenarios the team's
-    own conversations under-cover. This is the one place in the pipeline that takes scenarios
-    away rather than adding to them, and it is off unless someone turns it on: leaving a scenario
-    out is a decision to accept their evidence for it, which is a judgement about how far their
-    testing is trusted rather than anything this can work out.
+    Where the workspace is set to issue gaps only, the pack carries just the scenarios the model
+    owner's own conversations under-cover. This is the one place in the pipeline that takes
+    scenarios away rather than adding to them, and it is off unless someone turns it on: leaving a
+    scenario out is a decision to accept the model owner's evidence for it, which is a judgement
+    about how far that testing is trusted rather than anything this can work out.
     """
     intake = _intake(workspace)
     scenarios = _scenarios(workspace, intake)
@@ -329,7 +329,7 @@ def _under_represented(workspace: Workspace):
 
 
 def _run_coverage(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
-    """Map the conversations the modelling team actually ran onto this benchmark.
+    """Map the conversations the model owner actually ran onto this benchmark.
 
     The input is transcripts rather than a scenario list -- see :mod:`ingest.conversations` for
     why. The file may have arrived on either stage, with the rest of the pack or here on its own,
@@ -339,16 +339,16 @@ def _run_coverage(workspace: Workspace, progress=None, cancel=None) -> Dict[str,
         "coverage", "owner_scenarios")
     if not submitted:
         raise ValueError(
-            "No conversations from the model owner. Upload the transcripts of what they ran here, "
-            "or add them on the documents stage under 'Their own test scenarios'. Skip this stage "
-            "if they submitted none.")
+            "No conversations from the model owner. Upload the transcripts of what was run "
+            "here, or add them on the documents stage under \"The model owner's own testing\". "
+            "Skip this stage if none were submitted.")
 
     intake_path = workspace.artifact_path("intake", "workbook")
     if not intake_path:
         raise ValueError("No intake workbook yet. Provide one at the intake stage.")
     if not (workspace.root / REGISTRY).exists():
-        raise ValueError("Build the benchmark first — there is nothing to map their conversations "
-                         "against.")
+        raise ValueError("Build the benchmark first — there is nothing to map the "
+                         "conversations against.")
 
     try:
         result = map_conversation_coverage(
@@ -356,8 +356,9 @@ def _run_coverage(workspace: Workspace, progress=None, cancel=None) -> Dict[str,
             str(workspace.root / OVERLAP), threshold=workspace.coverage_threshold,
             progress=progress, cancel=cancel)
     except UnreadableConversations as exc:
-        # Their file, not our pipeline. Say which file and what was wrong with it, because the fix
-        # is to ask them for a clearer one rather than to change anything here.
+        # A submitted file, not a pipeline fault. Say which file and what was wrong with it,
+        # because the fix is to ask the model owner for a clearer one rather than to change
+        # anything here.
         raise ValueError(
             f"'{Path(submitted).name}' could not be read as conversations: {exc} It needs the "
             f"turns of each exchange identifiable -- a conversation id with one row per turn, a "

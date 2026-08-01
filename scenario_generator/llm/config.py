@@ -154,13 +154,13 @@ def setting(env: str, *path: str, default=None, cast=None):
 
 # ----------------------------------------------------------------- resolved when they are read
 #
-# Everything from here down is a function, and the module answers the settled-on constant names
-# from those functions -- see :func:`__getattr__` at the foot of the file. ``config.JUDGEMENT``
-# and ``config.PII_REDACTION`` read exactly as they always have at the call site and are resolved
-# at the moment they are read.
+# Everything from here down is a function, and the module answers the familiar constant names --
+# ``config.JUDGEMENT``, ``config.PII_REDACTION`` -- from those functions, via :func:`__getattr__`
+# at the foot of the file. A call site reads them as plain module attributes; each one is resolved
+# at the moment it is read.
 #
 # This is not a style preference. The interface runs for hours against one process, and a value
-# fixed at import cannot be changed without restarting it -- which made ``reload_tuning`` a
+# fixed at import cannot be changed without restarting it -- which would make ``reload_tuning`` a
 # half-truth, taking effect for the per-stage overrides and silently not for the model, the tiers,
 # the concurrency cap or whether redaction is on. Half a configuration reloading is worse than
 # none, because the half that does not is invisible.
@@ -331,7 +331,7 @@ def judgement() -> Tier:
 def materiality() -> Tier:
     return _tier("materiality", "LLM_MATERIALITY", 32_000, "medium", max_attempts=2)
 
-# Writing each scenario up for the modelling team. Mechanical and bounded by the batch size, but
+# Writing each scenario up for the model owner. Mechanical and bounded by the batch size, but
 # the text is issued and read by people, so it stays on the main model by default.
 def standard() -> Tier:
     return _tier("standard", "LLM", 16_000, "minimal")
@@ -405,9 +405,10 @@ def max_corpus_chars() -> int:
 
 
 # How many times a question the first reading left open is put back to the documents before it is
-# put to the modelling team. Each pass is one call over the whole corpus, and each one that lands
-# saves the team a question. The last pass also triages what is left: a question only a person can
-# answer is worth asking, and one that does not change what gets tested is not worth anyone's time.
+# put to the model owner. Each pass is one call over the whole corpus, and each one that lands
+# saves the model owner a question. The last pass also triages what is left: a question only a
+# person can answer is worth asking, and one that does not change what gets tested is not worth
+# anyone's time.
 def ingest_resolve_passes() -> int:
     return setting("LLM_INGEST_RESOLVE_PASSES", "ingestion", "resolve_passes",
                    default=_BUILTIN_RESOLVE_PASSES, cast=int)

@@ -1,10 +1,10 @@
 """Answering questions in one pass, and clearing work that is genuinely cleared.
 
-Both of these were doing something close to, but not quite, what they claimed. Answering happened
-one question at a time with a page reload between each, which turns a list of six into six round
-trips. Clearing a stage cleared its status and nothing else — and since several stages read what
-they need straight off disk rather than through the record, the old work came straight back on
-the next run.
+Both are easy to get subtly wrong. Answering one question at a time with a page reload between
+each turns a list of six into six round trips, so answers are saved in one pass. And clearing a
+stage's status is not clearing the stage: several stages read what they need straight off disk
+rather than through the record, so work that is only forgotten comes straight back on the next
+run.
 """
 import json
 import tempfile

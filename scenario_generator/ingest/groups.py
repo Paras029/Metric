@@ -1,10 +1,10 @@
 """The kinds of material a model owner submits, and where each lands.
 
-Everything arrives as "documents", but the pieces are not interchangeable. The model
-documentation describes the agent; the transcripts of the owner's own testing describe what they
-have already exercised; a workflow diagram states the branching that prose leaves implicit.
-Keeping them apart means each is read the right way, sent to the stage that needs it, and read in
-parallel with the others rather than after them.
+Everything arrives as "documents", but the pieces are not interchangeable. The model documentation
+describes the agent; the transcripts of the model owner's own testing describe what has already
+been exercised; a workflow diagram states the branching that prose leaves implicit. Keeping them
+apart means each is read the right way, sent to the stage that needs it, and read in parallel with
+the others rather than after them.
 
 Adding a kind means adding one entry here. Nothing else needs to change.
 """
@@ -51,11 +51,11 @@ GROUPS: Tuple[Group, ...] = (
           "do. The main source for everything downstream.",
           _DOCUMENTS, icon="document"),
 
-    Group(OWNER_SCENARIOS, "Their own testing",
-          "The conversations the model owner has already run, in whatever shape they sent them — "
-          "one row per turn, a transcript per row, or a document of exchanges. Any grouping of "
-          "their own is read too, and checked rather than taken at face value. Used to measure "
-          "how much of the benchmark their testing already exercises.",
+    Group(OWNER_SCENARIOS, "The model owner's own testing",
+          "The conversations the model owner has already run, in whatever shape they arrived — "
+          "one row per turn, a transcript per row, or a document of exchanges. Any grouping the "
+          "model owner applied is read too, and checked rather than taken at face value. Used to "
+          "measure how much of the benchmark the model owner's testing already exercises.",
           (".xlsx", ".xlsm", ".csv", ".docx", ".pdf", ".md", ".txt"), icon="checklist"),
 
     Group(DIAGRAMS, "Workflow diagrams",
@@ -78,9 +78,9 @@ GROUP_BY_KEY: Dict[str, Group] = {group.key: group for group in GROUPS}
 # the claim that some particular file is *the* model documentation.
 DEFAULT_GROUP = SUPPORTING
 
-# The groups ingestion reads for evidence. The owner's scenarios are not among them: they
-# describe the owner's testing rather than the agent, and reading them as evidence about the
-# agent would let their blind spots into the benchmark through the back door.
+# The groups ingestion reads for evidence. The model owner's own conversations are not among them:
+# they describe the model owner's testing rather than the agent, and reading them as evidence about
+# the agent would let the model owner's blind spots into the benchmark through the back door.
 EVIDENCE_GROUPS: Tuple[str, ...] = (MODEL_DOC, DIAGRAMS, SUPPORTING)
 
 ALL_EXTENSIONS: Tuple[str, ...] = tuple(sorted(

@@ -4,8 +4,9 @@ The documents are read whole rather than passage by passage, so the tests that m
 what that buys and what it must not cost: a fact spread over three sections assembled into one
 answer, a citation checked against the source, and a small, predictable number of model calls.
 
-`test_a_pack_is_read_in_a_handful_of_calls` is the one guarding the change. A per-passage reading
-cost roughly thirty calls for a sixty-page pack, and every one was a wait and a chance to fail.
+`test_a_pack_is_read_in_a_handful_of_calls` is the one guarding the call count. A per-passage
+reading costs roughly thirty calls for a sixty-page pack, and every one of those is a wait and a
+chance to fail.
 """
 import json
 import tempfile
@@ -87,9 +88,9 @@ class TestReading(unittest.TestCase):
     def test_a_pack_is_read_in_a_handful_of_calls(self):
         """Three reading calls and two resolution sweeps, however long the document is.
 
-        The number matters because it used to be roughly thirty, one per passage. It is fixed by
-        how many groups of questions there are and how many times what is still open is put back
-        to the documents -- not by the length of the pack.
+        The number matters because reading a passage at a time would make it roughly thirty for
+        a sixty-page pack. It is fixed by how many groups of questions there are and how many
+        times what is still open is put back to the documents -- not by the length of the pack.
         """
         calls = []
         extract_documents([_write("notes.md", _SCATTERED)], complete=_stub(calls=calls))
@@ -140,7 +141,7 @@ class TestReading(unittest.TestCase):
 
 
 class TestResolutionSweep(unittest.TestCase):
-    """Every question that survives to the modelling team costs days, so they are asked twice."""
+    """Every question that survives to the model owner costs days, so they are asked twice."""
 
     def test_a_second_look_can_settle_what_the_first_reading_left_open(self):
         resolved = [{"question": "Which identifiers are accepted for confirmation?",
@@ -229,12 +230,15 @@ class TestDiagrams(unittest.TestCase):
         self.assertTrue(diagram_claims[0].needs_confirmation)
 
     def test_what_a_diagram_establishes_reaches_the_context_document(self):
-        """The whole point of reading a diagram. Diagram observations used to be stored on the
-        record and then read by nothing: the context document renders only the claims an *answer*
-        names as its sources, and the intake is drafted from the context document alone. A
-        workflow diagram is often the only place a branch is written down, so a pack whose
-        structure was entirely in its images produced a context file reporting that structure as
-        "not covered by the submitted documents"."""
+        """The whole point of reading a diagram.
+
+        The context document renders only the claims an *answer* names as its sources, and the
+        intake is drafted from the context document alone -- so an observation stored on the
+        record but named by no answer is read by nothing. A workflow diagram is often the only
+        place a branch is written down, and a pack whose structure lives entirely in its images
+        must not produce a context file reporting that structure as "not covered by the submitted
+        documents".
+        """
         describe_one = self._boxes
 
         complete = self._synthesizing([{
@@ -258,8 +262,9 @@ class TestDiagrams(unittest.TestCase):
         self.assertIn("PIN check branches to Pass or Fail.", context)
 
     def test_a_facet_only_a_diagram_answered_stops_being_asked_as_a_gap(self):
-        """The placeholder question means 'nothing addressed this at all', which is no longer
-        true once a diagram has. Leaving it would ask the team for what they already sent."""
+        """The placeholder question means 'nothing addressed this at all', which stops being
+        true once a diagram has. Leaving it would ask the model owner for what was already
+        sent."""
         describe_one = self._boxes
 
         complete = self._synthesizing([{
@@ -438,8 +443,8 @@ class TestCoverageAnnotation(unittest.TestCase):
         self.assertEqual(restored[0].owner_coverage, "Covered")
         self.assertEqual(restored[0].owner_coverage_note, "Their TC-001")
 
-        # The modelling team must not learn which scenarios they already cover -- that would tell
-        # them which ones the validation team considers already answered.
+        # The model owner must not learn which scenarios are already covered -- that would say
+        # which ones the validator considers already answered.
         write_challenge_pack(str(directory / "pack.xlsx"), intake, scenarios)
         book = load_workbook(directory / "pack.xlsx")
         values = [str(v) for name in book.sheetnames

@@ -68,12 +68,12 @@ def refine(intake_path: str, graph_path: str, output_prefix: str, writer=None,
     Category and persona are already fixed deterministically by build-graph; materiality is not
     assessed here -- run ``assess_materiality`` next, then ``review``, then ``build_pack``.
 
-    No challenge pack is written here. It used to be, and it was wrong every time: the pack's
-    requested run counts come from materiality, which at this point is the untouched default on
-    every scenario, so what it wrote said "run each of these three times" and was superseded by
-    the next command in the sequence. A workbook that is stale the moment it is written is worse
-    than one that does not exist, because only the second is obviously missing. The pack is built
-    from the registry's final state -- see :func:`build_pack`, which exists for exactly this.
+    No challenge pack is written here, deliberately. The pack's requested run counts come from
+    materiality, which at this point is the untouched default on every scenario, so a pack written
+    here would say "run each of these three times" and be superseded by the next command in the
+    sequence. A workbook that is stale the moment it is written is worse than one that does not
+    exist, because only the second is obviously missing. The pack is built from the registry's
+    final state -- see :func:`build_pack`, which exists for exactly this.
     """
     intake = read_intake(intake_path)
     scenarios = read_scenarios(graph_path, intake)
@@ -134,7 +134,7 @@ def review(intake_path: str, registry_in_path: str, registry_out_path: str,
     earlier assessment, and proposals arrive with origin "llm-proposed" so they are never mistaken
     for graph-derived scenarios. Pass the same path twice to update in place.
 
-    Supplying the owner's own scenario library is optional; where given, it is shown as context
+    Supplying the model owner's own scenario list is optional; where given, it is shown as context
     so the review can see where the owner's attention already went.
     """
     intake = read_intake(intake_path)
@@ -246,7 +246,7 @@ def ingest_documents(source_paths: Sequence[str], output_prefix: str,
 def render_questions(questions: List[dict]) -> str:
     """The open questions as a document someone can work through and answer."""
     lines = ["# Open questions", "",
-             "Answers become evidence attributed to the validation team rather than to a "
+             "Answers become evidence attributed to the validator rather than to a "
              "document. Supply them with --note, or in the interface.", ""]
     for number, question in enumerate(questions, start=1):
         lines.append(f"{number}. **{question['heading']}** — {question['question']}")
@@ -363,7 +363,7 @@ class DraftResult:
 
 @dataclass
 class ConversationCoverageResult:
-    """What the team's conversations turned out to cover."""
+    """What the model owner's conversations turned out to cover."""
 
     report: object
     mappings: list
@@ -412,7 +412,7 @@ def map_conversation_coverage(intake_path: str, registry_path: str, conversation
 
 
 def annotate_coverage(registry_path: str, intake: IntakeData, report) -> int:
-    """Record against each scenario how much of the team's own testing landed on it.
+    """Record against each scenario how much of the model owner's own testing landed on it.
 
     An annotation, not a filter. A well-covered scenario stays in the registry and, unless someone
     asks otherwise, in the pack: whether running it again is duplicated effort or independent
@@ -421,7 +421,7 @@ def annotate_coverage(registry_path: str, intake: IntakeData, report) -> int:
     front of them.
 
     The columns never reach the challenge pack -- see :func:`io.write_challenge_pack`. Telling the
-    modelling team which scenarios the validation team already considers answered would tell them
+    model owner which scenarios the validator already considers answered would tell them
     exactly which ones to concentrate on.
     """
     scenarios = read_scenarios(registry_path, intake)

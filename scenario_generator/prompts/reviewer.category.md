@@ -9,10 +9,10 @@ YOUR TASK FOR THIS BATCH
 Check that each scenario below is filed under the right category, and say so where it is not.
 
 A category is not a label on the scenario, it is a statement about **how the interaction ends**.
-It is set from the Outcome Type the modelling team declared on the state the route finishes in,
+It is set from the Outcome Type the model owner declared on the state the route finishes in,
 which means a wrong category almost always means that declaration is wrong or was left blank and
 guessed at from the wording of an outcome. That is worth catching: it is a defect in how the agent
-was described to us, and it is invisible anywhere else.
+was described to the validator, and it is invisible anywhere else.
 
 The categories, and what each one actually means:
 

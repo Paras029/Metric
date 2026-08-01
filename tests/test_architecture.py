@@ -102,7 +102,7 @@ class TestTheLayersOnlyPointOneWay(unittest.TestCase):
 
 
 class TestTheAnswerNeverReachesThePack(unittest.TestCase):
-    """The one property the whole exercise depends on: the team being tested cannot see the key."""
+    """The one property the whole exercise depends on: the model owner cannot see the key."""
 
     def test_the_pack_writer_never_reads_a_ground_truth_field(self):
         source = (_PACKAGE / "io" / "workbooks.py").read_text(encoding="utf-8")
@@ -115,7 +115,7 @@ class TestTheAnswerNeverReachesThePack(unittest.TestCase):
                              f"the challenge pack must not carry {field}")
 
     def test_the_writer_is_never_shown_the_expected_outcome(self):
-        """Its output is issued to the team being tested, so text written from the answer would
+        """Its output is issued to the model owner, so text written from the answer would
         leak it in prose. The route is a different thing and is shown: the tester has to drive
         each decision to a named outcome, and cannot be asked to do that blind."""
         payload = (_PACKAGE / "llm" / "writer.py").read_text(encoding="utf-8")

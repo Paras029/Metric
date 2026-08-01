@@ -3,7 +3,7 @@
 Description and turn plan are the only fields the model sets. Category comes from the intake's
 declared Outcome Type and materiality from its own later sweep, so neither depends on this call.
 
-Both fields are issued to the team that owns the agent, so neither may reveal the expected
+Both fields are issued to the model owner, so neither may reveal the expected
 outcome. That is enforced here by what the model is given rather than only by what it is told:
 :meth:`ScenarioWriter._payload` withholds the scenario's terminal state entirely. Per-step
 outcomes are supplied, because the tester has to know which condition to induce, but the route's
@@ -90,7 +90,7 @@ class ScenarioWriter:
 
     def _payload(self, scenario: Scenario) -> dict:
         """What the model is shown. The terminal state is deliberately absent: it is the answer
-        key, and everything this call produces is issued to the team that owns the agent."""
+        key, and everything this call produces is issued to the model owner."""
         if scenario.is_probe:
             return {"id": scenario.id,
                     "probe": scenario.probe_family,
@@ -111,7 +111,7 @@ class ScenarioWriter:
         }
 
     def _call(self, system: str, user: str) -> str:
-        """Writing scenario text is mechanical, but it is read by the modelling team, so it stays
+        """Writing scenario text is mechanical, but it is read by the model owner, so it stays
         on the standard tier rather than the cheapest one."""
         return call(self._complete, system, user, tier=config.stage_tier("WRITER", config.STANDARD))
 

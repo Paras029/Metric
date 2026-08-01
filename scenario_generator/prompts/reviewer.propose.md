@@ -39,7 +39,7 @@ DISCIPLINE -- THIS MATTERS AS MUCH AS THE PROPOSALS
 
 THE SAME NON-DISCLOSURE RULE APPLIES
 
-description and turn_plan are issued to the team that owns the agent. They must never state or
+description and turn_plan are issued to the model owner. They must never state or
 imply what a correct agent response looks like. expected_outcome is where the ground truth goes,
 and it is kept internal. Keep the two strictly apart: anything of the form "the agent should..."
 belongs in expected_outcome and nowhere else.

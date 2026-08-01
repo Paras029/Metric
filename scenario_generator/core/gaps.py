@@ -1,13 +1,12 @@
 """What the declared intake still needs, as questions scoped to the row that needs them.
 
-This replaced a coarser design: open questions used to be about the *evidence* -- eleven broad
-facets like "capabilities" or "risk areas" -- so an unanswered one said only which document
-section was thin, never which capability, decision or state the intake actually needs filled in.
-That was a fair reading of a pack of documents, but a poor way to ask a person for help, because
-"what does the agent do about risk?" has no single right length of answer and no obvious place to
-put one. A person can answer "what should DEC-05's second outcome be called, and what decides
-between the two?" in a sentence, because the question already says exactly what row of the intake
-it is going to fill in.
+A question is only worth asking if the person reading it can answer it. Questions scoped to the
+*evidence* -- broad facets like "capabilities" or "risk areas" -- say which document section is
+thin, never which capability, decision or state the intake needs filled in, and "what does the
+agent do about risk?" has no single right length of answer and no obvious place to put one. A
+person can answer "what should DEC-05's second outcome be called, and what decides between the
+two?" in a sentence, because the question already says exactly what row of the intake it is going
+to fill in.
 
 So this module reads the *intake itself* -- whatever is currently declared, drafted or hand-edited
 -- for the places it is structurally thin, and returns one question per gap, addressed to the
@@ -204,7 +203,7 @@ def find_gaps(intake: IntakeData) -> List[Gap]:
 
     Order is deliberate: a decision that names no outcomes blocks enumeration entirely, so it is
     worth seeing before a persona's phrasing. Nothing here is a call a person cannot make in a
-    sentence -- see the module docstring for what was wrong with the coarser design this replaced.
+    sentence -- see the module docstring for why that bar matters.
     """
     graph = DecisionGraph(intake.decisions, intake.states)
     reachable = _reachable_states(graph)

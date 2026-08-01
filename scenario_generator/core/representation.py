@@ -1,14 +1,13 @@
-"""How much of the benchmark the modelling team's own conversations actually exercise.
+"""How much of the benchmark the model owner's conversations actually exercise.
 
-Coverage used to be a yes/no per scenario: something of theirs matched it, or nothing did. That
-is the wrong shape for the decision it feeds. One conversation against a scenario and forty
-against it are not the same evidence, and the question a validator is actually answering -- what
-do we still need them to run? -- is answered by the count, not by the flag.
+Coverage is measured as a count, not as a yes/no per scenario. One conversation against a scenario
+and forty against it are not the same evidence, and the question the validator is actually
+answering -- what does the model owner still need to run? -- is answered by the count.
 
 So this counts. Every mapped conversation lands in exactly one scenario's bucket, the buckets are
 reported whole, and *represented* is a line drawn through them at a threshold the person using the
-tool sets. Nothing here decides that number: how much evidence is enough depends on how much the
-team's testing is trusted, which is a judgement this has no basis for making.
+tool sets. Nothing here decides that number: how much evidence is enough depends on how far the
+model owner's testing is trusted, which is a judgement this has no basis for making.
 
 Confidence is carried alongside rather than folded in. A scenario with five low-confidence
 mappings and one with five high-confidence mappings both have five, and which of those is
@@ -23,8 +22,8 @@ from typing import Dict, List
 from ..core.models import BenchmarkScenario
 
 # Below this many conversations a scenario is treated as under-represented and goes back to the
-# team. A starting point rather than a rule -- the interface offers it as a setting, and the whole
-# point of counting is that the line can be moved.
+# model owner. A starting point rather than a rule -- the interface offers it as a setting, and
+# the whole point of counting is that the line can be moved.
 DEFAULT_THRESHOLD = 1
 
 
@@ -53,12 +52,12 @@ class ScenarioCoverage:
 
 @dataclass
 class GroupAssessment:
-    """One group the team filed conversations under, judged against where they actually landed.
+    """One group the model owner filed conversations under, judged against where they landed.
 
-    A team that has grouped its testing is making a claim -- these conversations are the same
+    A model owner who groups their testing is making a claim -- these conversations are the same
     test -- and that claim is checkable. Where every conversation in a group maps to one scenario,
-    their grouping and ours agree. Where they split, one of the two is wrong, and which is worth
-    a person's attention rather than a silent reconciliation.
+    the model owner's grouping and the validator's agree. Where they split, one of the two is
+    wrong, and which one is worth a person's attention rather than a silent reconciliation.
     """
 
     group: str
@@ -71,7 +70,7 @@ class GroupAssessment:
 
     @property
     def agrees(self) -> bool:
-        """Whether the team's group corresponds to exactly one benchmark scenario."""
+        """Whether the model owner's group corresponds to exactly one benchmark scenario."""
         return len(self.scenario_counts) == 1 and not self.unmatched
 
     @property

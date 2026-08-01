@@ -113,9 +113,9 @@ class TestInvalidation(unittest.TestCase):
         self.assertEqual(progress["stale"], 1)
 
     def test_a_new_input_marks_the_stage_that_reads_it_out_of_date_too(self):
-        """Uploading a corrected intake used to leave the intake stage reporting the figures it
-        read off the *previous* workbook -- which reads as a fact about the file in front of you
-        rather than as a stale number, and is the more misleading of the two."""
+        """A stage that reports figures read off a replaced input is the most misleading kind of
+        stale: the numbers read as a fact about the file in front of you rather than as something
+        left over, so uploading a corrected intake has to mark the intake stage itself."""
         workspace = _workspace()
         workspace.complete("intake", summary={"Decision points": 5})
         workspace.complete("benchmark")

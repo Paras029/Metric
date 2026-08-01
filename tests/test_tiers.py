@@ -79,11 +79,11 @@ class TestTierDefinitions(unittest.TestCase):
 def _same_settings(tier, base) -> bool:
     """Same model, budget, effort and retry ladder as ``base``.
 
-    Not identity and not full equality: every call site now runs through
-    :func:`config.stage_tier`, which always returns a freshly built ``Tier`` named for its own
-    call site (e.g. ``"judgement:reviewer_propose"``) even where nothing overrides it -- the name
-    is what makes an override visible in a log line. What these tests actually guard is that nothing
-    silently changed the substance of which tier a pass runs on, which is every field but the name.
+    Not identity and not full equality: every call site runs through :func:`config.stage_tier`,
+    which always returns a freshly built ``Tier`` named for its own call site (e.g.
+    ``"judgement:reviewer_propose"``) even where nothing overrides it -- the name is what makes an
+    override visible in a log line. What these tests guard is the substance of which tier a pass
+    runs on, which is every field but the name.
     """
     return (tier.model == base.model and tier.max_tokens == base.max_tokens
             and tier.reasoning_effort == base.reasoning_effort
@@ -150,9 +150,11 @@ class TestStageOverrideCascade(unittest.TestCase):
             self.assertEqual(config.stage_batch_size("TEST_STAGE", 6), 6)
 
     def test_tier_level_temperature_override_is_read_by_the_gateway(self):
-        """A tier that sets its own temperature is what chat_model actually bills for -- see
-        gateway._generation_parameters, which now reads tier.temperature rather than always
-        falling straight through to the global default."""
+        """A tier that sets its own temperature is what chat_model actually bills for.
+
+        gateway._generation_parameters has to read tier.temperature rather than falling straight
+        through to the global default, or a per-tier setting is accepted and then ignored.
+        """
         from scenario_generator.llm.gateway import _generation_parameters
 
         with mock.patch.dict(os.environ, {"LLM_JUDGEMENT_TEMPERATURE": "0.9"}):
@@ -235,7 +237,7 @@ class TestWhichPassUsesWhichTier(unittest.TestCase):
         self.assertTrue(all(_same_settings(t, config.MATERIALITY) for t in recorder.tiers))
 
     def test_writing_scenario_text_stays_on_the_standard_tier(self):
-        """Mechanical, but the modelling team reads it, so not the cheapest model."""
+        """Mechanical, but the model owner reads it, so not the cheapest model."""
         recorder = _Recorder()
         ScenarioWriter(complete=recorder).write(build_probes(_INTAKE)[:4], _INTAKE)
         self.assertTrue(recorder.tiers)

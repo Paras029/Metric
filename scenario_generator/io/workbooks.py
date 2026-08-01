@@ -2,15 +2,16 @@
 
     Scenario Graph   Internal, pre-LLM. Deterministic metadata and per-turn expected outcomes
                      straight off the decision graph. Output of `build-graph`, input to `refine`.
-    Challenge Pack   Issued to the agent's owner and returned filled in. Every scenario, and no
+    Challenge Pack   Issued to the model owner and returned filled in. Every scenario, and no
                      expected outcomes of any kind — no decision path, expected variant,
                      expected tool call, category or materiality. Two reference sheets state
                      what to run; two response sheets are pre-populated with one row per
                      scenario, run and turn.
     Registry         Internal. Full metadata, per-turn expected outcomes, and the text as
                      issued. The canonical index coverage matches against.
-    Overlap Report   Internal. What the owner's own scenarios covered, what they missed, and
-                     what they tested beyond the declared model.
+    Coverage Report  Internal. How many of the model owner's own conversations landed on each
+                     benchmark scenario, the per-conversation working behind those counts, and
+                     whether the model owner's own grouping agrees with the benchmark.
 """
 from __future__ import annotations
 
@@ -34,7 +35,7 @@ _METADATA_COLUMNS = ["SC ID", "Decision Path", "Category", "Materiality",
                      "Materiality Override", "Probe ID", "Probe Family",
                      "Reviewed Materiality", "Review Rationale", "Review Flag",
                      "Proposal Rationale", "Proposal Anchor", "Effective Materiality",
-                     "Their Coverage", "Their Coverage Note",
+                     "Owner Coverage", "Owner Coverage Note",
                      "Reviewed Category", "Review Category Rationale"]
 _METADATA_WIDTHS = [10, 40, 18, 12, 12, 46, 22, 24, 11, 13, 26, 40, 13, 18, 26, 22,
                     18, 52, 16, 52, 14, 18, 18, 26, 18, 52]
@@ -146,8 +147,8 @@ def read_scenarios(path: str, intake: IntakeData) -> List[Scenario]:
             return _row[index] if index is not None and index < len(_row) else ""
 
         turn_meta = turns_by_id.get(cell("SC ID"), [])
-        # Translated on the way in, so a registry written before an origin was renamed reads as
-        # the thing it always was rather than falling outside every check that names origins.
+        # Translated on the way in, so an origin an older registry spells differently reads as
+        # the thing it is rather than falling outside every check that names origins.
         origin = canonical_origin(cell("Origin"))
         is_probe = origin == ORIGIN_PROBE
 
@@ -175,8 +176,8 @@ def read_scenarios(path: str, intake: IntakeData) -> List[Scenario]:
             review_rationale=cell("Review Rationale"), review_flag=cell("Review Flag"),
             proposed_rationale=cell("Proposal Rationale"),
             proposed_anchor=cell("Proposal Anchor"),
-            owner_coverage=cell("Their Coverage"),
-            owner_coverage_note=cell("Their Coverage Note"),
+            owner_coverage=cell("Owner Coverage"),
+            owner_coverage_note=cell("Owner Coverage Note"),
             review_category=cell("Reviewed Category"),
             review_category_rationale=cell("Review Category Rationale"),
         ))
@@ -284,14 +285,14 @@ def read_registry(path: str, functional_only: bool = True) -> List[BenchmarkScen
 
 
 def write_coverage_report(path: str, report, mappings, texts: dict = None) -> None:
-    """What the modelling team's conversations cover, as a workbook.
+    """What the model owner's conversations cover, as a workbook.
 
     Three sheets, in the order the questions get asked. *Scenarios* is the answer -- every
-    benchmark scenario with how many of their conversations landed on it, least covered first,
-    because the thin end of that list is what goes back to them. *Conversations* is the working:
+    benchmark scenario with how many conversations landed on it, least covered first, because the
+    thin end of that list is what goes back to the model owner. *Conversations* is the working:
     one row per transcript with the scenario it was matched to and how sure the match was, so a
-    figure on the first sheet can be traced to the exchanges behind it. *Their grouping* appears
-    only where they supplied one, and says whether it agrees with ours.
+    figure on the first sheet can be traced to the exchanges behind it. *Owner Grouping* appears
+    only where the model owner supplied one, and says whether it agrees with the benchmark.
     """
     texts = texts or {}
     workbook = Workbook()
@@ -311,8 +312,8 @@ def write_coverage_report(path: str, report, mappings, texts: dict = None) -> No
 
     conversations = sheets.add_sheet(
         workbook, "Conversations",
-        ["Conversation ID", "Mapped To", "Confidence", "What They Wanted", "How It Ended",
-         "Why", "Filed By The Team As"],
+        ["Conversation ID", "Mapped To", "Confidence", "What The User Wanted",
+         "How It Ended", "Why", "Filed By The Owner As"],
         [18, 12, 12, 44, 44, 60, 22])
     sheets.write_rows(conversations, [
         [m.conversation_id, m.scenario_id or "— none —", m.confidence, m.intent, m.ending,
@@ -321,8 +322,8 @@ def write_coverage_report(path: str, report, mappings, texts: dict = None) -> No
 
     if report.groups:
         grouping = sheets.add_sheet(
-            workbook, "Their Grouping",
-            ["Their Label", "Conversations", "Agrees?", "Maps To", "Verdict"],
+            workbook, "Owner Grouping",
+            ["Owner's Label", "Conversations", "Agrees?", "Maps To", "Verdict"],
             [26, 14, 10, 30, 70])
         sheets.write_rows(grouping, [
             [g.group, g.total, "Yes" if g.agrees else "No",

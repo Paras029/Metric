@@ -5,9 +5,10 @@ handful of transcripts -- and counting them is free. So the mappings are what th
 and everything here is derived from them each time the page is drawn.
 
 That split is what makes the representation threshold usable. Moving the line between represented
-and under-represented is a judgement about how much of the team's evidence is enough, and a person
-arrives at it by trying a number and looking at the result. If changing it re-ran the model, nobody
-would try a second number.
+and under-represented is a judgement about how much of the model owner's evidence is enough, and
+a person
+arrives at it by trying a number and looking at the result. If changing it re-ran the model,
+nobody would try a second number.
 """
 from __future__ import annotations
 

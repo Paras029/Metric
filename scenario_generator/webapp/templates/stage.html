@@ -417,9 +417,10 @@
 
     {% if coverage and stage.key == 'coverage' %}
       <section class="block" id="coverage">
-        <h2 class="block__title">What their conversations cover</h2>
+        <h2 class="block__title">What the model owner's conversations cover</h2>
         <p class="block__body">
-          Every conversation they sent was matched to at most one scenario, decided by where the
+          Every conversation the model owner submitted was matched to at most one scenario, decided by
+          where the
           exchange <em>ends</em> rather than by what it passes through on the way. A conversation
           that authenticates and stops is not evidence for a scenario that authenticates and then
           goes on to do something else.
@@ -493,8 +494,8 @@
                     </ul>
                   {% else %}
                     <p class="aside aside--warn">
-                      Nothing they sent ends here. Either it is untested, or it was tested and not
-                      submitted.
+                      Nothing the model owner submitted ends here. Either it is untested, or it was
+                      tested and not submitted.
                     </p>
                   {% endif %}
                 </div>
@@ -506,9 +507,9 @@
         {% if coverage.unmatched %}
           <h3 class="label card__label">Matched no scenario ({{ coverage.unmatched | length }})</h3>
           <p class="block__body">
-            Worth reading rather than dismissing. A conversation that fits nothing is either a
-            test of something the benchmark never enumerated — a candidate to add — or not a test
-            of this agent at all.
+            Worth reading rather than dismissing. A conversation that fits nothing is either a test of
+            something the benchmark never enumerated — a candidate to add — or not a test of this
+            agent at all.
           </p>
           <ul class="rows">
             {% for conversation in coverage.unmatched %}
@@ -528,11 +529,11 @@
         {% endif %}
 
         {% if coverage.groups %}
-          <h3 class="label card__label">Their own grouping</h3>
+          <h3 class="label card__label">The model owner's own grouping</h3>
           <p class="block__body">
-            A team that grouped its conversations is making a claim — these are the same test —
-            and it is checkable. Where a group splits across scenarios, one of the two readings is
-            wrong and it is worth knowing which.
+            A model owner who groups their conversations is making a claim — these are the same test —
+            and it is checkable. Where a group splits across scenarios, either that grouping or the
+            validator's is wrong, and it is worth knowing which.
           </p>
           <ul class="rows">
             {% for group in coverage.groups %}
@@ -556,17 +557,18 @@
         <h2 class="block__title">What goes in the pack</h2>
         <p class="block__body">
           By default the pack carries the whole benchmark. Where the coverage stage has run, it can
-          instead carry only what their own conversations under-cover — everything at or below the
-          representation threshold. Leaving a scenario out says their evidence for it is accepted,
+          instead carry only what the model owner's conversations under-cover — everything at or below
+          the representation threshold. Leaving a scenario out accepts the model owner's evidence for
+          it,
           so this is off unless you turn it on. The registry keeps every scenario either way.
         </p>
         <form class="controls" method="post" action="{{ url_for('set_pack_scope') }}">
           <label class="check"
-                 title="Issue only the scenarios their conversations under-cover">
+                 title="Issue only the scenarios the model owner's conversations under-cover">
             <input type="checkbox" name="on" value="1"
                    {% if pack_gaps_only %}checked{% endif %}
                    onchange="this.form.submit()">
-            Issue only what their testing under-covers
+            Issue only what the model owner's testing under-covers
           </label>
         </form>
         {% if pack_gaps_only and coverage %}
@@ -585,7 +587,8 @@
     {% endif %}
 
     {# On the coverage stage the section above already lists every scenario, with the count of
-       their conversations against each. Repeating the benchmark here would put the same rows on
+       the model owner's conversations against each. Repeating the benchmark here would put the same
+       rows on
        the same screen twice. #}
     {% if benchmark and not (coverage and stage.key == 'coverage') %}
       <section class="block">
@@ -733,7 +736,7 @@
                   {% endif %}
                   {% if 'coverage' in benchmark.shows and row.coverage_note %}
                     <p class="aside">
-                      <strong>{{ row.coverage }}</strong> by their own testing
+                      <strong>{{ row.coverage }}</strong> from the model owner's own testing
                       ({{ row.coverage_note }}). Left in the pack — whether to run it again is
                       yours to decide.
                     </p>
@@ -839,17 +842,17 @@
       {% if groups %}
         <section class="block">
           <h2 class="block__title">
-            {% if stage.key == 'coverage' %}What they submitted
+            {% if stage.key == 'coverage' %}What the model owner submitted
             {% else %}What the model owner sent{% endif %}
           </h2>
           <p class="block__body">
             {% if stage.key == 'coverage' %}
-              The conversations they have already run, in whatever shape they sent them. Read to
-              measure coverage and never as a description of the agent — their blind spots must not
-              become the benchmark's.
+              The conversations the model owner has already run, in whatever shape they arrived. Read to
+              measure coverage and never as a description of the agent — the model owner's blind
+              spots must not become the benchmark's.
             {% else %}
-              Keep the kinds apart. Each is read differently, and their own conversations are used
-              to measure coverage rather than to describe the agent.
+              Keep the kinds apart. Each is read differently, and the model owner's own conversations
+              are used to measure coverage rather than to describe the agent.
             {% endif %}
           </p>
 

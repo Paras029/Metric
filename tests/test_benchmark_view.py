@@ -5,8 +5,8 @@ benchmark of three hundred scenarios is triaged, not read, so the default view i
 asking for a decision, and the page always says how much it is not showing.
 
 The second is what must never appear. The registry holds the decision path, the seeded state and
-the expected outcome, and those are the answer key for a pack issued to the team that built the
-agent. They are not secret from the validation team, but a page that puts them beside the
+the expected outcome, and those are the answer key for a pack issued to the model owner. They
+are not secret from the validator, but a page that puts them beside the
 scenario text is a page somebody eventually screenshots into an email, and the exercise stops
 measuring anything at that point.
 """

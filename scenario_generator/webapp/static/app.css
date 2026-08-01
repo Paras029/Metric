@@ -1017,7 +1017,7 @@ ol, ul { list-style: none; padding: 0; }
  * Three hundred scenarios are triaged, not read, so the default view is whatever is asking for a
  * decision and each row is one line until opened. Deliberately absent: the route, the seeded state
  * and the expected outcome. Those belong in the registry, and a page that puts the answer beside
- * the question is a page somebody eventually forwards to the team being tested.
+ * the question is a page somebody eventually forwards to the model owner.
  */
 .switch {
   display: flex;

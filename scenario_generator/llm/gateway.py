@@ -15,20 +15,20 @@ parameters on the model. ``with_retry`` handles a gateway that is busy rather th
 is wrong. ``StrOutputParser`` turns the reply message into text, including the case where a model
 returns its content as a list of parts. None of that is reimplemented here.
 
-Several passes in this package -- writing scenario text, weighing materiality, mapping owner
-scenarios -- split a large benchmark into chunks and used to call the model once per chunk, in
-sequence, each call waiting for the last to finish. ``ask_llm_batch`` sends several chunks at
-once instead, using the chain's own ``.batch``, which is LangChain's documented way of running
-one runnable over many inputs concurrently rather than a queue this module manages by hand. It
-needs a template with real placeholders to do that -- a chain built with the finished text already
-baked in, the way ``ask_llm`` builds one, has nothing left to vary between chunks. See
-:func:`_batch_prompt` for how that stays safe against the same hazard the module docstring below
-describes for the single-call path.
+Several passes in this package -- writing scenario text, weighing materiality, mapping the model
+owner's scenarios -- split a large benchmark into chunks. ``ask_llm_batch`` sends those chunks
+concurrently using the chain's own ``.batch``, which is LangChain's documented way of running one
+runnable over many inputs at once rather than a queue this module manages by hand. It needs a
+template with real placeholders to do that -- a chain built with the finished text already baked
+in, the way ``ask_llm`` builds one, has nothing left to vary between chunks. See
+:func:`_batch_prompt` for how that stays safe against the same hazard described below for the
+single-call path.
 
-Taking SafeChain's authentication also removed the three failures that used to be this module's
-problem: a token expiring in the middle of a long ingestion, a gateway rejecting a payload shaped
-for a different provider, and a 401 that meant "stale" rather than "wrong". The code for those is
-deleted rather than kept as a fallback, because two paths to the same call is how they drift.
+Authentication is SafeChain's problem rather than this module's, which is what keeps three
+failure modes out of here entirely: a token expiring in the middle of a long ingestion, a gateway
+rejecting a payload shaped for a different provider, and a 401 that means "stale" rather than
+"wrong". There is deliberately no hand-rolled fallback path for any of them, because two paths to
+the same call is how they drift.
 
 **Prompts are passed as messages, not as templates.** LangChain's tuple form -- ``("system",
 text)`` -- runs the text through an f-string parser, and nine of the prompts in this package end

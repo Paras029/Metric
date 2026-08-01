@@ -15,7 +15,7 @@ tester is pursuing a line of attack, and where that goes depends on what the age
 the turn plan is an approach with an escalation, not a fixed script, and the turn count is a
 floor rather than a contract: the tester keeps going while the line of attack is still live.
 
-Each probe arrives with a fixed intent and a behavioural expectation that the validation team
+Each probe arrives with a fixed intent and a behavioural expectation that the validator
 scores against. You are making it concrete for this specific use case. You are not changing what
 it tests, softening it, or broadening it.
 

@@ -2,15 +2,14 @@
 
 The reading is put back to the documents more than once, because a question asked directly is
 often answered by material a general reading had no reason to connect, and every question that
-survives to the modelling team costs days. What the sweeps still cannot settle is carried forward
+survives to the model owner costs days. What the sweeps still cannot settle is carried forward
 whole rather than filtered.
 
-That last part used to be a judgement: a model was asked to rule whether each leftover "blocked"
-a part of the intake, and only those were shown. It is not a judgement any more -- the intake
-stage reads what is structurally missing off the declaration itself (see core.gaps), so a model
-being asked to guess at the same thing was both redundant and the more fallible of the two. These
-tests pin the direction that must hold regardless: nothing the documents left open is dropped
-on the way.
+Deciding which leftovers matter is deliberately not a model's job. The intake stage reads what
+is structurally missing off the declaration itself (see core.gaps), which is both more direct and
+less fallible than asking a model to guess whether a leftover "blocks" anything. What these tests
+pin is the direction that must hold either way: nothing the documents left open is dropped on the
+way through.
 """
 import json
 import unittest

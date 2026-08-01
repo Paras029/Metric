@@ -21,7 +21,7 @@ _L1_ORDER = ["Agent type", "Channel / modality", "Human handoff triggers",
 
 
 def _declared_fields(intake: IntakeData) -> List[str]:
-    """L1 fields the team filled in, beyond the name and objective, in a stable order."""
+    """L1 fields the intake declares, beyond the name and objective, in a stable order."""
     skip = {"Use case name", "Business objective"}
     ordered = [k for k in _L1_ORDER if k in intake.use_case]
     ordered += [k for k in intake.use_case if k not in _L1_ORDER and k not in skip]

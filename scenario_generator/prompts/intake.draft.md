@@ -15,7 +15,7 @@ field empty when the evidence says nothing at all about it, and say so in the re
 WHAT YOU HAVE
 
 Answers assembled from every document the model owner submitted, each built from observations
-that were checked against their source, plus anything the validation team added by hand.
+that were checked against their source, plus anything the validator added by hand.
 
 {{context}}
 
@@ -115,7 +115,7 @@ describes three decision points, declare three — not the seven a system like t
 Where a diagram structure was given, it is the strongest evidence you have about the *shape* of
 the agent, because it was read off a picture of that shape. Keep its ids. Where the prose and the
 diagram disagree about what an outcome is called, prefer the diagram's wording and note the
-disagreement in the review notes — the diagram is what the team drew, and the prose is what
+disagreement in the review notes — the diagram is what the model owner drew, and the prose is what
 somebody wrote about it afterwards.
 
 WHAT TO RETURN

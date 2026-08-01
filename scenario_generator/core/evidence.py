@@ -42,7 +42,7 @@ FACETS: "OrderedDict[str, str]" = OrderedDict([
                          "human."),
     ("risk_areas", "Failure modes the business already knows or worries about, including "
                    "anything flagged by a previous review."),
-    ("owner_testing", "How the team that built the agent tested it themselves, and what they "
+    ("owner_testing", "How the model owner tested the agent themselves, and what that "
                       "found."),
     ("terminology", "Domain vocabulary a tester would need in order to write a realistic "
                     "conversation."),

@@ -15,7 +15,7 @@ defaults:
   # fail again.
   max_attempts: 4
 
-# Calls run on one of four tiers, because the work genuinely differs. Each falls back to the model
+# Calls run on one of three tiers, because the work genuinely differs. Each falls back to the model
 # named in .env, so nothing changes until you name a smaller one here.
 #
 # max_tokens is the *output* cap, not the context window. Reasoning tokens come out of the same
@@ -37,16 +37,9 @@ tiers:
     reasoning_effort: medium
     max_attempts: 2
 
-  # Writing each scenario up for the modelling team. Mechanical, but people read the result.
+  # Writing each scenario up for the model owner. Mechanical, but people read the result.
   standard:
     max_tokens: 16000
-    reasoning_effort: minimal
-
-  # Mapping the modelling team's free text onto the intake's closed vocabulary. Classification,
-  # with validation discarding anything outside the list -- the cheapest model that follows the
-  # output format is enough, and this is the first saving worth making.
-  fast:
-    max_tokens: 8000
     reasoning_effort: minimal
 
 # How many of the batched calls are in flight at once. This caps overlap, not call count: a large
@@ -85,7 +78,7 @@ stages:
   reviewer_category:              # the declared ending, read back                 (materiality)
     batch_size: 20
   reviewer_propose: {}            # what enumeration could not reach               (judgement)
-  coverage_map:                   # their conversations onto our scenarios        (judgement)
+  coverage_map:                   # submitted conversations onto the benchmark    (judgement)
     batch_size: 5
 
 ingestion:
@@ -96,7 +89,7 @@ ingestion:
 
   # How many times a question the first reading left open is put back to the documents before a
   # person is asked. Each pass is one call over the whole corpus, and each question it settles is
-  # one the modelling team never has to answer. 0 skips the sweep and asks considerably more.
+  # one the model owner never has to answer. 0 skips the sweep and asks considerably more.
   resolve_passes: 2
 
   # Whether the model accepts images alongside text. Off where the gateway rejects the multimodal

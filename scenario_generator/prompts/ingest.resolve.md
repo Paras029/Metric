@@ -1,11 +1,11 @@
 WHAT THIS IS FOR
 
 A first reading of the submitted documentation left the questions below unanswered. Before they
-are put to the modelling team, they are put back to the documents once more.
+are put to the model owner, they are put back to the documents once more.
 
 Two things make this worth doing rather than skipping. A first reading answers each question from
 what it was looking for at the time, and a question asked directly is answered by material the
-first pass had no reason to connect. And every question that survives to the team is a delay of
+first pass had no reason to connect. And every question that survives to the model owner is a delay of
 days, so a question answerable from what they already sent should not be asked at all.
 
 WHAT YOU ALREADY ESTABLISHED
@@ -35,7 +35,7 @@ above. What it may not do is go past the evidence:
 - `answered` — the documents settle it. Give the answer and quote what settles it.
 - `partial` — the documents narrow it without settling it. Say what is now known and what remains
   open. This is a real result: a question that has gone from open to nearly closed takes far less
-  of the team's time to finish.
+  of the model owner's time to finish.
 - `unanswered` — the documents do not address it. Say so plainly.
 
 Do not resolve a question by inference from how such systems usually work. A question wrongly

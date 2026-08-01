@@ -49,8 +49,8 @@ FACET_QUESTIONS = {
     "scope_boundaries": "What is the agent explicitly not allowed to do, and when must it hand "
                         "over to a person?",
     "risk_areas": "What failure modes are already known or suspected for this agent?",
-    "owner_testing": "How has the team that built the agent tested it so far, and what did they "
-                     "find?",
+    "owner_testing": "How has the model owner tested the agent so far, and what did that "
+                     "testing find?",
     "terminology": "What domain terms would a tester need in order to write a realistic "
                    "conversation?",
 }
@@ -187,7 +187,7 @@ def open_questions(record: EvidenceRecord) -> List[dict]:
     Only the unknowns the resolution sweep judged to stop the intake being filled in appear here.
     Everything else stays in the evidence record and in the context document, where it is a note
     on how complete the documentation is rather than a task for anybody. Documentation is always
-    incomplete; the questions worth a modelling team's time are the ones without which a part of
+    incomplete; the questions worth a model owner's time are the ones without which a part of
     the intake cannot be written at all.
     """
     questions: List[dict] = []

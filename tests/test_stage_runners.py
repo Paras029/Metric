@@ -1,9 +1,9 @@
 """Every stage runner, exercised end to end against stubbed model calls.
 
-This file exists because a runner that is never called is a runner that is never checked. The
-coverage stage shipped iterating a function that returns nothing, and no test noticed, because
-the tests until now only covered the three stages a walkthrough happened to touch. Running all of
-them here is cheap and catches exactly that class of mistake.
+This file exists because a runner that is never called is a runner that is never checked, and a
+walkthrough test only touches the stages it happens to walk through. Running every runner here is
+cheap, and it catches the class of mistake that survives everywhere else: a stage that looks like
+it did something because nothing ever asked it for the result.
 
 It also pins the property the two front ends depend on: the runners hold no pipeline logic, so
 what the interface does and what the command line does cannot drift apart.
@@ -63,7 +63,7 @@ def _intake_workbook(directory: Path) -> Path:
 
 
 def _conversation_workbook(directory: Path) -> Path:
-    """What the modelling team submits: transcripts, under their own grouping where they have one."""
+    """What the model owner submits: transcripts, under their own grouping where there is one."""
     path = directory / "their_conversations.xlsx"
     book = Workbook()
     sheet = book.active

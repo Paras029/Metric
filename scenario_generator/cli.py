@@ -87,7 +87,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                           help="cap on scenarios the review may add (default 15)")
     p_review.add_argument("--pack", help="also rebuild the challenge pack at this path")
     p_review.add_argument("--owner-scenarios",
-                          help="optional: the owner's own scenario library, shown as context")
+                          help="optional: the model owner's own scenario list, shown as context")
 
     p_pack = sub.add_parser("build-pack",
                             help="write the challenge pack from a registry (no LLM)")
@@ -97,12 +97,12 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     p_map = sub.add_parser(
         "map-coverage",
-        help="stage: map the conversations a team has already run onto a generated registry")
+        help="stage: map the conversations the model owner has already run onto a registry")
     p_map.add_argument("intake")
     p_map.add_argument("registry")
     p_map.add_argument("conversations",
-                       help="their transcripts: one row per turn, a transcript per row, or a "
-                            "document of 'User:'/'Agent:' exchanges")
+                       help="the model owner's transcripts: one row per turn, a transcript per "
+                            "row, or a document of 'User:'/'Agent:' exchanges")
     p_map.add_argument("report")
     p_map.add_argument("--threshold", type=int, default=DEFAULT_THRESHOLD,
                        help="how many conversations a scenario needs before it counts as "

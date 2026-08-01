@@ -2,14 +2,14 @@ WHAT EACH FIELD MEANS
 
 - id: SC-xxx derives from the decision graph, NF-xxx is a probe, LP-xxx was added by an earlier
   review.
-- origin: "graph" (a walked route), "coverage-gap" (a focused route covering a declared outcome
+- origin: "graph" (a walked route), "variant-gap" (a focused route covering a declared outcome
   the walk missed), "probe" (from the probe library), "llm-proposed" (added by a review).
 - decision_path: the expected sequence of (decision = outcome) pairs. An expectation of the
   correct route, not a prediction -- a real agent may reach the same outcome another way, and
   judging that belongs to a later stage, not to this review. Empty for probes.
 - category: for graph scenarios, the declared outcome type of the state the route ends in. For
   probes, the probe family.
-- description: what the agent's own team is told to test. Issued to them, so it must never
+- description: what the model owner is told to test. Issued to the model owner, so it must never
   reveal the expected outcome -- that is what is being scored.
 - turn_plan: the script the tester follows. Also issued.
 - expected_outcome: ground truth. The terminal state for a graph scenario, the behavioural

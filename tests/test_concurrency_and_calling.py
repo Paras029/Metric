@@ -5,9 +5,9 @@ polling for its progress, several times a minute, for as long as a run takes. Th
 are handed a completion function that may be the real gateway or a stub, and the two do not have
 the same signature.
 
-Both were previously handled in a way that worked until it didn't: an in-place write that a
-reader could catch mid-truncation, and a ``try/except TypeError`` that could not tell a signature
-mismatch from a genuine error inside the call.
+Both have an obvious implementation that works until it doesn't: an in-place write a reader can
+catch mid-truncation, and a bare ``try/except TypeError`` that cannot tell a signature mismatch
+from a genuine error raised inside the call.
 """
 import threading
 import time
@@ -163,7 +163,8 @@ class TestCallingACompletionFunction(unittest.TestCase):
         self.assertEqual(seen["tier"], config.STANDARD)
 
     def test_a_real_type_error_inside_the_call_is_raised_as_itself(self):
-        """The failure the old try/except swallowed: it retried and reported the wrong error."""
+        """A TypeError from inside the call is not a signature mismatch, and retrying it would
+        report the wrong error."""
         def gateway(system, user, tier=None):
             raise TypeError("cannot serialise the payload")
 

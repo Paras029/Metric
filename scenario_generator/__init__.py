@@ -1,4 +1,4 @@
-"""Agentic scenario generator: intake -> benchmark scenarios -> coverage of their own testing.
+"""Agentic scenario generator: intake -> benchmark scenarios -> coverage of existing testing.
 
 Public surface for programmatic use:
 

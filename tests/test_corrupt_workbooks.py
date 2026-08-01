@@ -83,9 +83,11 @@ class TestTheIntakeWorkbook(unittest.TestCase):
 
 
 class TestAnIncompleteIntake(unittest.TestCase):
-    """A workbook that opens fine and is not an intake, or is one with nothing in it. Both are
-    ordinary things to upload by mistake, and both used to fail with a bare IndexError or
-    KeyError naming neither the file nor what was wrong with it."""
+    """A workbook that opens fine and is not an intake, or is one with nothing in it.
+
+    Both are ordinary things to upload by mistake, and both reach the reader as a bare IndexError
+    or KeyError unless caught -- an error naming neither the file nor what was wrong with it.
+    """
 
     def test_a_blank_template_says_what_it_is_missing(self):
         from scenario_generator.core.intake import write_template

@@ -11,8 +11,8 @@ internal identifiers stay in the workbook, which is where someone auditing the b
 look for them. The screen carries the reading, and the workbook carries the record.
 
 One consequence worth stating: the expected outcome is withheld here as well. It is not secret
-from the validation team -- it is in their own registry -- but a page that puts the answer beside
-the question is a page somebody eventually screenshots into an email to the modelling team.
+from the validator -- it is in their own registry -- but a page that puts the answer beside
+the question is a page somebody eventually screenshots into an email to the model owner.
 """
 from __future__ import annotations
 
@@ -49,9 +49,9 @@ STAGE_COLUMNS = {
     "issue": (TEXT, MATERIALITY_COLUMNS, REVIEW, COVERAGE),
 }
 
-# Every origin gets a label. One was missing, so a scenario the variant sweep added showed its
-# raw slug on the page and could never be selected in the origin filter, which is built from
-# these values.
+# Every origin gets a label, and the map must stay exhaustive: a scenario whose origin is missing
+# here shows its raw slug on the page, and can never be selected in the origin filter, which is
+# built from these values.
 ORIGIN_LABELS = {
     ORIGIN_GRAPH: "Route",
     ORIGIN_VARIANT_GAP: "Added route",

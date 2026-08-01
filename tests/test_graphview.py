@@ -35,8 +35,8 @@ _LOOPED = IntakeData(
     states=[State("S-00", "Start", "Session begins", ["DEC-01"], False),
             State("S-01", "DEC-01=Pass", "Authenticated", [], True, "Happy path"),
             # A failed attempt loops straight back to the same decision -- a retry, not a step
-            # forward, and exactly the shape that used to draw an arrow back up through every
-            # row in between.
+            # forward, and exactly the shape that would otherwise draw an arrow back up
+            # through every row in between.
             State("S-02", "DEC-01=Fail", "Try again", ["DEC-01"], False)],
     tools=[],
 )
@@ -112,7 +112,7 @@ class TestLayout(unittest.TestCase):
 
 class TestRetryLoops(unittest.TestCase):
     """A decision that revisits itself, or an earlier point, is not a step forward -- drawing it
-    as one used to send an arrow straight up through every row in between."""
+    as one sends an arrow straight up through every row in between."""
 
     def test_a_loop_is_recognised_by_its_depth_not_moving_forward(self):
         layout = build_layout(_LOOPED)
@@ -128,7 +128,7 @@ class TestRetryLoops(unittest.TestCase):
 
     def test_each_loop_gets_its_own_lane(self):
         """Two independent loops must not be routed through the same lane, or they would overlap
-        each other exactly the way a single loop used to overlap the ordinary flow."""
+        each other exactly the way an unrouted loop overlaps the ordinary flow."""
         two_loops = IntakeData(
             use_case={}, personas=[Persona("P1", "Default", [], True)], capabilities=[],
             decisions=[Decision("DEC-01", "Check A", "", "", ["Pass", "Fail"]),

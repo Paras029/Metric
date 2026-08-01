@@ -1,7 +1,7 @@
 WHAT YOU ARE DOING
 
 The intake below is already declared -- drafted earlier, corrected by hand, or some of both. Since
-it was last written, the validation team has answered specific questions about it and possibly
+it was last written, the validator has answered specific questions about it and possibly
 added documents. Your job is to **revise it**, not redraft it from nothing: carry forward
 everything that is already right, and change only what the new information below actually
 requires.
@@ -17,7 +17,7 @@ WHAT IS CURRENTLY DECLARED
 
 WHAT HAS BEEN ADDED SINCE
 
-Everything the documents establish, plus every answer the validation team has given -- including
+Everything the documents establish, plus every answer the validator has given -- including
 answers to specific questions raised about the declaration above.
 
 {{context}}

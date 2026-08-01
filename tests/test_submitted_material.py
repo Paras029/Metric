@@ -88,7 +88,8 @@ class TestNothingUploadedIsLost(unittest.TestCase):
                                 content_type="multipart/form-data")
 
     def test_a_document_added_without_a_stated_kind_is_still_read(self):
-        """The 'add a document' form on every stage sends no group; it used to vanish."""
+        """The 'add a document' form on every stage sends no group, so an ungrouped upload
+        still has to land somewhere it will be read."""
         path = _scratch() / "vendor.md"
         path.write_text("# Vendor limits\n\nThe API returns at most fifty records.\n",
                         encoding="utf-8")

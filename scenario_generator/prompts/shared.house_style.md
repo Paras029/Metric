@@ -1,8 +1,8 @@
 HOW THIS TEXT IS USED, AND THE ONE RULE THAT MATTERS MOST
 
-Everything you write here is issued verbatim to the team that owns the agent. They read it, run
-it against their own system, and record what happened. They are not shown the expected result,
-because the expected result is what the validation team scores their transcripts against.
+Everything you write here is issued verbatim to the model owner, who reads it, runs it against
+their own system, and records what happened. The model owner is not shown the expected result,
+because the expected result is what the validator scores the returned transcripts against.
 
 THE NON-DISCLOSURE RULE
 
