@@ -161,15 +161,28 @@ def _run_documents(workspace: Workspace, progress=None, cancel=None) -> Dict[str
 
     counts = result.summary
     unreadable = counts["documents"] - counts["readable"]
-    return {"Documents read": counts["readable"],
-            # Read and drawn on are different things, and the difference is the interesting one:
-            # a document that contributed to nothing was either irrelevant or passed over.
-            "Documents drawn on": f"{counts['drawn_on']} of {counts['readable']}",
-            "Questions answered": f"{counts['answered']} of {len(FACETS)}",
-            "Observations kept": counts["usable"],
-            "Discarded as unsupported": counts["rejected"],
-            "To put to the model owner": counts["to_ask"],
-            "Unreadable files": unreadable}
+
+    # Documents and images are counted apart because they are not the same submission. A workflow
+    # drawn across five pictures is one flow sent as five files, and rolling it into "6 documents
+    # read" says the pack was six times the size it was.
+    summary: Dict[str, object] = {}
+    if counts["texts"]:
+        summary["Documents read"] = f"{counts['texts_read']} of {counts['texts']}"
+    if counts["images"]:
+        summary["Workflow images read"] = f"{counts['images_read']} of {counts['images']}"
+
+    # Read and drawn on are different things, and the difference is the interesting one: a file
+    # that contributed to nothing was either irrelevant or passed over.
+    summary["Files anything rests on"] = f"{counts['drawn_on']} of {counts['readable']}"
+    summary["Questions about the agent answered"] = f"{counts['answered']} of {len(FACETS)}"
+    summary["Facts found and checked against the documents"] = counts["usable"]
+    if counts["rejected"]:
+        summary["Facts dropped — quote not found in any document"] = counts["rejected"]
+    if counts["to_ask"]:
+        summary["Left for you to answer at the intake stage"] = counts["to_ask"]
+    if unreadable:
+        summary["Files that could not be read at all"] = unreadable
+    return summary
 
 
 def _run_intake(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:

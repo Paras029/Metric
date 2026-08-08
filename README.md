@@ -330,10 +330,12 @@ the interface, and on the last line of the command's output on the command line.
 call are not counted again: the number is how much work the stage asked for, not how many times
 the transport had to ask for it.
 
-Every individual call site can also be tuned on its own, one level finer than a tier, and batch
-size and concurrency are separate numbers answering separate questions. See
-**[HOW_IT_WORKS.md](HOW_IT_WORKS.md#tuning)** for the stage keys, the batching model and every
-remaining setting.
+**Every individual call the tool makes can be pointed at its own model**, one level finer than a
+tier — the scenario writer, each of the three ingestion reads, the diagram passes, the two review
+sweeps, coverage mapping. `tuning.yml` lists all thirteen with the model line commented out and
+ready to fill in, and each also takes its own output cap, temperature, reasoning effort, retries,
+batch size and concurrency. See **[HOW_IT_WORKS.md](HOW_IT_WORKS.md#tuning)** for the stage keys,
+the batching model and every remaining setting.
 
 ---
 

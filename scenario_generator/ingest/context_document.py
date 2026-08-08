@@ -32,7 +32,7 @@ FACET_HEADINGS = {
     "policy_constraints": "Rules it must honour",
     "scope_boundaries": "What it does not do",
     "risk_areas": "Known risk areas",
-    "owner_testing": "How its own team tested it",
+    "owner_testing": "How the model owner tested it",
     "terminology": "Domain vocabulary",
 }
 

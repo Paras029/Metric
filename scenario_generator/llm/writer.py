@@ -71,10 +71,21 @@ class ScenarioWriter:
                 continue
             pending = list(chunks(group, self._batch))
             system = prompt_loader.load(_SYSTEM_PROMPT)
+            # Report as replies land rather than only once they are applied. Every call in a group
+            # goes out together, so applying them is a fraction of a second at the end of a wait
+            # that can run to minutes -- a bar driven off the applying loop sits at nothing and
+            # then finishes at once, which is accurate about the code and useless to watch.
+            sizes = [len(chunk) for chunk in pending]
+            base = written
             replies = call_batch(self._complete, system, [self._render(c, intake) for c in pending],
                                  tier=config.stage_tier("WRITER", config.STANDARD),
                                  max_concurrency=config.stage_concurrency("WRITER"),
-                                 cancel=self._cancel)
+                                 cancel=self._cancel,
+                                 on_progress=lambda done, _total, sizes=sizes, base=base: (
+                                     self._progress(
+                                         f"Written {base + sum(sizes[:done])} of "
+                                         f"{len(scenarios)} scenarios",
+                                         base + sum(sizes[:done]), len(scenarios))))
 
             for chunk, reply in zip(pending, replies):
                 cancellation.check(self._cancel)

@@ -228,11 +228,15 @@ class TestWiredIntoIngestion(unittest.TestCase):
 
 
 class _StubSummary(dict):
-    """The counts _run_documents reads off a real IngestResult.summary."""
+    """The counts _run_documents reads off a real IngestResult.summary.
+
+    Built by summarising a real (empty) record rather than by listing keys here, so a count added
+    to :func:`summarise` cannot leave this stub one key short of what the runner reads.
+    """
 
     def __init__(self):
-        super().__init__(documents=1, readable=1, drawn_on=0, answered=0, usable=0,
-                         rejected=0, to_ask=0)
+        from scenario_generator.core.evidence import DocumentRef, EvidenceRecord, summarise
+        super().__init__(summarise(EvidenceRecord(documents=[DocumentRef("spec.md", "markdown")])))
 
 
 class _StubIngestResult:

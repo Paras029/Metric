@@ -167,6 +167,14 @@ class DocumentRef:
     units: int = 0
     note: str = ""
 
+    is_image: bool = False
+    """Whether this was submitted as a picture rather than as text.
+
+    A workflow drawn across five images is one flow, not five documents, and counting it as five
+    overstates how much was submitted. Recorded here rather than inferred from ``kind`` because an
+    image that could not be read is recorded as unreadable, which loses what it was.
+    """
+
     drawn_on: bool = False
     """Whether any answer actually rested on this document.
 
@@ -278,4 +286,11 @@ def summarise(record: EvidenceRecord) -> Dict[str, int]:
         "to_ask": len(record.questions_for_people()),
         "readable": sum(1 for d in record.documents if d.kind != "unreadable"),
         "drawn_on": sum(1 for d in record.documents if d.drawn_on),
+        # Split out because a workflow spread over five images is one flow submitted in five
+        # files, and reporting it as five documents read overstates the size of the pack.
+        "images": sum(1 for d in record.documents if d.is_image),
+        "images_read": sum(1 for d in record.documents if d.is_image and d.kind != "unreadable"),
+        "texts": sum(1 for d in record.documents if not d.is_image),
+        "texts_read": sum(1 for d in record.documents
+                          if not d.is_image and d.kind != "unreadable"),
     }

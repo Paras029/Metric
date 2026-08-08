@@ -345,11 +345,15 @@ Materiality-tier work, but they are two different calls in two different passes,
 can want them tuned differently — a smaller model for the mechanical category check, the full one
 for materiality itself.
 
-`LLM_STAGE_<KEY>_*` sets any of `MODEL_ID`, `MAX_TOKENS`, `TEMPERATURE`, `REASONING_EFFORT`,
-`MAX_ATTEMPTS` for one specific call site, and `_BATCH_SIZE` / `_CONCURRENCY` for the ones that
-batch. Every field falls back to its tier's own setting where the stage does not override it, which
-itself falls back to `LLM_MODEL_ID` — three levels, stage then tier then master, and setting
-nothing at this level changes nothing.
+**Every model call the tool makes is on this list, and every one of them takes the same
+settings** — including its own model. `tuning.yml` carries an entry per call site with the model
+line commented out and ready to fill in; the same thing is settable from the environment as
+`LLM_STAGE_<KEY>_MODEL_ID`, and likewise `_MAX_TOKENS`, `_TEMPERATURE`, `_REASONING_EFFORT`,
+`_MAX_ATTEMPTS`, `_BATCH_SIZE` and `_CONCURRENCY` (the last two only where the call batches).
+
+Every field falls back to its tier's own setting where the stage does not override it, which itself
+falls back to `LLM_MODEL_ID` — three levels, stage then tier then master, and setting nothing at
+this level changes nothing.
 
 | Stage key | Call site | Tier | Default batch |
 |---|---|---|---|
@@ -421,6 +425,23 @@ to how much one call can weigh carefully at once, which is a much smaller number
 
 `LLM_STAGE_REVIEWER_ASSESS_BATCH_SIZE=4` and `LLM_STAGE_REVIEWER_ASSESS_CONCURRENCY=8`, say, sends
 smaller, more careful review calls while keeping more of them in flight at once.
+
+### What the progress bar counts
+
+A running stage reports two things, because they answer different questions. The line says what is
+being waited on right now; the bar says how much of the run is behind you.
+
+The bar counts **finished** units, never started ones. That distinction is what keeps it honest:
+the three document-reading calls go out together, so a bar that counted them as they were sent
+would leap a quarter of the way along in the first second and then stand still for the length of
+the longest call. For the same reason the batched passes report each reply as it lands rather than
+after the whole set has been applied — applying is a fraction of a second at the end of a wait that
+can run to minutes.
+
+For document ingestion a unit is one file parsed or one model call made, so parsing a large pack
+moves the bar rather than looking like dead time. The total is an estimate: a pack big enough to be
+read in parts adds steps as it goes, so the interface says "step 4 of about 12" rather than
+implying a precision it does not have.
 
 Document ingestion reads its three question groups in parallel, each image in a submitted diagram
 pack is read on its own and in parallel with the others, and parsing several submitted files

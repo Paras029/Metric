@@ -197,13 +197,23 @@ class DocumentExtractor:
     # ------------------------------------------------------------------ entry point
     def run(self, paths: Sequence[Path]) -> EvidenceRecord:
         paths = [Path(p) for p in paths]
-        corpus = build_corpus(paths, self._progress, self._redact, self._should_redact)
+
+        # Everything that will happen, counted before any of it does, so the bar moves through
+        # parsing as well as through the model calls. Parsing a sixty-page PDF is real time, and
+        # a bar that stands at nothing until the first model call comes back has spent the part
+        # of the run a person is most likely to be watching claiming that nothing is happening.
+        self._total = self._estimate_units(paths)
+        self._parsed = 0
+        corpus = build_corpus(paths, self._parsed_one, self._redact, self._should_redact)
         if not corpus:
             raise IngestionFailed("None of the submitted files could be read.")
         cancellation.check(self._cancel)
 
         record = EvidenceRecord(documents=corpus.documents)
-        self._total = self._estimate_calls(corpus)
+        # An oversized pack is read in several parts, which is only known once it is parsed. Any
+        # extra calls that implies are added to the total rather than allowed to push the bar
+        # past its own end.
+        self._total += (len(self._split(corpus.text)) - 1) * len(FACET_GROUPS)
 
         # Reading the text and reading the diagrams are independent, so they go together.
         chunks = self._split(corpus.text)
@@ -267,10 +277,11 @@ class DocumentExtractor:
         merged: Dict[str, FacetAnswer] = {}
         for number, chunk in enumerate(chunks, start=1):
             cancellation.check(self._cancel)
-            self._step(f"Reading the documents for {label}"
-                       + (f" (part {number} of {len(chunks)})" if len(chunks) > 1 else ""))
+            part = f" (part {number} of {len(chunks)})" if len(chunks) > 1 else ""
+            self._say(f"Reading the documents for {label}{part}")
             reply = self._ask(_READ_PROMPT, "INGEST_READ", questions=questions, corpus=chunk,
                               documents=inventory)
+            self._step(f"Read the documents for {label}{part}")
             if reply is None:
                 continue
             self._note_documents_used(reply.get("documents_used"))
@@ -331,7 +342,7 @@ class DocumentExtractor:
                 loaded.append((path, load_image(path)))
             except UnreadableDocument as exc:
                 record.documents.append(
-                    DocumentRef(name=path.name, kind="unreadable", note=str(exc)))
+                    DocumentRef(name=path.name, kind="unreadable", note=str(exc), is_image=True))
         if not loaded:
             return
 
@@ -353,8 +364,9 @@ class DocumentExtractor:
             return
 
         cancellation.check(self._cancel)
-        self._step(f"Constructing the workflow from {len(readings)} diagram(s)")
+        self._say(f"Constructing the workflow from {len(readings)} diagram(s)")
         reply = self._synthesize_diagrams(readings, names)
+        self._step(f"Constructed the workflow from {len(readings)} diagram(s)")
         if reply is None:
             self._unreadable(record, loaded,
                              "each diagram was read on its own but could not be put together "
@@ -367,7 +379,8 @@ class DocumentExtractor:
         record.structure = structure
 
         for path, _ in loaded:
-            record.documents.append(DocumentRef(name=path.name, kind="diagram", units=1))
+            record.documents.append(
+                DocumentRef(name=path.name, kind="diagram", units=1, is_image=True))
 
         # A diagram that yielded a workflow has informed the reading, whether or not it also
         # produced a quotable observation. Without this an image carrying the entire structure of
@@ -386,7 +399,8 @@ class DocumentExtractor:
                     note: str) -> None:
         """Record every submitted image as needing a written description instead."""
         for path, _ in loaded:
-            record.documents.append(DocumentRef(name=path.name, kind="unreadable", note=note))
+            record.documents.append(
+                DocumentRef(name=path.name, kind="unreadable", note=note, is_image=True))
 
     def _claim_observations(self, record: EvidenceRecord, observations, names: str) -> None:
         """What the diagrams establish in prose, alongside the graph they establish in structure.
@@ -411,8 +425,9 @@ class DocumentExtractor:
     def _read_diagram_step(self, index: int, total: int, path: Path,
                            image: Tuple[str, bytes]) -> Optional[Tuple[str, dict]]:
         """One pool worker's share: report progress, read the image, name it if it read."""
-        self._step(f"Reading diagram {index} of {total}: {path.name}")
+        self._say(f"Reading diagram {index} of {total}: {path.name}")
         reading = self._read_one_diagram(path, image, index, total)
+        self._step(f"Read diagram {index} of {total}: {path.name}")
         return (path.name, reading) if reading else None
 
     def _read_one_diagram(self, path: Path, image: Tuple[str, bytes], index: int,
@@ -478,7 +493,7 @@ class DocumentExtractor:
             return structure
 
         cancellation.check(self._cancel)
-        self._step(f"Checking {len(problems)} unresolved point(s) against the diagrams")
+        self._say(f"Checking {len(problems)} unresolved point(s) against the diagrams")
         logger.info("The workflow read from the diagrams left %d point(s) unresolved; "
                     "looking again.", len(problems))
 
@@ -493,9 +508,11 @@ class DocumentExtractor:
                 tier=config.stage_tier("INGEST_DIAGRAM_REPAIR", config.JUDGEMENT), images=images))
         except Exception as exc:
             self._called(failed=True)
+            self._step("Checked the diagrams again")
             logger.warning("Could not check the diagrams again: %s", exc)
             return structure
         self._called()
+        self._step("Checked the diagrams again")
 
         repaired = diagram_structure.merge(structure, reply)
         remaining = diagram_structure.audit(repaired)
@@ -580,8 +597,8 @@ class DocumentExtractor:
     def _settle_pass(self, record: EvidenceRecord, corpus: str,
                      outstanding: List[Tuple[str, str]], number: int, last: bool) -> None:
         """One sweep: answer what the documents settle, and on the last pass rule on the rest."""
-        self._step(f"Looking again for {len(outstanding)} unanswered point(s)"
-                   + (f" (pass {number} of {self._passes})" if self._passes > 1 else ""))
+        pass_of = f" (pass {number} of {self._passes})" if self._passes > 1 else ""
+        self._say(f"Looking again for {len(outstanding)} unanswered point(s){pass_of}")
         established = "\n\n".join(
             f"## {FACET_HEADINGS.get(a.facet, a.facet)}\n{a.answer}"
             for a in record.answers if a.is_answered and a.answer)
@@ -590,6 +607,7 @@ class DocumentExtractor:
                           established=established or "Nothing yet.",
                           questions="\n".join(f"- {q}" for _, q in outstanding),
                           corpus=corpus)
+        self._step(f"Looked again for {len(outstanding)} unanswered point(s){pass_of}")
         if reply is None:
             return
 
@@ -631,18 +649,52 @@ class DocumentExtractor:
                         "stage.", to_ask)
 
     # ------------------------------------------------------------------ shared
-    def _estimate_calls(self, corpus: Corpus) -> int:
-        parts = max(1, -(-len(corpus.text) // config.max_corpus_chars()))
+    def _estimate_units(self, paths: Sequence[Path]) -> int:
+        """How many things will happen, in the units the bar counts.
+
+        A unit is one file parsed or one model call made. They are not the same size -- a model
+        call takes longer than parsing a short document -- but they are the same *kind* of thing
+        to a person watching: a discrete step that either has or has not happened. Weighting them
+        against each other would need a model of how long each takes, which varies by document
+        and by gateway, and would be wrong more often than this is uneven.
+        """
+        images = [p for p in paths if is_image(p)]
         sweeps = self._passes if self._resolve else 0
-        # One call per diagram read on its own, one to join them into a workflow, and one
-        # more where that workflow does not account for itself and is put back to the images.
-        diagram_calls = len(corpus.diagrams) + 2 if corpus.diagrams else 0
-        return len(FACET_GROUPS) * parts + diagram_calls + sweeps
+        # One call per diagram read on its own, one to join them into a workflow, and one more
+        # where that workflow does not account for itself and is put back to the images.
+        diagram_calls = len(images) + 2 if images else 0
+        return len(paths) + len(FACET_GROUPS) + diagram_calls + sweeps
+
+    def _say(self, message: str) -> None:
+        """What is happening right now, without claiming it has happened.
+
+        The bar and the line above it answer different questions -- how much is done, and what is
+        being waited on -- and only the second can be known before a call returns. Advancing the
+        first on starting is what makes a bar leap and then stall: three facet groups go out
+        together, and counting them as sent puts it a quarter along in the first second.
+        """
+        with self._lock:
+            done = self._parsed + self._done
+        self._progress(message, done, self._total)
+
+    def _parsed_one(self, message: str, *args, **kwargs) -> None:
+        """One submitted file turned into text. Advances the bar through the parsing phase."""
+        with self._lock:
+            self._parsed += 1
+            done = self._parsed
+        self._progress(message, done, self._total)
 
     def _step(self, message: str) -> None:
+        """One unit finished. Reported on completion, never on starting.
+
+        The distinction is the whole difference between a bar that means something and one that
+        does not: three facet groups go out at once, so counting them as they are sent puts the
+        bar a quarter of the way along in the first second and then leaves it there for the
+        length of the longest call.
+        """
         with self._lock:
             self._done += 1
-            done = self._done
+            done = self._parsed + self._done
         self._progress(message, done, self._total)
 
     def _ask(self, prompt: str, stage: str, **values) -> Optional[dict]:

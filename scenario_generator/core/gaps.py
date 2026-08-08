@@ -42,6 +42,15 @@ class Gap:
     question: str
     why: str
 
+    example: str = ""
+    """What an answer to this looks like, shown in the box the answer is typed into.
+
+    A question can be perfectly clear about what it is asking and still leave someone unsure what
+    shape the reply should take -- whether "what are all the ways this can resolve" wants a
+    sentence, a list, or two words. One concrete example settles that in the place it is asked,
+    which is faster than any amount of explanation elsewhere.
+    """
+
     @property
     def heading(self) -> str:
         return f"{self.target_id}" if self.target_id else "Use case"
@@ -70,19 +79,23 @@ def _reachable_states(graph: DecisionGraph) -> Set[str]:
 def _use_case_gaps(intake: IntakeData) -> List[Gap]:
     gaps = []
     fields = [
-        ("Use case name", "name", "What is this agent called?"),
+        ("Use case name", "name", "What is this agent called?",
+         "Disputes Assistant"),
         ("Business objective", "objective",
-         "What does this agent exist to do, and what does success look like for the business?"),
+         "What does this agent exist to do, and what does success look like for the business?",
+         "Resolve card disputes end to end without a person, for the routine cases."),
         ("Agent type", "agent_type", "What kind of agent is this -- a chatbot, a voice agent, a "
-                                     "planner acting without a live conversation?"),
+                                     "planner acting without a live conversation?",
+         "Chatbot in the servicing app"),
         ("Success criteria", "success_criteria",
-         "What does a successful interaction with this agent look like?"),
+         "What does a successful interaction with this agent look like?",
+         "The dispute is filed and the user is told the reference number and the timescale."),
     ]
-    for label, key, question in fields:
+    for label, key, question, example in fields:
         if not str(intake.use_case.get(label, "")).strip():
             gaps.append(Gap(USE_CASE, "", key, question,
                             "Every scenario is written against this; a blank here weakens the "
-                            "framing of all of them, not just one."))
+                            "framing of all of them, not just one.", example=example))
     return gaps
 
 
@@ -97,7 +110,8 @@ def _persona_gaps(intake: IntakeData) -> List[Gap]:
                 f"What is {persona.name or persona.id} trying to achieve, specifically -- what "
                 f"does the agent do differently for them?",
                 "A persona with no stated objective cannot be told apart from a mood or a "
-                "writing style, and cannot inform how a scenario for them should read."))
+                "writing style, and cannot inform how a scenario for them should read.",
+                example="Wants the charge reversed today and has already called twice."))
     return gaps
 
 
@@ -111,13 +125,15 @@ def _capability_gaps(intake: IntakeData) -> List[Gap]:
                 f"What kind of capability is {capability.name or capability.id} -- Lookup, "
                 f"Transactional, Gating, Advisory, or PII-handling?",
                 "The type decides which adversarial probes apply. Left blank, this capability "
-                "is silently tested less than the others."))
+                "is silently tested less than the others.",
+                example="Gating"))
         if capability.id not in used:
             gaps.append(Gap(
                 CAPABILITY, capability.id, "decisions",
                 f"Which decision in the agent actually exercises {capability.name or capability.id}?",
                 "A capability nothing branches on contributes no scenarios -- either it needs a "
-                "decision, or it does not belong in this intake as its own capability."))
+                "decision, or it does not belong in this intake as its own capability.",
+                example="DEC-04"))
     return gaps
 
 
@@ -133,7 +149,8 @@ def _decision_gaps(intake: IntakeData, graph: DecisionGraph) -> List[Gap]:
                 f"{'no outcome' if not decision.variants else 'only one outcome'} -- what are "
                 f"all the ways this can resolve, and what decides between them?",
                 "A branch point with fewer than two named outcomes adds no routes, so nothing "
-                "here is ever tested."))
+                "here is ever tested.",
+                example="Verified / Not verified — whether the postcode given matches the file"))
         for variant in decision.variants:
             target = graph.successor(decision.id, variant)
             if target.startswith("OUT:"):
@@ -142,13 +159,15 @@ def _decision_gaps(intake: IntakeData, graph: DecisionGraph) -> List[Gap]:
                     f"Where does {decision.id}'s \"{variant}\" outcome lead? No state in the "
                     f"intake declares itself reached by it.",
                     "An outcome with no destination stops the route there whether or not that "
-                    "was intended."))
+                    "was intended.",
+                    example="S-07, the state where the user is asked to try again"))
         if not decision.trigger_capability:
             gaps.append(Gap(
                 DECISION, decision.id, "capability",
                 f"Which capability does {decision.id} ({decision.name}) belong to?",
                 "Without this, tools linked to that capability are not associated with the "
-                "decision that uses them."))
+                "decision that uses them.",
+                example="CAP-02"))
     return gaps
 
 
@@ -161,21 +180,24 @@ def _state_gaps(intake: IntakeData, graph: DecisionGraph, reachable: Set[str]) -
                 f"What position is {state.id} -- what has happened, and what has the agent just "
                 f"told or asked the user?",
                 "A state with no description is unreadable in the graph and in any scenario "
-                "that passes through it."))
+                "that passes through it.",
+                example="Identity confirmed; the agent has asked which charge is disputed."))
         if state.is_terminal and not state.outcome_type:
             gaps.append(Gap(
                 STATE, state.id, "outcome_type",
                 f"{state.id} ends the interaction -- is that a Happy path, Retry, Fallback, "
                 f"Escalation or Termination?",
                 "This is what sets the category of every scenario ending here. Left blank, "
-                "those scenarios cannot be categorised at all."))
+                "those scenarios cannot be categorised at all.",
+                example="Escalation"))
         if not state.is_terminal and not state.next_decisions:
             gaps.append(Gap(
                 STATE, state.id, "next_decisions",
                 f"What can happen after {state.id} ({state.description or 'no description'})? "
                 f"It is not marked as ending the interaction, but nothing follows it either.",
                 "Either something follows this state, or it is terminal and needs an outcome "
-                "type -- as declared, nothing is tested past this point."))
+                "type -- as declared, nothing is tested past this point.",
+                example="DEC-06 runs next — or: nothing, this ends the interaction"))
         if state.id not in reachable and state.reached_via.strip().lower() != "start":
             gaps.append(Gap(
                 STATE, state.id, "reached_via",
@@ -183,7 +205,8 @@ def _state_gaps(intake: IntakeData, graph: DecisionGraph, reachable: Set[str]) -
                 f"({state.reached_via or 'nothing stated'}), no walk from the start ever "
                 f"reaches it.",
                 "A state nothing reaches is never the ending of any scenario, whatever it "
-                "describes."))
+                "describes.",
+                example="DEC-03 = Not verified"))
     return gaps
 
 
@@ -194,7 +217,8 @@ def _tool_gaps(intake: IntakeData) -> List[Gap]:
             gaps.append(Gap(
                 TOOL, tool.name, "capability_id",
                 f"Which capability does calling {tool.name} belong to?",
-                "Unlinked, this tool is not associated with the decision that calls it."))
+                "Unlinked, this tool is not associated with the decision that calls it.",
+                example="CAP-01"))
     return gaps
 
 

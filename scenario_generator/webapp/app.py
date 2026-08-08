@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -33,7 +34,7 @@ from ..core.gaps import find_gaps
 from ..core.intake import read_review_notes, set_decision_scope, write_template
 from ..core.models import MATERIALITY
 from ..ingest import open_questions
-from ..ingest.context_document import FACET_HEADINGS
+from ..ingest.context_document import FACET_HEADINGS, FACET_QUESTIONS
 from ..ingest.conversations import read_conversations
 from ..ingest.groups import (ALL_EXTENSIONS, DEFAULT_GROUP, GROUP_BY_KEY, GROUPS, MODEL_DOC,
                              OWNER_SCENARIOS, SUPPORTING, folder_for, files_in, remove_file)
@@ -54,6 +55,10 @@ from .workspace import Workspace, stage_view
 
 # Stages whose output is a set of scenarios, so the page shows them rather than only counts.
 SCENARIO_STAGES = ("text", "materiality", "review", "coverage", "issue")
+
+# Stages where reading the decision graph is the work rather than a reference, so it is drawn at
+# full width in the page. Everywhere else it goes in the side panel at thumbnail size.
+GRAPH_STAGES = ("intake", "benchmark")
 
 # Groups redaction can actually do something to: the two that carry text ingestion reads. A
 # diagram has no text to redact, and the model owner's own conversations never reach
@@ -117,12 +122,18 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
                 logger.warning("Could not read the intake: %s", exc)
 
         # The graph is drawn wherever the intake is available, since it is the clearest reading
-        # of what the benchmark will and will not be able to reach.
-        graph_svg, graph_facts = "", {}
-        if key in ("intake", "benchmark") and intake is not None:
+        # of what the benchmark will and will not be able to reach. Two placements, one drawing:
+        # full width in the page on the stages where reading it *is* the work, and small in the
+        # side panel everywhere after, so what the benchmark was built from stays in view without
+        # anyone navigating back for it.
+        graph_svg, graph_facts, aside_graph = "", {}, ""
+        if intake is not None:
             try:
-                graph_svg = render_svg(intake)
                 graph_facts = graph_summary(intake)
+                if key in GRAPH_STAGES:
+                    graph_svg = render_svg(intake)
+                else:
+                    aside_graph = render_svg(intake)
             except Exception:                              # a malformed intake must not blank it
                 logger.exception("Could not draw the graph")
 
@@ -146,6 +157,8 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             note_total=len(workspace.notes),
             graph_svg=graph_svg,
             graph_facts=graph_facts,
+            aside_graph=aside_graph,
+            aside_files=_submitted_files(workspace),
             decisions=decisions,
             structure_proposals=workspace.structure_proposals if key == "intake" else [],
             structure_review_available=key == "intake" and intake is not None,
@@ -161,6 +174,22 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             produced={n: p for n, p in workspace.state(key).artifacts.items()
                       if not str(p).startswith("sources/")},
         )
+
+    def _submitted_files(workspace: Workspace):
+        """Everything submitted so far, by heading, for the side panel.
+
+        A read-only tally rather than the uploader: what it answers is "did that vendor document
+        ever get added?", which is worth being able to check from stage six without walking back
+        to stage one. Adding and removing stay on the documents stage, where the drop targets say
+        what each heading is for.
+        """
+        rows = []
+        for group in GROUPS:
+            files = files_in(workspace.root, group.key)
+            if files:
+                rows.append({"title": group.title, "icon": group.icon,
+                            "names": [f.name for f in files]})
+        return rows
 
     def _group_rows(workspace: Workspace, key: str):
         """What has been submitted under each heading, so gaps in the pack are visible.
@@ -253,20 +282,38 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         return PAGE_SIZE
 
     def _answers_for(workspace: Workspace):
-        """One row per question, so the reader can see coverage at a glance."""
+        """One row per question, with the whole reading behind it.
+
+        The summary line answers "was this question answered, and how well"; the detail answers
+        "what did it actually say". Both belong on the page, but a page carrying eleven full
+        readings at once is a page nobody reads, so the detail is folded away until asked for.
+
+        ``points`` and ``unknowns`` are the two halves of one reading and are named as such here
+        rather than left as bare counts: a *point* is a specific thing the documents establish
+        about this question, and an *unknown* is something they were asked and did not settle.
+        """
         record = _evidence_record(workspace)
         if not record:
             return []
         rows = []
         for facet in FACETS:
             answer = record.answer_for(facet)
+            sources = record.claims_by_id() if answer else {}
             rows.append({
                 "heading": FACET_HEADINGS.get(facet, facet),
+                "question": FACET_QUESTIONS.get(facet, ""),
                 "answered": bool(answer and answer.is_answered),
                 "confidence": answer.confidence if answer else "Low",
-                "points": len(answer.points) if answer else 0,
-                "unknowns": len(answer.unknowns) if answer else 0,
+                "points": list(answer.points) if answer else [],
+                "unknowns": list(answer.unknowns) if answer else [],
                 "answer": (answer.answer if answer else "") or "",
+                # What the answer was actually built from, so a reader can go and check it. The
+                # quote is what was found in the source; the statement is the reading of it.
+                "sources": [{"statement": sources[claim_id].statement,
+                            "quote": sources[claim_id].quote,
+                            "where": str(sources[claim_id].source)}
+                           for claim_id in (answer.sources if answer else [])
+                           if claim_id in sources],
             })
         return rows
 
@@ -299,14 +346,14 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
         answered = workspace.answered_questions()
 
-        def _row(question: str, why: str, heading: str = "") -> dict:
-            return {"heading": heading, "question": question, "why": why,
+        def _row(question: str, why: str, heading: str = "", example: str = "") -> dict:
+            return {"heading": heading, "question": question, "why": why, "example": example,
                    "answered": question in answered}
 
         grouped: Dict[str, list] = {}
         cross_cutting = []
         for gap in find_gaps(intake):
-            row = _row(gap.question, gap.why, gap.heading)
+            row = _row(gap.question, gap.why, gap.heading, gap.example)
             if gap.kind:
                 grouped.setdefault(gap.kind, []).append(row)
             else:
@@ -323,8 +370,13 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
                 if not text:
                     continue
                 match = _ROW_ID_IN_TEXT.search(field) or _ROW_ID_IN_TEXT.search(text)
-                question = f"About {field}: is this right?" if field else "Worth checking:"
-                row = _row(question, text, match.group(1).upper() if match else field)
+                # The drafter's note *is* the question here -- it says what it was unsure of --
+                # so the heading names the row and the note carries the ask, rather than a
+                # manufactured "is this right?" that says nothing about what to check.
+                question = (f"Confirm or correct {field}" if field
+                            else "Confirm or correct what the draft was unsure of")
+                row = _row(question, text, match.group(1).upper() if match else field,
+                           example="Yes, that is right — or the correction")
                 kind = _KIND_BY_PREFIX.get(match.group(1).upper().split("-")[0]) if match else None
                 if kind:
                     grouped.setdefault(kind, []).append(row)
@@ -740,6 +792,25 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
     @app.template_filter("stage_status")
     def stage_status(status: str) -> str:
         return STATUS_LABELS.get(status, status)
+
+    @app.template_filter("when")
+    def when(stamp: str) -> str:
+        """A stored timestamp as something a person reads without decoding it.
+
+        Timestamps are recorded as UTC in ISO form, which is the right thing to store -- sortable,
+        unambiguous, and the same string on every machine -- and the wrong thing to show:
+        ``2026-08-08T14:23:11+00:00`` is a value, not a time of day. This is the fallback text,
+        rendered server-side so the page is readable with no script at all. The script in
+        stage.html then re-renders it in whatever timezone the browser is actually in, which is
+        the one the reader thinks in.
+        """
+        try:
+            moment = datetime.fromisoformat(str(stamp))
+        except (TypeError, ValueError):
+            return str(stamp or "")
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        return moment.strftime("%d %b %Y at %H:%M UTC")
 
     return app
 

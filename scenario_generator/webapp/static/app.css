@@ -107,6 +107,7 @@
   --r-pill: 999px;
 
   --rail-width: 16.5rem;
+  --aside-width: 20rem;
   --measure: 42rem;      /* prose line length, ~70ch at 15px */
 
   /* One shadow, and it has an offset and a real blur. A zero-offset halo is decoration. */
@@ -231,14 +232,22 @@ ol, ul { list-style: none; padding: 0; }
 .ledger__name { font-weight: 600; }
 .ledger__meta { font-size: var(--t-meta); color: var(--ink-dim); }
 
-/* =================================================================== shell */
+/* =================================================================== shell
+ *
+ * Three columns: where you are in the pipeline, the stage itself, and what is true of the whole
+ * use case. The third exists because the middle column is the only thing that changes between
+ * stages -- the shape of the agent, what was submitted and what has been noted are constant, and
+ * pushing them into the page meant walking back to stage two to check any of them.
+ */
 .shell {
   display: grid;
-  grid-template-columns: var(--rail-width) 1fr;
+  grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--aside-width);
   min-height: 100vh;
-  /* The rail is sticky and one viewport tall, so on a long page its column would end in bare
-     background. Painting the column on the grid keeps it continuous however far the content runs. */
-  background: linear-gradient(90deg, var(--navy) 0 var(--rail-width), var(--canvas) var(--rail-width));
+  /* Both flanking columns are sticky and one viewport tall, so on a long page they would end in
+     bare background. Painting them on the grid keeps each continuous however far the content runs. */
+  background:
+    linear-gradient(90deg, var(--navy) 0 var(--rail-width), transparent var(--rail-width)),
+    linear-gradient(270deg, var(--surface-sunk) 0 var(--aside-width), var(--canvas) var(--aside-width));
 }
 
 .rail {
@@ -389,7 +398,9 @@ ol, ul { list-style: none; padding: 0; }
 .dot--review   { background: var(--mode-review); }
 
 /* =================================================================== the page */
-.canvas { padding: var(--s6) clamp(var(--s5), 4vw, var(--s7)) var(--s7); max-width: 66rem; }
+/* Wider than a reading measure on purpose: this column carries tables, a scenario list and a
+   decision graph, none of which are prose. Prose inside it is still held to --measure. */
+.canvas { padding: var(--s6) clamp(var(--s5), 3.5vw, var(--s7)) var(--s7); max-width: 74rem; }
 
 /* Title, what the stage is for, and its primary action on one line. The action belongs here
    rather than at the foot of the page: it is what the person came to do, and a Run button found
@@ -435,6 +446,10 @@ ol, ul { list-style: none; padding: 0; }
 .block__body { margin-top: var(--s2); color: var(--ink-mid); max-width: var(--measure); }
 .block__foot { margin-top: var(--s3); font-size: var(--t-meta); color: var(--ink-dim); }
 .block__foot--quiet { margin-top: var(--s2); }
+
+/* A timestamp is a fact to glance at, not a value to parse, so it is set in the body face rather
+   than in mono. The script in stage.html rewrites the text in the reader's own timezone. */
+.when { color: var(--ink-mid); font-variant-numeric: tabular-nums; }
 
 /* Where a surface is genuinely earned: something to drop onto, something running, something to
    draw on. Everywhere else the page is the surface. */
@@ -506,16 +521,25 @@ ol, ul { list-style: none; padding: 0; }
   font-variant-numeric: tabular-nums;
 }
 
-.facts { margin-top: var(--s3); display: grid; gap: var(--s2); }
-.facts__row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--s2) var(--s3);
+/* Two real columns, so every value starts at the same place. Rows are `display: contents` for
+   that reason: a label and its value laid out per row align only with themselves, which puts a
+   ragged edge down the middle of a list whose whole job is to be run an eye down. */
+.facts {
+  margin-top: var(--s3);
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--s2) var(--s5);
   font-size: var(--t-ui);
+  align-items: baseline;
 }
-.facts__label { color: var(--ink-dim); min-width: 11rem; flex: none; }
-.facts__value { color: var(--ink); font-weight: 600; }
+.facts__row { display: contents; }
+.facts__label { color: var(--ink-dim); }
+.facts__value { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 40rem) {
+  .facts { grid-template-columns: 1fr; gap: 0; }
+  .facts__label { margin-top: var(--s2); }
+}
 
 /* =================================================================== produced files */
 .files { margin-top: var(--s3); }
@@ -683,6 +707,15 @@ ol, ul { list-style: none; padding: 0; }
 }
 .running__actions { margin-top: var(--s3); }
 .running .block__foot { color: var(--ink-mid); }
+.running__detail {
+  margin-top: var(--s1);
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s3);
+  font-size: var(--t-meta);
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
 
 /* =================================================================== the declared graph */
 .graph__tools {
@@ -876,18 +909,56 @@ ol, ul { list-style: none; padding: 0; }
 .answers__counts { font-size: var(--t-meta); color: var(--ink-dim); }
 .answers__row--missing .answers__heading { color: var(--ink-dim); }
 
-/* =================================================================== notes */
-.notes { margin-top: var(--s3); display: grid; gap: var(--s2); }
-.notes__row {
-  padding: var(--s3);
+/* The whole reading, folded away until asked for. Eleven of these open at once is a wall; the
+   summary line above is what the page is actually for, and this is the check behind it. */
+.answers__summary { display: grid; gap: var(--s1); cursor: pointer; }
+.answers__summary::marker, .answers__summary::-webkit-details-marker { color: var(--rule-strong); }
+.answers__detail[open] .answers__summary .answers__body { color: var(--ink); }
+
+.reading {
+  margin: var(--s3) 0 var(--s2);
+  padding: var(--s4);
   background: var(--surface-sunk);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-md);
+  max-width: var(--measure);
+}
+.reading__question {
+  font-size: var(--t-meta);
+  color: var(--ink-dim);
+  font-style: italic;
+}
+.reading__answer { margin-top: var(--s2); font-size: var(--t-ui); color: var(--ink); }
+.reading__label {
+  margin-top: var(--s4);
+  font-size: var(--t-meta);
+  font-weight: 650;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.reading__list { margin-top: var(--s2); padding-left: var(--s5); display: grid; gap: var(--s1); }
+.reading__list li { font-size: var(--t-small); color: var(--ink-mid); list-style: disc; }
+.reading__list--open li { color: var(--warn); }
+.reading__note { margin-top: var(--s2); font-size: var(--t-meta); color: var(--ink-dim); }
+
+.reading__sources { margin-top: var(--s2); display: grid; gap: var(--s3); }
+.reading__source {
+  padding: var(--s3);
+  background: var(--surface);
+  border: 1px solid var(--rule-soft);
   border-radius: var(--r-sm);
 }
-.notes__question { font-size: var(--t-small); font-weight: 600; color: var(--ink-dim); }
-.notes__text { font-size: var(--t-ui); }
-.notes__meta { margin-top: var(--s1); font-size: var(--t-meta); color: var(--ink-dim); }
-.notes__form { margin-top: var(--s3); max-width: var(--measure); }
-.notes__form .button { margin-top: var(--s2); }
+.reading__statement { font-size: var(--t-small); color: var(--ink); }
+.reading__quote {
+  margin-top: var(--s2);
+  padding-left: var(--s3);
+  border-left: 2px solid var(--blue-edge);
+  font-size: var(--t-small);
+  color: var(--ink-mid);
+}
+.reading__where { margin-top: var(--s2); font-size: var(--t-meta); color: var(--ink-dim); }
+
 .field__input--area { resize: vertical; font-size: var(--t-ui); line-height: 1.5; }
 
 /* =================================================================== submitted material
@@ -1152,20 +1223,115 @@ ol, ul { list-style: none; padding: 0; }
   .rows__row { grid-template-columns: 1fr; gap: var(--s1); }
 }
 
+/* =================================================================== the side panel
+ *
+ * What is true of the whole use case rather than of one stage. Every section is a <details> so a
+ * long one folds away without the page needing to remember a preference, and each is open by
+ * default because the panel exists precisely so these do not have to be sought out.
+ */
+.aside {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  padding: var(--s5) var(--s4) var(--s6);
+  border-left: 1px solid var(--rule);
+  background: var(--surface-sunk);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.aside__part { border-bottom: 1px solid var(--rule); padding-bottom: var(--s4); }
+.aside__part:last-child { border-bottom: 0; }
+.aside__title {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) 0;
+  cursor: pointer;
+  font-size: var(--t-meta);
+  font-weight: 650;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.aside__title::marker, .aside__title::-webkit-details-marker { color: var(--rule-strong); }
+.aside__title:hover { color: var(--ink-mid); }
+.aside__count {
+  margin-left: auto;
+  font-size: var(--t-meta);
+  color: var(--ink-dim);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+  padding: 0 var(--s2);
+}
+.aside__blurb { font-size: var(--t-meta); color: var(--ink-dim); margin-bottom: var(--s2); }
+.aside__empty { font-size: var(--t-meta); color: var(--ink-dim); padding: var(--s1) 0; }
+
+/* The graph at a glance. Never interactive here -- pointer events are off so a click lands on the
+   link wrapping it, which takes you to the stage where it is drawn large enough to read. */
+.aside__graph {
+  display: block;
+  margin-bottom: var(--s3);
+  padding: var(--s2);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  transition: border-color var(--quick);
+}
+.aside__graph:hover { border-color: var(--rule-hover); }
+.aside__graph svg { width: 100%; height: auto; display: block; pointer-events: none; }
+
+.aside__facts { display: grid; gap: var(--s1); }
+.aside__facts > div { display: flex; justify-content: space-between; gap: var(--s2); }
+.aside__facts dt { font-size: var(--t-small); color: var(--ink-mid); }
+.aside__facts dd { font-size: var(--t-small); color: var(--ink); }
+.aside__warn {
+  margin-top: var(--s3);
+  padding: var(--s2);
+  border-radius: var(--r-sm);
+  background: var(--warn-tint);
+  color: var(--warn);
+  font-size: var(--t-meta);
+}
+
+.aside__group {
+  margin-top: var(--s2);
+  font-size: var(--t-meta);
+  font-weight: 600;
+  color: var(--ink-dim);
+}
+.aside__files { display: grid; gap: var(--s1); margin-top: var(--s1); }
+.aside__files li {
+  font-size: var(--t-meta);
+  color: var(--ink-mid);
+  overflow-wrap: anywhere;
+}
+.aside__upload { margin-top: var(--s3); display: grid; gap: var(--s2); justify-items: start; }
+
+.aside__notes { display: grid; gap: var(--s2); }
+.aside__note {
+  padding: var(--s2);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-sm);
+}
+.aside__note-question { font-size: var(--t-meta); font-weight: 600; color: var(--ink-dim); }
+.aside__note-text { font-size: var(--t-small); color: var(--ink); }
+.aside__note-when { margin-top: var(--s1); font-size: var(--t-meta); color: var(--ink-dim); }
+.aside__note-form { margin-top: var(--s3); display: grid; gap: var(--s2); justify-items: start; }
+
 /* =================================================================== the page footer
  *
- * Everything that acts on the stage rather than reporting it: adding context, attaching a late
- * document, running it again, clearing it. These were four separate boxes competing with the
- * result for attention. Grouped and set on a sunk surface, they read as the margin of the page.
+ * All that is left here is undoing the stage, which belongs at the end because that is when you
+ * want it. Everything else that used to sit in this margin is in the side panel now.
  */
 .footer {
   margin-top: var(--s7);
   padding-top: var(--s5);
   border-top: 1px solid var(--rule);
-}
-.footer__grid { display: grid; gap: var(--s6); }
-@media (min-width: 60rem) {
-  .footer__grid { grid-template-columns: 1fr 1fr; align-items: start; }
 }
 
 .reset {
@@ -1185,8 +1351,35 @@ ol, ul { list-style: none; padding: 0; }
  * Structural, not fluid: the rail becomes a strip of stage links across the top. Nothing here
  * resizes type, because the person reading it is at the same distance either way.
  */
+/* The side panel is the first thing to go: it is a convenience, and at this width it would take
+   a third of the line length away from the column that carries the actual work. It becomes an
+   ordinary block at the foot of the page rather than disappearing, so nothing is unreachable. */
+@media (max-width: 78rem) {
+  .shell {
+    grid-template-columns: var(--rail-width) minmax(0, 1fr);
+    background: linear-gradient(90deg, var(--navy) 0 var(--rail-width),
+                                var(--canvas) var(--rail-width));
+  }
+  .aside {
+    grid-column: 2;
+    position: static;
+    height: auto;
+    border-left: 0;
+    border-top: 1px solid var(--rule);
+    background: transparent;
+    padding: var(--s5) clamp(var(--s5), 3.5vw, var(--s7)) var(--s7);
+  }
+  .aside__part { border-bottom: 1px solid var(--rule-soft); }
+  /* Held to a column rather than let out to the full width of the page. These are label/value
+     pairs and short file names; stretched across a wide viewport the two halves of a row end up
+     far enough apart to have to be traced back to each other. */
+  .aside__part > *, .aside__graph { max-width: 34rem; }
+  .aside__graph { max-width: 26rem; }
+}
+
 @media (max-width: 62rem) {
   .shell { grid-template-columns: 1fr; background: var(--canvas); }
+  .aside { grid-column: 1; padding: var(--s5) var(--s4) var(--s6); }
   .rail { position: static; height: auto; padding-bottom: var(--s3); }
   .steps { display: flex; flex-wrap: wrap; padding-top: var(--s2); }
   .steps::before { display: none; }

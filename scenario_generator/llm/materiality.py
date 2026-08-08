@@ -57,11 +57,17 @@ class MaterialityAssessor:
         cancellation.check(self._cancel)
         peers = peer_signals(scenarios)
         pending = list(chunks(scenarios, self._batch))
+        # Reported as replies land, not as they are applied: every chunk is in flight at once,
+        # so the applying loop below runs in a fraction of a second after a wait of minutes.
+        sizes = [len(chunk) for chunk in pending]
         replies = call_batch(self._complete, prompt_loader.load(_SYSTEM_PROMPT),
                              [self._render(c, intake, peers) for c in pending],
                              tier=config.stage_tier("MATERIALITY_ASSESS", config.MATERIALITY),
                              max_concurrency=config.stage_concurrency("MATERIALITY_ASSESS"),
-                             cancel=self._cancel)
+                             cancel=self._cancel,
+                             on_progress=lambda done, _total: self._progress(
+                                 f"Weighed {sum(sizes[:done])} of {len(scenarios)} scenarios",
+                                 sum(sizes[:done]), len(scenarios)))
 
         done_count = 0
         for chunk, reply in zip(pending, replies):

@@ -331,7 +331,8 @@ def _batch_prompt():
 def ask_llm_batch(system_prompt: str, user_messages: List[str],
                   temperature: float = None, max_tokens: int = None,
                   reasoning_effort: str = None, tier: "config.Tier" = None,
-                  model: str = None, max_concurrency: int = None, cancel=None) -> List[Any]:
+                  model: str = None, max_concurrency: int = None, cancel=None,
+                  on_progress=None) -> List[Any]:
     """Send several user messages under one system prompt, concurrently, and return the replies.
 
     One entry per message, in the same order they were given. An entry is either the reply text
@@ -351,6 +352,11 @@ def ask_llm_batch(system_prompt: str, user_messages: List[str],
     scheduling efficiency (a wave waits for its slowest message before the next one starts) in
     return for a real place to stop: once ``cancel`` is set, nothing beyond the wave already sent
     is dispatched, and whatever was not gets a :class:`~.cancellation.Stopped` entry instead.
+
+    ``on_progress``, if given, is called with ``(replies so far, replies expected)`` as each wave
+    lands. Without it a batched pass is silent for its whole duration and then finishes all at
+    once, because every reply arrives before the caller gets any of them -- which is accurate
+    about the code and useless to somebody watching a bar that has not moved in four minutes.
     """
     if not user_messages:
         return []
@@ -372,6 +378,8 @@ def ask_llm_batch(system_prompt: str, user_messages: List[str],
         inputs = [{"system": system_prompt, "content": message} for message in wave]
         results.extend(chain.batch(inputs, config={"max_concurrency": concurrency},
                                    return_exceptions=True))
+        if on_progress is not None:
+            on_progress(len(results), len(user_messages))
     return results
 
 

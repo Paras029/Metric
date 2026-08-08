@@ -176,9 +176,16 @@ class ScenarioReviewer:
         """
         if not pending:
             return done
+        # Reported as replies land, not as they are applied. Every chunk is in flight at once, so
+        # the applying loop below takes a fraction of a second at the end of a wait that can run
+        # to minutes, and a bar driven off it stands still and then finishes all at once.
+        sizes = [len(chunk) for chunk in pending]
         replies = call_batch(self._complete, prompt_loader.load(_SYSTEM_PROMPT),
                              [render(chunk) for chunk in pending], tier=tier,
-                             max_concurrency=concurrency, cancel=self._cancel)
+                             max_concurrency=concurrency, cancel=self._cancel,
+                             on_progress=lambda landed, _total, at=done: self._progress(
+                                 f"{label} {min(sum(sizes[:landed]), subject_count)} of "
+                                 f"{subject_count} scenarios", at + landed, total))
 
         seen = 0
         for chunk, reply in zip(pending, replies):

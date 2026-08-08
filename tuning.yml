@@ -51,34 +51,74 @@ concurrency: 4
 # of work -- weighing materiality and checking the review's declared category are both
 # materiality-tier work, but they are two different calls a benchmark can want tuned differently.
 #
-# batch_size is how many rows go into one call; concurrency is how many such calls run at once.
-# They are independent: smaller batches with higher concurrency means more, smaller calls sent
-# more in parallel, which is usually faster and always cheaper to retry.
+# EVERY CALL THE TOOL MAKES IS LISTED BELOW, and every one of them takes the same six settings:
 #
-# Anything omitted falls back to the stage's tier. Every key is optional; these are the defaults.
+#   model:             which model to call. Must be a name your config.yml declares.
+#   max_tokens:        the output cap for this call.
+#   temperature:       0 for the most repeatable output, higher for more variety.
+#   reasoning_effort:  minimal | low | medium | high.
+#   max_attempts:      retries for a gateway that is briefly busy.
+#   batch_size:        how many rows go into one call (only where the call batches).
+#   concurrency:       how many of this call's batched calls run at once.
+#
+# Anything omitted falls back to the stage's tier, which falls back to the model in .env -- so an
+# empty entry below means "whatever the tier says", and setting one line changes one call and
+# nothing else. Uncomment a model line to point that single call somewhere smaller or larger.
+#
+# batch_size and concurrency are independent: smaller batches with higher concurrency means more,
+# smaller calls sent more in parallel, which is usually faster and always cheaper to retry.
 stages:
-  # Ingestion — one call each, no batching.
-  ingest_read: {}                 # each facet group, read from the whole corpus   (judgement)
-  ingest_resolve: {}              # the resolution sweep                           (judgement)
-  ingest_diagram_read: {}         # one diagram image, read on its own             (judgement)
-  ingest_diagram_synthesize: {}   # every image's reading, joined into one graph   (judgement)
-  ingest_diagram_repair: {}       # unresolved points, put back to the images      (judgement)
 
-  # Intake — one call each.
-  intake_draft: {}                # drafting or revising the intake                (judgement)
-  structure_review: {}            # reconnection and consolidation proposals       (judgement)
+  # --- Ingestion. One call each; nothing here batches.
+  ingest_read:                    # each group of questions, read from the whole corpus
+    # model: a-smaller-model      #   tier: judgement
+    # max_tokens: 65536
+    # reasoning_effort: high
+    {}
+  ingest_resolve:                 # the resolution sweep over what the first reading left open
+    # model: a-smaller-model      #   tier: judgement
+    {}
+  ingest_diagram_read:            # one diagram image, read on its own into boxes and arrows
+    # model: a-vision-model       #   tier: judgement -- must accept images
+    {}
+  ingest_diagram_synthesize:      # every image's reading, joined into one workflow
+    # model: a-vision-model       #   tier: judgement -- must accept images
+    {}
+  ingest_diagram_repair:          # unresolved points, put back to the images
+    # model: a-vision-model       #   tier: judgement -- must accept images
+    {}
 
-  # The benchmark passes, which batch.
-  writer:                         # writing scenario text                          (standard)
+  # --- Intake. One call each.
+  intake_draft:                   # drafting the intake, and revising it with your answers
+    # model: a-smaller-model      #   tier: judgement
+    {}
+  structure_review:               # reconnection and consolidation proposals on the graph
+    # model: a-smaller-model      #   tier: judgement
+    {}
+
+  # --- The benchmark passes. These batch, so they also take batch_size and concurrency.
+  writer:                         # writing each scenario up for the model owner
+    # model: a-smaller-model      #   tier: standard
+    # concurrency: 4
     batch_size: 8
-  materiality_assess:             # a tier per scenario, judged against its peers  (materiality)
+  materiality_assess:             # a tier per scenario, judged against its peers
+    # model: a-smaller-model      #   tier: materiality
+    # concurrency: 4
     batch_size: 10
-  reviewer_assess:                # materiality settled + weak scenarios flagged   (judgement)
+  reviewer_assess:                # materiality settled and weak scenarios flagged
+    # model: a-smaller-model      #   tier: judgement
+    # concurrency: 4
     batch_size: 6
-  reviewer_category:              # the declared ending, read back                 (materiality)
+  reviewer_category:              # the declared ending, read back against the route
+    # model: a-smaller-model      #   tier: materiality
+    # concurrency: 4
     batch_size: 20
-  reviewer_propose: {}            # what enumeration could not reach               (judgement)
-  coverage_map:                   # submitted conversations onto the benchmark    (judgement)
+  reviewer_propose:               # what enumeration could not reach
+    # model: a-smaller-model      #   tier: judgement
+    {}
+  coverage_map:                   # submitted conversations, onto the benchmark
+    # model: a-smaller-model      #   tier: judgement
+    # concurrency: 4
     batch_size: 5
 
 ingestion:

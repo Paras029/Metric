@@ -24,20 +24,30 @@
 {% endmacro %}
 
 {# One gap in the current declaration, addressed to the row it concerns. Same answer mechanism
-   as an open question always has had -- see save_answers -- just addressed more specifically. #}
+   as an open question always has had -- see save_answers -- just addressed more specifically.
+
+   Three lines, in the order they are needed: what is being asked, a box carrying an example of
+   what an answer looks like, and only then why it matters. The example is the placeholder rather
+   than a caption because the uncertainty it settles -- a word, a list, or a sentence? -- is felt
+   at the moment of typing, and that is where it has to be answered. #}
 {% macro gap_row(row, index, given) %}
 <li class="questions__row {% if given %}questions__row--done{% endif %}">
-  <span class="questions__kind">{% if given %}Answered{% else %}Open{% endif %}</span>
+  <span class="questions__kind">{% if given %}Answered{% else %}To answer{% endif %}</span>
   <span class="questions__body">
     <span class="questions__text">
-      {% if row.heading %}<span class="mono">{{ row.heading }}</span> — {% endif %}{{ row.question }}
+      {# The id is dropped where the question already opens with it, rather than printed twice. #}
+      {%- if row.heading and not row.question.startswith(row.heading) -%}
+        <span class="mono">{{ row.heading }}</span> —
+      {% endif %}{{ row.question }}
     </span>
-    <span class="questions__detail">{{ row.why }}</span>
     <input type="hidden" name="question-{{ index }}" value="{{ row.question }}">
     <input class="field__input field__input--inline" type="text" name="answer-{{ index }}"
            value="{{ given or '' }}"
            aria-label="{{ row.question }}"
-           placeholder="{% if given %}Change this answer{% else %}Answer this{% endif %}">
+           placeholder="{% if row.example %}For example: {{ row.example }}{% else %}Type your answer{% endif %}">
+    <span class="questions__detail">
+      {% if not given %}Leave it blank if you do not know. {% endif %}{{ row.why }}
+    </span>
   </span>
 </li>
 {% endmacro %}
@@ -149,13 +159,23 @@
         </div>
         <p class="running__line">
           <span id="run-message">{{ state.progress.message or 'Starting' }}</span>
-          {# One number, not two. The message says where in a document it is; this says how far
-             through the whole run, which is the only thing the bar can mean. #}
+          {# The message says what is being waited on; the percentage says how far through the
+             whole run it is. Both are needed, because a stage can sit on one long call for
+             minutes and only the first of these changes while it does. #}
           <span class="mono" id="run-count">{{ state.percent }}%</span>
+        </p>
+        <p class="running__detail">
+          <span id="run-steps">
+            {% if state.progress.total %}
+              step {{ state.progress.done }} of about {{ state.progress.total }}
+            {% endif %}
+          </span>
+          <span id="run-elapsed" data-started="{{ state.updated_at }}"></span>
         </p>
         <p class="block__foot">
           This keeps running if you navigate away or close the tab. Reading a long document is
-          several minutes of model calls.
+          several minutes of model calls. The step count is an estimate — a pack large enough to
+          be read in parts adds steps as it goes.
         </p>
         <form method="post" action="{{ url_for('stop_stage', key=stage.key) }}" id="stop-form"
               class="running__actions">
@@ -193,32 +213,23 @@
           Result
           {% if state.status == 'stale' %}<span class="tag tag--stale">Out of date</span>{% endif %}
         </h2>
-        {# Counts and names are separated: a sentence stretched across a cell built for a number
-           leaves the number unreadable and the rest of the row blank. #}
-        {% set counts = state.summary.items() | selectattr('1', 'number') | list %}
-        {% set named = state.summary.items() | rejectattr('1', 'number') | list %}
-        {% if counts %}
-          <dl class="figures">
-            {% for label, value in counts %}
-              <div class="figures__cell">
-                <dt class="figures__label">{{ label }}</dt>
-                <dd class="figures__value">{{ value }}</dd>
-              </div>
-            {% endfor %}
-          </dl>
-        {% endif %}
-        {% if named %}
-          <dl class="facts">
-            {% for label, value in named %}
-              <div class="facts__row">
-                <dt class="facts__label">{{ label }}</dt>
-                <dd class="facts__value">{{ value }}</dd>
-              </div>
-            {% endfor %}
-          </dl>
-        {% endif %}
+        {# One list, whatever the values are. A grid of large figures alongside a list of rows
+           puts two typographic weights on facts of equal standing, and reads as though the ones
+           that happened to be plain numbers matter more. What a reader is doing here is running
+           an eye down a column of labels, which wants one column. #}
+        <dl class="facts">
+          {% for label, value in state.summary.items() %}
+            <div class="facts__row">
+              <dt class="facts__label">{{ label }}</dt>
+              <dd class="facts__value">{{ value }}</dd>
+            </div>
+          {% endfor %}
+        </dl>
         {% if state.updated_at %}
-          <p class="block__foot">Last run <span class="mono">{{ state.updated_at }}</span></p>
+          <p class="block__foot">
+            Last run
+            <time class="when" datetime="{{ state.updated_at }}">{{ state.updated_at | when }}</time>
+          </p>
         {% endif %}
       </section>
     {% endif %}
@@ -780,33 +791,83 @@
 
     {% if answers %}
       <section class="block">
-        <h2 class="block__title">What the documents answered</h2>
+        <h2 class="block__title">What the documents said about the agent</h2>
         <p class="block__body">
-          Each question was answered from every observation bearing on it, across all documents at
-          once — the documents do not answer these in one place. Anything left unsettled is
-          recorded rather than filled in.
+          Eleven questions, each answered from everything bearing on it across all the documents at
+          once — documentation rarely answers them in one place. Open one to read the whole answer,
+          the specific things it establishes, what it could not settle, and the quotes it rests on.
         </p>
         <ul class="answers">
           {% for row in answers %}
             <li class="answers__row {% if not row.answered %}answers__row--missing{% endif %}">
-              <span class="answers__head">
-                <span class="answers__heading">{{ row.heading }}</span>
-                {% if row.answered %}
-                  <span class="answers__confidence answers__confidence--{{ row.confidence|lower }}">
-                    {{ row.confidence }} confidence
-                  </span>
-                {% else %}
-                  <span class="answers__confidence answers__confidence--none">Not answered</span>
-                {% endif %}
-              </span>
               {% if row.answered %}
-                <span class="answers__body">{{ row.answer[:260] }}{% if row.answer|length > 260 %}…{% endif %}</span>
-                <span class="answers__counts mono">
-                  {{ row.points }} specific point{{ '' if row.points == 1 else 's' }}
-                  {%- if row.unknowns %} · {{ row.unknowns }} unsettled{% endif %}
-                </span>
+                <details class="answers__detail">
+                  <summary class="answers__summary">
+                    <span class="answers__head">
+                      <span class="answers__heading">{{ row.heading }}</span>
+                      <span class="answers__confidence answers__confidence--{{ row.confidence|lower }}">
+                        {{ row.confidence }} confidence
+                      </span>
+                    </span>
+                    <span class="answers__body">{{ row.answer[:260] }}{% if row.answer|length > 260 %}…{% endif %}</span>
+                    <span class="answers__counts">
+                      {{ row.points | length }} thing{{ '' if row.points | length == 1 else 's' }}
+                      the documents establish
+                      {%- if row.unknowns %} · {{ row.unknowns | length }} the documents
+                      did not settle{% endif %}
+                      {%- if row.sources %} · {{ row.sources | length }} supporting
+                      quote{{ '' if row.sources | length == 1 else 's' }}{% endif %}
+                    </span>
+                  </summary>
+
+                  <div class="reading">
+                    <p class="reading__question">{{ row.question }}</p>
+                    <p class="reading__answer">{{ row.answer }}</p>
+
+                    {% if row.points %}
+                      <h3 class="reading__label">What the documents establish</h3>
+                      <ul class="reading__list">
+                        {% for point in row.points %}<li>{{ point }}</li>{% endfor %}
+                      </ul>
+                    {% endif %}
+
+                    {% if row.unknowns %}
+                      <h3 class="reading__label">What they did not settle</h3>
+                      <ul class="reading__list reading__list--open">
+                        {% for unknown in row.unknowns %}<li>{{ unknown }}</li>{% endfor %}
+                      </ul>
+                      <p class="reading__note">
+                        Recorded rather than guessed at. Whichever of these actually blocks the
+                        declaration comes back as a question on the intake stage.
+                      </p>
+                    {% endif %}
+
+                    {% if row.sources %}
+                      <h3 class="reading__label">Where it came from</h3>
+                      <ul class="reading__sources">
+                        {% for source in row.sources %}
+                          <li class="reading__source">
+                            <p class="reading__statement">{{ source.statement }}</p>
+                            <blockquote class="reading__quote">{{ source.quote }}</blockquote>
+                            <p class="reading__where mono">{{ source.where }}</p>
+                          </li>
+                        {% endfor %}
+                      </ul>
+                      <p class="reading__note">
+                        Every quote was found in the document it names before the answer was
+                        allowed to rest on it.
+                      </p>
+                    {% endif %}
+                  </div>
+                </details>
               {% else %}
-                <span class="answers__body">No submitted document settled this.</span>
+                <span class="answers__head">
+                  <span class="answers__heading">{{ row.heading }}</span>
+                  <span class="answers__confidence answers__confidence--none">Not answered</span>
+                </span>
+                <span class="answers__body">
+                  No submitted document settled this. {{ row.question }}
+                </span>
               {% endif %}
             </li>
           {% endfor %}
@@ -945,58 +1006,10 @@
 
     {% endif %}
 
-    {# Everything that acts on the stage rather than reporting it: adding context, attaching a
-       late document, clearing the work. Four separate boxes competing with the result for
-       attention before; grouped here, they read as the margin of the page. #}
+    {# What is left of the page's margin once the persistent things -- what has been declared,
+       what was submitted, what has been noted -- moved to the side panel: only the two controls
+       that undo this stage, which belong at the end because that is when you want them. #}
     <footer class="footer">
-      <div class="footer__grid">
-      <section>
-        <h2 class="block__title">Additional information</h2>
-        <p class="block__body">
-          Anything the documents do not say that a later stage should know. Given to every stage
-          that follows.
-        </p>
-
-      {% if notes %}
-        <ul class="notes">
-          {% for note in notes %}
-            <li class="notes__row">
-              {% if note.question %}<p class="notes__question">{{ note.question }}</p>{% endif %}
-              <p class="notes__text">{{ note.text }}</p>
-              <p class="notes__meta mono">{{ note.added_at }}</p>
-            </li>
-          {% endfor %}
-        </ul>
-      {% endif %}
-
-      <form class="notes__form" method="post" action="{{ url_for('add_note', key=stage.key) }}">
-        <textarea class="field__input field__input--area" name="note" rows="3"
-                  placeholder="Disputes over £500 always go to a person, which the model document does not mention."></textarea>
-        <button class="button button--quiet" type="submit">Add</button>
-      </form>
-
-      </section>
-
-      {# The documents stage has its own uploader further up; a second one there would be two ways
-         to do the same thing. Every other stage needs this to attach a late arrival. #}
-      {% if stage.key != 'documents' %}
-        <section>
-          <h2 class="block__title">Add a late document</h2>
-          <p class="block__body">
-            Something that turned up after the pack was read. It is filed under supporting
-            material; run the documents stage again to read it in.
-          </p>
-          <form class="upload" method="post" enctype="multipart/form-data"
-                action="{{ url_for('upload', key='documents') }}">
-            <input type="hidden" name="group" value="supporting">
-            <input class="upload__input" type="file" name="files" multiple
-                   accept=".pdf,.docx,.pptx,.xlsx,.xlsm,.csv,.png,.jpg,.jpeg,.md,.txt">
-            <button class="button button--quiet" type="submit">Add a document</button>
-          </form>
-        </section>
-      {% endif %}
-      </div>
-
     {% if view.has_output %}
       <div class="reset">
         {# Two intentions, so two buttons. Keeping the old workbooks is what you want when
@@ -1023,6 +1036,102 @@
     {% endif %}
     </footer>
   </main>
+
+  {# The side panel: everything that is true of the whole use case rather than of this one stage.
+     It exists so the work does not require walking backwards -- the shape of the agent, what was
+     submitted and what has been noted are all things you want to check *while* reading stage six,
+     and going back to stage two to check them loses your place. Each section is a <details>, open
+     by default, so a long list can be folded away without a preference to remember. #}
+  <aside class="aside" aria-label="This use case">
+
+    {% if graph_facts %}
+      <details class="aside__part" open>
+        <summary class="aside__title">The agent as declared</summary>
+        {% if aside_graph %}
+          <a class="aside__graph" href="{{ url_for('stage', key='intake') }}"
+             title="Open the full graph on the intake stage">
+            {{ aside_graph | safe }}
+          </a>
+        {% endif %}
+        <dl class="aside__facts">
+          <div><dt>Capabilities</dt><dd class="mono">{{ graph_facts.capabilities }}</dd></div>
+          <div><dt>Decisions</dt><dd class="mono">{{ graph_facts.decisions }}</dd></div>
+          <div><dt>Outcomes</dt><dd class="mono">{{ graph_facts.outcomes }}</dd></div>
+          <div><dt>States</dt><dd class="mono">{{ graph_facts.states }} ({{ graph_facts.terminal }} ending)</dd></div>
+          <div><dt>Personas</dt><dd class="mono">{{ graph_facts.personas }}</dd></div>
+          <div><dt>Longest route</dt><dd class="mono">{{ graph_facts.depth }} deep</dd></div>
+        </dl>
+        {% if graph_facts.unreachable %}
+          <p class="aside__warn">
+            No walk from the start reaches
+            <span class="mono">{{ graph_facts.unreachable | join(', ') }}</span>.
+          </p>
+        {% endif %}
+      </details>
+    {% endif %}
+
+    <details class="aside__part" open>
+      <summary class="aside__title">
+        Submitted
+        {% set submitted = aside_files | map(attribute='names') | map('length') | sum %}
+        {% if submitted %}<span class="aside__count mono">{{ submitted }}</span>{% endif %}
+      </summary>
+      {% if aside_files %}
+        {% for row in aside_files %}
+          <p class="aside__group">{{ row.title }}</p>
+          <ul class="aside__files">
+            {% for name in row.names %}<li class="mono">{{ name }}</li>{% endfor %}
+          </ul>
+        {% endfor %}
+      {% else %}
+        <p class="aside__empty">Nothing submitted yet.</p>
+      {% endif %}
+      {% if stage.key != 'documents' %}
+        {# Anything that turns up after the pack was read. Filed under supporting material, since
+           that is what a late arrival almost always is, and read in the next documents run. #}
+        <form class="aside__upload" method="post" enctype="multipart/form-data"
+              action="{{ url_for('upload', key='documents') }}">
+          <input type="hidden" name="group" value="supporting">
+          <input class="upload__input" type="file" name="files" multiple
+                 accept=".pdf,.docx,.pptx,.xlsx,.xlsm,.csv,.png,.jpg,.jpeg,.md,.txt">
+          <button class="button button--quiet" type="submit">Add a late document</button>
+        </form>
+      {% else %}
+        <p class="aside__empty">Add and remove files on this stage, above.</p>
+      {% endif %}
+    </details>
+
+    <details class="aside__part" open>
+      <summary class="aside__title">
+        Notes for later stages
+        {% if note_total %}<span class="aside__count mono">{{ note_total }}</span>{% endif %}
+      </summary>
+      <p class="aside__blurb">
+        Anything the documents do not say that a later stage should know. Given to every stage
+        after this one.
+      </p>
+      {% if notes %}
+        <ul class="aside__notes">
+          {% for note in notes %}
+            <li class="aside__note">
+              {% if note.question %}<p class="aside__note-question">{{ note.question }}</p>{% endif %}
+              <p class="aside__note-text">{{ note.text }}</p>
+              <p class="aside__note-when">
+                <time class="when" datetime="{{ note.added_at }}">{{ note.added_at | when }}</time>
+              </p>
+            </li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+      <form class="aside__note-form" method="post"
+            action="{{ url_for('add_note', key=stage.key) }}">
+        <textarea class="field__input field__input--area" name="note" rows="3"
+                  placeholder="Something the documents leave out…"></textarea>
+        <button class="button button--quiet" type="submit">Add a note</button>
+      </form>
+    </details>
+
+  </aside>
 </div>
 
 {% if graph_svg %}
@@ -1143,6 +1252,26 @@
 </script>
 {% endif %}
 
+<script>
+  // Timestamps are stored as UTC and rendered server-side as UTC, which is readable but is not
+  // the clock the person is looking at. The browser knows which one that is, so every <time> is
+  // re-rendered in it here. Without scripting the UTC text stands, which is why the fallback is
+  // written out in full rather than left as an ISO string for this to replace.
+  (function () {
+    var zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    var format = new Intl.DateTimeFormat(undefined, {
+      day: 'numeric', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', timeZoneName: 'short'
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('time.when'), function (element) {
+      var moment = new Date(element.getAttribute('datetime'));
+      if (isNaN(moment)) { return; }
+      element.textContent = format.format(moment);
+      element.title = zone;
+    });
+  })();
+</script>
+
 {% if state.status == 'running' %}
 <script>
   // Polls the stage's own progress endpoint. A full page reload would lose scroll position and
@@ -1152,6 +1281,23 @@
     var bar = document.getElementById('run-bar');
     var message = document.getElementById('run-message');
     var count = document.getElementById('run-count');
+    var steps = document.getElementById('run-steps');
+    var elapsed = document.getElementById('run-elapsed');
+
+    // How long this has been going, ticked independently of the poll. A stage can sit on one
+    // long call for minutes, and a page where nothing at all moves during that is a page people
+    // reload to check it has not died.
+    var started = new Date(elapsed.dataset.started);
+    function tick() {
+      if (isNaN(started)) { return; }
+      var seconds = Math.max(0, Math.round((Date.now() - started) / 1000));
+      var minutes = Math.floor(seconds / 60);
+      elapsed.textContent = minutes
+        ? minutes + 'm ' + (seconds % 60) + 's elapsed'
+        : seconds + 's elapsed';
+    }
+    tick();
+    setInterval(tick, 1000);
 
     // Not every running stage has a stop form -- only the ones that make many model calls.
     var stopForm = document.getElementById('stop-form');
@@ -1172,6 +1318,7 @@
           bar.style.transform = 'scaleX(' + (p.percent / 100) + ')';
           message.textContent = p.message || 'Working';
           count.textContent = p.percent + '%';
+          steps.textContent = p.total ? 'step ' + p.done + ' of about ' + p.total : '';
         })
         .catch(function () { /* a dropped poll is not worth reporting; the next one will do */ });
     }, 2000);

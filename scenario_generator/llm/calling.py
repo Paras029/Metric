@@ -102,7 +102,7 @@ def call(complete: Callable[..., str], system_prompt: str, user_message: str,
 
 
 def call_batch(complete: Callable[..., str], system_prompt: str, user_messages: Sequence[str],
-              tier: Optional[Any] = None, cancel=None,
+              tier: Optional[Any] = None, cancel=None, on_progress=None,
               **extra: Any) -> List[Union[str, BaseException]]:
     """Call several prompts under one system prompt, concurrently where that is available.
 
@@ -123,6 +123,11 @@ def call_batch(complete: Callable[..., str], system_prompt: str, user_messages: 
     exactly like any other failed chunk, and passed through to the real batch function where it
     understands it (the production gateway sends its concurrent waves in a loop of its own and
     checks between them) or checked here, once per message, where it does not.
+
+    ``on_progress``, if given, is called with ``(replies so far, replies expected)`` as they come
+    back, so a caller can report what has actually landed rather than only what it has finished
+    applying. Passed through to a batching ``complete`` that accepts it, and called here per
+    message where it does not, so both paths report the same thing.
     """
     if not user_messages:
         return []
@@ -134,7 +139,17 @@ def call_batch(complete: Callable[..., str], system_prompt: str, user_messages: 
             keywords["tier"] = tier
         if cancel is not None and accepts(batch_fn, "cancel"):
             keywords["cancel"] = cancel
-        return list(batch_fn(system_prompt, list(user_messages), **keywords))
+        if on_progress is not None and accepts(batch_fn, "on_progress"):
+            keywords["on_progress"] = on_progress
+        replies = list(batch_fn(system_prompt, list(user_messages), **keywords))
+        # Reported again at the end regardless of whether it was passed through. A batch function
+        # that took the argument may still have ignored it -- anything with ``**kwargs`` accepts
+        # every name and honours none of them -- and a pass that reported nothing at all is the
+        # one outcome worth ruling out. Repeating a count already reported costs nothing, since
+        # progress only ever moves forward.
+        if on_progress is not None:
+            on_progress(len(replies), len(user_messages))
+        return replies
 
     results: List[Union[str, BaseException]] = []
     for message in user_messages:
@@ -145,4 +160,6 @@ def call_batch(complete: Callable[..., str], system_prompt: str, user_messages: 
             results.append(call(complete, system_prompt, message, tier=tier, **extra))
         except Exception as exc:                          # reported, not raised -- see above
             results.append(exc)
+        if on_progress is not None:
+            on_progress(len(results), len(user_messages))
     return results
