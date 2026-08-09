@@ -7,20 +7,26 @@ digest of every scenario generated, and, where available, the scenarios the mode
 submitted. It runs with raised reasoning effort and smaller batches because it is asked to weigh
 rather than classify.
 
-Three powers, and the first two are separate sweeps rather than one prompt asked to do both --
-they are different readings, and a single call carrying both answers the first well and the
-second as an afterthought:
+Two calls, and the split between them follows what each is actually reading:
 
-    assess    settle each scenario's materiality with the whole set visible, and flag scenarios
-              that are redundant, too vague to run, or describing something other than what they
-              test.
-    category  read back how each route actually ends, against the ending the intake declared.
-              Category is deterministic everywhere else -- it comes from the Outcome Type on the
-              state a route finishes in -- which makes it the column a wrong or blank declaration
-              corrupts without anything noticing. A disagreement here usually means the workbook
-              needs correcting rather than the scenario.
-    propose   add scenarios that are materially missing. Capped, validated against the intake's
-              vocabulary, and marked with origin "llm-proposed".
+    assess    one call per chunk of scenarios, settling three things at once. What failure here
+              would cost, judged with the whole set visible. How the route actually ends, against
+              the ending the intake declared -- category is deterministic everywhere else, taken
+              from the Outcome Type on the state a route finishes in, which makes it the column a
+              wrong or blank declaration corrupts without anything noticing, and a disagreement
+              here usually means the workbook needs correcting rather than the scenario. And
+              whether anything is wrong with the scenario: redundant, too vague to run, or
+              describing something other than what it tests.
+
+              These are one call rather than three because they are answered from the same
+              material -- the route, the expected outcome and the description. Reading it once to
+              answer all three is cheaper and more coherent than reading it three times, and it
+              stops one batch size from having to serve two incompatible kinds of judgement.
+
+    propose   one call for the whole benchmark, adding scenarios that are materially missing.
+              Capped, validated against the intake's vocabulary, and marked "llm-proposed". It is
+              asked about the set rather than about any chunk of it, so it has nothing to batch
+              and nothing to share with a per-scenario reading.
 
 Every verdict is written to its own column beside the value it disagrees with, never over it, so
 both readings stay visible and a person rules. It cannot remove anything: flagging a scenario as

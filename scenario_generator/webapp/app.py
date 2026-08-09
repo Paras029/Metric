@@ -143,14 +143,14 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
                 logger.exception("Could not draw the graph")
                 intake_problem = intake_problem or f"The graph could not be drawn: {exc}"
 
-        # Every already-declared decision, with whether it is walked -- shown only on the intake
-        # stage, and only for what the workbook already has. A sketched decision is not here yet
-        # to have a scope one way or the other.
         # Read once, shown twice: the list in the middle of the page and the tally in the side
         # panel are two readings of the same scenarios, and reading the workbook again for the
         # second is both slower and a way for the two to disagree.
         scenarios = _stage_scenarios(workspace, key, intake)
 
+        # Every already-declared decision, with whether it is walked -- shown only on the intake
+        # stage, and only for what the workbook already has. A sketched decision is not here yet
+        # to have a scope one way or the other.
         decisions = []
         if key == "intake" and intake is not None:
             decisions = [{"id": d.id, "name": d.name or d.id,
