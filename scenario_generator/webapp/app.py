@@ -43,13 +43,13 @@ from ..llm import metering
 from ..llm.cancellation import Stopped
 from ..llm.structure_review import review_structure
 from ..pipeline import revise_intake_workbook
-from . import runplan, stagecancel
+from . import stagecancel
 from .coverageview import coverage_view, stored_mappings, stored_report
 from .graphview import graph_summary, render_svg
 from .runners import (CONTEXT, DRAFT_INTAKE, EVIDENCE, OVERLAP, REGISTRY, RUNNERS,
-                      STAGE_OUTPUTS, SUBSET_STAGES,
+                      STAGE_OUTPUTS,
                       _apply_proposal, _context, _evidence_record, _intake, _proposal_dicts,
-                      _scenarios, _snapshot, has_input)
+                      _scenarios, _snapshot)
 from .scenarios import FILTER_FIELDS, PAGE_SIZE, build_rows, shape
 from .stages import RUNNING, STAGE_BY_KEY, STAGES, STATUS_LABELS, downstream_of, index_of
 from .workspace import Workspace, stage_view
@@ -143,14 +143,14 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
                 logger.exception("Could not draw the graph")
                 intake_problem = intake_problem or f"The graph could not be drawn: {exc}"
 
+        # Every already-declared decision, with whether it is walked -- shown only on the intake
+        # stage, and only for what the workbook already has. A sketched decision is not here yet
+        # to have a scope one way or the other.
         # Read once, shown twice: the list in the middle of the page and the tally in the side
         # panel are two readings of the same scenarios, and reading the workbook again for the
         # second is both slower and a way for the two to disagree.
         scenarios = _stage_scenarios(workspace, key, intake)
 
-        # Every already-declared decision, with whether it is walked -- shown only on the intake
-        # stage, and only for what the workbook already has. A sketched decision is not here yet
-        # to have a scope one way or the other.
         decisions = []
         if key == "intake" and intake is not None:
             decisions = [{"id": d.id, "name": d.name or d.id,
@@ -164,7 +164,6 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             view=stage_view(workspace, STAGE_BY_KEY[key]),
             runnable=key in RUNNERS,
             invalidated=request.args.get("invalidated", ""),
-            nothing_selected=bool(request.args.get("nothing")),
             # Every note, not only this stage's. A note added while reading the documents is
             # given to every stage after it, so showing only the ones typed here would hide the
             # thing that is actually informing the run in front of you.
@@ -185,13 +184,6 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             groups=_group_rows(workspace, key),
             benchmark=_benchmark_for(scenarios, key),
             shape=_shape_for(scenarios, key),
-            # What "run through to X" would do from here, and what a sequence already under way
-            # has left to do. Both are on every stage, since the point of the control is not
-            # having to be on the right page to use it.
-            run_targets=runplan.targets(workspace),
-            queued=[STAGE_BY_KEY[k].title for k in workspace.planned()],
-            subsettable=key in SUBSET_STAGES,
-            unfinished=sum(1 for s in scenarios or [] if _unfinished(s, key)),
             coverage=_coverage_for(workspace, key, intake),
             coverage_shape=_coverage_shape(workspace),
             pack_gaps_only=workspace.pack_gaps_only,
@@ -828,87 +820,14 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         if workspace.state(key).status == RUNNING:
             return redirect(url_for("stage", key=key))
 
-        only = _selected_ids(workspace, key)
-        if only is not None and not only:
-            # An empty selection is never a request to run the whole benchmark. Somebody chose
-            # "the ones I tick" and ticked none, or asked for what the stage has not done when it
-            # has done all of it -- and quietly running three hundred scenarios instead would be
-            # the most expensive possible way to misread that.
-            return redirect(url_for("stage", key=key, nothing="1"))
-
         run_id = workspace.mark_running(key)
         root = workspace.root
         # Registered here, in the request that starts the run, rather than inside the thread it
         # starts -- so a stop clicked in the instant after this returns always finds a signal
         # waiting for it, rather than racing the new thread to create one.
         event = stagecancel.start(root, key)
-        threading.Thread(target=_execute, args=(root, key, event, run_id, only),
-                         daemon=True).start()
+        threading.Thread(target=_execute, args=(root, key, event, run_id), daemon=True).start()
         return redirect(url_for("stage", key=key))
-
-    def _selected_ids(workspace: Workspace, key: str):
-        """Which scenarios this run was pointed at, or None for the whole benchmark.
-
-        Three ways of choosing, because choosing by hand does not scale past about a screenful and
-        the benchmarks this is built for run to hundreds:
-
-        ``view``      exactly what the list in front of you is showing. The view and filters are
-                      already how a person narrows the benchmark to look at it, so re-using them
-                      as the way to narrow what runs means "run this on what I am looking at"
-                      costs no new controls and no counting.
-        ``missing``   the scenarios this stage has never done. What a run interrupted halfway
-                      needs, and the cheapest possible way to finish one.
-        ``picked``    the ids ticked on the page, for the handful that need a second look.
-
-        None means the whole benchmark. An empty set means a selection that came to nothing, which
-        the caller refuses rather than treating as "everything" -- the two are opposite intentions
-        and the expensive one must never be the fallback.
-
-        Resolved against the **live registry** rather than against the stage's own snapshot, even
-        though the snapshot is what the page was showing. The run acts on the live registry, so
-        anything else could select a scenario that no longer exists or miss one that does.
-        """
-        scope = request.form.get("scope", "")
-        if key not in SUBSET_STAGES or scope in ("", "all"):
-            return None
-
-        if scope == "picked":
-            return set(request.form.getlist("scenario"))
-
-        try:
-            scenarios = _scenarios(workspace, _intake(workspace))
-        except Exception:
-            logger.exception("Could not read the benchmark to narrow the run; running all of it")
-            return None
-
-        if scope == "missing":
-            return {s.id for s in scenarios if _unfinished(s, key)}
-
-        # The view as the page had it. Rendered with no page limit, since the limit is how much
-        # fits on a screen and has nothing to do with what a person meant by "these".
-        filters = {field: request.form.get(f"filter_{field}", "") for field in FILTER_FIELDS}
-        shown = build_rows(scenarios, request.form.get("view", "all"), stage=key,
-                           filters=filters, limit=None)
-        return {row["id"] for row in shown["rows"]}
-
-    @app.route("/run-through", methods=["POST"])
-    def run_through():
-        """Start several stages, in order, on one background thread.
-
-        The plan is worked out here rather than in the thread so that a page reloaded immediately
-        afterwards shows the queue -- and so that a plan with nothing in it says so instead of
-        starting a thread that does nothing and reports success.
-        """
-        workspace = _workspace()
-        through = request.form.get("through", STAGES[-1].key)
-        keys = runplan.plan(workspace, through)
-        if not keys or any(workspace.state(k).status == RUNNING for k in STAGE_BY_KEY):
-            return redirect(url_for("stage", key=through))
-
-        workspace.begin_plan(keys)
-        threading.Thread(target=_execute_plan, args=(workspace.root, keys),
-                         daemon=True).start()
-        return redirect(url_for("stage", key=keys[0]))
 
     @app.route("/stage/<key>/stop", methods=["POST"])
     def stop_stage(key: str):
@@ -930,21 +849,12 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/<key>/progress", methods=["GET"])
     def stage_progress(key: str):
-        """Where a running stage has got to, for the page to poll.
-
-        ``running`` carries whichever stage is running now, which is not always this one: a
-        sequence moves on while the page is still watching the stage it started at. The page uses
-        it to follow the run rather than reloading into a finished stage and stopping there.
-        """
-        workspace = _workspace()
-        state = workspace.state(key)
-        running = next((s.key for s in STAGES if workspace.state(s.key).status == RUNNING), "")
+        """Where a running stage has got to, for the page to poll."""
+        state = _workspace().state(key)
         return jsonify({"status": state.status, "percent": state.percent,
                         "message": state.progress.get("message", ""),
                         "done": state.progress.get("done", 0),
-                        "total": state.progress.get("total", 0),
-                        "running": running,
-                        "queued": len(workspace.planned())})
+                        "total": state.progress.get("total", 0)})
 
     @app.route("/stage/<key>/reset", methods=["POST"])
     def reset_stage(key: str):
@@ -1035,69 +945,7 @@ if __name__ == "__main__":
     main()
 
 
-def _unfinished(scenario, key: str) -> bool:
-    """Whether a stage has never done its work on this scenario.
-
-    Judged on the field the stage writes and nothing else, so it means "never done" rather than
-    "not done well". Every scenario carries a default tier from the moment it is built, which is
-    why materiality is read off its rationale: the tier alone cannot tell an assessment apart from
-    an unset field, and a stage that skipped every scenario it had already defaulted would skip
-    the whole benchmark.
-    """
-    if key == "text":
-        return not scenario.description
-    if key == "materiality":
-        return not scenario.materiality_rationale
-    if key == "review":
-        return not (scenario.review_materiality or scenario.review_rationale)
-    return False
-
-
-def _execute_plan(root: Path, keys: list) -> None:
-    """Run several stages back to back, stopping at the first one that does not finish.
-
-    Each stage is started here exactly as ``run_stage`` starts one: its own stop signal, its own
-    run id, its own status. That is what makes the Stop button on the running stage stop the whole
-    sequence -- the stage unwinds as it always has, this loop sees that it did not complete, and
-    the queue is abandoned. A sequence that ploughed on past a stopped stage would be running work
-    on an input the person had just decided against.
-
-    A **required** stage that fails halts it for a different reason: every stage after it reads
-    what it produced, so continuing would build the rest of the pipeline on whatever that stage
-    last left on disk. An **optional** one that fails does not halt anything, because by
-    construction nothing downstream depends on it -- see :func:`stages.required_before`. Measuring
-    what the model owner's own testing covers is the case: if their transcripts turn out to be
-    unreadable, that is worth a person's attention and worth nothing at all to the pack, and
-    stranding the last two stages over it would make the control useless exactly where it helps
-    most.
-    """
-    for key in keys:
-        workspace = Workspace.load(root)
-        if workspace.plan_abandoned():                    # called off, or another run took over
-            break
-        if not has_input(workspace, key):
-            logger.info("Skipping %s: nothing submitted for it.", key)
-            workspace.plan_finished(key, "skipped")
-            continue
-
-        # The signal first, then the status: a Stop arriving in the gap between them finds a
-        # signal already registered, which the runner checks before it sends anything.
-        event = stagecancel.start(root, key)
-        run_id = workspace.mark_running(key)
-        outcome = _execute(root, key, event, run_id)
-        Workspace.load(root).plan_finished(key, outcome)
-
-        if outcome == "complete":
-            continue
-        if outcome == "failed" and STAGE_BY_KEY[key].optional:
-            logger.info("Optional stage %s failed; carrying on, nothing after it needs it.", key)
-            continue
-        logger.info("Run through halted at %s (%s).", key, outcome)
-        break
-    Workspace.load(root).end_plan()
-
-
-def _execute(root: Path, key: str, cancel, run_id: str = None, only=None) -> str:
+def _execute(root: Path, key: str, cancel, run_id: str = None) -> None:
     """Run one stage on a background thread, reporting progress as it goes.
 
     The workspace is re-read here rather than handed across the thread boundary, so the record on
@@ -1114,20 +962,15 @@ def _execute(root: Path, key: str, cancel, run_id: str = None, only=None) -> str
     them is what makes stopping mean the same thing everywhere: a stage with nothing long to
     interrupt simply finds it unset, which costs nothing and is a great deal easier to reason
     about than a list of which stages honour it.
-
-    ``only`` narrows a scenario stage to part of the benchmark; every other stage ignores it.
-    Returns how the run ended -- complete, stopped or failed -- which is what lets a sequence of
-    stages know whether to carry on.
     """
     workspace = Workspace.load(root)
 
     def report(message: str, done: int = 0, total: int = 0) -> None:
         workspace.report_progress(key, message, done, total)
 
-    extra = {"only": only} if only is not None and key in SUBSET_STAGES else {}
     try:
         with metering.counted() as calls:
-            summary = RUNNERS[key](workspace, progress=report, cancel=cancel, **extra)
+            summary = RUNNERS[key](workspace, progress=report, cancel=cancel)
         if calls():
             summary = dict(summary, **{"Model calls": calls()})
             logger.info("Stage %s finished in %d model call(s).", key, calls())
@@ -1136,20 +979,19 @@ def _execute(root: Path, key: str, cancel, run_id: str = None, only=None) -> str
         # write. The workspace is exactly where it was before the run started.
         logger.info("Stage %s stopped by the user.", key)
         Workspace.load(root).mark_stopped(key, run_id=run_id)
-        return "stopped"
+        return
     except Exception as exc:                              # surfaced in the panel, not swallowed
         logger.exception("Stage %s failed", key)
         Workspace.load(root).mark_failed(key, str(exc), run_id=run_id)
-        return "failed"
+        return
     finally:
         stagecancel.clear(root, key, cancel)
 
     finished = Workspace.load(root)
     if not finished.owns(key, run_id):
-        return "superseded"
+        return
     finished.stages[key].artifacts.update(workspace.stages[key].artifacts)
     finished.complete(key, summary=summary, run_id=run_id)
-    return "complete"
 
 
 def _refusal(names) -> str:

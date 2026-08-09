@@ -121,17 +121,6 @@
   </nav>
 
   <main class="canvas">
-    {% if nothing_selected %}
-      <div class="banner banner--stale" role="status">
-        <p class="banner__title">Nothing was selected, so nothing ran</p>
-        <p class="banner__body">
-          That choice narrowed the run to no scenarios at all — either nothing is ticked, or this
-          stage has already done everything there was to do. Nothing was run rather than falling
-          back to the whole benchmark, which is the expensive way to be wrong about it.
-        </p>
-      </div>
-    {% endif %}
-
     {% if invalidated %}
       <div class="banner banner--stale" role="status">
         <p class="banner__title">Later stages are now out of date</p>
@@ -156,34 +145,7 @@
       <div class="head__actions">
         <span class="head__step mono">{{ view.number }} / {{ rail | length }}</span>
         {% if runnable and not workspace.is_blocked(stage.key) and state.status != 'running' %}
-          {# The run form lives here, at the top, but the scenario checkboxes that feed it are
-             hundreds of pixels below. They reach it by `form="run-form"` rather than by wrapping
-             the whole page in a form, which would put every other control on the page inside it. #}
-          <form method="post" id="run-form"
-                action="{{ url_for('run_stage', key=stage.key) }}">
-            {% if subsettable and benchmark %}
-              {# Carried so the server can rebuild exactly the list this page is showing, rather
-                 than sending several hundred ids back to be told what they already are. #}
-              <input type="hidden" name="view" value="{{ benchmark.view }}">
-              {% for field, value in benchmark.active_filters.items() %}
-                <input type="hidden" name="filter_{{ field }}" value="{{ value }}">
-              {% endfor %}
-              <label class="head__scope-label" for="run-scope">Run on</label>
-              <select class="card__select" id="run-scope" name="scope">
-                <option value="all">Every scenario ({{ benchmark.total }})</option>
-                {% if unfinished %}
-                  <option value="missing">
-                    Only the {{ unfinished }} this stage has not done
-                  </option>
-                {% endif %}
-                {% if benchmark.selected < benchmark.total %}
-                  <option value="view">
-                    Only the {{ benchmark.selected }} in this view
-                  </option>
-                {% endif %}
-                <option value="picked">Only the ones I tick below</option>
-              </select>
-            {% endif %}
+          <form method="post" action="{{ url_for('run_stage', key=stage.key) }}">
             <button class="button button--primary" type="submit">
               {% if view.has_output %}Run again{% else %}Run this stage{% endif %}
             </button>
@@ -196,51 +158,7 @@
       <p class="block__foot">
         Running again replaces the output below and marks every later stage out of date, so
         nothing downstream is left claiming to reflect it.
-        {%- if subsettable %}
-          Running on part of the benchmark leaves every other scenario exactly as it is — but the
-          later stages still go out of date, because the pack is built from all of it.
-        {%- endif %}
       </p>
-    {% endif %}
-
-    {# Several stages at once. It is on every stage rather than only the first, because the case
-       it exists for is "I have just corrected the intake, now redo everything after it" as much
-       as "start at the beginning and let it run". #}
-    {% if queued %}
-      <div class="banner banner--running" role="status">
-        <p class="banner__title">Running several stages</p>
-        <p class="banner__body">
-          Still to come: {{ queued | join(', ') }}. Each starts when the one before it finishes.
-          Stopping the stage that is running stops the rest as well — nothing queued behind a
-          stage you stopped would have been built on what you meant.
-        </p>
-      </div>
-    {% else %}
-      {# Only the targets that would actually run something. Offering an end point with nothing
-         behind it means the obvious click does nothing, and the furthest one is preselected
-         because "take it as far as it goes" is what the control is mostly reached for. #}
-      {% set reachable = run_targets | selectattr('steps') | list %}
-      {% if reachable and state.status != 'running' %}
-        <form class="through" method="post" action="{{ url_for('run_through') }}">
-          <label class="through__label" for="run-through">Or run several stages in one go —
-            through to</label>
-          <select class="card__select" id="run-through" name="through">
-            {% for target in reachable %}
-              <option value="{{ target.key }}"
-                      {% if loop.last %}selected{% endif %}>
-                {{ target.title }} — {{ target.steps }}
-                stage{{ '' if target.steps == 1 else 's' }} to run
-              </option>
-            {% endfor %}
-          </select>
-          <button class="button button--quiet" type="submit">Run through</button>
-          <span class="through__note">
-            Skips what is already complete, and any optional stage nothing was submitted for.
-            Stops at the first stage that does not finish — except an optional one, which nothing
-            after it depends on.
-          </span>
-        </form>
-      {% endif %}
     {% endif %}
 
     {% if stage.detail %}
@@ -816,15 +734,6 @@
         <ul class="cards">
           {% for row in benchmark.rows %}
             <li class="card" id="{{ row.id }}">
-              {% if subsettable and runnable and not workspace.is_blocked(stage.key)
-                    and state.status != 'running' %}
-                {# Outside the <summary>, so ticking a scenario does not also open it. The `form`
-                   attribute posts it with the run form at the top of the page. #}
-                <label class="card__pick" title="Include {{ row.id }} when run on ticked scenarios">
-                  <input type="checkbox" name="scenario" value="{{ row.id }}" form="run-form">
-                  <span class="visually-hidden">Run this stage on {{ row.id }}</span>
-                </label>
-              {% endif %}
               <details class="card__body">
                 <summary class="card__head">
                   <span class="card__id mono">{{ row.id }}</span>
@@ -1501,29 +1410,6 @@
   })();
 </script>
 
-{% if subsettable %}
-<script>
-  // Ticking a scenario is unambiguous about what it means, so the "Run on" choice follows it.
-  // Without this, ticking four scenarios and pressing Run would run all three hundred — the
-  // controls would be individually correct and the combination a trap.
-  (function () {
-    var scope = document.getElementById('run-scope');
-    if (!scope) { return; }
-    var boxes = document.querySelectorAll('input[name="scenario"]');
-    Array.prototype.forEach.call(boxes, function (box) {
-      box.addEventListener('change', function () {
-        var anyTicked = document.querySelector('input[name="scenario"]:checked');
-        if (anyTicked) {
-          scope.value = 'picked';
-        } else if (scope.value === 'picked') {
-          scope.value = 'all';                 // the last tick removed; back to the default
-        }
-      });
-    });
-  })();
-</script>
-{% endif %}
-
 {% if state.status == 'running' %}
 <script>
   // Polls the stage's own progress endpoint. A full page reload would lose scroll position and
@@ -1566,17 +1452,7 @@
       fetch('/stage/' + stage + '/progress')
         .then(function (r) { return r.json(); })
         .then(function (p) {
-          if (p.status !== 'running') {
-            // A sequence has moved on to the next stage while this page watched the last one.
-            // Following it is the whole point of running several together: reloading into a
-            // finished stage would leave the work running with nothing on screen showing it.
-            if (p.running && p.running !== stage) {
-              window.location = '/stage/' + p.running;
-            } else {
-              window.location.reload();
-            }
-            return;
-          }
+          if (p.status !== 'running') { window.location.reload(); return; }
           bar.style.transform = 'scaleX(' + (p.percent / 100) + ')';
           message.textContent = p.message || 'Working';
           count.textContent = p.percent + '%';

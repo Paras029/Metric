@@ -301,28 +301,6 @@ def _apply_proposal(path: Path, entry: dict) -> bool:
     return False
 
 
-def _narrowed(scenarios, only):
-    """The scenarios a run actually worked on. Mirrors :func:`llm.selection.narrow`."""
-    if only is None:
-        return list(scenarios)
-    wanted = set(only)
-    return [s for s in scenarios if s.id in wanted]
-
-
-def _scope_line(scenarios, only) -> Dict[str, object]:
-    """What this run was pointed at, stated first on the result card, or nothing on a full run.
-
-    A subset run leaves every other scenario exactly as it was, so a card reporting only the
-    benchmark-wide totals would read as though the whole pass had just run. Saying what was
-    touched is the difference between "the review agrees with all 26 tiers" and "the review looked
-    at 4 of them".
-    """
-    if only is None:
-        return {}
-    touched = len(_narrowed(scenarios, only))
-    return {"This run": f"{touched} of {len(scenarios)} scenarios — the rest were left as they were"}
-
-
 def _run_benchmark(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
     """Enumerate every route through the declared graph and add the applicable probes."""
     report = progress or (lambda *args, **kwargs: None)
@@ -339,56 +317,43 @@ def _run_benchmark(workspace: Workspace, progress=None, cancel=None) -> Dict[str
             "Probes": probes}
 
 
-def _run_text(workspace: Workspace, progress=None, cancel=None, only=None) -> Dict[str, object]:
-    """Write each scenario up for the model owner, or only the ones asked for."""
+def _run_text(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
+    """Write each scenario up for the model owner."""
     intake = _intake(workspace)
     scenarios = _scenarios(workspace, intake)
     ScenarioWriter(context=_context(workspace), progress=progress,
-                  cancel=cancel).write(scenarios, intake, only=only)
+                  cancel=cancel).write(scenarios, intake)
     _save_registry(workspace, "text", intake, scenarios)
 
     written = sum(1 for s in scenarios if s.description)
-    return {**_scope_line(scenarios, only),
-            "Scenarios written": written,
-            "Turns scripted": sum(s.turn_count for s in scenarios)}
+    return {"Scenarios written": written, "Turns scripted": sum(s.turn_count for s in scenarios)}
 
 
-def _run_materiality(workspace: Workspace, progress=None, cancel=None,
-                     only=None) -> Dict[str, object]:
-    """Assign a tier to every scenario, or to the ones asked for, with the signals in view."""
+def _run_materiality(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
+    """Assign a tier to every scenario, with the redundancy signals in view."""
     intake = _intake(workspace)
     scenarios = _scenarios(workspace, intake)
     MaterialityAssessor(context=_context(workspace), progress=progress,
-                        cancel=cancel).assess(scenarios, intake, only=only)
+                        cancel=cancel).assess(scenarios, intake)
     _save_registry(workspace, "materiality", intake, scenarios)
 
-    # The tier counts are over the whole benchmark even on a subset run: they say what the pack
-    # now looks like, which is the figure the next stage acts on, not what this run touched.
     tiers = Counter(s.effective_materiality for s in scenarios)
-    return {**_scope_line(scenarios, only), **{tier: tiers.get(tier, 0) for tier in MATERIALITY}}
+    return {tier: tiers.get(tier, 0) for tier in MATERIALITY}
 
 
-def _run_review(workspace: Workspace, progress=None, cancel=None, only=None) -> Dict[str, object]:
-    """One pass over the whole benchmark, then rebuild the pack so its verdict actually lands.
-
-    A subset run judges only the scenarios asked for and proposes nothing -- see
-    :meth:`ScenarioReviewer.review` for why proposing belongs to a run over the whole set.
-    """
+def _run_review(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
+    """One pass over the whole benchmark, then rebuild the pack so its verdict actually lands."""
     intake = _intake(workspace)
     scenarios = _scenarios(workspace, intake)
     reviewer = ScenarioReviewer(context=_context(workspace), progress=progress, cancel=cancel)
-    scenarios, proposals = reviewer.review(scenarios, intake, only=only)
+    scenarios, proposals = reviewer.review(scenarios, intake)
     scenarios = list(scenarios) + list(proposals)
 
     _save_registry(workspace, "review", intake, scenarios)
 
     flagged = sum(1 for s in scenarios if getattr(s, "review_flag", ""))
-    summary = {**_scope_line(scenarios, only),
-               "Scenarios reviewed": len(_narrowed(scenarios, only)) - len(proposals),
-               "Flagged for a second look": flagged}
-    if only is None:
-        summary["Proposed additions"] = len(proposals)
-    return summary
+    return {"Scenarios reviewed": len(scenarios) - len(proposals),
+            "Proposed additions": len(proposals), "Flagged for a second look": flagged}
 
 
 def _run_issue(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
@@ -491,34 +456,6 @@ def _run_coverage(workspace: Workspace, progress=None, cancel=None) -> Dict[str,
     counts = result.summary
     return {**counts, "Read as": result.how_read,
             "Represented at": f"{workspace.coverage_threshold}+ conversations"}
-
-
-# The stages whose work can be pointed at part of the benchmark rather than all of it. Every one
-# of them judges scenarios one at a time against a shared reading of the whole set, which is what
-# makes a subset run meaningful: the same scenario gets the same verdict either way. The stages
-# left out cannot be narrowed even in principle -- reading a document pack, walking the graph and
-# writing the pack are each one indivisible piece of work over everything there is.
-SUBSET_STAGES: tuple = ("text", "materiality", "review")
-
-
-def has_input(workspace: Workspace, key: str) -> bool:
-    """Whether an optional stage has anything to work on yet.
-
-    Only the two optional stages can answer this without doing the work: reading documents needs
-    documents, and measuring the model owner's coverage needs their transcripts. Everything else
-    returns True, because a required stage with nothing to work on is a pipeline that has gone
-    wrong and should say so rather than be quietly stepped over.
-
-    This exists for :mod:`.runplan`, which has to decide whether to skip a stage *before* running
-    it. The runners themselves still refuse with their own message when called directly, which is
-    the version a person clicking Run needs to read.
-    """
-    if key == "documents":
-        return any(evidence_files(workspace.root).values())
-    if key == "coverage":
-        return bool(owner_scenario_file(workspace.root)
-                    or workspace.artifact_path("coverage", "owner_scenarios"))
-    return True
 
 
 # Every stage that does work has a runner. The two that only take input from the user -- the

@@ -18,7 +18,6 @@ can turn.
   - [8. Issue](#8-issue)
 - [The intake workbook](#the-intake-workbook)
 - [Tuning](#tuning)
-  - [Running several stages, and running one on part of the benchmark](#running-several-stages-and-running-one-on-part-of-the-benchmark)
   - [What a model call is actually sent](#what-a-model-call-is-actually-sent)
   - [Sensitivity labels on the workbooks](#sensitivity-labels-on-the-workbooks)
 
@@ -488,49 +487,6 @@ to how much one call can weigh carefully at once, which is a much smaller number
 
 `LLM_STAGE_REVIEWER_ASSESS_BATCH_SIZE=4` and `LLM_STAGE_REVIEWER_ASSESS_CONCURRENCY=8`, say, sends
 smaller, more careful review calls while keeping more of them in flight at once.
-
-### Running several stages, and running one on part of the benchmark
-
-Two controls that break the one-stage-at-a-time rhythm, in opposite directions. Both are in the
-interface only; the command line already composes freely.
-
-**Run through to X** runs each stage in order on one background thread, and is only that: every
-stage still runs exactly as it does alone, with its own status, its own progress and its own stop
-signal. Three rules decide what goes into the list and when it stops.
-
-A stage already **complete** is skipped, so running through after correcting the intake redoes
-what the correction invalidated rather than rewriting text that is still current. Anything
-genuinely out of date is marked stale rather than complete and so is picked up.
-
-An **optional** stage with nothing submitted for it is skipped rather than run and failed. Most
-engagements send no transcripts of the model owner's own testing, and a control that stopped dead
-at the coverage stage every time would be useless for the ordinary case.
-
-A stage that **does not finish** halts the rest — with one exception. A required stage that fails
-halts because every stage after it reads what it produced, so carrying on would build the pipeline
-on whatever that stage last left on disk. An optional one that fails does not halt anything,
-because by construction nothing downstream depends on it. Stopping the running stage always halts
-the sequence, optional or not: stopping is a deliberate act, and everything queued behind it would
-have been built on the input the person had just decided against.
-
-**Running a stage on part of the benchmark** is the other direction. Scenario text, materiality and
-final review each judge scenarios one at a time against a shared reading of the whole set, which
-is exactly what makes a partial run meaningful — the same scenario gets the same verdict either
-way. The other stages cannot be narrowed even in principle: reading a document pack, walking the
-graph and writing the pack are each one indivisible piece of work over everything there is.
-
-The property that makes this trustworthy is the split between **context** and **work**. The peer
-signals, the digest of every scenario and the benchmark totals are built from the whole registry
-regardless of what is being judged. Narrowing those would change the answer rather than just the
-cost: every question these passes ask is comparative — is this the worst thing here, does anything
-else already cover it — and five scenarios judged against only each other would each look uniquely
-important, because there would be nothing else in view to be more important than.
-
-Two consequences worth stating. A partial review does not propose additions, since proposing is a
-reading of what the benchmark as a whole is missing and has nothing to do with which rows were
-picked out. And a selection that comes to nothing runs nothing and says so, rather than falling
-back to the whole benchmark — the two are opposite intentions and the expensive one must never be
-the default.
 
 ### What the progress bar counts
 

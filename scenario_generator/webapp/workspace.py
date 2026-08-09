@@ -181,8 +181,7 @@ class Workspace:
                  structure_proposals: Optional[List[dict]] = None,
                  coverage_threshold: int = None,
                  coverage: Optional[dict] = None,
-                 pack_gaps_only: bool = False,
-                 run_plan: Optional[dict] = None) -> None:
+                 pack_gaps_only: bool = False) -> None:
         self.root = Path(root)
         self.name = name or self.root.name
         self.created_at = created_at or _now()
@@ -212,9 +211,6 @@ class Workspace:
         # asked for, and this is the one setting that takes things away. Narrowing the pack is a
         # decision to trust their evidence for everything left out, which is the user's to make.
         self.pack_gaps_only: bool = bool(pack_gaps_only)
-        # The stages queued behind the one currently running, when several were started together.
-        # See the run-plan section below for why it lives on disk.
-        self.run_plan: dict = dict(run_plan or {})
         self._reconciled = self._settle()
 
     # ----------------------------------------------------------------- added context
@@ -354,56 +350,6 @@ class Workspace:
                 return entry
         return None
 
-    # ----------------------------------------------------------------- running several stages
-    #
-    # A run plan is one background thread taking several stages in order. Each stage still runs
-    # exactly as it does on its own -- same runner, same status, same stop signal -- and the plan
-    # is only the record of what is queued behind the one currently running.
-    #
-    # It is on disk rather than in memory because the page that reads it is a different request
-    # from the thread that writes it, and because a plan interrupted by a restart has to be
-    # visible as abandoned rather than silently forgotten. Nothing resumes it: the stages it
-    # already finished keep their output, and the ones it did not are simply still ready.
-
-    def begin_plan(self, keys: List[str]) -> None:
-        """Record the stages a sequence is about to run, in order."""
-        self.run_plan = {"queue": list(keys), "done": [], "skipped": [], "started_at": _now()}
-        self.save()
-
-    def plan_finished(self, key: str, outcome: str) -> None:
-        """Move a stage out of the queue. ``outcome`` is complete, skipped, failed or stopped."""
-        plan = self.run_plan
-        if not plan:
-            return
-        plan["queue"] = [k for k in plan.get("queue", []) if k != key]
-        plan.setdefault("skipped" if outcome == "skipped" else "done", []).append(key)
-        plan["outcome"] = outcome
-        self.save()
-
-    def end_plan(self) -> None:
-        """The sequence is over, however it ended. The queue stops being a claim about the future."""
-        if self.run_plan:
-            self.run_plan = {}
-            self.save()
-
-    def planned(self) -> List[str]:
-        """The stages still queued behind whatever is running now, if a sequence is under way.
-
-        A plan left on disk by a run that died with its process is not one of these: :meth:`_settle`
-        clears it as it reconciles the interrupted stage, so there is nothing here to guard
-        against. What remains is only ever a queue something is actually working through.
-        """
-        return list(self.run_plan.get("queue", []))
-
-    def plan_abandoned(self) -> bool:
-        """Whether a sequence has been called off, for the thread working through it to notice.
-
-        The thread checks this between stages rather than relying on the stop signal, because
-        stopping the stage that is running stops that stage -- the queue behind it is a separate
-        thing, and nothing else would clear it.
-        """
-        return not self.run_plan.get("queue")
-
     # ----------------------------------------------------------------- persistence
     @property
     def state_path(self) -> Path:
@@ -433,7 +379,6 @@ class Workspace:
                 "coverage_threshold": self.coverage_threshold,
                 "coverage": dict(self.coverage),
                 "pack_gaps_only": self.pack_gaps_only,
-                "run_plan": dict(self.run_plan),
                 "stages": {k: v.to_dict() for k, v in self.stages.items()}}
 
     def _write(self) -> None:
@@ -484,8 +429,7 @@ class Workspace:
                         structure_proposals=data.get("structure_proposals", []),
                         coverage_threshold=data.get("coverage_threshold"),
                         coverage=data.get("coverage", {}),
-                        pack_gaps_only=data.get("pack_gaps_only", False),
-                        run_plan=data.get("run_plan", {}))
+                        pack_gaps_only=data.get("pack_gaps_only", False))
         # An interrupted run was reconciled during construction -- see _settle. Written back once,
         # here, so the record on disk stops claiming something is running: after this save the
         # reconciliation finds nothing, so a page polling every second does not write every second.
@@ -528,10 +472,6 @@ class Workspace:
         is going to finish it or write its result, and leaving the record saying "running" strands
         the stage forever: the page polls something that will never move, and the stop button has
         no thread left to signal. It is reset here to stopped, which is exactly what it is.
-
-        A queue of further stages behind an interrupted run goes with it, for the same reason: the
-        thread that was going to work through it is gone, and a queue nothing is serving is a
-        promise the interface would keep making and never keep.
         """
         reconciled = False
         for stage in STAGES:
@@ -541,7 +481,6 @@ class Workspace:
                 current.note = ("Interrupted before finishing -- the tool stopped while this was "
                                 "running. Nothing partial was written; run it again.")
                 current.progress = {}
-                self.run_plan = {}
                 reconciled = True
                 continue
             if current.status in (COMPLETE, STALE, RUNNING, FAILED, STOPPED):

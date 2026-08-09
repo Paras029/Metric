@@ -58,7 +58,6 @@ class TestEveryRouteIsReachable(unittest.TestCase):
             "/workspaces/<slug>": ["GET"],
             "/stage/<key>": ["GET"],
             "/stage/<key>/run": ["POST"],
-            "/run-through": ["POST"],
             "/stage/<key>/stop": ["POST"],
             "/stage/<key>/progress": ["GET"],
             "/stage/<key>/note": ["POST"],
