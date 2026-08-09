@@ -83,39 +83,140 @@ def missing_credentials() -> list:
 # one run without editing a shared file.
 DEFAULT_TUNING_PATH = "tuning.yml"
 
-# Keyed on the path it was read from, so pointing TUNING_PATH somewhere else is picked up rather
-# than answered out of the previous file's cache.
+# Cached against the file's own modification time and size, not merely its path. A cache keyed on
+# the path alone is read once and then answers from memory for the life of the process, which for
+# an interface that runs for hours means an edit to the file changes nothing at all and gives no
+# sign of it -- the single most confusing way a settings file can fail. Re-stating the file per
+# lookup costs a syscall against a network round trip, which is not a trade worth thinking about.
 _tuning_cache: dict = {}
+
+# Said once per file, so a run states which settings are actually in force. A tuning file that was
+# never found is otherwise indistinguishable from one whose values happen to match the defaults.
+_announced: set = set()
 
 
 def tuning_path() -> str:
-    return os.getenv("TUNING_PATH", "").strip() or DEFAULT_TUNING_PATH
+    """Where the tuning file is, searched rather than assumed.
+
+    ``TUNING_PATH`` names it outright. Otherwise it is looked for in the working directory and
+    then upwards from it, and finally beside the installed package -- because the file is found
+    relative to *something*, and a bare relative path silently finds nothing whenever the tool is
+    launched from anywhere but the directory it happens to sit in. Silently: every setting in it
+    reverts to its built-in default and nothing says so.
+    """
+    named = os.getenv("TUNING_PATH", "").strip()
+    if named:
+        return named
+
+    here = Path.cwd()
+    for directory in (here, *here.parents):
+        candidate = directory / DEFAULT_TUNING_PATH
+        if candidate.is_file():
+            return str(candidate)
+
+    # Where it lives in a source checkout, for a tool launched from somewhere else entirely.
+    packaged = Path(__file__).resolve().parent.parent.parent / DEFAULT_TUNING_PATH
+    if packaged.is_file():
+        return str(packaged)
+    return DEFAULT_TUNING_PATH
+
+
+def _signature(path: Path):
+    """What has to change for the file to be worth reading again."""
+    try:
+        stat = path.stat()
+        return (stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        return None
+
+
+class BrokenTuningFile(RuntimeError):
+    """The tuning file exists and is not valid YAML."""
+
+
+def _parse(path: Path) -> dict:
+    """The file's contents, or raise :class:`BrokenTuningFile` naming what is wrong with it."""
+    import yaml
+
+    try:
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise BrokenTuningFile(f"{path} is not valid YAML.\n\n{exc}") from exc
+    if loaded is not None and not isinstance(loaded, dict):
+        raise BrokenTuningFile(f"{path} is a {type(loaded).__name__}, not a mapping of settings.")
+    return loaded or {}
 
 
 def tuning() -> dict:
-    """The tuning file, read once per path. An absent or unreadable file means built-in defaults."""
-    name = tuning_path()
-    if name not in _tuning_cache:
-        path = Path(name)
-        try:
-            import yaml
+    """The tuning file as it is on disk right now. An absent file means built-in defaults.
 
-            loaded = yaml.safe_load(path.read_text(encoding="utf-8")) if path.exists() else None
-            _tuning_cache[name] = loaded if isinstance(loaded, dict) else {}
-        except Exception as exc:                           # a broken file must not stop a run
-            logger.warning("Could not read %s (%s); using built-in defaults.", path, exc)
-            _tuning_cache[name] = {}
-    return _tuning_cache[name]
+    A file that is *present and broken* is the case worth being careful about. Falling back to the
+    defaults there is the worst available behaviour: every value the file was setting silently
+    reverts, the run proceeds and produces plausible output, and the only sign is one warning in a
+    log nobody is reading. A batch size and a model choice both go quietly back to what they were.
+
+    So a broken file never degrades to defaults. On the first read -- startup -- it raises, and
+    :func:`check_tuning` turns that into a message and a refusal to start, which is cheap and
+    unmissable. On a later read, where an edit has broken a file that was working, the last good
+    values are kept and the problem is logged as an error: a run already under way should not
+    change what it is doing halfway through because somebody mistyped a line in another window.
+    """
+    name = tuning_path()
+    path = Path(name)
+    signature = _signature(path)
+
+    cached = _tuning_cache.get(name)
+    if cached is not None and cached[0] == signature:
+        return cached[1]
+
+    if signature is None:                                  # no file at all: defaults, said once
+        _tuning_cache[name] = (signature, {})
+        if name not in _announced:
+            _announced.add(name)
+            logger.warning(
+                "No tuning file at %s, so every setting is at its built-in default. Set "
+                "TUNING_PATH if yours is elsewhere.", path)
+        return {}
+
+    try:
+        values = _parse(path)
+    except BrokenTuningFile as exc:
+        if cached is None:
+            raise
+        # Keep what was working, and keep saying so: this is not a warning to be missed.
+        logger.error("%s\n\nThe settings from before the edit are still in force. Nothing has "
+                     "reverted to a default.", exc)
+        _tuning_cache[name] = (signature, cached[1])
+        return cached[1]
+
+    _tuning_cache[name] = (signature, values)
+    if name not in _announced:
+        _announced.add(name)
+        logger.info("Settings from %s.", path)
+    elif cached is not None:
+        logger.info("%s changed; the new settings apply from the next call.", path)
+    return values
+
+
+def check_tuning() -> None:
+    """Read the tuning file once at startup so a broken one stops the run before it starts.
+
+    Called by both front ends before anything else happens. A settings file that cannot be parsed
+    is a mistake somebody made seconds ago and can fix in seconds; the expensive version is the one
+    where the run goes ahead on defaults and the mistake is found in the output an hour later.
+    """
+    tuning()
 
 
 def reload_tuning() -> None:
-    """Forget the cached tuning file, so an edit takes effect without a restart.
+    """Forget the cached tuning file.
 
-    This is the whole of what has to be forgotten. Every setting below is resolved at the moment
-    it is read rather than at import -- see :func:`__getattr__` -- so nothing else is holding a
-    value that an edit would have to invalidate.
+    Rarely needed: :func:`tuning` already re-reads the file whenever it has changed on disk, so an
+    edit takes effect on its own. This exists for a test that writes a file within the same clock
+    tick as the last read, and for forcing the announcement again.
     """
     _tuning_cache.clear()
+    _announced.clear()
 
 
 def _from_file(*path: str):

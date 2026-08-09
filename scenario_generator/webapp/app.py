@@ -854,8 +854,17 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+    from ..llm import config
+
+    try:
+        config.check_tuning()
+    except config.BrokenTuningFile as exc:
+        print(f"\n{exc}\n\nFix that line and run again.\n")
+        raise SystemExit(2)
     app = create_app()
     print("\n  Scenario generator — http://127.0.0.1:5000\n")
+    print(f"  Settings: {config.tuning_path()} — edits apply to the next call, no restart\n")
     app.run(host="127.0.0.1", port=5000, debug=False)
 
 

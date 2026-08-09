@@ -373,6 +373,21 @@ Everything below lives in `tuning.yml`, and every key also has an environment va
 wins over the file. See [README.md](README.md#configuration) for the two-file split and the tier
 table.
 
+**Edits take effect without a restart.** The file is re-read whenever it changes on disk, so a
+value changed while the interface is running applies to the next call — no restart, no button. The
+run states which file it is reading when it starts; if that line names a file you did not expect,
+or says none was found, that is why a setting appears to do nothing. The file is looked for in the
+working directory, then upwards from it, then beside the installed package, and `TUNING_PATH`
+names it outright.
+
+**A file that will not parse stops the run rather than being ignored.** Falling back to the
+built-in defaults is the worse failure: every value the file was setting reverts at once — which
+model each stage calls, the batch sizes, the budgets — and the run proceeds and produces plausible
+output, so the mistake surfaces later as a benchmark that is subtly not the one you asked for. On
+startup a broken file is a refusal to start, naming the line. If a file that was working is broken
+by an edit *while a run is under way*, the settings from before the edit stay in force and the
+problem is logged as an error; nothing reverts to a default mid-run.
+
 ### Per-stage overrides
 
 A tier is shared by every call doing the same *kind* of work, which is coarser than every call

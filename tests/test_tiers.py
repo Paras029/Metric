@@ -202,9 +202,18 @@ class TestSettingsCascade(unittest.TestCase):
         config.reload_tuning()
         self.assertEqual(config.stage_batch_size("WRITER", 8), 8)
 
-    def test_an_unreadable_tuning_file_does_not_stop_a_run(self):
+    def test_an_unreadable_tuning_file_stops_the_run_rather_than_defaulting(self):
+        """Continuing on defaults is the worse failure, and the one that actually costs something.
+
+        A file that cannot be parsed is a mistake made seconds ago and fixable in seconds. Ignoring
+        it reverts every value it was setting -- the model each stage calls, the batch sizes, the
+        budgets -- and the run proceeds and produces plausible output, so the mistake surfaces as a
+        benchmark that is subtly not the one that was asked for. See
+        tests/test_tuning_file_is_enforced.py for the whole of this behaviour.
+        """
         self._with_tuning("{{{ not yaml at all")
-        self.assertEqual(config.stage_batch_size("WRITER", 8), 8)
+        with self.assertRaises(config.BrokenTuningFile):
+            config.stage_batch_size("WRITER", 8)
 
     def test_a_value_of_the_wrong_type_falls_back_rather_than_raising(self):
         self._with_tuning("stages:\n  writer:\n    batch_size: not-a-number\n")

@@ -308,6 +308,11 @@ Every setting in `tuning.yml` also has an environment variable name, and the env
 wins. That is how you override one setting on one machine for one run without editing a shared
 file — and it means an existing `.env` full of `LLM_*` settings keeps working untouched.
 
+**An edit applies to the next call — no restart.** The file is re-read whenever it changes on disk.
+On startup the tool prints which file it is reading; if a setting appears to do nothing, check that
+line first. A file that will not parse stops the run and names the line, rather than being ignored
+and silently reverting every setting to its default.
+
 Calls run on one of three tiers, because the work genuinely differs. Each tier takes its own model,
 output cap, reasoning effort and retry count, and each falls back to `LLM_MODEL_ID`, so nothing
 changes until you name a smaller model.

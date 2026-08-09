@@ -158,10 +158,23 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
+    # Said before anything runs. A tuning file that was not found behaves exactly like one whose
+    # every value happens to match the built-in defaults, and the difference is not discoverable
+    # from the output of a run -- so the run states which file it is reading.
+    from .llm import config
+
+    try:
+        config.check_tuning()
+    except config.BrokenTuningFile as exc:
+        print(f"\n{exc}\n\nFix that line and run again. Nothing was started, because a run on "
+              f"settings you did not choose is worse than no run at all.\n")
+        return 2
+
     if args.command == "serve":
         from .webapp.app import create_app          # imported here so the CLI works without Flask
         app = create_app(Path(args.workspaces))
         print(f"\n  Scenario generator — http://127.0.0.1:{args.port}\n")
+        print(f"  Settings: {config.tuning_path()} — edits apply to the next call, no restart\n")
         app.run(host="127.0.0.1", port=args.port)
         return 0
 

@@ -71,58 +71,67 @@ stages:
 
   # --- Ingestion. One call each; nothing here batches.
   ingest_read:                    # each group of questions, read from the whole corpus
-    # model: a-smaller-model      #   tier: judgement
+    # model: a-smaller-model      # judgement tier unless you name one here
     # max_tokens: 65536
+    # temperature: 0.3
     # reasoning_effort: high
-    {}
+    max_attempts: 4
   ingest_resolve:                 # the resolution sweep over what the first reading left open
-    # model: a-smaller-model      #   tier: judgement
-    {}
+    # model: a-smaller-model
+    max_attempts: 4
   ingest_diagram_read:            # one diagram image, read on its own into boxes and arrows
-    # model: a-vision-model       #   tier: judgement -- must accept images
-    {}
+    # model: a-vision-model       # must accept images
+    max_attempts: 4
   ingest_diagram_synthesize:      # every image's reading, joined into one workflow
-    # model: a-vision-model       #   tier: judgement -- must accept images
-    {}
+    # model: a-vision-model       # must accept images
+    max_attempts: 4
   ingest_diagram_repair:          # unresolved points, put back to the images
-    # model: a-vision-model       #   tier: judgement -- must accept images
-    {}
+    # model: a-vision-model       # must accept images
+    max_attempts: 4
 
   # --- Intake. One call each.
   intake_draft:                   # drafting the intake, and revising it with your answers
-    # model: a-smaller-model      #   tier: judgement
-    {}
+    # model: a-smaller-model
+    max_attempts: 4
   intake_repair:                  # filling in what the draft left structurally incomplete
-    # model: a-smaller-model      #   tier: judgement
-    {}
+    # model: a-smaller-model
+    max_attempts: 4
   structure_review:               # reconnection and consolidation proposals on the graph
-    # model: a-smaller-model      #   tier: judgement
-    {}
+    # model: a-smaller-model
+    max_attempts: 4
 
   # --- The benchmark passes. These batch, so they also take batch_size and concurrency.
+  #     batch_size is how many rows go into one call; concurrency is how many such calls run at
+  #     once. Smaller batches with higher concurrency means more, smaller calls sent more in
+  #     parallel, which is usually faster and always cheaper to retry.
   writer:                         # writing each scenario up for the model owner
-    # model: a-smaller-model      #   tier: standard
-    # concurrency: 4
+    # model: a-smaller-model      # standard tier unless you name one here
     batch_size: 8
+    concurrency: 4
+    max_attempts: 4
   materiality_assess:             # a tier per scenario, judged against its peers
-    # model: a-smaller-model      #   tier: materiality
-    # concurrency: 4
+    # model: a-smaller-model      # materiality tier unless you name one here
     batch_size: 10
+    concurrency: 4
+    max_attempts: 2
   reviewer_assess:                # materiality settled and weak scenarios flagged
-    # model: a-smaller-model      #   tier: judgement
-    # concurrency: 4
+    # model: a-smaller-model
     batch_size: 6
+    concurrency: 4
+    max_attempts: 4
   reviewer_category:              # the declared ending, read back against the route
-    # model: a-smaller-model      #   tier: materiality
-    # concurrency: 4
+    # model: a-smaller-model      # materiality tier unless you name one here
     batch_size: 20
+    concurrency: 4
+    max_attempts: 2
   reviewer_propose:               # what enumeration could not reach
-    # model: a-smaller-model      #   tier: judgement
-    {}
+    # model: a-smaller-model
+    max_attempts: 4
   coverage_map:                   # submitted conversations, onto the benchmark
-    # model: a-smaller-model      #   tier: judgement
-    # concurrency: 4
+    # model: a-smaller-model
     batch_size: 5
+    concurrency: 4
+    max_attempts: 4
 
 ingestion:
   # How much submitted text goes into one reading call. Four characters to a token puts this near
