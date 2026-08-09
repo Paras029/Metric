@@ -433,7 +433,39 @@ ol, ul { list-style: none; padding: 0; }
 }
 .head__blurb { margin-top: var(--s2); color: var(--ink-mid); max-width: var(--measure); }
 .head__actions { display: flex; align-items: center; gap: var(--s2); flex: none; }
+.head__actions form { display: flex; align-items: center; gap: var(--s2); }
 .head__step { font-size: var(--t-meta); color: var(--ink-dim); white-space: nowrap; }
+.head__scope-label { font-size: var(--t-small); color: var(--ink-dim); white-space: nowrap; }
+
+/* Running several stages in one go. Quieter than the primary Run: it is the second thing to
+   reach for, and a row of equally-weighted buttons makes neither of them the obvious one. */
+.through {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  margin-top: var(--s3);
+  padding: var(--s3);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-sm);
+  background: var(--surface-sunk);
+}
+.through__label { font-size: var(--t-small); color: var(--ink-mid); }
+.through__note { font-size: var(--t-meta); color: var(--ink-dim); flex-basis: 100%; }
+
+/* Present for screen readers, absent on screen. Used where a control's meaning is carried by
+   its position rather than by a visible label. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
 
 /* A section of the page. A rule and a heading, not a card: nine boxes down a page is nine things
    claiming equal importance. */
@@ -650,6 +682,8 @@ ol, ul { list-style: none; padding: 0; }
 .banner__body { margin-top: var(--s1); font-size: var(--t-ui); color: var(--ink-mid); }
 .banner--stale  { background: var(--warn-tint); border-color: #EBD6AE; }
 .banner--stale .banner__title { color: var(--warn); }
+.banner--running { background: var(--blue-tint); border-color: #BBD8F2; }
+.banner--running .banner__title { color: var(--blue-dark); }
 .banner--failed { background: var(--bad-tint); border-color: var(--bad-edge); }
 .banner--failed .banner__title { color: var(--bad); }
 .banner--stopped { background: var(--surface-sunk); border-color: var(--rule); }
@@ -1187,7 +1221,12 @@ ol, ul { list-style: none; padding: 0; }
 .threshold__note { font-size: var(--t-small); color: var(--ink-dim); max-width: var(--measure); }
 
 .cards { margin-top: var(--s3); border-top: 1px solid var(--rule-soft); }
-.card { border-bottom: 1px solid var(--rule-soft); }
+/* The card and its tick box sit side by side, so ticking a scenario does not also open it —
+   a checkbox inside the <summary> toggles the disclosure on every click. */
+.card { border-bottom: 1px solid var(--rule-soft); display: flex; align-items: flex-start; }
+.card__body { flex: 1; min-width: 0; }
+.card__pick { padding: var(--s3) var(--s2) 0 0; display: flex; }
+.card__pick input { cursor: pointer; }
 .card__body > summary { list-style: none; }
 .card__body > summary::-webkit-details-marker { display: none; }
 

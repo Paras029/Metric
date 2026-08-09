@@ -7,20 +7,26 @@ digest of every scenario generated, and, where available, the scenarios the mode
 submitted. It runs with raised reasoning effort and smaller batches because it is asked to weigh
 rather than classify.
 
-Three powers, and the first two are separate sweeps rather than one prompt asked to do both --
-they are different readings, and a single call carrying both answers the first well and the
-second as an afterthought:
+Two calls, and the split between them follows what each is actually reading:
 
-    assess    settle each scenario's materiality with the whole set visible, and flag scenarios
-              that are redundant, too vague to run, or describing something other than what they
-              test.
-    category  read back how each route actually ends, against the ending the intake declared.
-              Category is deterministic everywhere else -- it comes from the Outcome Type on the
-              state a route finishes in -- which makes it the column a wrong or blank declaration
-              corrupts without anything noticing. A disagreement here usually means the workbook
-              needs correcting rather than the scenario.
-    propose   add scenarios that are materially missing. Capped, validated against the intake's
-              vocabulary, and marked with origin "llm-proposed".
+    assess    one call per chunk of scenarios, settling three things at once. What failure here
+              would cost, judged with the whole set visible. How the route actually ends, against
+              the ending the intake declared -- category is deterministic everywhere else, taken
+              from the Outcome Type on the state a route finishes in, which makes it the column a
+              wrong or blank declaration corrupts without anything noticing, and a disagreement
+              here usually means the workbook needs correcting rather than the scenario. And
+              whether anything is wrong with the scenario: redundant, too vague to run, or
+              describing something other than what it tests.
+
+              These are one call rather than three because they are answered from the same
+              material -- the route, the expected outcome and the description. Reading it once to
+              answer all three is cheaper and more coherent than reading it three times, and it
+              stops one batch size from having to serve two incompatible kinds of judgement.
+
+    propose   one call for the whole benchmark, adding scenarios that are materially missing.
+              Capped, validated against the intake's vocabulary, and marked "llm-proposed". It is
+              asked about the set rather than about any chunk of it, so it has nothing to batch
+              and nothing to share with a per-scenario reading.
 
 Every verdict is written to its own column beside the value it disagrees with, never over it, so
 both readings stay visible and a person rules. It cannot remove anything: flagging a scenario as
@@ -30,7 +36,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Iterable, List, Optional, Tuple
 
 from ..core.generation import peer_signals
 from ..core.models import (CATEGORIES, MATERIALITY, IntakeData, OwnerScenario, Scenario)
@@ -41,6 +47,7 @@ from . import cancellation, config, prompt_loader
 from .calling import call, call_batch, parsed_reply
 from .context import describe_graph, describe_use_case, digest, supplementary_context
 from .gateway import ask_llm
+from .selection import narrow
 
 logger = logging.getLogger(__name__)
 
@@ -112,8 +119,8 @@ class ScenarioReviewer:
         self._cancel = cancel
 
     def review(self, scenarios: List[Scenario], intake: IntakeData,
-               owner_scenarios: Optional[List[OwnerScenario]] = None
-               ) -> Tuple[List[Scenario], List[Scenario]]:
+               owner_scenarios: Optional[List[OwnerScenario]] = None,
+               only: Iterable[str] = None) -> Tuple[List[Scenario], List[Scenario]]:
         """Settle every judged column in place and return (scenarios, proposals).
 
         **One sweep, not one per column.** Materiality, the ending a scenario is filed under and
@@ -127,6 +134,13 @@ class ScenarioReviewer:
         Proposing what enumeration could not reach stays a separate call, and genuinely is one: it
         is asked about the benchmark as a whole rather than about any chunk of it, so it has
         nothing to batch and nothing to share with a per-scenario reading.
+
+        ``only`` narrows which scenarios are *judged*. The digest, the totals and the redundancy
+        signals are built from the whole benchmark regardless, because every question this pass
+        asks is comparative -- whether something is redundant, whether coverage is thin here --
+        and answering it against a handful of hand-picked scenarios would answer a different
+        question. A subset run also skips the proposal call: proposing is a reading of what the
+        benchmark as a whole is missing, and it has nothing to do with which rows were re-judged.
         """
         cancellation.check(self._cancel)
         preamble = self._preamble(intake)
@@ -134,16 +148,22 @@ class ScenarioReviewer:
         shared = {"total": len(scenarios), "digest": digest(scenarios),
                   "owner": _owner_block(owner_scenarios)}
 
-        assess_chunks = list(chunks(scenarios, self._batch))
-        total = len(assess_chunks) + 1                               # + the proposal call
+        subject = narrow(scenarios, only)
+        propose = only is None
+        assess_chunks = list(chunks(subject, self._batch))
+        total = len(assess_chunks) + (1 if propose else 0)
         done = 0
 
         done = self._sweep(
             assess_chunks, "Reviewed",
             config.stage_tier("REVIEWER_ASSESS", config.JUDGEMENT),
-            config.stage_concurrency("REVIEWER_ASSESS"), done, total, len(scenarios),
+            config.stage_concurrency("REVIEWER_ASSESS"), done, total, len(subject),
             lambda chunk: self._render_assess(chunk, preamble, shared, signals),
             self._apply_assessment)
+
+        if not propose:
+            self._progress("Review complete", total, total)
+            return scenarios, []
 
         cancellation.check(self._cancel)
         self._progress("Looking for what enumeration could not reach", done, total)

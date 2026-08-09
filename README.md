@@ -221,6 +221,33 @@ sending any further calls — whichever one is already in flight is left to fini
 off — and nothing that run would have produced is written, so the stage lands back exactly where
 it was before you ran it, ready to run again rather than stuck looking failed.
 
+**Running several stages at once.** *Run through to …* takes the pipeline as far as the stage you
+name, one stage after another, without waiting for you between them. It skips anything already
+complete, so running through after a correction redoes what the correction invalidated rather
+than everything; it skips an optional stage nothing was submitted for; and it stops at the first
+stage that does not finish, since everything after a stage reads what that stage produced. The
+exception is an optional stage: nothing downstream depends on one, so if the model owner's
+transcripts turn out to be unreadable the pack is still built. Stopping the stage that is running
+stops the rest with it. The page follows the run from stage to stage as it goes.
+
+**Running a stage on part of the benchmark.** Scenario text, materiality and final review can each
+be pointed at some of the scenarios instead of all of them — the *Run on* control beside the Run
+button. Four ways to choose, because picking three hundred scenarios by hand is not a thing anyone
+does:
+
+| Choice | What it runs on |
+|---|---|
+| Every scenario | The whole benchmark. The default. |
+| Only the ones this stage has not done | Whatever it has never written a verdict for. The cheapest way to finish an interrupted run. |
+| Only the ones in this view | Exactly what the list is showing — the view and filters you already narrowed it with. |
+| Only the ones I tick | The checkboxes beside each scenario, for the handful that need a second look. |
+
+Every other scenario is left exactly as it was. What runs is still judged against the *whole*
+benchmark: the redundancy signals, the digest of every scenario and the totals all come from all
+of it, so re-running four scenarios gives them the same verdict a full pass would have. The one
+thing a partial review does not do is propose additions — that is a reading of what the benchmark
+as a whole is missing, and it has nothing to do with which rows you picked out.
+
 Any stage accepts free-text notes and extra files. Both are passed to every stage that follows.
 On the command line this is `--note`, which is repeatable:
 

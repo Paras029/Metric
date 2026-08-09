@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Callable, List
+from typing import Callable, Iterable, List
 
 from ..core.models import IntakeData, Scenario
 from ..utils import chunks
@@ -28,6 +28,7 @@ from . import cancellation, config, prompt_loader
 from .calling import call, call_batch, parsed_reply
 from .context import describe_use_case, supplementary_context
 from .gateway import ask_llm
+from .selection import narrow
 
 logger = logging.getLogger(__name__)
 
@@ -56,18 +57,25 @@ class ScenarioWriter:
         self._progress = progress or (lambda *args, **kwargs: None)
         self._cancel = cancel
 
-    def write(self, scenarios: List[Scenario], intake: IntakeData) -> List[Scenario]:
+    def write(self, scenarios: List[Scenario], intake: IntakeData,
+              only: Iterable[str] = None) -> List[Scenario]:
         """Graph scenarios and probes are written by separate prompts, so batch them separately.
 
         Every chunk's call goes out together within its group; nothing in one chunk's text
         depends on another's. Replies are applied in the order the chunks were made regardless
         of which came back first, so a benchmark written this way reads exactly as it would have
         one chunk at a time -- only the waiting overlaps.
+
+        ``only`` narrows the run to a set of ids and leaves every other scenario's text untouched.
+        Nothing else changes: each scenario is written from its own route and the shared house
+        style, so writing five of them says exactly what writing all three hundred would have said
+        about those five.
         """
         cancellation.check(self._cancel)
+        subject = narrow(scenarios, only)
         written = 0
-        for group in ([s for s in scenarios if not s.is_probe],
-                      [s for s in scenarios if s.is_probe]):
+        for group in ([s for s in subject if not s.is_probe],
+                      [s for s in subject if s.is_probe]):
             if not group:
                 continue
             pending = list(chunks(group, self._batch))
@@ -85,8 +93,8 @@ class ScenarioWriter:
                                  on_progress=lambda done, _total, sizes=sizes, base=base: (
                                      self._progress(
                                          f"Written {base + sum(sizes[:done])} of "
-                                         f"{len(scenarios)} scenarios",
-                                         base + sum(sizes[:done]), len(scenarios))))
+                                         f"{len(subject)} scenarios",
+                                         base + sum(sizes[:done]), len(subject))))
 
             for chunk, reply in zip(pending, replies):
                 cancellation.check(self._cancel)
@@ -96,8 +104,8 @@ class ScenarioWriter:
                         cancellation.check(self._cancel)
                         self._write_one(scenario, intake)
                 written += len(chunk)
-                self._progress(f"Written {written} of {len(scenarios)} scenarios",
-                               written, len(scenarios))
+                self._progress(f"Written {written} of {len(subject)} scenarios",
+                               written, len(subject))
         return scenarios
 
     def _payload(self, scenario: Scenario) -> dict:

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Callable, Dict, List
+from typing import Callable, Dict, Iterable, List
 
 from ..core.models import CONFIDENCE, MATERIALITY, IntakeData, Scenario
 from ..utils import chunks, one_of
@@ -22,6 +22,7 @@ from . import cancellation, config, prompt_loader
 from .calling import call, call_batch, parsed_reply
 from .context import describe_use_case, supplementary_context
 from .gateway import ask_llm
+from .selection import narrow
 from ..core.generation import peer_signals
 
 logger = logging.getLogger(__name__)
@@ -54,10 +55,20 @@ class MaterialityAssessor:
         self._progress = progress or (lambda *args, **kwargs: None)
         self._cancel = cancel
 
-    def assess(self, scenarios: List[Scenario], intake: IntakeData) -> List[Scenario]:
+    def assess(self, scenarios: List[Scenario], intake: IntakeData,
+               only: Iterable[str] = None) -> List[Scenario]:
+        """Assign a tier to every scenario, or to ``only`` of them.
+
+        The peer signals are computed from the *whole* benchmark either way. They are statements
+        about a scenario's neighbours -- how many others walk almost the same route, how many share
+        its capability -- and computing them from a subset would tell the model that five scenarios
+        picked out for a re-run are the only five that exist, which turns "nothing else covers
+        this" into a fact about the selection rather than about the benchmark.
+        """
         cancellation.check(self._cancel)
+        subject = narrow(scenarios, only)
         peers = peer_signals(scenarios)
-        pending = list(chunks(scenarios, self._batch))
+        pending = list(chunks(subject, self._batch))
         # Reported as replies land, not as they are applied: every chunk is in flight at once,
         # so the applying loop below runs in a fraction of a second after a wait of minutes.
         sizes = [len(chunk) for chunk in pending]
@@ -67,8 +78,8 @@ class MaterialityAssessor:
                              max_concurrency=config.stage_concurrency("MATERIALITY_ASSESS"),
                              cancel=self._cancel,
                              on_progress=lambda done, _total: self._progress(
-                                 f"Weighed {sum(sizes[:done])} of {len(scenarios)} scenarios",
-                                 sum(sizes[:done]), len(scenarios)))
+                                 f"Weighed {sum(sizes[:done])} of {len(subject)} scenarios",
+                                 sum(sizes[:done]), len(subject)))
 
         done_count = 0
         for chunk, reply in zip(pending, replies):
@@ -79,8 +90,8 @@ class MaterialityAssessor:
                     cancellation.check(self._cancel)
                     self._assess_one(scenario, intake, peers)
             done_count += len(chunk)
-            self._progress(f"Assessed {done_count} of {len(scenarios)} scenarios",
-                           done_count, len(scenarios))
+            self._progress(f"Assessed {done_count} of {len(subject)} scenarios",
+                           done_count, len(subject))
         return scenarios
 
     def _call(self, user: str) -> str:
