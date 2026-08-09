@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import List, Tuple
 
+from ..utils.replies import prose
 from ..utils.text import one_of
 from .models import (CATEGORIES, MATERIALITY, ORIGIN_PROPOSED, IntakeData, Scenario,
                      Step, TurnMeta)
@@ -60,7 +61,7 @@ def instantiate_proposal(entry: dict, index: int, intake: IntakeData) -> Scenari
     persona = (intake.persona_by_id(persona_id)
                or next((p for p in intake.personas if p.is_default), intake.personas[0]))
 
-    rationale = str(entry.get("rationale", "")).strip()
+    rationale = prose(entry, "rationale")
     if dropped:
         rationale = f"{rationale} ({dropped} proposed step(s) discarded as outside the " \
                     f"intake vocabulary)".strip()
@@ -78,8 +79,8 @@ def instantiate_proposal(entry: dict, index: int, intake: IntakeData) -> Scenari
         turn_meta=_turn_meta(steps, entry, intake),
         origin=ORIGIN_PROPOSED,
     )
-    scenario.description = str(entry.get("description", "")).strip()
-    scenario.turn_plan = str(entry.get("turn_plan", "")).strip()
+    scenario.description = prose(entry, "description")
+    scenario.turn_plan = prose(entry, "turn_plan")
     scenario.materiality = one_of(entry.get("materiality"), MATERIALITY, "Medium")
     scenario.materiality_confidence = "Low"
     scenario.materiality_rationale = "Proposed by the review layer; not independently assessed."

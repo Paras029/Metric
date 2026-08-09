@@ -50,7 +50,7 @@ from .runners import (CONTEXT, DRAFT_INTAKE, EVIDENCE, OVERLAP, REGISTRY, RUNNER
                       STAGE_OUTPUTS,
                       _apply_proposal, _context, _evidence_record, _intake, _proposal_dicts,
                       _scenarios, _snapshot)
-from .scenarios import FILTER_FIELDS, PAGE_SIZE, build_rows
+from .scenarios import FILTER_FIELDS, PAGE_SIZE, build_rows, shape
 from .stages import RUNNING, STAGE_BY_KEY, STAGES, STATUS_LABELS, downstream_of, index_of
 from .workspace import Workspace, stage_view
 
@@ -146,6 +146,11 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         # Every already-declared decision, with whether it is walked -- shown only on the intake
         # stage, and only for what the workbook already has. A sketched decision is not here yet
         # to have a scope one way or the other.
+        # Read once, shown twice: the list in the middle of the page and the tally in the side
+        # panel are two readings of the same scenarios, and reading the workbook again for the
+        # second is both slower and a way for the two to disagree.
+        scenarios = _stage_scenarios(workspace, key, intake)
+
         decisions = []
         if key == "intake" and intake is not None:
             decisions = [{"id": d.id, "name": d.name or d.id,
@@ -177,8 +182,10 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             answered=workspace.answered_questions(),
             answers=_answers_for(workspace) if key == "documents" else [],
             groups=_group_rows(workspace, key),
-            benchmark=_benchmark_for(workspace, key, intake),
+            benchmark=_benchmark_for(scenarios, key),
+            shape=_shape_for(scenarios, key),
             coverage=_coverage_for(workspace, key, intake),
+            coverage_shape=_coverage_shape(workspace),
             pack_gaps_only=workspace.pack_gaps_only,
             materiality_tiers=MATERIALITY,
             produced={n: p for n, p in workspace.state(key).artifacts.items()
@@ -262,7 +269,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             rows.append(row)
         return rows
 
-    def _benchmark_for(workspace: Workspace, key: str, intake):
+    def _stage_scenarios(workspace: Workspace, key: str, intake):
         """The scenarios as this stage left them, once there are any.
 
         A stage reads its own snapshot rather than the live registry, so coming back to the
@@ -278,16 +285,66 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         if not path.exists():
             return None
         try:
-            scenarios = read_scenarios(str(path), intake)
+            return read_scenarios(str(path), intake)
         except Exception:
             # Never blank the page over one unreadable registry -- but log the traceback rather
             # than the message alone. A malformed workbook and a mistake in this module both
             # arrive here, and only one of them is diagnosable from "could not read".
             logger.exception("Could not read the benchmark for display")
             return None
+
+    def _benchmark_for(scenarios, key: str):
+        """The list in the middle of the page: this stage's scenarios, viewed and filtered."""
+        if scenarios is None:
+            return None
         filters = {field: request.args.get(f"filter_{field}", "") for field in FILTER_FIELDS}
         return build_rows(scenarios, request.args.get("view", "attention"), stage=key,
                           filters=filters, limit=_page_limit())
+
+    def _shape_for(scenarios, key: str):
+        """The tally in the side panel, from the same scenarios the list is drawn from.
+
+        Reading both off one snapshot is the point: a panel that counted the live registry while
+        the list showed a stage's own snapshot would put two different totals on the same screen
+        and leave no way to tell which was the benchmark.
+        """
+        if not scenarios:
+            return None
+        return shape(scenarios, stage=key)
+
+    def _coverage_shape(workspace: Workspace) -> Optional[Dict[str, object]]:
+        """What the coverage stage found, small enough for the panel and shown on every stage.
+
+        Only the counts that change a decision: how much of the model owner's evidence landed
+        anywhere, and how much of the benchmark it reached. It stays in the panel after the
+        coverage stage has been navigated away from because it is the one thing that says how
+        much of this benchmark the model owner has already exercised, and that bears on every
+        judgement made about the benchmark, not only on the stage that measured it.
+
+        Counted from the stored mappings at whatever threshold is set now, the same as the stage's
+        own page, so the two never disagree.
+        """
+        path = workspace.root / REGISTRY
+        if not path.exists() or not workspace.coverage_mappings():
+            return None
+        try:
+            report = stored_report(workspace, read_registry(str(path)))
+        except Exception:
+            logger.exception("Could not count coverage for the side panel")
+            return None
+        if not report:
+            return None
+        summary = report.summary()
+        return {
+            "threshold": report.threshold,
+            "conversations": summary["Conversations read"],
+            "mapped": summary["Mapped to a scenario"],
+            "unmatched": summary["Matched no scenario"],
+            "counted": summary["Benchmark scenarios"],
+            "represented": summary["Represented"],
+            "under": summary["Under-represented"],
+            "untouched": summary["Never exercised"],
+        }
 
     def _coverage_for(workspace: Workspace, key: str, intake):
         """What the model owner's conversations covered, at the threshold currently set.

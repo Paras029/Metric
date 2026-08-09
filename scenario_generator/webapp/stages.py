@@ -9,6 +9,10 @@ output needs to know which kind produced it:
     judged    a model weighed something. Reproducible only in the loose sense; the output is an
               opinion with reasons attached, and it is the reader's job to disagree where they
               disagree.
+    drafted   a model wrote the first version and the person using the tool settles it. Both
+              halves are true and neither alone is: calling it human hides that a model produced
+              what is on the screen, and calling it a model judgement hides that nothing advances
+              until somebody has read it and said so.
     review    the person using the tool decides. Nothing advances until they say so.
 
 Presenting these identically would be the single most misleading thing this interface could do.
@@ -20,6 +24,7 @@ from typing import Dict, List, Tuple
 
 COMPUTED = "computed"
 JUDGED = "judged"
+DRAFTED = "drafted"
 REVIEW = "review"
 
 # Shown beside the stage number rather than as a block of prose. The label is the whole point;
@@ -27,6 +32,7 @@ REVIEW = "review"
 MODE_LABELS = {
     COMPUTED: "Deterministic",
     JUDGED: "LLM",
+    DRAFTED: "LLM, then you",
     REVIEW: "Human",
 }
 
@@ -91,9 +97,9 @@ STAGES: Tuple[Stage, ...] = (
           "is recorded rather than filled in.",
           optional=True),
 
-    Stage("intake", "Intake", REVIEW,
-          "The agent described as a decision graph. Drafted from the evidence, corrected by you. "
-          "Nothing reaches the benchmark that is not here.",
+    Stage("intake", "Intake", DRAFTED,
+          "The agent described as a decision graph. Drafted from the evidence by a model, "
+          "corrected and confirmed by you. Nothing reaches the benchmark that is not here.",
           "The authoritative description of the agent, and the boundary of what can be tested. It "
           "is drafted from the documents so the work is correction rather than transcription, and "
           "what it could not settle comes back as questions addressed to the specific decision, "

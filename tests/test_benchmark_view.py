@@ -71,29 +71,60 @@ class TestWhatTheRowShows(unittest.TestCase):
         self.assertLessEqual(len(row["title"]), 110)
 
 
-class TestWhereTheTierCameFrom(unittest.TestCase):
-    """Three passes can set materiality and the precedence is not obvious from the number alone."""
+class TestWhichTierIsInForce(unittest.TestCase):
+    """Three passes can set materiality, and the card shows one tier with one reason behind it."""
 
-    def test_the_first_assessment_is_attributed(self):
+    def test_the_first_assessment_stands_until_something_replaces_it(self):
         row = to_row(_scenario("SC-001", materiality="Medium",
                                materiality_rationale="Routine."))
         self.assertEqual(row["materiality"], "Medium")
-        self.assertEqual(row["materiality_source"], "the materiality pass")
         self.assertEqual(row["materiality_reason"], "Routine.")
 
     def test_the_review_outranks_the_first_assessment(self):
         row = to_row(_scenario("SC-001", materiality="Medium", review_materiality="High",
                                review_rationale="Touches money."))
         self.assertEqual(row["materiality"], "High")
-        self.assertEqual(row["materiality_source"], "the final review")
         self.assertEqual(row["materiality_reason"], "Touches money.")
 
     def test_a_human_override_outranks_both(self):
         row = to_row(_scenario("SC-001", materiality="Medium", review_materiality="High",
                                materiality_override="Critical"))
         self.assertEqual(row["materiality"], "Critical")
-        self.assertEqual(row["materiality_source"], "your override")
         self.assertTrue(row["overridden"])
+
+    def test_a_flag_does_not_repeat_the_reason_already_given_for_the_tier(self):
+        """The review settles the tier and raises the flag in one call and returns one rationale.
+
+        Rendered as two notes that is the same sentence printed twice, which reads as a rendering
+        fault rather than as the two verdicts agreeing.
+        """
+        row = to_row(_scenario("SC-001", materiality="Medium", review_materiality="Low",
+                               review_flag="Under-specified",
+                               review_rationale="The intake never says how many attempts."))
+        self.assertEqual(row["materiality_reason"], "The intake never says how many attempts.")
+        self.assertEqual(row["flag_reason"], "")
+        self.assertTrue(row["flag_shares_reason"])
+
+    def test_a_flag_that_says_something_new_keeps_its_own_note(self):
+        row = to_row(_scenario("SC-001", materiality="Medium",
+                               materiality_rationale="Routine account question.",
+                               review_flag="Redundant",
+                               review_rationale="Materially the same walk as SC-004."))
+        self.assertEqual(row["materiality_reason"], "Routine account question.")
+        self.assertEqual(row["flag_reason"], "Materially the same walk as SC-004.")
+        self.assertFalse(row["flag_shares_reason"])
+
+    def test_which_pass_set_the_tier_is_not_carried_onto_the_card(self):
+        """A reviewer asks why this is Critical, not which pass decided it was.
+
+        The provenance used to be printed in front of every rationale, which put a sentence
+        answering nobody's question between the tier and the reason for it. Every pass keeps its
+        own column in the registry, so nothing is lost for anyone auditing how a tier was reached.
+        """
+        row = to_row(_scenario("SC-001", materiality="Medium", review_materiality="High",
+                               review_rationale="Touches money."))
+        self.assertNotIn("materiality_source", row)
+        self.assertNotIn("materiality pass", " ".join(str(v) for v in row.values()))
 
 
 class TestWhichScenariosAreShown(unittest.TestCase):

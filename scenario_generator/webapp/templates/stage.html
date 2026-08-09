@@ -115,6 +115,7 @@
     <p class="rail__legend">
       <span><i class="dot dot--computed"></i>Deterministic</span>
       <span><i class="dot dot--judged"></i>LLM</span>
+      <span><i class="dot dot--drafted"></i>LLM, then you</span>
       <span><i class="dot dot--review"></i>Human</span>
     </p>
   </nav>
@@ -776,38 +777,45 @@
                     {% endif %}
                   </p>
 
-                  {% if 'materiality' in benchmark.shows and row.materiality_reason %}
-                    <p class="aside">
-                      <strong>{{ row.materiality }}</strong>, from {{ row.materiality_source }} —
-                      {{ row.materiality_reason }}
-                    </p>
-                  {% elif 'materiality' in benchmark.shows and row.overridden %}
-                    <p class="aside"><strong>{{ row.materiality }}</strong> — your override.</p>
-                  {% endif %}
-                  {% if 'review' in benchmark.shows and row.category_changed %}
-                    <p class="aside aside--warn">
-                      <strong>Reads as {{ row.category }}</strong>, not
-                      {{ row.declared_category }} as declared — {{ row.category_reason }}
-                      The fix is the Outcome Type on that state in the intake workbook.
-                    </p>
-                  {% endif %}
-                  {% if 'review' in benchmark.shows and row.flag_reason %}
-                    <p class="aside aside--warn">
-                      <strong>{{ row.flag }}</strong> — {{ row.flag_reason }}
-                    </p>
-                  {% endif %}
-                  {% if 'review' in benchmark.shows and row.proposal_reason %}
-                    <p class="aside">
-                      <strong>Proposed</strong> — {{ row.proposal_reason }}
-                    </p>
-                  {% endif %}
-                  {% if 'coverage' in benchmark.shows and row.coverage_note %}
-                    <p class="aside">
-                      <strong>{{ row.coverage }}</strong> from the model owner's own testing
-                      ({{ row.coverage_note }}). Left in the pack — whether to run it again is
-                      yours to decide.
-                    </p>
-                  {% endif %}
+                  {# Every verdict on this scenario in one run, so the materiality rationale and
+                     the review's own reading sit next to each other and can be read against one
+                     another rather than hunted for at opposite ends of the card. #}
+                  <div class="card__notes">
+                    {% if 'materiality' in benchmark.shows and row.materiality_reason %}
+                      {# The flag rides on this note where the review gave one reason for both,
+                         rather than repeating the same sentence in a box underneath. #}
+                      <p class="aside {{ 'aside--warn' if row.flag_shares_reason }}">
+                        <strong>{{ row.materiality }}{% if row.flag_shares_reason %} ·
+                          {{ row.flag }}{% endif %}</strong> — {{ row.materiality_reason }}
+                      </p>
+                    {% elif 'materiality' in benchmark.shows and row.overridden %}
+                      <p class="aside"><strong>{{ row.materiality }}</strong> — your override.</p>
+                    {% endif %}
+                    {% if 'review' in benchmark.shows and row.category_changed %}
+                      <p class="aside aside--warn">
+                        <strong>Reads as {{ row.category }}</strong>, not
+                        {{ row.declared_category }} as declared — {{ row.category_reason }}
+                        The fix is the Outcome Type on that state in the intake workbook.
+                      </p>
+                    {% endif %}
+                    {% if 'review' in benchmark.shows and row.flag_reason %}
+                      <p class="aside aside--warn">
+                        <strong>{{ row.flag }}</strong> — {{ row.flag_reason }}
+                      </p>
+                    {% endif %}
+                    {% if 'review' in benchmark.shows and row.proposal_reason %}
+                      <p class="aside">
+                        <strong>Proposed</strong> — {{ row.proposal_reason }}
+                      </p>
+                    {% endif %}
+                    {% if 'coverage' in benchmark.shows and row.coverage_note %}
+                      <p class="aside">
+                        <strong>{{ row.coverage }}</strong> from the model owner's own testing
+                        ({{ row.coverage_note }}). Left in the pack — whether to run it again is
+                        yours to decide.
+                      </p>
+                    {% endif %}
+                  </div>
 
                   {% if 'materiality' in benchmark.shows %}
                   <form class="card__rule" method="post"
@@ -1098,18 +1106,18 @@
      submitted and what has been noted are all things you want to check *while* reading stage six,
      and going back to stage two to check them loses your place. Each section is a <details>, open
      by default, so a long list can be folded away without a preference to remember. #}
-  <aside class="aside" aria-label="This use case">
+  <aside class="side" aria-label="This use case">
 
     {% if graph_facts %}
-      <details class="aside__part" open>
-        <summary class="aside__title">The agent as declared</summary>
+      <details class="side__part" open>
+        <summary class="side__title">The agent as declared</summary>
         {% if aside_graph %}
-          <a class="aside__graph" href="{{ url_for('stage', key='intake') }}"
+          <a class="side__graph" href="{{ url_for('stage', key='intake') }}"
              title="Open the full graph on the intake stage">
             {{ aside_graph | safe }}
           </a>
         {% endif %}
-        <dl class="aside__facts">
+        <dl class="side__facts">
           <div><dt>Capabilities</dt><dd class="mono">{{ graph_facts.capabilities }}</dd></div>
           <div><dt>Decisions</dt><dd class="mono">{{ graph_facts.decisions }}</dd></div>
           <div><dt>Outcomes</dt><dd class="mono">{{ graph_facts.outcomes }}</dd></div>
@@ -1118,7 +1126,7 @@
           <div><dt>Longest route</dt><dd class="mono">{{ graph_facts.depth }} deep</dd></div>
         </dl>
         {% if graph_facts.unreachable %}
-          <p class="aside__warn">
+          <p class="side__warn">
             No walk from the start reaches
             <span class="mono">{{ graph_facts.unreachable | join(', ') }}</span>.
           </p>
@@ -1126,26 +1134,97 @@
       </details>
     {% endif %}
 
-    <details class="aside__part" open>
-      <summary class="aside__title">
+    {# The benchmark as a whole, beside a page that is only ever showing part of it. The tiers are
+       the effective ones, so from the review stage onwards a tier the review moved is counted
+       where the review put it, and the shape of the pack changes under you as it should. #}
+    {% if shape and shape.tiers %}
+      <details class="side__part" open>
+        <summary class="side__title">
+          The benchmark
+          <span class="side__count mono">{{ shape.total }}</span>
+        </summary>
+        <ul class="side__bars">
+          {% for row in shape.tiers %}
+            <li class="side__bar">
+              <a class="side__bar-link"
+                 href="{{ url_for('stage', key=stage.key, view='all', filter_materiality=row.tier) }}">
+                <span class="side__bar-name">{{ row.tier }}</span>
+                <span class="side__bar-track">
+                  <span class="side__bar-fill side__bar-fill--{{ row.tier | lower }}"
+                        style="width: {{ (100 * row.count / shape.total) | round(1) }}%"></span>
+                </span>
+                <span class="side__bar-count mono">{{ row.count }}</span>
+              </a>
+            </li>
+          {% endfor %}
+        </ul>
+        <dl class="side__facts">
+          <div><dt>Test runs requested</dt><dd class="mono">{{ shape.runs }}</dd></div>
+          {% if benchmark and 'review' in benchmark.shows %}
+            <div><dt>Flagged by the review</dt><dd class="mono">{{ shape.flagged }}</dd></div>
+            <div><dt>Proposed by the review</dt><dd class="mono">{{ shape.proposed }}</dd></div>
+          {% endif %}
+        </dl>
+        {% if shape.attention %}
+          <p class="side__more">
+            <a href="{{ url_for('stage', key=stage.key, view='attention') }}">
+              {{ shape.attention }} waiting on a decision from you →
+            </a>
+          </p>
+        {% endif %}
+      </details>
+    {% endif %}
+
+    {# Kept in the panel after the coverage stage has been left behind: how much of this benchmark
+       the model owner has already exercised bears on every judgement made about it, not only on
+       the stage that measured it. #}
+    {% if coverage_shape %}
+      <details class="side__part" open>
+        <summary class="side__title">
+          The model owner's own testing
+          <span class="side__count mono">{{ coverage_shape.conversations }}</span>
+        </summary>
+        <p class="side__blurb">
+          {{ coverage_shape.mapped }} of {{ coverage_shape.conversations }} conversations landed on
+          a scenario. A scenario counts as represented at
+          {{ coverage_shape.threshold }} conversation{{ '' if coverage_shape.threshold == 1 else 's' }}
+          or more — change that on the coverage stage.
+        </p>
+        <dl class="side__facts">
+          <div><dt>Represented</dt><dd class="mono">{{ coverage_shape.represented }}</dd></div>
+          <div><dt>Under-represented</dt><dd class="mono">{{ coverage_shape.under }}</dd></div>
+          <div><dt>Never exercised</dt><dd class="mono">{{ coverage_shape.untouched }}</dd></div>
+          <div><dt>Matched no scenario</dt><dd class="mono">{{ coverage_shape.unmatched }}</dd></div>
+        </dl>
+        {% if shape and shape.total and shape.total != coverage_shape.counted %}
+          <p class="side__warn">
+            Counted against {{ coverage_shape.counted }} scenarios; the benchmark now has
+            {{ shape.total }}. Run the coverage stage again to place the difference.
+          </p>
+        {% endif %}
+      </details>
+    {% endif %}
+
+    <details class="side__part" open>
+      <summary class="side__title">
         Submitted
         {% set submitted = aside_files | map(attribute='names') | map('length') | sum %}
-        {% if submitted %}<span class="aside__count mono">{{ submitted }}</span>{% endif %}
+        {% if submitted %}<span class="side__count mono">{{ submitted }}</span>{% endif %}
       </summary>
       {% if aside_files %}
         {% for row in aside_files %}
-          <p class="aside__group">{{ row.title }}</p>
-          <ul class="aside__files">
+          <p class="side__group">{{ row.title }}</p>
+          <ul class="side__files">
             {% for name in row.names %}<li class="mono">{{ name }}</li>{% endfor %}
           </ul>
         {% endfor %}
       {% else %}
-        <p class="aside__empty">Nothing submitted yet.</p>
+        <p class="side__empty">Nothing submitted yet.</p>
       {% endif %}
       {% if stage.key != 'documents' %}
         {# Anything that turns up after the pack was read. Filed under supporting material, since
            that is what a late arrival almost always is, and read in the next documents run. #}
-        <form class="aside__upload" method="post" enctype="multipart/form-data"
+        <form class="side__upload" method="post" enctype="multipart/form-data"
               action="{{ url_for('upload', key='documents') }}">
           <input type="hidden" name="group" value="supporting">
           <input class="upload__input" type="file" name="files" multiple
@@ -1153,28 +1232,28 @@
           <button class="button button--quiet" type="submit">Add a late document</button>
         </form>
       {% else %}
-        <p class="aside__empty">Add and remove files on this stage, above.</p>
+        <p class="side__empty">Add and remove files on this stage, above.</p>
       {% endif %}
     </details>
 
-    <details class="aside__part" open>
-      <summary class="aside__title">
+    <details class="side__part" open>
+      <summary class="side__title">
         Notes for later stages
-        {% if note_total %}<span class="aside__count mono">{{ note_total }}</span>{% endif %}
+        {% if note_total %}<span class="side__count mono">{{ note_total }}</span>{% endif %}
       </summary>
-      <p class="aside__blurb">
+      <p class="side__blurb">
         Anything the documents do not say. Every note here — wherever it was added, and including
         your answers to the intake questions — is handed to every model call from this point on:
         the intake drafter, the scenario text, materiality, the review. Nothing re-runs by itself,
         so a note lands the next time you run a stage.
       </p>
       {% if notes %}
-        <ul class="aside__notes">
+        <ul class="side__notes">
           {% for note in notes %}
-            <li class="aside__note">
-              {% if note.question %}<p class="aside__note-question">{{ note.question }}</p>{% endif %}
-              <p class="aside__note-text">{{ note.text }}</p>
-              <p class="aside__note-when">
+            <li class="side__note">
+              {% if note.question %}<p class="side__note-question">{{ note.question }}</p>{% endif %}
+              <p class="side__note-text">{{ note.text }}</p>
+              <p class="side__note-when">
                 {{ note.origin }} ·
                 <time class="when" datetime="{{ note.added_at }}">{{ note.added_at | when }}</time>
               </p>
@@ -1182,7 +1261,7 @@
           {% endfor %}
         </ul>
       {% endif %}
-      <form class="aside__note-form" method="post"
+      <form class="side__note-form" method="post"
             action="{{ url_for('add_note', key=stage.key) }}">
         <textarea class="field__input field__input--area" name="note" rows="3"
                   placeholder="Something the documents leave out…"></textarea>

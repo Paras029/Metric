@@ -44,6 +44,7 @@ from ..llm import cancellation, config, prompt_loader
 from ..llm.calling import call
 from ..llm.gateway import ask_llm, ask_llm_with_images
 from ..utils import parse_json_object
+from ..utils.replies import prose
 from .context_document import FACET_HEADINGS, FACET_QUESTIONS
 from . import diagram_structure
 from .readers import (UnreadableDocument, is_image, load_image,
@@ -412,7 +413,7 @@ class DocumentExtractor:
             if not isinstance(entry, dict):
                 continue
             facet = str(entry.get("facet", "")).strip()
-            statement = str(entry.get("statement", "")).strip()
+            statement = prose(entry, "statement")
             if facet in FACETS and statement:
                 record.claims.append(Claim(
                     facet=facet, statement=statement, quote=str(entry.get("quote", "")).strip(),
@@ -789,7 +790,7 @@ def _to_answer(facet: str, entry) -> Optional[FacetAnswer]:
     confidence = str(entry.get("confidence", "")).strip().title()
     answer = FacetAnswer(
         facet=facet,
-        answer=str(entry.get("answer", "")).strip(),
+        answer=prose(entry, "answer"),
         points=[str(p).strip() for p in (entry.get("points") or []) if str(p).strip()],
         unknowns=[str(u).strip() for u in (entry.get("unknowns") or []) if str(u).strip()],
         confidence=confidence if confidence in ("Low", "Medium", "High") else "Low",

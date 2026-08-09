@@ -17,6 +17,7 @@ from typing import Callable, Dict, List
 
 from ..core.models import CONFIDENCE, MATERIALITY, IntakeData, Scenario
 from ..utils import chunks, one_of
+from ..utils.replies import prose
 from . import cancellation, config, prompt_loader
 from .calling import call, call_batch, parsed_reply
 from .context import describe_use_case, supplementary_context
@@ -128,7 +129,7 @@ class MaterialityAssessor:
             scenario.materiality = one_of(entry.get("materiality"), MATERIALITY,
                                           scenario.materiality)
             scenario.materiality_confidence = one_of(entry.get("confidence"), CONFIDENCE, "Low")
-            scenario.materiality_rationale = str(entry.get("rationale", "")).strip()
+            scenario.materiality_rationale = prose(entry, "rationale")
             filled.add(scenario.id)
         if len(filled) < len(chunk):
             logger.info("Materiality batch filled %d/%d; refilling %s individually.",

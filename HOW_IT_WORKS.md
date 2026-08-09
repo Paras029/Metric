@@ -265,11 +265,24 @@ redundant, under-specified or mis-scoped, and proposes additions for what enumer
 reach — everything the intake's author did not think to declare, and everything about this specific
 business a generic probe library could not know.
 
+The first three of those are one call per chunk rather than one call per column. They are answered
+from the same material — the route, the expected outcome and the description — and reading it once
+to answer all three is both cheaper and more coherent than reading it three times. Proposing stays
+a separate call, and genuinely is one: it is asked about the benchmark as a whole rather than about
+any chunk of it, so it has nothing to batch and nothing to share with a per-scenario reading.
+
+Every verdict is written to its own column beside the value it disagrees with, never over it, so
+both readings stay visible and a person rules. The review cannot remove anything: flagging a
+scenario as redundant is a recommendation.
+
 From stage 5 onward the page shows the benchmark itself: what each scenario asks the agent to do,
 what it is judged to be worth and why, and anything the review flagged. Materiality can be
-overridden and a flag dismissed from there, straight into the registry. Routes, expected outcomes
-and per-turn detail stay in the workbook — the screen carries the reading, the workbook carries
-the record.
+overridden and a flag dismissed from there, straight into the registry. The side panel carries the
+shape of the whole pack alongside it — how many scenarios sit at each tier, how many test runs that
+adds up to, and how much of it the model owner's own testing has already exercised — because the
+list in the middle is always a view of part of the benchmark and the panel answers what is in all
+of it. Routes, expected outcomes and per-turn detail stay in the workbook — the screen carries the
+reading, the workbook carries the record.
 
 ### 7. Coverage
 
@@ -419,14 +432,13 @@ this level changes nothing.
 | `STRUCTURE_REVIEW` | Proposing reconnections/consolidations on the intake | Judgement | — |
 | `WRITER` | Writing scenario text | Standard | 8 |
 | `MATERIALITY_ASSESS` | Weighing each scenario's materiality | Materiality | 10 |
-| `REVIEWER_ASSESS` | Review's materiality + flagging sweep | Judgement | 6 |
-| `REVIEWER_CATEGORY` | Review's declared-category check | Materiality | 20 |
+| `REVIEWER_ASSESS` | Review's sweep: materiality, ending, flags | Judgement | 6 |
 | `REVIEWER_PROPOSE` | Review's addition proposals | Judgement | — |
 | `COVERAGE_MAP` | Mapping submitted conversations onto the benchmark | Judgement | 5 |
 
-For example, `LLM_STAGE_REVIEWER_CATEGORY_MODEL_ID=some-cheap-model` moves only the category
-check onto a smaller model, leaving materiality assessment on whatever `LLM_MATERIALITY_MODEL_ID`
-(or `LLM_MODEL_ID`) says, even though both share the Materiality tier by default.
+For example, `LLM_STAGE_MATERIALITY_ASSESS_MODEL_ID=some-cheap-model` moves only the materiality
+pass onto a smaller model, leaving every other call on whatever `LLM_JUDGEMENT_MODEL_ID` (or
+`LLM_MODEL_ID`) says.
 
 Materiality is split out from judgement rather than sharing it, because it is also the tier under
 the most concurrent load: every chunk of the benchmark is sent at once, so a gateway hiccup there
@@ -462,13 +474,10 @@ actually weighing, not from one shared number:
 - **Materiality** (10 a call) has to see enough of the benchmark at once to judge relative
   consequence — whether a scenario is "the worst thing here" depends partly on what else is in the
   same call — without the call growing so large that a single scenario's tier gets lost in it.
-- **Review's assessment sweep** (6 a call) is the most demanding read per scenario: it is settling
-  materiality, flagging redundant or under-specified scenarios, and doing it with the full
-  reviewer field guide in view, so the chunk is kept small enough that each scenario still gets a
-  considered look rather than a skim.
-- **Review's category sweep** (20 a call) is a narrower, more mechanical judgement — does the
-  declared outcome type actually match what the scenario does — so it tolerates a much larger
-  chunk without the same loss of attention per item.
+- **Review's sweep** (6 a call) is the most demanding read per scenario: one call settles the
+  scenario's materiality against the whole benchmark, checks the ending it is filed under, and
+  looks for what is wrong with it, all with the full reviewer field guide in view. The chunk is
+  kept small enough that each scenario still gets a considered look rather than a skim.
 - **Coverage mapping** (5 a call) is the smallest, because a transcript is many times the size of
   a scenario description and every call has to carry the whole benchmark alongside them for the
   match to be possible at all.
@@ -613,7 +622,6 @@ stages:
   writer:             {batch_size: 8}
   materiality_assess: {batch_size: 10}
   reviewer_assess:    {batch_size: 6}
-  reviewer_category:  {batch_size: 20}
   coverage_map:       {batch_size: 5}
 ingestion:     {max_corpus_chars: 2000000, resolve_passes: 2, vision: true}
 redaction:     {enabled: false, mode: masking}

@@ -73,6 +73,9 @@
      the legend beneath it, so they are tuned for that background rather than for the page. */
   --mode-computed: #4EC08A;
   --mode-judged: #5FA8F5;
+  /* Drafted is both -- a model wrote it, a person settles it -- so it sits between the two it
+     is made of rather than claiming a hue of its own. */
+  --mode-drafted: #9C8BE8;
   --mode-review: #F2B857;
 
   --font-sans: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue",
@@ -107,7 +110,7 @@
   --r-pill: 999px;
 
   --rail-width: 16.5rem;
-  --aside-width: 20rem;
+  --side-width: 20rem;
   --measure: 42rem;      /* prose line length, ~70ch at 15px */
 
   /* One shadow, and it has an offset and a real blur. A zero-offset halo is decoration. */
@@ -241,13 +244,13 @@ ol, ul { list-style: none; padding: 0; }
  */
 .shell {
   display: grid;
-  grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--aside-width);
+  grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--side-width);
   min-height: 100vh;
   /* Both flanking columns are sticky and one viewport tall, so on a long page they would end in
      bare background. Painting them on the grid keeps each continuous however far the content runs. */
   background:
     linear-gradient(90deg, var(--navy) 0 var(--rail-width), transparent var(--rail-width)),
-    linear-gradient(270deg, var(--surface-sunk) 0 var(--aside-width), var(--canvas) var(--aside-width));
+    linear-gradient(270deg, var(--surface-sunk) 0 var(--side-width), var(--canvas) var(--side-width));
 }
 
 .rail {
@@ -379,6 +382,7 @@ ol, ul { list-style: none; padding: 0; }
 }
 .steps__mode--computed { background: var(--mode-computed); }
 .steps__mode--judged   { background: var(--mode-judged); }
+.steps__mode--drafted  { background: var(--mode-drafted); }
 .steps__mode--review   { background: var(--mode-review); }
 
 .rail__legend {
@@ -395,6 +399,7 @@ ol, ul { list-style: none; padding: 0; }
 .dot { width: .375rem; height: .375rem; border-radius: 50%; display: inline-block; flex: none; }
 .dot--computed { background: var(--mode-computed); }
 .dot--judged   { background: var(--mode-judged); }
+.dot--drafted  { background: var(--mode-drafted); }
 .dot--review   { background: var(--mode-review); }
 
 /* =================================================================== the page */
@@ -686,6 +691,7 @@ ol, ul { list-style: none; padding: 0; }
 .mark--tier-high { background: var(--warn-tint); color: var(--warn); }
 .badge--computed { background: var(--ok-tint); color: var(--ok); }
 .badge--judged   { background: var(--blue-tint); color: var(--blue-dark); }
+.badge--drafted  { background: #EFECFB; color: #4A3C93; }
 .badge--review   { background: var(--warn-tint); color: var(--warn); }
 
 /* =================================================================== a running stage */
@@ -1221,6 +1227,13 @@ ol, ul { list-style: none; padding: 0; }
 .card__facts span::after { content: " ·"; }
 .card__facts span:last-child::after { content: ""; }
 
+/* Every verdict on the scenario, stacked tight. The gap is set here rather than left to each
+   note's own top margin, so a card with three verdicts does not read as three separate sections
+   with the materiality rationale stranded away from the review's answer to it. */
+.card__notes { display: grid; gap: var(--s1); margin-top: var(--s3); }
+.card__notes .aside { margin-top: 0; }
+.card__notes:empty { display: none; }
+
 .card__rule {
   display: flex;
   flex-wrap: wrap;
@@ -1272,7 +1285,7 @@ ol, ul { list-style: none; padding: 0; }
  * long one folds away without the page needing to remember a preference, and each is open by
  * default because the panel exists precisely so these do not have to be sought out.
  */
-.aside {
+.side {
   position: sticky;
   top: 0;
   height: 100vh;
@@ -1284,9 +1297,9 @@ ol, ul { list-style: none; padding: 0; }
   flex-direction: column;
   gap: var(--s2);
 }
-.aside__part { border-bottom: 1px solid var(--rule); padding-bottom: var(--s4); }
-.aside__part:last-child { border-bottom: 0; }
-.aside__title {
+.side__part { border-bottom: 1px solid var(--rule); padding-bottom: var(--s4); }
+.side__part:last-child { border-bottom: 0; }
+.side__title {
   display: flex;
   align-items: center;
   gap: var(--s2);
@@ -1298,9 +1311,9 @@ ol, ul { list-style: none; padding: 0; }
   text-transform: uppercase;
   color: var(--ink-dim);
 }
-.aside__title::marker, .aside__title::-webkit-details-marker { color: var(--rule-strong); }
-.aside__title:hover { color: var(--ink-mid); }
-.aside__count {
+.side__title::marker, .side__title::-webkit-details-marker { color: var(--rule-strong); }
+.side__title:hover { color: var(--ink-mid); }
+.side__count {
   margin-left: auto;
   font-size: var(--t-meta);
   color: var(--ink-dim);
@@ -1309,12 +1322,12 @@ ol, ul { list-style: none; padding: 0; }
   border-radius: var(--r-pill);
   padding: 0 var(--s2);
 }
-.aside__blurb { font-size: var(--t-meta); color: var(--ink-dim); margin-bottom: var(--s2); }
-.aside__empty { font-size: var(--t-meta); color: var(--ink-dim); padding: var(--s1) 0; }
+.side__blurb { font-size: var(--t-meta); color: var(--ink-dim); margin-bottom: var(--s2); }
+.side__empty { font-size: var(--t-meta); color: var(--ink-dim); padding: var(--s1) 0; }
 
 /* The graph at a glance. Never interactive here -- pointer events are off so a click lands on the
    link wrapping it, which takes you to the stage where it is drawn large enough to read. */
-.aside__graph {
+.side__graph {
   display: block;
   margin-bottom: var(--s3);
   padding: var(--s2);
@@ -1324,14 +1337,48 @@ ol, ul { list-style: none; padding: 0; }
   overflow: hidden;
   transition: border-color var(--quick);
 }
-.aside__graph:hover { border-color: var(--rule-hover); }
-.aside__graph svg { width: 100%; height: auto; display: block; pointer-events: none; }
+.side__graph:hover { border-color: var(--rule-hover); }
+.side__graph svg { width: 100%; height: auto; display: block; pointer-events: none; }
 
-.aside__facts { display: grid; gap: var(--s1); }
-.aside__facts > div { display: flex; justify-content: space-between; gap: var(--s2); }
-.aside__facts dt { font-size: var(--t-small); color: var(--ink-mid); }
-.aside__facts dd { font-size: var(--t-small); color: var(--ink); }
-.aside__warn {
+/* The materiality distribution. A bar rather than a number beside a label, because the question
+   it answers is proportional -- whether this benchmark is top-heavy -- and that is read off a
+   shape faster than off four counts. Each row links to the list filtered to its own tier. */
+.side__bars { display: grid; gap: var(--s1); margin-bottom: var(--s3); }
+.side__bar-link {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr) 2rem;
+  align-items: center;
+  gap: var(--s2);
+  padding: 2px 0;
+  color: inherit;
+  text-decoration: none;
+}
+.side__bar-link:hover .side__bar-name { color: var(--ink); }
+.side__bar-name { font-size: var(--t-small); color: var(--ink-mid); }
+.side__bar-count { font-size: var(--t-small); color: var(--ink); text-align: right; }
+.side__bar-track {
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--rule-soft);
+  overflow: hidden;
+}
+/* A tier with one scenario in a benchmark of three hundred is still a tier somebody has to see,
+   so every fill keeps a floor rather than rounding away to an empty track. */
+.side__bar-fill { display: block; height: 100%; min-width: 3px; background: var(--rule-strong); }
+.side__bar-fill--critical { background: var(--bad); }
+.side__bar-fill--high { background: var(--warn); }
+.side__bar-fill--medium { background: var(--blue); }
+.side__bar-fill--low { background: var(--rule-strong); }
+
+.side__more { margin-top: var(--s3); font-size: var(--t-small); }
+.side__more a { color: var(--blue); text-decoration: none; }
+.side__more a:hover { text-decoration: underline; }
+
+.side__facts { display: grid; gap: var(--s1); }
+.side__facts > div { display: flex; justify-content: space-between; gap: var(--s2); }
+.side__facts dt { font-size: var(--t-small); color: var(--ink-mid); }
+.side__facts dd { font-size: var(--t-small); color: var(--ink); }
+.side__warn {
   margin-top: var(--s3);
   padding: var(--s2);
   border-radius: var(--r-sm);
@@ -1340,31 +1387,31 @@ ol, ul { list-style: none; padding: 0; }
   font-size: var(--t-meta);
 }
 
-.aside__group {
+.side__group {
   margin-top: var(--s2);
   font-size: var(--t-meta);
   font-weight: 600;
   color: var(--ink-dim);
 }
-.aside__files { display: grid; gap: var(--s1); margin-top: var(--s1); }
-.aside__files li {
+.side__files { display: grid; gap: var(--s1); margin-top: var(--s1); }
+.side__files li {
   font-size: var(--t-meta);
   color: var(--ink-mid);
   overflow-wrap: anywhere;
 }
-.aside__upload { margin-top: var(--s3); display: grid; gap: var(--s2); justify-items: start; }
+.side__upload { margin-top: var(--s3); display: grid; gap: var(--s2); justify-items: start; }
 
-.aside__notes { display: grid; gap: var(--s2); }
-.aside__note {
+.side__notes { display: grid; gap: var(--s2); }
+.side__note {
   padding: var(--s2);
   background: var(--surface);
   border: 1px solid var(--rule);
   border-radius: var(--r-sm);
 }
-.aside__note-question { font-size: var(--t-meta); font-weight: 600; color: var(--ink-dim); }
-.aside__note-text { font-size: var(--t-small); color: var(--ink); }
-.aside__note-when { margin-top: var(--s1); font-size: var(--t-meta); color: var(--ink-dim); }
-.aside__note-form { margin-top: var(--s3); display: grid; gap: var(--s2); justify-items: start; }
+.side__note-question { font-size: var(--t-meta); font-weight: 600; color: var(--ink-dim); }
+.side__note-text { font-size: var(--t-small); color: var(--ink); }
+.side__note-when { margin-top: var(--s1); font-size: var(--t-meta); color: var(--ink-dim); }
+.side__note-form { margin-top: var(--s3); display: grid; gap: var(--s2); justify-items: start; }
 
 /* =================================================================== the page footer
  *
@@ -1403,7 +1450,7 @@ ol, ul { list-style: none; padding: 0; }
     background: linear-gradient(90deg, var(--navy) 0 var(--rail-width),
                                 var(--canvas) var(--rail-width));
   }
-  .aside {
+  .side {
     grid-column: 2;
     position: static;
     height: auto;
@@ -1412,17 +1459,17 @@ ol, ul { list-style: none; padding: 0; }
     background: transparent;
     padding: var(--s5) clamp(var(--s5), 3.5vw, var(--s7)) var(--s7);
   }
-  .aside__part { border-bottom: 1px solid var(--rule-soft); }
+  .side__part { border-bottom: 1px solid var(--rule-soft); }
   /* Held to a column rather than let out to the full width of the page. These are label/value
      pairs and short file names; stretched across a wide viewport the two halves of a row end up
      far enough apart to have to be traced back to each other. */
-  .aside__part > *, .aside__graph { max-width: 34rem; }
-  .aside__graph { max-width: 26rem; }
+  .side__part > *, .side__graph { max-width: 34rem; }
+  .side__graph { max-width: 26rem; }
 }
 
 @media (max-width: 62rem) {
   .shell { grid-template-columns: 1fr; background: var(--canvas); }
-  .aside { grid-column: 1; padding: var(--s5) var(--s4) var(--s6); }
+  .side { grid-column: 1; padding: var(--s5) var(--s4) var(--s6); }
   .rail { position: static; height: auto; padding-bottom: var(--s3); }
   .steps { display: flex; flex-wrap: wrap; padding-top: var(--s2); }
   .steps::before { display: none; }

@@ -195,18 +195,25 @@ class TestReviewSweep(unittest.TestCase):
         self.assertIn("WHAT THE MODEL OWNER SUBMITTED", self.seen[0]["user"])
         self.assertIn("Their own happy path test.", self.seen[0]["user"])
 
-    def test_probes_are_left_out_of_the_category_sweep(self):
+    def test_a_probe_is_never_given_an_ending(self):
         """A probe's 'category' is the family it came from, not one of the five endings a route
-        can have, so asking which of those it is would be asking a question with no right answer."""
-        seen = []
-
+        can have. A verdict on one is an answer to a question with no right answer, so whatever
+        comes back for a probe is ignored rather than written down."""
         def complete(system, user, **kwargs):
-            if "how the interaction ends" in user:
-                seen.append(user)
-            return self._fake()(system, user, **kwargs)
+            if '{"proposals"' in user:
+                return json.dumps({"proposals": []})
+            ids = [line.split('"id": "')[1].split('"')[0]
+                   for line in user.splitlines() if '"id": "' in line]
+            return json.dumps({i: {"materiality": "High", "rationale": "r", "flag": "",
+                                   "category": "Escalation", "category_rationale": "x"}
+                               for i in ids})
 
-        ScenarioReviewer(complete=complete, batch_size=4).review(self.scenarios, _INTAKE)
-        self.assertEqual(seen, [])
+        scenarios = self.scenarios + build_probes(_INTAKE)
+        ScenarioReviewer(complete=complete, batch_size=4).review(scenarios, _INTAKE)
+
+        probes = [s for s in scenarios if s.is_probe]
+        self.assertTrue(probes)
+        self.assertTrue(all(s.review_category == "" for s in probes))
 
     def test_a_failed_call_leaves_the_registry_untouched(self):
         def broken(system, user, max_tokens=None, reasoning_effort=None):
@@ -216,10 +223,18 @@ class TestReviewSweep(unittest.TestCase):
         self.assertTrue(all(s.review_materiality == "" for s in reviewed))
 
 
-class TestTheCategorySweep(unittest.TestCase):
-    """Category is otherwise deterministic -- taken from the Outcome Type the intake declares on
-    the state a route ends in. That makes it exactly the column a wrong declaration corrupts
-    silently, which is why the review reads it back."""
+class TestOneCallSettlesEveryJudgedColumn(unittest.TestCase):
+    """Materiality, the ending a scenario is filed under, and anything wrong with it.
+
+    Three questions answered from one reading of the same material -- the route, the expected
+    outcome and the description. Asking them in three passes reads that material three times, and
+    made the batch size mean two different things at once: a mechanical category check tolerates a
+    far coarser chunk than a materiality judgement, so tuning for one mistuned the other.
+
+    Category is otherwise deterministic, taken from the Outcome Type the intake declares on the
+    state a route ends in. That makes it exactly the column a wrong declaration corrupts silently,
+    which is why the review reads it back at all.
+    """
 
     def setUp(self):
         self.scenarios = build_scenarios(_INTAKE)
@@ -231,11 +246,45 @@ class TestTheCategorySweep(unittest.TestCase):
                 return json.dumps({"proposals": []})
             ids = [line.split('"id": "')[1].split('"')[0]
                    for line in user.splitlines() if '"id": "' in line]
-            if "how the interaction ends" in user:
-                return json.dumps({i: {"category": category, "rationale": rationale} for i in ids})
-            return json.dumps({i: {"materiality": "High", "rationale": "r", "flag": ""}
+            return json.dumps({i: {"materiality": "High", "rationale": "r", "flag": "",
+                                   "category": category, "category_rationale": rationale}
                                for i in ids})
         return complete
+
+    def test_one_call_per_chunk_settles_all_of_it(self):
+        """The property this exists for: no second sweep over the same scenarios."""
+        prompts = []
+
+        def complete(system, user, **kwargs):
+            prompts.append(user)
+            return self._fake()(system, user, **kwargs)
+
+        ScenarioReviewer(complete=complete, batch_size=1).review(self.scenarios, _INTAKE)
+
+        per_scenario = [p for p in prompts if '{"proposals"' not in p]
+        self.assertEqual(len(per_scenario), len(self.scenarios),
+                         "batch_size=1 should be exactly one call per scenario, not two")
+        # And that one call carried every question.
+        self.assertIn("materiality", per_scenario[0])
+        self.assertIn("how the interaction ends", per_scenario[0])
+        self.assertIn("flag", per_scenario[0])
+
+    def test_proposing_stays_its_own_call(self):
+        """It is asked about the benchmark as a whole rather than about any chunk of it, so it has
+        nothing to batch and nothing to share with a per-scenario reading."""
+        prompts = []
+
+        def complete(system, user, **kwargs):
+            prompts.append(user)
+            return self._fake()(system, user, **kwargs)
+
+        ScenarioReviewer(complete=complete, batch_size=1).review(self.scenarios, _INTAKE)
+        self.assertEqual(sum(1 for p in prompts if '{"proposals"' in p), 1)
+
+    def test_materiality_and_the_ending_both_land_from_the_one_reply(self):
+        ScenarioReviewer(complete=self._fake(), batch_size=4).review(self.scenarios, _INTAKE)
+        self.assertTrue(all(s.review_materiality == "High" for s in self.scenarios))
+        self.assertTrue(all(s.review_category == "Escalation" for s in self.scenarios))
 
     def test_a_disagreement_is_recorded_beside_the_declared_value(self):
         declared = [s.category for s in self.scenarios]
@@ -244,6 +293,16 @@ class TestTheCategorySweep(unittest.TestCase):
         self.assertEqual([s.category for s in self.scenarios], declared)   # untouched
         self.assertTrue(all(s.review_category == "Escalation" for s in self.scenarios))
         self.assertTrue(all(s.effective_category == "Escalation" for s in self.scenarios))
+
+    def test_the_reason_for_a_changed_ending_is_kept_apart_from_the_materiality_reason(self):
+        """Two verdicts in one reply, so the reply has to carry two reasons -- a page showing the
+        materiality rationale under a changed category would be attributing the wrong argument."""
+        ScenarioReviewer(complete=self._fake(rationale="a person picks it up"),
+                         batch_size=4).review(self.scenarios, _INTAKE)
+        changed = [s for s in self.scenarios if s.review_category]
+        self.assertTrue(changed)
+        self.assertTrue(all(s.review_category_rationale == "a person picks it up" for s in changed))
+        self.assertTrue(all(s.review_rationale == "r" for s in changed))
 
     def test_agreement_is_not_written_down(self):
         """Most scenarios come back agreeing. Recording that would fill the review columns with
@@ -262,27 +321,18 @@ class TestTheCategorySweep(unittest.TestCase):
                          batch_size=4).review(self.scenarios, _INTAKE)
         self.assertTrue(all(s.review_category == "" for s in self.scenarios))
 
+    def test_an_empty_category_leaves_the_declared_one_alone(self):
+        """What a probe comes back with, and what a reply that had nothing to say returns."""
+        ScenarioReviewer(complete=self._fake(category=""),
+                         batch_size=4).review(self.scenarios, _INTAKE)
+        self.assertTrue(all(s.review_category == "" for s in self.scenarios))
+
     def test_a_differently_capitalised_answer_still_counts(self):
         """'happy path' is the same verdict as 'Happy path'; dropping it would silently discard
         a correction for a formatting difference."""
         ScenarioReviewer(complete=self._fake(category="eSCALATION"),
                          batch_size=4).review(self.scenarios, _INTAKE)
         self.assertTrue(all(s.review_category == "Escalation" for s in self.scenarios))
-
-    def test_the_second_column_costs_far_fewer_calls_than_the_first(self):
-        """It takes a much coarser batch, so reviewing a second column is not a second review."""
-        prompts = []
-
-        def complete(system, user, **kwargs):
-            prompts.append(user)
-            return self._fake()(system, user, **kwargs)
-
-        ScenarioReviewer(complete=complete, batch_size=1).review(self.scenarios, _INTAKE)
-        assess = [p for p in prompts if "how the interaction ends" not in p and '"proposals"' not in p]
-        category = [p for p in prompts if "how the interaction ends" in p]
-
-        self.assertEqual(len(assess), len(self.scenarios))    # batch_size=1, one call each
-        self.assertLess(len(category), len(assess))
 
 
 if __name__ == "__main__":

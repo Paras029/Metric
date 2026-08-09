@@ -23,6 +23,7 @@ from typing import Callable, List
 
 from ..core.models import IntakeData, Scenario
 from ..utils import chunks
+from ..utils.replies import prose
 from . import cancellation, config, prompt_loader
 from .calling import call, call_batch, parsed_reply
 from .context import describe_use_case, supplementary_context
@@ -150,8 +151,8 @@ class ScenarioWriter:
             entry = parsed.get(scenario.id)
             if not entry:
                 continue
-            scenario.description = str(entry.get("description", "")).strip() or scenario.description
-            scenario.turn_plan = str(entry.get("turn_plan", "")).strip() or scenario.turn_plan
+            scenario.description = prose(entry, "description") or scenario.description
+            scenario.turn_plan = prose(entry, "turn_plan") or scenario.turn_plan
             filled.add(scenario.id)
         if len(filled) < len(chunk):
             logger.info("Batch filled %d/%d; refilling %s individually.",

@@ -95,22 +95,33 @@ def _title(scenario: Scenario) -> str:
     return sentence[:107].rsplit(" ", 1)[0].rstrip(" ,;:") + "…"
 
 
-def _materiality_source(scenario: Scenario) -> str:
-    """Where the effective tier came from. Three passes can set it and precedence is not obvious."""
-    if scenario.materiality_override:
-        return "your override"
-    if scenario.review_materiality:
-        return "the final review"
-    return "the materiality pass"
-
-
 def _reason(scenario: Scenario) -> str:
-    """The rationale behind the tier that is actually in force."""
+    """The rationale behind the tier that is actually in force.
+
+    Which pass produced it is deliberately not carried alongside. A reviewer reading a card wants
+    to know why this scenario is Critical, and "from the materiality pass" answers a question
+    nobody asked while pushing the answer they did ask for further down the card. The workbook
+    keeps every pass's column separately for anyone auditing how the tier was reached.
+    """
     if scenario.materiality_override:
         return ""
     if scenario.review_materiality:
         return scenario.review_rationale or scenario.materiality_rationale
     return scenario.materiality_rationale
+
+
+def _flag_reason(scenario: Scenario) -> str:
+    """What the flag adds beyond the reason already given for the tier, or nothing.
+
+    The review settles the tier and raises the flag in one reading and returns one rationale for
+    both, so on a flagged scenario the two are usually the same sentence. Printed twice it reads
+    as a rendering fault rather than as agreement, so the flag is folded onto the tier's own note
+    -- see ``flag_shares_reason`` -- and only gets a note of its own where it genuinely says
+    something the tier's does not.
+    """
+    if not scenario.review_flag:
+        return ""
+    return "" if scenario.review_rationale == _reason(scenario) else scenario.review_rationale
 
 
 def to_row(scenario: Scenario) -> Dict[str, object]:
@@ -130,11 +141,11 @@ def to_row(scenario: Scenario) -> Dict[str, object]:
         "category_reason": scenario.review_category_rationale,
         "declared_category": scenario.category,
         "materiality": scenario.effective_materiality,
-        "materiality_source": _materiality_source(scenario),
         "materiality_reason": _reason(scenario),
         "overridden": bool(scenario.materiality_override),
         "flag": scenario.review_flag,
-        "flag_reason": scenario.review_rationale if scenario.review_flag else "",
+        "flag_reason": _flag_reason(scenario),
+        "flag_shares_reason": bool(scenario.review_flag) and not _flag_reason(scenario),
         "coverage": scenario.owner_coverage,
         "coverage_note": scenario.owner_coverage_note,
         "runs": required_runs(scenario.effective_materiality),
@@ -150,6 +161,39 @@ def needs_attention(row: Dict[str, object]) -> bool:
     drop. All four are things only a person can settle.
     """
     return bool(row["flag"] or row["is_proposed"] or row["coverage"] or row["category_changed"])
+
+
+def shape(scenarios: List[Scenario], stage: str = "issue") -> Dict[str, object]:
+    """How the benchmark is distributed, for the side panel.
+
+    Counted over every scenario rather than over the rows on screen. The list in the middle of
+    the page is a view -- narrowed to what needs attention, filtered, and cut off at a page
+    length -- and a tally taken from it would answer "what am I looking at" when the question the
+    panel exists to answer is "what is in the benchmark".
+
+    Tiers appear only once the stage has actually produced them, for the reason given on
+    :data:`STAGE_COLUMNS`: every scenario carries Medium from the moment it is built, and a
+    distribution drawn before the materiality pass would be a chart of a default. From the review
+    stage onwards the tiers here are the effective ones, so a tier the review moved is counted
+    where the review put it.
+    """
+    shows = set(STAGE_COLUMNS.get(stage, STAGE_COLUMNS["issue"]))
+    rows = [to_row(s) for s in scenarios]
+    tiers = []
+    if MATERIALITY_COLUMNS in shows:
+        for tier in reversed(MATERIALITY):
+            at_tier = [r for r in rows if r["materiality"] == tier]
+            if at_tier:
+                tiers.append({"tier": tier, "count": len(at_tier),
+                              "runs": sum(r["runs"] for r in at_tier)})
+    return {
+        "total": len(rows),
+        "tiers": tiers,
+        "runs": sum(r["runs"] for r in rows) if MATERIALITY_COLUMNS in shows else 0,
+        "attention": sum(1 for r in rows if needs_attention(r)),
+        "flagged": sum(1 for r in rows if r["flag"]) if REVIEW in shows else 0,
+        "proposed": sum(1 for r in rows if r["is_proposed"]) if REVIEW in shows else 0,
+    }
 
 
 def _filter_options(rows: List[Dict[str, object]], shows: set) -> Dict[str, List[str]]:

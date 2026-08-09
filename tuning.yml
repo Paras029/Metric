@@ -114,16 +114,11 @@ stages:
     batch_size: 10
     concurrency: 4
     max_attempts: 2
-  reviewer_assess:                # materiality settled and weak scenarios flagged
+  reviewer_assess:                # materiality, the declared ending, and what is wrong
     # model: a-smaller-model
     batch_size: 6
     concurrency: 4
     max_attempts: 4
-  reviewer_category:              # the declared ending, read back against the route
-    # model: a-smaller-model      # materiality tier unless you name one here
-    batch_size: 20
-    concurrency: 4
-    max_attempts: 2
   reviewer_propose:               # what enumeration could not reach
     # model: a-smaller-model
     max_attempts: 4

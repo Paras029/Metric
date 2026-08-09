@@ -27,6 +27,22 @@ def string_list(entry: dict, key: str) -> List[str]:
     return [str(item).strip() for item in raw if str(item).strip()]
 
 
+def prose(entry: dict, key: str) -> str:
+    """A block of written text, whether the model sent it as one string or as a list of lines.
+
+    Use this for anything a person reads -- a description, a turn plan, a rationale -- rather than
+    :func:`text`. A prompt that asks for numbered turns on separate lines is answered with a JSON
+    array often enough to matter, and ``str()`` on a list yields its Python repr: the registry and
+    the page end up carrying ``['Open by naming the charge.', 'Answer the question.']``, brackets
+    and quotes and all, which nobody notices until a tester is handed it. Joining on newlines is
+    what the prompt asked for in the first place.
+    """
+    raw = entry.get(key)
+    if isinstance(raw, (list, tuple)):
+        return "\n".join(str(item).strip() for item in raw if str(item).strip())
+    return str(raw or "").strip()
+
+
 def objects(data: dict, key: str) -> List[dict]:
     """The list at ``key``, keeping only the entries that are objects at all."""
     return [entry for entry in (data.get(key) or []) if isinstance(entry, dict)]

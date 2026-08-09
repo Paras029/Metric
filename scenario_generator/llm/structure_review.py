@@ -31,6 +31,7 @@ from .calling import call
 from .context import describe_graph, describe_use_case, supplementary_context
 from .gateway import ask_llm
 from ..utils import parse_json_object
+from ..utils.replies import prose
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +101,7 @@ def _validate_reconnections(entries, decision_ids, state_ids) -> List[Reconnecti
             continue
         kind = str(entry.get("kind", "")).strip().lower()
         identifier = str(entry.get("id", "")).strip().upper()
-        rationale = str(entry.get("rationale", "")).strip()
+        rationale = prose(entry, "rationale")
 
         if kind == "decision" and identifier in decision_ids:
             target = str(entry.get("attach_to_state", "")).strip().upper()
@@ -142,7 +143,7 @@ def _validate_consolidations(entries, decision_ids) -> List[Consolidation]:
             capabilities=[str(c).strip().upper() for c in (entry.get("capabilities") or [])
                          if str(c).strip()],
             importance=importance if importance in ("Low", "Medium", "High") else "",
-            rationale=str(entry.get("rationale", "")).strip()))
+            rationale=prose(entry, "rationale")))
     return out
 
 
