@@ -17,6 +17,20 @@ from openpyxl.worksheet.worksheet import Worksheet
 _BOLD = Font(bold=True)
 
 
+def save(workbook, path: str) -> None:
+    """Write a workbook out, classified.
+
+    Every workbook this tool produces goes through here rather than calling ``.save`` directly, so
+    there is one place that decides what classification a generated file carries. A file written
+    without one is not unclassified in an organisation that labels by policy -- it is classified by
+    default, and the default is the restrictive one. See :mod:`scenario_generator.io.labelling`.
+    """
+    from . import labelling
+
+    labelling.apply(workbook)
+    workbook.save(str(path))
+
+
 @contextmanager
 def open_for_reading(path: str, description: str = "workbook") -> Iterator:
     """A workbook opened to be read and nothing else, and reliably closed afterwards.

@@ -245,6 +245,12 @@ construct; read in order it forms the transcript. **It contains no expected outc
 decision path, no expected tool call, no category, no materiality. A test asserts this on every
 build.
 
+**Every workbook is labelled.** A file written by a library carries no classification, and where
+labelling is mandatory an unlabelled file takes the organisation's default — usually the most
+restrictive one, which is what makes a workbook refuse to open. Point `sensitivity.copy_from` in
+`tuning.yml` at any workbook already labelled the way these should be and the label is read off it;
+no GUID to hunt down. See [HOW_IT_WORKS.md](HOW_IT_WORKS.md#sensitivity-labels-on-the-workbooks).
+
 **Registry** — kept by you. `Scenario_Metadata` (full metadata and expected outcome),
 `Turn_Metadata` (expected outcome per turn), `Scenario_Text` (the description and script as
 issued).

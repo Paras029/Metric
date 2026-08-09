@@ -156,6 +156,41 @@ ingestion:
   vision: true
   max_image_bytes: 4000000
 
+# The sensitivity label every workbook this tool writes carries.
+#
+# A workbook written by a library arrives with no classification on it. Where labelling is
+# mandatory that is not a neutral state: the file is unlabelled, so the organisation's default
+# applies, and where that default is the most restrictive one the result is a registry nobody can
+# open. Labelling it correctly on the way out is the fix.
+#
+# The label's id is a GUID minted in your own tenant, so nothing here can guess it -- a made-up one
+# names a label that does not exist, which fails worse than no label. Two ways to supply the real
+# one, and the second needs nothing you do not already have:
+#
+#   copy_from: point it at any workbook already labelled the way you want these labelled -- an
+#              existing internal spreadsheet is fine -- and the label is read straight off it.
+#              This is the easy path and needs no GUID at all.
+#
+#   label_id / name / site_id: the label outright, if you know the values.
+#
+# A workbook that already carries a label is never relabelled: re-saving an intake somebody
+# uploaded must not silently reclassify their document.
+sensitivity:
+  enabled: true
+
+  # The easy path. An absolute path is safest; a relative one resolves against the working
+  # directory. Leave it empty to use label_id below instead.
+  copy_from: ""
+
+  # The explicit path. label_id is the GUID; name is what a reader sees in Office.
+  label_id: ""
+  name: Internal
+  site_id: ""
+
+  # "Standard" means applied automatically, which is what this is. "Privileged" means a person
+  # chose it deliberately, and claiming that when a tool did it would be untrue.
+  method: Standard
+
 # Redacting PII out of submitted documents before any of their text reaches a model call.
 # Off by default so the tool runs unmodified wherever the internal pii-redactor package has not
 # been installed. Once on, a passage that cannot be redacted stops the run rather than being sent

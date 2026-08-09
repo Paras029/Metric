@@ -161,6 +161,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Said before anything runs. A tuning file that was not found behaves exactly like one whose
     # every value happens to match the built-in defaults, and the difference is not discoverable
     # from the output of a run -- so the run states which file it is reading.
+    from .io import labelling
     from .llm import config
 
     try:
@@ -174,7 +175,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         from .webapp.app import create_app          # imported here so the CLI works without Flask
         app = create_app(Path(args.workspaces))
         print(f"\n  Scenario generator — http://127.0.0.1:{args.port}\n")
-        print(f"  Settings: {config.tuning_path()} — edits apply to the next call, no restart\n")
+        print(f"  Settings: {config.tuning_path()} — edits apply to the next call, no restart")
+        print(f"  {labelling.describe()}\n")
         app.run(host="127.0.0.1", port=args.port)
         return 0
 

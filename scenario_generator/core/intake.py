@@ -241,7 +241,7 @@ def set_decision_scope(path: str, decision_id: str, out_of_scope: bool) -> bool:
     for row in sheet.iter_rows(min_row=2):
         if row and str(row[0].value or "").strip() == decision_id:
             sheet.cell(row=row[0].row, column=9, value="Yes" if out_of_scope else "No")
-            workbook.save(path)
+            sheets.save(workbook, path)
             return True
     return False
 
@@ -260,7 +260,7 @@ def set_state_reached_via(path: str, state_id: str, reached_via: str) -> bool:
     for row in sheet.iter_rows(min_row=2):
         if row and str(row[0].value or "").strip() == state_id:
             sheet.cell(row=row[0].row, column=2, value=reached_via)
-            workbook.save(path)
+            sheets.save(workbook, path)
             return True
     return False
 
@@ -285,7 +285,7 @@ def attach_decision_to_state(path: str, state_id: str, decision_id: str) -> bool
         if decision_id in already:
             return False
         cell.value = ", ".join(already + [decision_id])
-        workbook.save(path)
+        sheets.save(workbook, path)
         return True
     return False
 
@@ -392,7 +392,7 @@ def merge_decisions(path: str, decision_ids: List[str], new_id: str, new_name: s
             states_sheet.cell(row=row[0].row, column=_NEXT_DECISIONS_COLUMN,
                               value=", ".join(rebuilt_ids))
 
-    workbook.save(path)
+    sheets.save(workbook, path)
     return True
 
 
@@ -421,4 +421,4 @@ def write_template(path: str) -> None:
     sheets.add_sheet(workbook, "Tools",
                      ["Tool Name", "Capability ID", "State-changing?"], [30, 16, 16])
 
-    workbook.save(path)
+    sheets.save(workbook, path)
