@@ -123,6 +123,20 @@ The intake is the authoritative description of the agent, and the boundary of wh
 Anything absent from it is absent from the benchmark. Draft it from the documents, upload one you
 already have, or start from a blank template — see [The intake workbook](#the-intake-workbook).
 
+**The draft is checked and put back to the model once.** A single call over a long context
+routinely leaves the small structural things out: a branch with only one named outcome, an outcome
+leading to a state nobody declared, a state nothing reaches. None of those are matters of opinion —
+the graph cannot be walked without them, so whatever they concern is silently never tested — and
+the answer is usually a paragraph away in the documentation the first pass had already read. So
+the draft is read back off disk, audited deterministically by the same check that produces the
+questions below, and whatever it failed is named back to the model with the documents still in
+hand. Once, not until clean, and never destructively: a repair that does not come back, or comes
+back empty, leaves the first draft exactly where it was.
+
+**Running the stage again drafts again.** The documents may have been read again since, and notes
+and answers added, all of which the drafter takes. The one exception is a workbook *you* uploaded:
+that is never overwritten, so a re-run reads it and reports on it instead.
+
 **Gaps in the declaration are questions addressed to the row that needs them, not to the
 documents.** Once a workbook exists, drafted or uploaded, it is read for where it is structurally
 thin — a decision with fewer than two outcomes, a capability with no type, a terminal state with
@@ -144,6 +158,13 @@ know that a branch exists and where it leads, not the exact value, threshold or 
 selects it. An unstated dollar figure or timeout is not put to you as long as the branch it governs
 is already named. Statements read off a diagram — which can run to dozens for one workflow image —
 are grouped into one confirmation per part of the intake rather than one per statement.
+
+**Where your answers, notes and late documents go.** Every note — typed anywhere, at any stage,
+including your answers to the questions above — is handed to every model call from that point on:
+the intake drafter, the scenario text, materiality, the review, coverage mapping. Each carries the
+stage it was added at, and they accumulate rather than replace. A late document goes into the
+supporting material and is read the next time the Documents stage runs. Nothing re-runs by itself,
+so anything added lands the next time you run a stage.
 
 Answering a gap question records a note, and nothing re-runs automatically. **Revise the intake
 with these answers**, a separate action on the same page, is what folds them in: it hands the model
@@ -363,6 +384,7 @@ this level changes nothing.
 | `INGEST_DIAGRAM_SYNTHESIZE` | Joining every image's reading into one graph | Judgement | — |
 | `INGEST_DIAGRAM_REPAIR` | Putting unresolved points back to the images | Judgement | — |
 | `INTAKE_DRAFT` | Drafting the intake from the evidence | Judgement | — |
+| `INTAKE_REPAIR` | Filling in what the draft left structurally incomplete | Judgement | — |
 | `STRUCTURE_REVIEW` | Proposing reconnections/consolidations on the intake | Judgement | — |
 | `WRITER` | Writing scenario text | Standard | 8 |
 | `MATERIALITY_ASSESS` | Weighing each scenario's materiality | Materiality | 10 |

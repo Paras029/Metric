@@ -30,8 +30,9 @@ from ..ingest.groups import evidence_files, owner_scenario_file
 from ..ingest.conversations import UnreadableConversations
 from ..io import read_registry, read_scenarios, write_challenge_pack, write_registry
 from ..llm import MaterialityAssessor, ScenarioReviewer, ScenarioWriter
+from ..llm import cancellation
 from ..pipeline import (build_scenarios, draft_intake_workbook, ingest_documents,
-                        map_conversation_coverage)
+                        map_conversation_coverage, structural_problems)
 from .coverageview import stored_report
 from .workspace import Workspace
 
@@ -186,28 +187,51 @@ def _run_documents(workspace: Workspace, progress=None, cancel=None) -> Dict[str
 
 
 def _run_intake(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
-    """Read the intake workbook and report the shape of what it declares.
+    """Draft the intake where there is none, then read it back and say what it declares.
 
-    Where no workbook has been provided but the documents have been read, one is drafted from
-    them first. Correcting a draft is an afternoon; writing one from a sixty-page document is a
-    week, and the stage exists so a person does the correcting either way.
+    Correcting a draft is an afternoon; writing one from a sixty-page document is a week, and the
+    stage exists so a person does the correcting either way.
+
+    Running it again is not a no-op. Where the workbook is one this tool drafted, a re-run drafts
+    it afresh -- the documents may have been read again, and notes and answers added since, all of
+    which the drafter takes. Where the workbook is one *you* uploaded, it is never overwritten: a
+    re-run reads it and reports on it, because a stage that silently replaced a person's own file
+    would be the worst thing this could do with a button labelled "run again".
     """
-    if not workspace.artifact_path("intake", "workbook"):
+    report = progress or (lambda *args, **kwargs: None)
+    provided = workspace.artifact_path("intake", "workbook")
+    ours = provided is None or Path(provided).name == DRAFT_INTAKE
+
+    if ours:
         context = workspace.root / CONTEXT
         if not context.exists():
             raise ValueError(
                 "No intake workbook, and no documents have been read to draft one from. Either "
                 "upload a completed intake here, or add documents on the first stage.")
+        cancellation.check(cancel)
         draft_intake_workbook(str(context), str(workspace.root / DRAFT_INTAKE),
                               evidence_path=str(workspace.root / EVIDENCE),
-                              notes=workspace.note_lines())
+                              notes=workspace.note_lines(), progress=report)
         workspace.state("intake").artifacts["workbook"] = DRAFT_INTAKE
         logger.info("Drafted an intake from the context document.")
+    else:
+        report("Reading the intake workbook", 1, 2)
 
     intake = _intake(workspace)
-    return {"Use case": intake.name, "Capabilities": len(intake.capabilities),
-            "Decision points": len(intake.decisions), "States": len(intake.states),
-            "Personas": len(intake.personas), "Tools": len(intake.tools)}
+    summary: Dict[str, object] = {
+        "Use case": intake.name, "Capabilities": len(intake.capabilities),
+        "Decision points": len(intake.decisions), "States": len(intake.states),
+        "Personas": len(intake.personas), "Tools": len(intake.tools)}
+
+    # What is still structurally missing, said here rather than only in the questions below. A
+    # count on the result card is what tells you whether the run improved the declaration; the
+    # questions tell you what to do about it.
+    outstanding = structural_problems(intake)
+    summary["Still needs an answer"] = len(outstanding) or "nothing — the graph is complete"
+    if not ours:
+        summary["This workbook"] = "yours, read as provided and never overwritten"
+    report("Read the intake", 2, 2)
+    return summary
 
 
 def _proposal_dicts(review) -> List[Dict[str, object]]:
@@ -245,9 +269,14 @@ def _apply_proposal(path: Path, entry: dict) -> bool:
 
 def _run_benchmark(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
     """Enumerate every route through the declared graph and add the applicable probes."""
+    report = progress or (lambda *args, **kwargs: None)
+    report("Reading the intake", 0, 3)
     intake = _intake(workspace)
+    report("Walking the graph", 1, 3)
     scenarios = build_scenarios(intake, with_probes=True)
+    report("Writing the registry", 2, 3)
     _save_registry(workspace, "benchmark", intake, scenarios)
+    report("Built the benchmark", 3, 3)
 
     probes = sum(1 for s in scenarios if s.is_probe)
     return {"Scenarios": len(scenarios), "Routes through the graph": len(scenarios) - probes,
@@ -302,11 +331,14 @@ def _run_issue(workspace: Workspace, progress=None, cancel=None) -> Dict[str, ob
     scenario out is a decision to accept the model owner's evidence for it, which is a judgement
     about how far that testing is trusted rather than anything this can work out.
     """
+    report = progress or (lambda *args, **kwargs: None)
+    report("Reading the benchmark", 0, 3)
     intake = _intake(workspace)
     scenarios = _scenarios(workspace, intake)
 
     # The registry keeps every scenario regardless -- narrowing what is *issued* must not narrow
     # what is on record, or the pack becomes the only surviving account of the benchmark.
+    report("Writing the registry", 1, 3)
     _save_registry(workspace, "issue", intake, scenarios)
 
     issued, held_back = scenarios, 0
@@ -315,8 +347,10 @@ def _run_issue(workspace: Workspace, progress=None, cancel=None) -> Dict[str, ob
         issued = [s for s in scenarios if s.id in gaps]
         held_back = len(scenarios) - len(issued)
 
+    report("Writing the challenge pack", 2, 3)
     write_challenge_pack(str(workspace.root / PACK), intake, issued)
     workspace.state("issue").artifacts["challenge_pack"] = PACK
+    report("Wrote the pack and the registry", 3, 3)
 
     runs = sum(required_runs(s.effective_materiality) for s in issued)
     summary = {"Scenarios issued": len(issued), "Runs requested": runs,

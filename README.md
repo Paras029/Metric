@@ -195,7 +195,7 @@ the same files these commands produce. A use case can move between the two freel
 | # | Stage | Input | Output |
 |---|---|---|---|
 | 1 | Documents | The submitted pack: model documentation, the transcripts of the model owner's own testing, workflow diagrams, supporting material | A cited context document, and answers to eleven questions about the agent |
-| 2 | Intake | A drafted or completed intake workbook | The agent as a decision graph, confirmed by you |
+| 2 | Intake | A drafted or completed intake workbook | The agent as a decision graph, drafted, structurally checked, and confirmed by you |
 | 3 | Benchmark | The intake | Every distinct route through the graph, plus applicable probes |
 | 4 | Scenario text | The benchmark | A description and tester script per scenario |
 | 5 | Materiality | The benchmark | A Low / Medium / High / Critical tier per scenario, driving run counts |
@@ -333,8 +333,8 @@ the transport had to ask for it.
 **Every individual call the tool makes can be pointed at its own model**, one level finer than a
 tier — the scenario writer, each of the three ingestion reads, the diagram passes, the two review
 sweeps, coverage mapping. `tuning.yml` lists all thirteen with the model line commented out and
-ready to fill in, and each also takes its own output cap, temperature, reasoning effort, retries,
-batch size and concurrency. See **[HOW_IT_WORKS.md](HOW_IT_WORKS.md#tuning)** for the stage keys,
+ready to fill in, and each also takes its own output cap, temperature, reasoning effort,
+retries, batch size and concurrency. See **[HOW_IT_WORKS.md](HOW_IT_WORKS.md#tuning)** for the stage keys,
 the batching model and every remaining setting.
 
 ---
@@ -359,7 +359,9 @@ otherwise fail silently:
 - A run where most model calls failed is abandoned rather than written.
 - Facts stated in three separate sections are assembled into one answer.
 - A submitted pack is read in a handful of model calls rather than one per passage.
-- A drafted intake produces a working benchmark without being edited.
+- A drafted intake produces a working benchmark without being edited, every field the drafter
+  extracted survives into the workbook, and what the draft leaves structurally broken is put back
+  to the model with its own failures named.
 - Submitted conversations are read from a workbook with unfamiliar headings and a cover sheet in
   front of the data, a semicolon CSV, or a document with no table at all.
 - A conversation is matched to the scenario it *ends* on, never to a longer scenario that merely

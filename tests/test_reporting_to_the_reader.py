@@ -194,6 +194,7 @@ class TestIngestionCountsWhatHasHappened(unittest.TestCase):
             seen.append(max((done for _, done, _ in progress_calls), default=0))
             return json.dumps({})
 
+
         progress_calls = []
 
         def progress(message, done=0, total=0):
@@ -220,8 +221,7 @@ class TestIngestionCountsWhatHasHappened(unittest.TestCase):
                           progress=lambda message, done=0, total=0:
                               progress_calls.append((message, done, total)))
 
-        parsing = [entry for entry in progress_calls if entry[0].startswith("Reading ")
-                   and entry[0].endswith(".md")]
+        parsing = [entry for entry in progress_calls if entry[0] == "Opening the submitted files"]
         self.assertEqual(len(parsing), 3)
         # Each parsed file advances the bar, against a total that already knows about the calls.
         self.assertEqual([done for _, done, _ in parsing], [1, 2, 3])

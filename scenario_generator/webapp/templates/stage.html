@@ -23,6 +23,21 @@
 </svg>
 {% endmacro %}
 
+{# A section body that folds away. Anywhere a list can run to dozens of rows, the list is not
+   what the reader came for -- they came for one row in it, or for the count. The summary carries
+   the count so a folded section still says what is inside, and `open` decides which ones are
+   worth unfolding by default rather than leaving it to a preference nothing remembers. #}
+{% macro fold(label, count, note="", open=False) %}
+<details class="fold"{% if open %} open{% endif %}>
+  <summary class="fold__summary">
+    <span class="fold__label">{{ label }}</span>
+    {% if count is not none %}<span class="fold__count mono">{{ count }}</span>{% endif %}
+    {% if note %}<span class="fold__note">{{ note }}</span>{% endif %}
+  </summary>
+  {{ caller() }}
+</details>
+{% endmacro %}
+
 {# One gap in the current declaration, addressed to the row it concerns. Same answer mechanism
    as an open question always has had -- see save_answers -- just addressed more specifically.
 
@@ -35,8 +50,10 @@
   <span class="questions__kind">{% if given %}Answered{% else %}To answer{% endif %}</span>
   <span class="questions__body">
     <span class="questions__text">
-      {# The id is dropped where the question already opens with it, rather than printed twice. #}
-      {%- if row.heading and not row.question.startswith(row.heading) -%}
+      {# The chip is dropped wherever the question already names the row -- anywhere in it, not
+         only at the start, since "Which capability does DEC-02 belong to?" says it in the middle
+         and printing the id twice reads as a rendering fault. #}
+      {%- if row.heading and row.heading not in row.question -%}
         <span class="mono">{{ row.heading }}</span> —
       {% endif %}{{ row.question }}
     </span>
@@ -289,6 +306,7 @@
     {% endif %}
 
     {% if decisions %}
+      {% set out_of_scope = decisions | selectattr('out_of_scope') | list | length %}
       <section class="block">
         <h2 class="block__title">Decisions</h2>
         <p class="block__body">
@@ -297,6 +315,9 @@
           case. It stays in the graph, drawn muted, but the benchmark generates no scenario through
           it. Takes effect immediately; nothing here needs the intake re-uploaded.
         </p>
+        {% call fold("Every declared decision", decisions | length,
+                     out_of_scope ~ " out of scope" if out_of_scope else "",
+                     open=decisions | length <= 6) %}
         <ul class="rows">
           {% for decision in decisions %}
             <li class="rows__row">
@@ -317,6 +338,7 @@
             </li>
           {% endfor %}
         </ul>
+        {% endcall %}
       </section>
     {% endif %}
 
@@ -385,34 +407,42 @@
           and leaving the rest is fine.
         </p>
 
+        {# One fold per part of the intake. Answering is done a part at a time -- all the
+           decisions, then all the states -- and a page that opens with forty boxes is a page
+           nobody starts. A collapsed fold still submits everything inside it, so an answer typed
+           and then folded away is saved like any other. #}
         <form method="post" action="{{ url_for('save_answers', key='intake') }}">
           {% for group in intake_questions.row_groups %}
-            <p class="label questions__group-title">{{ group.label }}</p>
-            <ul class="questions">
-              {% for row in group.rows %}
-                {% set ns.index = ns.index + 1 %}
-                {{ gap_row(row, ns.index, answered.get(row.question)) }}
-              {% endfor %}
-            </ul>
+            {% set open_rows = group.rows | rejectattr('answered') | list | length %}
+            {% call fold(group.label, group.rows | length,
+                         "all answered" if not open_rows else open_rows ~ " to answer",
+                         open=loop.first) %}
+              <ul class="questions">
+                {% for row in group.rows %}
+                  {% set ns.index = ns.index + 1 %}
+                  {{ gap_row(row, ns.index, answered.get(row.question)) }}
+                {% endfor %}
+              </ul>
+            {% endcall %}
           {% endfor %}
 
           {% if intake_questions.cross_cutting %}
-            <details class="questions__more" {% if not intake_questions.row_groups %}open{% endif %}>
-              <summary class="questions__more-summary">
-                {{ intake_questions.cross_cutting | length }} cross-cutting point{{ '' if intake_questions.cross_cutting | length == 1 else 's' }}
-                — not about any one row
-              </summary>
+            {% call fold("Not about any one row", intake_questions.cross_cutting | length, "",
+                         open=not intake_questions.row_groups) %}
               <ul class="questions">
                 {% for row in intake_questions.cross_cutting %}
                   {% set ns.index = ns.index + 1 %}
                   {{ gap_row(row, ns.index, answered.get(row.question)) }}
                 {% endfor %}
               </ul>
-            </details>
+            {% endcall %}
           {% endif %}
 
           <div class="questions__foot">
             <button class="button button--primary" type="submit">Save answers</button>
+            <span class="questions__foot-note">
+              Saves every box on this page, folded or not. Blanks stay open.
+            </span>
           </div>
         </form>
 
@@ -1107,8 +1137,10 @@
         {% if note_total %}<span class="aside__count mono">{{ note_total }}</span>{% endif %}
       </summary>
       <p class="aside__blurb">
-        Anything the documents do not say that a later stage should know. Given to every stage
-        after this one.
+        Anything the documents do not say. Every note here — wherever it was added, and including
+        your answers to the intake questions — is handed to every model call from this point on:
+        the intake drafter, the scenario text, materiality, the review. Nothing re-runs by itself,
+        so a note lands the next time you run a stage.
       </p>
       {% if notes %}
         <ul class="aside__notes">
@@ -1117,6 +1149,7 @@
               {% if note.question %}<p class="aside__note-question">{{ note.question }}</p>{% endif %}
               <p class="aside__note-text">{{ note.text }}</p>
               <p class="aside__note-when">
+                {{ note.origin }} ·
                 <time class="when" datetime="{{ note.added_at }}">{{ note.added_at | when }}</time>
               </p>
             </li>

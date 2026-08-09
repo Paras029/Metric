@@ -10,7 +10,8 @@ deterministic check in :mod:`~scenario_generator.core.grounding` disposes.
 """
 from .context_document import build_context_document, open_questions, rejection_summary
 from .conversations import Conversation, Turn, UnreadableConversations, read_conversations
-from .drafting import DraftedIntake, draft_intake, revise_intake, write_drafted_intake
+from .drafting import (DraftedIntake, draft_intake, repair_intake, revise_intake,
+                       write_drafted_intake)
 from .extraction import (DocumentExtractor, IngestionFailed, build_corpus,
                          extract_documents, record_from_json, record_to_json)
 from .readers import SUPPORTED_EXTENSIONS, UnreadableDocument, read_document
@@ -19,5 +20,6 @@ __all__ = ["DocumentExtractor", "extract_documents", "record_to_json", "record_f
            "build_context_document", "open_questions", "rejection_summary", "IngestionFailed",
            "read_document", "UnreadableDocument", "SUPPORTED_EXTENSIONS",
            "build_corpus",
-           "draft_intake", "revise_intake", "write_drafted_intake", "DraftedIntake",
+           "draft_intake", "repair_intake", "revise_intake", "write_drafted_intake",
+           "DraftedIntake",
            "read_conversations", "UnreadableConversations", "Conversation", "Turn"]

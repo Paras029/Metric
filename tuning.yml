@@ -92,6 +92,9 @@ stages:
   intake_draft:                   # drafting the intake, and revising it with your answers
     # model: a-smaller-model      #   tier: judgement
     {}
+  intake_repair:                  # filling in what the draft left structurally incomplete
+    # model: a-smaller-model      #   tier: judgement
+    {}
   structure_review:               # reconnection and consolidation proposals on the graph
     # model: a-smaller-model      #   tier: judgement
     {}

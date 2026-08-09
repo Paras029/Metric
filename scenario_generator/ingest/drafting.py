@@ -25,6 +25,7 @@ from openpyxl import load_workbook
 
 from ..core.intake import write_template
 from ..llm import config, prompt_loader
+from ..llm.calling import call
 from ..llm.gateway import ask_llm
 from ..utils import parse_json_object
 from ..utils.replies import at_least_one, objects as _objects, text as _text
@@ -34,6 +35,7 @@ logger = logging.getLogger(__name__)
 _SYSTEM_PROMPT = "ingest.system"
 _DRAFT_PROMPT = "intake.draft"
 _REVISE_PROMPT = "intake.revise"
+_REPAIR_PROMPT = "intake.repair"
 
 CAPABILITY_TYPES = ("Lookup", "Transactional", "Gating", "Advisory", "PII-handling")
 INPUT_SOURCES = ("User", "Tool", "Memory-Session", "Memory-CrossSession", "System-Context",
@@ -110,6 +112,50 @@ def draft_intake(context: str, complete: Optional[Callable[..., str]] = None,
         reply = complete(system, user)
 
     return DraftedIntake(_validate(parse_json_object(reply)))
+
+
+def repair_intake(context: str, current: str, problems: List[str],
+                  complete: Optional[Callable[..., str]] = None,
+                  structure: Optional[dict] = None) -> Optional[DraftedIntake]:
+    """Put the draft's own structural failures back to the model, with the documents still in hand.
+
+    The first draft is one call over a long context, and the things it most often leaves out are
+    the small structural ones: a branch with a single named outcome, an outcome that leads to no
+    declared state, a state nothing reaches. None of those are matters of opinion -- the graph
+    cannot be walked without them, so whatever they concern is silently never tested -- and the
+    answer is usually a paragraph away in the documentation the first pass had already read.
+
+    Which is why this exists and why it is worth a second call. ``problems`` comes from
+    :func:`core.gaps.find_gaps`, which reads the *declaration* rather than the documents, so the
+    model is told exactly what is wrong rather than asked to look again in general.
+
+    Returns ``None`` where nothing usable came back. A second look may improve the declaration and
+    must never damage it, so the caller keeps the first draft in that case -- the same rule the
+    diagram reading follows when its own repair pass finds nothing.
+    """
+    if not problems:
+        return None
+
+    complete = complete or ask_llm
+    user = prompt_loader.render(_REPAIR_PROMPT, context=context, current=current,
+                                structure=_structure_block(structure),
+                                problems="\n".join(f"- {problem}" for problem in problems))
+    system = prompt_loader.load(_SYSTEM_PROMPT)
+
+    try:
+        reply = call(complete, system, user,
+                     tier=config.stage_tier("INTAKE_REPAIR", config.JUDGEMENT))
+        repaired = DraftedIntake(_validate(parse_json_object(reply)))
+    except Exception as exc:
+        logger.warning("Could not fill in what the draft left out: %s", exc)
+        return None
+
+    # A repair that empties the declaration is not a repair. The check is deliberately crude --
+    # it is guarding against a reply that parsed but said nothing, not judging the content.
+    if not repaired.data["decisions"] or not repaired.data["states"]:
+        logger.warning("The repair pass returned an empty graph; keeping the first draft.")
+        return None
+    return repaired
 
 
 def revise_intake(context: str, current: str, complete: Optional[Callable[..., str]] = None,
@@ -279,11 +325,22 @@ def write_drafted_intake(path: Path, draft: DraftedIntake) -> None:
     book = load_workbook(path)
     data = draft.data
 
+    # Written by looking each label up in the sheet, not by counting rows. The template carries
+    # fields the drafter is not asked for -- a rating, known limitations -- so the two lists are
+    # different lengths and in different orders, and walking them in step lands every field after
+    # the second in the wrong row. Worse, a positional write guarded by a label check does not
+    # land in the wrong row: it lands nowhere, and five of the seven fields are dropped in silence.
     use_case = data.get("use_case") or {}
     sheet = book["L1 Use Case"]
-    for row, (label, key) in enumerate(_L1_KEYS, start=2):
-        if sheet.cell(row=row, column=1).value == label:
-            sheet.cell(row=row, column=2, value=str(use_case.get(key, "") or ""))
+    at = {str(sheet.cell(row=row, column=1).value or "").strip(): row
+          for row in range(2, sheet.max_row + 1)}
+    for label, key in _L1_KEYS:
+        row = at.get(label)
+        if row is None:
+            logger.warning("The intake template has no '%s' row; that field was not written.",
+                           label)
+            continue
+        sheet.cell(row=row, column=2, value=str(use_case.get(key, "") or ""))
 
     for persona in data["personas"]:
         book["Personas"].append([persona["id"], persona["name"], persona["applies_to"],

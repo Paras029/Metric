@@ -12,12 +12,13 @@ from typing import Callable, List, Optional, Sequence
 
 from .core import (DecisionGraph, IntakeData, Scenario, build_probes, enumerate_paths,
                    instantiate_all, load_context, read_intake, read_owner_scenarios)
+from .core.gaps import find_gaps
 from .core.representation import DEFAULT_THRESHOLD, build_report
 from .io import (read_registry, read_scenarios, write_challenge_pack, write_coverage_report,
                  write_registry, write_scenario_graph)
 from .ingest import (DocumentExtractor, build_context_document, draft_intake, open_questions,
-                     read_conversations, record_from_json, rejection_summary, revise_intake,
-                     write_drafted_intake)
+                     read_conversations, record_from_json, rejection_summary, repair_intake,
+                     revise_intake, write_drafted_intake)
 from .llm import (MaterialityAssessor, ScenarioReviewer, ScenarioWriter, describe_graph,
                   describe_use_case)
 from .llm.conversation_mapping import ConversationMapper
@@ -258,10 +259,20 @@ def render_questions(questions: List[dict]) -> str:
     return "\n".join(lines)
 
 
+def structural_problems(intake: IntakeData) -> List[str]:
+    """What the declaration is missing, as lines a repair pass can be given.
+
+    The same reading :mod:`core.gaps` puts in front of a person, phrased for a model instead: the
+    question says what is wrong with the row and the reason says what it costs, and both are worth
+    sending because the second is what stops the fix being a blank string.
+    """
+    return [f"{gap.heading}: {gap.question} ({gap.why})" for gap in find_gaps(intake)]
+
+
 def draft_intake_workbook(context_path: str, output_path: str,
                           complete: Optional[Callable[..., str]] = None,
                           evidence_path: Optional[str] = None,
-                          notes=None) -> "DraftResult":
+                          notes=None, progress=None, repair: bool = True) -> "DraftResult":
     """Draft an intake workbook from an ingested context document.
 
     The result is a real intake in the shape ``init-template`` produces, plus a "Review This"
@@ -281,18 +292,63 @@ def draft_intake_workbook(context_path: str, output_path: str,
     shape of the intake, and an answer given after ingestion but never passed to this one call
     would otherwise be redrafted every time this step re-runs.
     """
+    report = progress or (lambda *args, **kwargs: None)
     context = load_context(context_path, notes)
     structure = _diagram_structure(evidence_path or _evidence_beside(context_path))
+
+    report("Drafting the intake", 0, 2)
     draft = draft_intake(context, complete=complete, structure=structure)
     write_drafted_intake(Path(output_path), draft)
+    report("Drafted the intake", 1, 2)
 
     counts = draft.counts()
     logger.info("Drafted an intake: %d capabilities, %d decision points, %d states, %d personas, "
                 "%d tools.", counts["capabilities"], counts["decisions"], counts["states"],
                 counts["personas"], counts["tools"])
+
+    if repair:
+        draft = _repair_draft(output_path, context, structure, complete, draft, report)
+
+    report("Finished the intake", 2, 2)
     logger.info("%d point(s) flagged for review. Wrote %s",
                 len(draft.review_notes), output_path)
     return DraftResult(draft=draft, path=output_path)
+
+
+def _repair_draft(output_path: str, context: str, structure, complete, draft, report):
+    """Read the draft back, and put whatever it left structurally incomplete to the model once.
+
+    Read *back* rather than checked in memory, deliberately: what matters is whether the workbook
+    on disk can be walked, and the reader is the thing that decides that. A draft that survives
+    the reader and fails the audit is the case this exists for.
+
+    Never destructive. A repair that does not come back, or comes back empty, leaves the first
+    draft exactly where it was -- a second look can improve a declaration and must not damage one.
+    """
+    try:
+        current = read_intake(output_path)
+    except Exception as exc:                               # an unreadable draft is its own problem
+        logger.warning("Could not read the draft back to check it: %s", exc)
+        return draft
+
+    problems = structural_problems(current)
+    if not problems:
+        return draft
+
+    report(f"Filling in {len(problems)} gap(s) the draft left", 1, 2)
+    logger.info("The draft left %d structural gap(s); putting them back to the documents.",
+                len(problems))
+
+    rendered = f"{describe_use_case(current)}\n\n{describe_graph(current)}"
+    repaired = repair_intake(context, rendered, problems, complete=complete, structure=structure)
+    if repaired is None:
+        return draft
+
+    write_drafted_intake(Path(output_path), repaired)
+    remaining = structural_problems(read_intake(output_path))
+    logger.info("After looking again: %d of %d gap(s) filled in.",
+                len(problems) - len(remaining), len(problems))
+    return repaired
 
 
 def revise_intake_workbook(current_path: str, output_path: str, context_path: str = None,

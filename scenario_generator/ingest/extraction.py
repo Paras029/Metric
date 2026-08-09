@@ -99,7 +99,7 @@ class Corpus:
 
 def _read_one(path: Path, progress: ProgressFn) -> Tuple[Path, object, object]:
     """One file, parsed off the main thread. Returns (path, result, error) -- never raises."""
-    progress(f"Reading {path.name}")
+    progress("Opening the submitted files")
     try:
         return path, read_document(path), None
     except UnreadableDocument as exc:
@@ -278,10 +278,10 @@ class DocumentExtractor:
         for number, chunk in enumerate(chunks, start=1):
             cancellation.check(self._cancel)
             part = f" (part {number} of {len(chunks)})" if len(chunks) > 1 else ""
-            self._say(f"Reading the documents for {label}{part}")
+            self._say(f"Reading the documents{part}")
             reply = self._ask(_READ_PROMPT, "INGEST_READ", questions=questions, corpus=chunk,
                               documents=inventory)
-            self._step(f"Read the documents for {label}{part}")
+            self._step(f"Read the documents{part}")
             if reply is None:
                 continue
             self._note_documents_used(reply.get("documents_used"))
@@ -364,9 +364,9 @@ class DocumentExtractor:
             return
 
         cancellation.check(self._cancel)
-        self._say(f"Constructing the workflow from {len(readings)} diagram(s)")
+        self._say("Building the workflow")
         reply = self._synthesize_diagrams(readings, names)
-        self._step(f"Constructed the workflow from {len(readings)} diagram(s)")
+        self._step("Built the workflow")
         if reply is None:
             self._unreadable(record, loaded,
                              "each diagram was read on its own but could not be put together "
@@ -425,9 +425,9 @@ class DocumentExtractor:
     def _read_diagram_step(self, index: int, total: int, path: Path,
                            image: Tuple[str, bytes]) -> Optional[Tuple[str, dict]]:
         """One pool worker's share: report progress, read the image, name it if it read."""
-        self._say(f"Reading diagram {index} of {total}: {path.name}")
+        self._say(f"Reading images ({index} of {total})")
         reading = self._read_one_diagram(path, image, index, total)
-        self._step(f"Read diagram {index} of {total}: {path.name}")
+        self._step(f"Read images ({index} of {total})")
         return (path.name, reading) if reading else None
 
     def _read_one_diagram(self, path: Path, image: Tuple[str, bytes], index: int,
@@ -493,7 +493,7 @@ class DocumentExtractor:
             return structure
 
         cancellation.check(self._cancel)
-        self._say(f"Checking {len(problems)} unresolved point(s) against the diagrams")
+        self._say("Checking the workflow against the images")
         logger.info("The workflow read from the diagrams left %d point(s) unresolved; "
                     "looking again.", len(problems))
 
@@ -508,11 +508,11 @@ class DocumentExtractor:
                 tier=config.stage_tier("INGEST_DIAGRAM_REPAIR", config.JUDGEMENT), images=images))
         except Exception as exc:
             self._called(failed=True)
-            self._step("Checked the diagrams again")
+            self._step("Checked the workflow")
             logger.warning("Could not check the diagrams again: %s", exc)
             return structure
         self._called()
-        self._step("Checked the diagrams again")
+        self._step("Checked the workflow")
 
         repaired = diagram_structure.merge(structure, reply)
         remaining = diagram_structure.audit(repaired)
@@ -597,8 +597,8 @@ class DocumentExtractor:
     def _settle_pass(self, record: EvidenceRecord, corpus: str,
                      outstanding: List[Tuple[str, str]], number: int, last: bool) -> None:
         """One sweep: answer what the documents settle, and on the last pass rule on the rest."""
-        pass_of = f" (pass {number} of {self._passes})" if self._passes > 1 else ""
-        self._say(f"Looking again for {len(outstanding)} unanswered point(s){pass_of}")
+        pass_of = f" ({number} of {self._passes})" if self._passes > 1 else ""
+        self._say(f"Looking again at what is unanswered{pass_of}")
         established = "\n\n".join(
             f"## {FACET_HEADINGS.get(a.facet, a.facet)}\n{a.answer}"
             for a in record.answers if a.is_answered and a.answer)
@@ -607,7 +607,7 @@ class DocumentExtractor:
                           established=established or "Nothing yet.",
                           questions="\n".join(f"- {q}" for _, q in outstanding),
                           corpus=corpus)
-        self._step(f"Looked again for {len(outstanding)} unanswered point(s){pass_of}")
+        self._step(f"Looked again at what is unanswered{pass_of}")
         if reply is None:
             return
 

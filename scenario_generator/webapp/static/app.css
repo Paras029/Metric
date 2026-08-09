@@ -828,7 +828,7 @@ ol, ul { list-style: none; padding: 0; }
 .questions { margin-top: var(--s3); }
 .questions__row {
   display: grid;
-  grid-template-columns: 4.5rem 1fr;
+  grid-template-columns: 6rem 1fr;
   gap: var(--s3);
   padding: var(--s3) 0;
   border-bottom: 1px solid var(--rule-soft);
@@ -854,8 +854,51 @@ ol, ul { list-style: none; padding: 0; }
 }
 .field__input--inline { margin-top: var(--s2); max-width: 34rem; }
 
+/* =================================================================== folds
+ *
+ * A section body that collapses. Used wherever a list can run long enough that the reader wants
+ * one row in it rather than all of them -- every declared decision, every question about one part
+ * of the intake. The summary carries the count and what is outstanding, so a folded section still
+ * answers "is there anything in here for me" without being opened.
+ */
+.fold { margin-top: var(--s3); border-top: 1px solid var(--rule-soft); }
+.fold:first-of-type { border-top: 0; }
+.fold__summary {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s3) 0;
+  cursor: pointer;
+  list-style: none;
+  transition: color var(--quick);
+}
+.fold__summary::-webkit-details-marker { display: none; }
+.fold__summary::before {
+  content: "";
+  width: .4rem; height: .4rem;
+  flex: none;
+  border-right: 1.5px solid var(--rule-strong);
+  border-bottom: 1.5px solid var(--rule-strong);
+  transform: rotate(-45deg);
+  transition: transform var(--quick);
+}
+.fold[open] > .fold__summary::before { transform: rotate(45deg); }
+.fold__summary:hover { color: var(--blue-dark); }
+.fold__label { font-weight: 600; font-size: var(--t-ui); color: var(--navy); }
+.fold__count {
+  font-size: var(--t-meta);
+  color: var(--ink-dim);
+  background: var(--surface-sunk);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+  padding: 0 var(--s2);
+}
+.fold__note { font-size: var(--t-meta); color: var(--ink-dim); }
+.fold > :not(.fold__summary) { margin-bottom: var(--s4); }
+
 .questions__group-title { margin: var(--s5) 0 var(--s1); }
 .questions__group-title:first-child { margin-top: 0; }
+.questions__foot-note { font-size: var(--t-meta); color: var(--ink-dim); }
 
 .questions__foot,
 .questions__revise {

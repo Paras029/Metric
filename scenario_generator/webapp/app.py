@@ -153,7 +153,10 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             view=stage_view(workspace, STAGE_BY_KEY[key]),
             runnable=key in RUNNERS,
             invalidated=request.args.get("invalidated", ""),
-            notes=workspace.notes_for(key),
+            # Every note, not only this stage's. A note added while reading the documents is
+            # given to every stage after it, so showing only the ones typed here would hide the
+            # thing that is actually informing the run in front of you.
+            notes=_notes_with_origin(workspace),
             note_total=len(workspace.notes),
             graph_svg=graph_svg,
             graph_facts=graph_facts,
@@ -174,6 +177,19 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             produced={n: p for n, p in workspace.state(key).artifacts.items()
                       if not str(p).startswith("sources/")},
         )
+
+    def _notes_with_origin(workspace: Workspace):
+        """Every note, newest first, each saying which stage it was added at.
+
+        The stage matters because it dates the note against the work: a correction typed while
+        reading the documents and one typed after seeing the benchmark are different kinds of
+        remark, and both are handed to every stage that follows.
+        """
+        rows = []
+        for note in reversed(workspace.notes):
+            stage = STAGE_BY_KEY.get(note.get("stage", ""))
+            rows.append(dict(note, origin=stage.title if stage else "General"))
+        return rows
 
     def _submitted_files(workspace: Workspace):
         """Everything submitted so far, by heading, for the side panel.
