@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Callable, List, Optional, Sequence
 
 from .core import (DecisionGraph, IntakeData, Scenario, build_probes, enumerate_paths,
-                   instantiate_all, load_context, read_intake, read_owner_scenarios)
+                   instantiate_all, read_intake, read_owner_scenarios)
+from .core.context import load_context as _load_context
 from .core.gaps import find_gaps
 from .core.representation import DEFAULT_THRESHOLD, build_report
 from .io import (read_registry, read_scenarios, write_challenge_pack, write_coverage_report,
@@ -25,6 +26,18 @@ from .llm.conversation_mapping import ConversationMapper
 from .llm.reviewer import DEFAULT_PROPOSAL_LIMIT
 
 logger = logging.getLogger("scenario_generator")
+
+
+def load_context(path: str = None, notes=None) -> str:
+    """The supplementary context every model-using pass takes, under the configured budget.
+
+    A thin wrapper so the budget is read where settings live rather than in ``core``, which does
+    not depend on the model layer. See :func:`core.context.load_context` for what happens when a
+    context document is larger than the budget -- whole sections, from the end, said aloud.
+    """
+    from .llm import config
+
+    return _load_context(path, notes, max_chars=config.MAX_CONTEXT_CHARS)
 
 
 def build_scenarios(intake: IntakeData, with_probes: bool = False) -> List[Scenario]:
@@ -353,7 +366,8 @@ def _repair_draft(output_path: str, context: str, structure, complete, draft, re
 
 def revise_intake_workbook(current_path: str, output_path: str, context_path: str = None,
                            complete: Optional[Callable[..., str]] = None,
-                           evidence_path: Optional[str] = None, notes=None) -> "DraftResult":
+                           evidence_path: Optional[str] = None, notes=None,
+                           progress=None, repair: bool = True) -> "DraftResult":
     """Revise an intake workbook in place, given what has been added since it was last written.
 
     The counterpart to :func:`draft_intake_workbook` for a declaration that already exists --
@@ -366,21 +380,62 @@ def revise_intake_workbook(current_path: str, output_path: str, context_path: st
     ``output_path`` may be the same file as ``current_path`` -- the usual case, an intake revised
     where it stands -- or a different one, for a caller that wants to keep the prior version.
     """
+    report = progress or (lambda *args, **kwargs: None)
     current = read_intake(current_path)
     rendered = f"{describe_use_case(current)}\n\n{describe_graph(current)}"
+    before = len(structural_problems(current))
 
     context = load_context(context_path, notes)
     structure = _diagram_structure(evidence_path or _evidence_beside(context_path or ""))
+
+    report("Revising the declaration", 0, 2)
     revision = revise_intake(context, rendered, complete=complete, structure=structure)
+
+    # A revision that came back emptier than what it was revising is not a revision. The model was
+    # asked to carry everything forward and change only what the new information requires; a reply
+    # that dropped most of the graph did not do that, and writing it would lose work a person may
+    # have spent an afternoon on. Kept as it was, and said aloud.
+    if _is_thinner(revision, current):
+        logger.warning(
+            "The revision came back with %d decision(s) and %d state(s) against %d and %d in the "
+            "declaration it was revising, so it was discarded and the current intake kept. Run it "
+            "again, or revise the workbook by hand.",
+            len(revision.data["decisions"]), len(revision.data["states"]),
+            len(current.decisions), len(current.states))
+        report("Kept the current declaration", 2, 2)
+        return DraftResult(draft=revision, path=current_path)
+
     write_drafted_intake(Path(output_path), revision)
+    report("Revised the declaration", 1, 2)
 
     counts = revision.counts()
     logger.info("Revised the intake: %d capabilities, %d decision points, %d states, %d "
                 "personas, %d tools.", counts["capabilities"], counts["decisions"],
                 counts["states"], counts["personas"], counts["tools"])
-    logger.info("%d point(s) still flagged for review. Wrote %s",
-                len(revision.review_notes), output_path)
+
+    if repair:
+        revision = _repair_draft(output_path, context, structure, complete, revision, report)
+
+    after = len(structural_problems(read_intake(output_path)))
+    logger.info("%d structural gap(s) before, %d after. %d point(s) flagged for review. Wrote %s",
+                before, after, len(revision.review_notes), output_path)
+    report("Finished the intake", 2, 2)
     return DraftResult(draft=revision, path=output_path)
+
+
+# How much smaller a revision may be before it is treated as a failed revision rather than as a
+# deliberate simplification. A revision does remove things sometimes -- two decisions merged, a
+# persona that was the same objective twice -- so this is not "no smaller"; it is "not collapsed".
+_THINNING_LIMIT = 0.6
+
+
+def _is_thinner(revision, current: IntakeData) -> bool:
+    """Whether a revision dropped so much of the graph that it cannot be a revision of it."""
+    for got, had in ((len(revision.data["decisions"]), len(current.decisions)),
+                     (len(revision.data["states"]), len(current.states))):
+        if had and got < had * _THINNING_LIMIT:
+            return True
+    return False
 
 
 def _evidence_beside(context_path: str) -> Optional[str]:

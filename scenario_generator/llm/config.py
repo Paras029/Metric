@@ -173,6 +173,7 @@ _BUILTIN_TEMPERATURE = 0.3
 _BUILTIN_MAX_ATTEMPTS = 4
 _BUILTIN_MAX_IMAGE_BYTES = 4_000_000
 _BUILTIN_MAX_CORPUS_CHARS = 2_000_000
+_BUILTIN_MAX_CONTEXT_CHARS = 400_000
 _BUILTIN_CONCURRENCY = 4
 _BUILTIN_RESOLVE_PASSES = 2
 
@@ -410,6 +411,15 @@ def max_corpus_chars() -> int:
 # saves the model owner a question. The last pass also triages what is left: a question only a
 # person can answer is worth asking, and one that does not change what gets tested is not worth
 # anyone's time.
+# How much supplementary context one call carries: the reading of the documents plus every note.
+# Generous on purpose -- roughly 100k tokens against models that hold a million -- because the
+# alternative to a cap that is never hit is a cap that quietly drops part of the reading on every
+# run. What happens when it *is* hit is in core.context: whole sections, from the end, said aloud.
+def max_context_chars() -> int:
+    return setting("LLM_MAX_CONTEXT_CHARS", "ingestion", "max_context_chars",
+                   default=_BUILTIN_MAX_CONTEXT_CHARS, cast=int)
+
+
 def ingest_resolve_passes() -> int:
     return setting("LLM_INGEST_RESOLVE_PASSES", "ingestion", "resolve_passes",
                    default=_BUILTIN_RESOLVE_PASSES, cast=int)
@@ -458,6 +468,7 @@ _LIVE = {
     "DEFAULT_MAX_ATTEMPTS": default_max_attempts,
     "MAX_CORPUS_CHARS": max_corpus_chars,
     "MAX_CONCURRENCY": max_concurrency,
+    "MAX_CONTEXT_CHARS": max_context_chars,
     "INGEST_RESOLVE_PASSES": ingest_resolve_passes,
     "JUDGEMENT": judgement,
     "MATERIALITY": materiality,

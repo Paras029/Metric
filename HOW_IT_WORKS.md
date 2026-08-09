@@ -18,6 +18,7 @@ can turn.
   - [8. Issue](#8-issue)
 - [The intake workbook](#the-intake-workbook)
 - [Tuning](#tuning)
+  - [What a model call is actually sent](#what-a-model-call-is-actually-sent)
 
 ---
 
@@ -133,9 +134,19 @@ questions below, and whatever it failed is named back to the model with the docu
 hand. Once, not until clean, and never destructively: a repair that does not come back, or comes
 back empty, leaves the first draft exactly where it was.
 
-**Running the stage again drafts again.** The documents may have been read again since, and notes
-and answers added, all of which the drafter takes. The one exception is a workbook *you* uploaded:
-that is never overwritten, so a re-run reads it and reports on it instead.
+**Running the stage again revises rather than redrafts.** This is the difference between a second
+run that helps and one that undoes the first. Everything that has happened since — answers to the
+questions below, notes typed anywhere, a document read again — is new information about a
+declaration that *already exists*, and a fresh draft has no way to tell a correction somebody made
+by hand from something it should re-derive from nothing. So the current declaration goes to the
+model as what to revise, with instructions to carry forward everything the new information does not
+touch, and the structural check runs again afterwards.
+
+Two guards on that. A revision that comes back with less than 60% of the decisions or states it
+was given is discarded and the current declaration kept, because a reply that collapsed the graph
+did not do what it was asked. And a workbook *you* uploaded is never written to at all: a re-run
+reads it and reports on it, and "Revise the intake with these answers" writes the revision to the
+tool's own file rather than over your upload, which stays downloadable.
 
 **Gaps in the declaration are questions addressed to the row that needs them, not to the
 documents.** Once a workbook exists, drafted or uploaded, it is read for where it is structurally
@@ -161,10 +172,14 @@ are grouped into one confirmation per part of the intake rather than one per sta
 
 **Where your answers, notes and late documents go.** Every note — typed anywhere, at any stage,
 including your answers to the questions above — is handed to every model call from that point on:
-the intake drafter, the scenario text, materiality, the review, coverage mapping. Each carries the
-stage it was added at, and they accumulate rather than replace. A late document goes into the
-supporting material and is read the next time the Documents stage runs. Nothing re-runs by itself,
-so anything added lands the next time you run a stage.
+the intake drafter and reviser, the scenario text, materiality, the review, coverage mapping. Each
+carries the stage it was added at and the question it answers, so a later pass reads it as an
+answer rather than as a loose remark, and they accumulate rather than replace. A late document goes
+into the supporting material and is read the next time the Documents stage runs. Nothing re-runs by
+itself, so anything added lands the next time you run a stage.
+
+Notes are also the one part of the context that is never dropped to fit a budget — see
+[What a model call is actually sent](#what-a-model-call-is-actually-sent).
 
 Answering a gap question records a note, and nothing re-runs automatically. **Revise the intake
 with these answers**, a separate action on the same page, is what folds them in: it hands the model
@@ -471,6 +486,27 @@ pack is read on its own and in parallel with the others, and parsing several sub
 `LLM_MAX_CONCURRENCY` or the per-stage concurrency override, since none of it is chunked the way
 the stages above are: there are only ever a few facet groups or a few files in flight at once
 regardless of benchmark size.
+
+### What a model call is actually sent
+
+The context document has two readers with different needs, so it has two renderings of the same
+record.
+
+**For a person**, it carries the quote, document and page behind every claim. That provenance is
+the whole point of the document — the question a reader is answering is "can I believe this" — and
+it is also most of its length.
+
+**For a model call**, the provenance is dead weight: it cannot be checked from inside the call, and
+every character of it is a character not spent on the substance. So later stages are given a
+compact rendering built from the same evidence record — every answer, every specific, everything
+the documents did not settle, and the workflow read off the diagrams, with the per-claim citations
+left out. On a sixty-page pack that is roughly half the size.
+
+`LLM_MAX_CONTEXT_CHARS` (`ingestion.max_context_chars`, default 400,000) caps how much of that plus
+the notes one call carries — about 100,000 tokens against models that hold a million. The
+generosity is deliberate: a cap a normal pack exceeds does not catch an outlier, it quietly
+degrades every run. Going over it drops **whole sections** from the end and says which ones in the
+log, rather than cutting mid-sentence; notes and answers are never what gets dropped.
 
 ### Ingestion
 

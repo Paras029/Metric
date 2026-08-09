@@ -133,6 +133,62 @@ def build_context_document(record: EvidenceRecord, use_case_name: str = "") -> s
     return "\n".join(lines).strip() + "\n"
 
 
+def build_model_context(record: EvidenceRecord, use_case_name: str = "") -> str:
+    """The same reading, rendered for a model call rather than for a person.
+
+    The context document and this are two renderings of one record, and they are different because
+    they are read for different things. A person reading the document is auditing it: they need the
+    quote, the document it came from and the page, because the question they are answering is
+    "can I believe this". A model taking the same reading as grounding is not auditing anything --
+    it needs what the agent *is*, and provenance it cannot check costs it context it could have
+    spent on the substance.
+
+    Dropping the supporting observations is most of the difference in size, and none of the
+    difference in information: every claim under them is already stated in the answer or its
+    specifics, which is what the answer was synthesised from. The workflow read off the diagrams
+    stays, because it is structure rather than provenance, and what the documents did *not* settle
+    stays, because a model that cannot tell a gap in the documentation from an absence in the agent
+    will fill it in.
+    """
+    lines: List[str] = []
+    title = use_case_name.strip() or "the agent under validation"
+    lines += [f"# What the submitted documentation establishes about {title}", ""]
+
+    if not diagram_structure.is_empty(record.structure or {}):
+        lines += ["## The workflow, as read from the submitted diagrams", "",
+                  "Read off the images box by box, then joined across them. Nothing here was "
+                  "checked against text -- a diagram cannot be quoted -- so treat it as a first "
+                  "draft of the structure to confirm rather than as established fact.", "",
+                  "```", diagram_structure.render(record.structure), "```", ""]
+
+    for facet in FACETS:
+        answer = record.answer_for(facet)
+        if answer is None or not answer.is_answered:
+            continue
+        lines += [f"## {FACET_HEADINGS.get(facet, facet)}", ""]
+        if answer.confidence and answer.confidence != "High":
+            lines += [f"*Confidence: {answer.confidence.lower()} -- the documents cover this "
+                      f"only partly.*", ""]
+        if answer.answer:
+            lines += [answer.answer, ""]
+        if answer.points:
+            lines += [f"- {point}" for point in answer.points] + [""]
+        if answer.unknowns:
+            lines += ["Not settled by the documents:", ""]
+            lines += [f"- {unknown}" for unknown in answer.unknowns] + [""]
+
+    missing = record.empty_facets()
+    if missing:
+        lines += ["## Not covered by the submitted documents", "",
+                  "Treat these as unknown rather than as absent from the agent -- a gap in the "
+                  "documentation and a deliberate exclusion have very different consequences.", ""]
+        lines += [f"- **{FACET_HEADINGS.get(facet, facet)}** -- "
+                  f"{FACET_QUESTIONS.get(facet, '')}" for facet in missing]
+        lines.append("")
+
+    return "\n".join(lines).strip() + "\n"
+
+
 # Why an unanswered facet matters, in terms of what the intake cannot say without it.
 FACET_STAKES = {
     "use_case": "Without this the intake cannot say what the agent is for.",

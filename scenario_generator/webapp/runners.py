@@ -25,14 +25,14 @@ from ..core.generation import required_runs
 from ..core.intake import (attach_decision_to_state, merge_decisions, read_intake,
                            set_state_reached_via)
 from ..core.models import MATERIALITY, IntakeData
-from ..ingest import record_from_json
+from ..ingest import build_model_context, record_from_json
 from ..ingest.groups import evidence_files, owner_scenario_file
 from ..ingest.conversations import UnreadableConversations
 from ..io import read_registry, read_scenarios, write_challenge_pack, write_registry
 from ..llm import MaterialityAssessor, ScenarioReviewer, ScenarioWriter
 from ..llm import cancellation
 from ..pipeline import (build_scenarios, draft_intake_workbook, ingest_documents,
-                        map_conversation_coverage, structural_problems)
+                        map_conversation_coverage, revise_intake_workbook, structural_problems)
 from .coverageview import stored_report
 from .workspace import Workspace
 
@@ -110,12 +110,25 @@ def _scenarios(workspace: Workspace, intake: IntakeData):
 
 
 def _context(workspace: Workspace) -> str:
-    """Everything available as supplementary context: the extracted document context, plus every
-    note the user has added. Both are optional and each stage runs without them."""
+    """Everything a later stage is grounded on: what the documents established, plus every note.
+
+    Rendered from the evidence record rather than read off the context document, where the record
+    is available. The two say the same things, but the document also carries the quote, source and
+    page behind every claim -- provenance a person auditing it needs and a model cannot check --
+    and that provenance is most of its length. Sending the compact rendering is what keeps the
+    substance inside a budget that would otherwise have to start cutting it.
+
+    Falls back to the document where the record cannot be read, which is what a workspace whose
+    context file was supplied rather than extracted has.
+    """
     parts = []
-    extracted = workspace.root / CONTEXT
-    if extracted.exists():
-        parts.append(extracted.read_text(encoding="utf-8"))
+    record = _evidence_record(workspace)
+    if record is not None:
+        parts.append(build_model_context(record))
+    else:
+        extracted = workspace.root / CONTEXT
+        if extracted.exists():
+            parts.append(extracted.read_text(encoding="utf-8"))
     notes = workspace.context_text()
     if notes:
         parts.append(notes)
@@ -187,33 +200,50 @@ def _run_documents(workspace: Workspace, progress=None, cancel=None) -> Dict[str
 
 
 def _run_intake(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
-    """Draft the intake where there is none, then read it back and say what it declares.
+    """Draft the intake where there is none, revise it where there is, and report what it declares.
 
     Correcting a draft is an afternoon; writing one from a sixty-page document is a week, and the
     stage exists so a person does the correcting either way.
 
-    Running it again is not a no-op. Where the workbook is one this tool drafted, a re-run drafts
-    it afresh -- the documents may have been read again, and notes and answers added since, all of
-    which the drafter takes. Where the workbook is one *you* uploaded, it is never overwritten: a
-    re-run reads it and reports on it, because a stage that silently replaced a person's own file
-    would be the worst thing this could do with a button labelled "run again".
+    **A re-run revises rather than redrafts.** This is the whole difference between a second run
+    that helps and one that undoes the first. Everything that has happened since the last run --
+    answers to the questions on this page, notes typed anywhere, a document read again -- is new
+    information about a declaration that already exists, and a fresh draft has no way to tell a
+    correction somebody made by hand from something it should re-derive from nothing. It would
+    discard the repair the first run made, and any edit made to the drafted workbook since. So the
+    current declaration goes to the model as *what to revise*, with instructions to carry forward
+    everything the new information does not touch.
+
+    A workbook you uploaded is never written to at all. A re-run reads it and reports on it,
+    because a stage that silently replaced somebody's own file would be the worst thing this could
+    do with a button labelled "run again".
     """
     report = progress or (lambda *args, **kwargs: None)
     provided = workspace.artifact_path("intake", "workbook")
     ours = provided is None or Path(provided).name == DRAFT_INTAKE
+    context = workspace.root / CONTEXT
+    target = workspace.root / DRAFT_INTAKE
+    action = "read"
 
-    if ours:
-        context = workspace.root / CONTEXT
+    if ours and provided is not None and target.exists():
+        # Revised, not redrafted: build on the declaration that is already there.
+        cancellation.check(cancel)
+        action = "revised"
+        revise_intake_workbook(str(target), str(target),
+                               context_path=str(context) if context.exists() else None,
+                               evidence_path=str(workspace.root / EVIDENCE),
+                               notes=workspace.note_lines(), progress=report)
+    elif ours:
         if not context.exists():
             raise ValueError(
                 "No intake workbook, and no documents have been read to draft one from. Either "
                 "upload a completed intake here, or add documents on the first stage.")
         cancellation.check(cancel)
-        draft_intake_workbook(str(context), str(workspace.root / DRAFT_INTAKE),
+        action = "drafted"
+        draft_intake_workbook(str(context), str(target),
                               evidence_path=str(workspace.root / EVIDENCE),
                               notes=workspace.note_lines(), progress=report)
         workspace.state("intake").artifacts["workbook"] = DRAFT_INTAKE
-        logger.info("Drafted an intake from the context document.")
     else:
         report("Reading the intake workbook", 1, 2)
 
@@ -228,8 +258,12 @@ def _run_intake(workspace: Workspace, progress=None, cancel=None) -> Dict[str, o
     # questions tell you what to do about it.
     outstanding = structural_problems(intake)
     summary["Still needs an answer"] = len(outstanding) or "nothing — the graph is complete"
-    if not ours:
-        summary["This workbook"] = "yours, read as provided and never overwritten"
+    summary["This run"] = {
+        "drafted": "drafted the declaration from the documents",
+        "revised": ("revised the declaration already here, folding in every note and answer "
+                    "since — nothing it does not touch was changed"),
+        "read": "read the workbook you provided; it is never overwritten",
+    }[action]
     report("Read the intake", 2, 2)
     return summary
 

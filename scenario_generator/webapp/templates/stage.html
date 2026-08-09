@@ -266,6 +266,16 @@
       </section>
     {% endif %}
 
+    {% if intake_problem and stage.key in ('intake', 'benchmark') %}
+      <div class="banner banner--failed" role="alert">
+        <p class="banner__title">The graph could not be drawn</p>
+        <p class="banner__body">
+          {{ intake_problem }} The workbook is still here and still downloadable — open it, fix
+          what it names, and upload it again, or run this stage to have the declaration redrafted.
+        </p>
+      </div>
+    {% endif %}
+
     {% if graph_svg %}
       <section class="block">
         <h2 class="block__title">The declared graph</h2>

@@ -130,6 +130,12 @@ ingestion:
   # calls, which reads worse than reading it whole, so the number is set to make that rare.
   max_corpus_chars: 2000000
 
+  # How much supplementary context one later call carries: the reading of the documents plus
+  # every note and answer. Generous on purpose -- roughly 100k tokens against models that hold a
+  # million -- because a cap a normal pack exceeds silently degrades every run. Going over it
+  # drops whole sections from the end and says so in the log, rather than cutting mid-sentence.
+  max_context_chars: 400000
+
   # How many times a question the first reading left open is put back to the documents before a
   # person is asked. Each pass is one call over the whole corpus, and each question it settles is
   # one the model owner never has to answer. 0 skips the sweep and asks considerably more.

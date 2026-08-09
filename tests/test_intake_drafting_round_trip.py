@@ -106,6 +106,21 @@ _REPAIRED["states"] += [
      "next_decisions": [], "is_terminal": True, "outcome_type": "Termination"}]
 _REPAIRED["review_notes"] = [{"field": "DEC-01", "note": "Second outcome inferred."}]
 
+# A complete, walkable declaration -- what a revision is given and must carry forward.
+_FULL = json.loads(json.dumps(_REPAIRED))
+_FULL["decisions"].append(
+    {"id": "DEC-02", "name": "Cover applies?", "capability_id": "CAP-01", "inputs": "schedule",
+     "outcomes": ["Covered", "Not covered"], "input_source": "Tool", "max_attempts": 1,
+     "outcome_condition": "the schedule lists it"})
+_FULL["states"][1]["next_decisions"] = ["DEC-02"]
+_FULL["states"][1]["is_terminal"] = False
+_FULL["states"][1]["outcome_type"] = ""
+_FULL["states"] += [
+    {"id": "S-03", "reached_via": "DEC-02=Covered", "description": "Claim opened",
+     "next_decisions": [], "is_terminal": True, "outcome_type": "Happy path"},
+    {"id": "S-04", "reached_via": "DEC-02=Not covered", "description": "Declined, not covered",
+     "next_decisions": [], "is_terminal": True, "outcome_type": "Termination"}]
+
 
 class TestTheDraftIsCheckedAndPutBack(unittest.TestCase):
     def setUp(self):
@@ -192,40 +207,52 @@ class TestTheDraftIsCheckedAndPutBack(unittest.TestCase):
             self.assertNotIn("names only one outcome", repairs[0])
 
 
-class TestTheIntakeStageDoesSomethingWhenRunAgain(unittest.TestCase):
-    """A button that reads a file and reports the same numbers is a button that does nothing."""
+class TestARerunBuildsOnWhatIsAlreadyThere(unittest.TestCase):
+    """A second run has to add to the declaration, never start it over.
+
+    This is the difference between a re-run that helps and one that undoes the first. Everything
+    that has happened since -- answers to the questions on the page, notes, a document read again
+    -- is new information about a declaration that already exists. A fresh draft cannot tell a
+    correction somebody made by hand from something to re-derive from nothing, so it discards it.
+    """
 
     def setUp(self):
         from scenario_generator.webapp.workspace import Workspace
 
-        self.root = Path(tempfile.mkdtemp())
-        self.workspace = Workspace.create(self.root, "Re-run")
+        self.workspace = Workspace.create(Path(tempfile.mkdtemp()), "Re-run")
         (self.workspace.root / "ingest_context.md").write_text(
             "# Claims\n\nA lapsed policy cannot be claimed on.\n", encoding="utf-8")
-        self.drafts = 0
+        self.calls = []
 
-    def _draft(self, *args, **kwargs):
-        self.drafts += 1
-        write_drafted_intake(Path(args[1]), DraftedIntake(_validate(_REPAIRED)))
+    def _record(self, kind):
+        def call(*args, **kwargs):
+            self.calls.append(kind)
+            write_drafted_intake(Path(args[1]), DraftedIntake(_validate(_REPAIRED)))
 
-        class _Result:
-            path = args[1]
-        return _Result()
+            class _Result:
+                path = args[1]
+            return _Result()
+        return call
 
-    def test_running_it_again_drafts_again_rather_than_re_reading_the_same_file(self):
+    def _patched(self):
         from unittest import mock
+        return (mock.patch("scenario_generator.webapp.runners.draft_intake_workbook",
+                           self._record("draft")),
+                mock.patch("scenario_generator.webapp.runners.revise_intake_workbook",
+                           self._record("revise")))
 
+    def test_the_first_run_drafts_and_the_second_revises(self):
         from scenario_generator.webapp.runners import _run_intake
 
-        with mock.patch("scenario_generator.webapp.runners.draft_intake_workbook", self._draft):
+        draft, revise = self._patched()
+        with draft, revise:
             _run_intake(self.workspace)
             _run_intake(self.workspace)
+            _run_intake(self.workspace)
 
-        self.assertEqual(self.drafts, 2)
+        self.assertEqual(self.calls, ["draft", "revise", "revise"])
 
-    def test_a_workbook_you_uploaded_is_read_and_never_overwritten(self):
-        from unittest import mock
-
+    def test_a_workbook_you_uploaded_is_read_and_never_written_to(self):
         from scenario_generator.webapp.runners import _run_intake
 
         mine = self.workspace.root / "my_intake.xlsx"
@@ -233,23 +260,121 @@ class TestTheIntakeStageDoesSomethingWhenRunAgain(unittest.TestCase):
         self.workspace.state("intake").artifacts["workbook"] = mine.name
         stamp = mine.stat().st_mtime_ns
 
-        with mock.patch("scenario_generator.webapp.runners.draft_intake_workbook", self._draft):
+        draft, revise = self._patched()
+        with draft, revise:
             summary = _run_intake(self.workspace)
 
-        self.assertEqual(self.drafts, 0)
+        self.assertEqual(self.calls, [])
         self.assertEqual(mine.stat().st_mtime_ns, stamp)
-        self.assertIn("never overwritten", str(summary["This workbook"]))
+        self.assertIn("never overwritten", str(summary["This run"]))
 
-    def test_the_result_says_what_is_still_missing(self):
-        """What tells you a re-run improved anything, rather than the counts staying identical."""
-        from unittest import mock
+    def test_an_upload_carrying_the_drafters_own_filename_is_still_treated_as_yours(self):
+        """Otherwise "never overwrite what somebody uploaded" turns on a filename collision."""
+        from scenario_generator.webapp.app import create_app
+
+        app = create_app(self.workspace.root.parent)
+        with app.test_client() as client:
+            with client.session_transaction() as session:
+                session["workspace"] = self.workspace.root.name
+            payload = Path(tempfile.mkdtemp()) / "drafted_intake.xlsx"
+            write_drafted_intake(payload, DraftedIntake(_validate(_REPAIRED)))
+            client.post("/stage/intake/upload", data={
+                "files": (payload.open("rb"), "drafted_intake.xlsx")},
+                content_type="multipart/form-data")
+
+        from scenario_generator.webapp.workspace import Workspace
+
+        reloaded = Workspace.load(self.workspace.root)
+        stored = reloaded.state("intake").artifacts["workbook"]
+        self.assertNotEqual(stored, "drafted_intake.xlsx")
 
         from scenario_generator.webapp.runners import _run_intake
 
-        with mock.patch("scenario_generator.webapp.runners.draft_intake_workbook", self._draft):
-            summary = _run_intake(self.workspace)
+        draft, revise = self._patched()
+        with draft, revise:
+            summary = _run_intake(reloaded)
+        self.assertEqual(self.calls, [])
+        self.assertIn("never overwritten", str(summary["This run"]))
 
-        self.assertIn("Still needs an answer", summary)
+    def test_the_result_says_which_of_the_three_happened(self):
+        """Three runs that look identical on the card are indistinguishable from a dead button."""
+        from scenario_generator.webapp.runners import _run_intake
+
+        draft, revise = self._patched()
+        with draft, revise:
+            first = _run_intake(self.workspace)
+            second = _run_intake(self.workspace)
+
+        self.assertIn("drafted", str(first["This run"]))
+        self.assertIn("revised", str(second["This run"]))
+        self.assertIn("Still needs an answer", first)
+
+
+class TestARevisionCannotQuietlyEmptyTheDeclaration(unittest.TestCase):
+    """The failure the user sees as "it forgot everything", caught before it reaches disk."""
+
+    def setUp(self):
+        from scenario_generator.pipeline import revise_intake_workbook
+
+        self.revise = revise_intake_workbook
+        self.work = Path(tempfile.mkdtemp())
+        self.context = self.work / "run_context.md"
+        self.context.write_text("# Claims\n\nA lapsed policy cannot be claimed on.\n",
+                                encoding="utf-8")
+        self.current = self.work / "intake.xlsx"
+        write_drafted_intake(self.current, DraftedIntake(_validate(_FULL)))
+
+    def test_a_revision_that_dropped_most_of_the_graph_is_discarded(self):
+        collapsed = json.loads(json.dumps(_FULL))
+        collapsed["decisions"] = collapsed["decisions"][:1]
+        collapsed["states"] = collapsed["states"][:1]
+
+        self.revise(str(self.current), str(self.current),
+                    context_path=str(self.context),
+                    complete=lambda system, user, **kwargs: json.dumps(collapsed))
+
+        intake = read_intake(str(self.current))
+        self.assertEqual(len(intake.decisions), len(_FULL["decisions"]))
+        self.assertEqual(len(intake.states), len(_FULL["states"]))
+
+    def test_a_revision_that_keeps_the_graph_is_written(self):
+        added = json.loads(json.dumps(_FULL))
+        added["capabilities"].append({"id": "CAP-02", "name": "Fraud check", "type": "Gating"})
+
+        self.revise(str(self.current), str(self.current),
+                    context_path=str(self.context), repair=False,
+                    complete=lambda system, user, **kwargs: json.dumps(added))
+
+        intake = read_intake(str(self.current))
+        self.assertEqual({c.id for c in intake.capabilities}, {"CAP-01", "CAP-02"})
+
+    def test_the_current_declaration_is_what_the_model_is_asked_to_revise(self):
+        seen = []
+
+        def complete(system, user, **kwargs):
+            seen.append(user)
+            return json.dumps(_FULL)
+
+        self.revise(str(self.current), str(self.current), context_path=str(self.context),
+                    repair=False, complete=complete)
+
+        self.assertIn("WHAT IS CURRENTLY DECLARED", seen[0])
+        self.assertIn("DEC-01", seen[0])
+        self.assertIn("DEC-02", seen[0])
+
+    def test_every_answer_reaches_the_revision(self):
+        """Answers are notes, and notes are what a revision is for."""
+        seen = []
+
+        def complete(system, user, **kwargs):
+            seen.append(user)
+            return json.dumps(_FULL)
+
+        self.revise(str(self.current), str(self.current), context_path=str(self.context),
+                    repair=False, complete=complete,
+                    notes=["(Intake) Q: What are DEC-02's outcomes? — A: Eligible / Not eligible"])
+
+        self.assertIn("Eligible / Not eligible", seen[0])
 
 
 if __name__ == "__main__":

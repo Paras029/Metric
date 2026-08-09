@@ -46,7 +46,8 @@ from ..pipeline import revise_intake_workbook
 from . import stagecancel
 from .coverageview import coverage_view, stored_mappings, stored_report
 from .graphview import graph_summary, render_svg
-from .runners import (CONTEXT, EVIDENCE, OVERLAP, REGISTRY, RUNNERS, STAGE_OUTPUTS,
+from .runners import (CONTEXT, DRAFT_INTAKE, EVIDENCE, OVERLAP, REGISTRY, RUNNERS,
+                      STAGE_OUTPUTS,
                       _apply_proposal, _context, _evidence_record, _intake, _proposal_dicts,
                       _scenarios, _snapshot)
 from .scenarios import FILTER_FIELDS, PAGE_SIZE, build_rows
@@ -114,12 +115,13 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
         # Read once and pass it on. Both the graph and the benchmark panel need it, and reading a
         # workbook twice to render one page is a cost paid on every navigation.
-        intake = None
+        intake, intake_problem = None, ""
         if workspace.artifact_path("intake", "workbook"):
             try:
                 intake = _intake(workspace)
             except Exception as exc:                       # a malformed intake must not blank it
                 logger.warning("Could not read the intake: %s", exc)
+                intake_problem = str(exc)
 
         # The graph is drawn wherever the intake is available, since it is the clearest reading
         # of what the benchmark will and will not be able to reach. Two placements, one drawing:
@@ -134,8 +136,12 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
                     graph_svg = render_svg(intake)
                 else:
                     aside_graph = render_svg(intake)
-            except Exception:                              # a malformed intake must not blank it
+            except Exception as exc:
+                # Said on the page rather than only in the log. A graph that cannot be drawn takes
+                # its whole section with it, controls included, and a section that is simply not
+                # there reads as a broken interface rather than as a broken declaration.
                 logger.exception("Could not draw the graph")
+                intake_problem = intake_problem or f"The graph could not be drawn: {exc}"
 
         # Every already-declared decision, with whether it is walked -- shown only on the intake
         # stage, and only for what the workbook already has. A sketched decision is not here yet
@@ -160,6 +166,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             note_total=len(workspace.notes),
             graph_svg=graph_svg,
             graph_facts=graph_facts,
+            intake_problem=intake_problem,
             aside_graph=aside_graph,
             aside_files=_submitted_files(workspace),
             decisions=decisions,
@@ -485,6 +492,13 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             return redirect(url_for("stage", key=key))
 
         if key == "intake":
+            # An upload that happens to carry the drafter's own filename would be taken for the
+            # tool's file and revised over. Stored under another name so "never overwrite what
+            # somebody uploaded" holds on the filename alone, which is what decides it.
+            if stored[0] == DRAFT_INTAKE:
+                renamed = f"uploaded_{DRAFT_INTAKE}"
+                (workspace.root / stored[0]).replace(workspace.root / renamed)
+                stored[0] = renamed
             workspace.state("intake").artifacts["workbook"] = stored[0]
         else:
             for name in stored:
@@ -565,16 +579,23 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         if not path:
             abort(404)
 
+        # Revised into the tool's own file rather than over the input. Where the current workbook
+        # is one somebody uploaded, that upload is the only copy of their work, and a revision
+        # writing over it leaves nothing to go back to. The workspace moves on to the revision;
+        # the original stays on disk and stays downloadable.
         extracted = workspace.root / CONTEXT
+        target = workspace.root / DRAFT_INTAKE
         revise_intake_workbook(
-            str(path), str(path),
+            str(path), str(target),
             context_path=str(extracted) if extracted.exists() else None,
             evidence_path=str(workspace.root / EVIDENCE),
             notes=workspace.note_lines())
+        workspace.state("intake").artifacts["workbook"] = DRAFT_INTAKE
 
         invalidated = workspace.invalidate_from("intake")
         workspace.save()
-        logger.info("Revised %s with %d note(s).", path.name, len(workspace.notes))
+        logger.info("Revised %s into %s with %d note(s).",
+                    path.name, DRAFT_INTAKE, len(workspace.notes))
         return redirect(url_for("stage", key="intake",
                                 invalidated=", ".join(s.title for s in invalidated)))
 
