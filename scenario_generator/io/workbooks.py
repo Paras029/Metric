@@ -107,7 +107,7 @@ def write_scenario_graph(path: str, intake: IntakeData, scenarios: List[Scenario
     _write_metadata_sheet(workbook, scenarios)
     _write_turn_sheet(workbook, scenarios)
     _write_text_sheet(workbook, scenarios)
-    sheets.save(workbook, path)
+    workbook.save(path)
 
 
 def read_scenarios(path: str, intake: IntakeData) -> List[Scenario]:
@@ -230,7 +230,7 @@ def write_challenge_pack(path: str, intake: IntakeData, scenarios: List[Scenario
                                 for s in scenarios
                                 for run in range(1, required_runs(s.effective_materiality, runs_mapping) + 1)])
 
-    sheets.save(workbook, path)
+    workbook.save(path)
     return len(scenarios)
 
 
@@ -249,7 +249,7 @@ def write_registry(path: str, intake: IntakeData, scenarios: List[Scenario]) -> 
     _write_turn_sheet(workbook, scenarios)
     _write_text_sheet(workbook, scenarios)
 
-    sheets.save(workbook, path)
+    workbook.save(path)
 
 
 def read_registry(path: str, functional_only: bool = True) -> List[BenchmarkScenario]:
@@ -331,4 +331,4 @@ def write_coverage_report(path: str, report, mappings, texts: dict = None) -> No
              g.verdict]
             for g in report.groups])
 
-    sheets.save(workbook, path)
+    workbook.save(path)

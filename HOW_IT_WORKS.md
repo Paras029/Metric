@@ -19,7 +19,6 @@ can turn.
 - [The intake workbook](#the-intake-workbook)
 - [Tuning](#tuning)
   - [What a model call is actually sent](#what-a-model-call-is-actually-sent)
-  - [Sensitivity labels on the workbooks](#sensitivity-labels-on-the-workbooks)
 
 ---
 
@@ -557,47 +556,6 @@ then degrades to asking a person to describe the flow, rather than the run faili
 `LLM_MAX_IMAGE_BYTES` (`ingestion.max_image_bytes`, default 4,000,000) caps a single image. Base64
 inflates an image by about a third and gateways cap the request body, so anything larger is refused
 with a reason rather than sent and rejected.
-
-### Sensitivity labels on the workbooks
-
-Every workbook this tool writes — the registry, the challenge pack, the intake template, the
-drafted intake, the scenario graph, the coverage report — carries a sensitivity label.
-
-It has to, because a file written by a library arrives with **no** classification on it, and under
-a mandatory labelling policy that is not a neutral state. The file is unlabelled, so the
-organisation's default applies, and where that default is the most restrictive one the result is a
-registry that refuses to open in Excel. Labelling the file correctly on the way out is the fix.
-
-**Point it at a file you already have.** A label's id is a GUID minted in your own tenant, and
-nothing here guesses one — a made-up GUID names a label that does not exist, which fails worse than
-no label. So the easy path needs no GUID at all:
-
-```yaml
-sensitivity:
-  enabled: true
-  copy_from: "C:/Users/you/Documents/some-internal-spreadsheet.xlsx"
-```
-
-Any workbook already labelled the way these should be labelled will do; the label is read straight
-off it. If you do know the values, set them outright instead:
-
-```yaml
-sensitivity:
-  enabled: true
-  label_id: "0e5cf1c2-1a2b-4c3d-9e4f-a5b6c7d8e9f0"
-  name: "Internal"
-  site_id: "your-tenant-guid"
-```
-
-With neither set, workbooks are written unlabelled and the run says so — on startup, and on the
-stage page beside the files it produced.
-
-**A workbook that already carries a label is never relabelled.** Re-saving an intake somebody
-uploaded, or flipping a decision's scope in place, leaves their classification exactly as it is.
-Silently reclassifying somebody's own document is worse than anything this is trying to fix.
-
-`method` is recorded as `Standard`, meaning applied automatically. `Privileged` means a person
-chose the label deliberately, and claiming that when a tool did it would be untrue.
 
 ### Redaction
 

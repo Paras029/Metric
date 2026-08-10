@@ -521,45 +521,6 @@ def max_context_chars() -> int:
                    default=_BUILTIN_MAX_CONTEXT_CHARS, cast=int)
 
 
-# --------------------------------------------------------------------------- sensitivity labels
-#
-# A workbook written by a library carries no classification. Under a mandatory labelling policy
-# that is not neutral: the file is unlabelled, the organisation's default applies, and where that
-# default is the most restrictive one the result is a registry nobody can open.
-#
-# The label's id is a GUID minted in your own tenant, so nothing here guesses it. Give it outright,
-# or point ``copy_from`` at a workbook already labelled the way you want these labelled and the
-# label is read off that. See :mod:`scenario_generator.io.labelling`.
-def sensitivity_label() -> bool:
-    return _truthy(setting("SENSITIVITY_LABEL", "sensitivity", "enabled", default="on"))
-
-
-def sensitivity_label_id() -> str:
-    return str(setting("SENSITIVITY_LABEL_ID", "sensitivity", "label_id", default="")).strip()
-
-
-def sensitivity_name() -> str:
-    return str(setting("SENSITIVITY_NAME", "sensitivity", "name", default="Internal")).strip()
-
-
-def sensitivity_site_id() -> str:
-    return str(setting("SENSITIVITY_SITE_ID", "sensitivity", "site_id", default="")).strip()
-
-
-def sensitivity_action_id() -> str:
-    return str(setting("SENSITIVITY_ACTION_ID", "sensitivity", "action_id", default="")).strip()
-
-
-def sensitivity_method() -> str:
-    """How the label came to be on the file. "Standard" means applied automatically, which is what
-    this is; "Privileged" means a person chose it, and claiming that would be untrue."""
-    return str(setting("SENSITIVITY_METHOD", "sensitivity", "method", default="Standard")).strip()
-
-
-def sensitivity_copy_from() -> str:
-    return str(setting("SENSITIVITY_COPY_FROM", "sensitivity", "copy_from", default="")).strip()
-
-
 def ingest_resolve_passes() -> int:
     return setting("LLM_INGEST_RESOLVE_PASSES", "ingestion", "resolve_passes",
                    default=_BUILTIN_RESOLVE_PASSES, cast=int)
@@ -613,13 +574,6 @@ _LIVE = {
     "JUDGEMENT": judgement,
     "MATERIALITY": materiality,
     "STANDARD": standard,
-    "SENSITIVITY_LABEL": sensitivity_label,
-    "SENSITIVITY_LABEL_ID": sensitivity_label_id,
-    "SENSITIVITY_NAME": sensitivity_name,
-    "SENSITIVITY_SITE_ID": sensitivity_site_id,
-    "SENSITIVITY_ACTION_ID": sensitivity_action_id,
-    "SENSITIVITY_METHOD": sensitivity_method,
-    "SENSITIVITY_COPY_FROM": sensitivity_copy_from,
     "PII_REDACTION": pii_redaction,
     "PII_REDACTION_MODE": pii_redaction_mode,
     "PII_REDACTION_REPLACEMENT_TEXT": pii_redaction_replacement_text,

@@ -190,10 +190,6 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             materiality_tiers=MATERIALITY,
             produced={n: p for n, p in workspace.state(key).artifacts.items()
                       if not str(p).startswith("sources/")},
-            # How the workbooks this stage wrote are classified. Shown beside them because an
-            # unlabelled file is not unclassified where labelling is mandatory -- it takes the
-            # organisation's default, and a file nobody can open is discovered at the worst moment.
-            labelling=_labelling_view(),
         )
 
     def _notes_with_origin(workspace: Workspace):
@@ -208,16 +204,6 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             stage = STAGE_BY_KEY.get(note.get("stage", ""))
             rows.append(dict(note, origin=stage.title if stage else "General"))
         return rows
-
-    def _labelling_view() -> Dict[str, object]:
-        """What every workbook written from here on will be labelled, and whether that is set."""
-        from ..io import labelling
-        from ..llm import config
-
-        properties = labelling.label_properties() if config.SENSITIVITY_LABEL else {}
-        name = next((v for k, v in properties.items() if k.endswith("_Name")), "")
-        return {"on": bool(properties), "name": name,
-                "enabled": bool(config.SENSITIVITY_LABEL)}
 
     def _submitted_files(workspace: Workspace):
         """Everything submitted so far, by heading, for the side panel.
@@ -926,7 +912,6 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-    from ..io import labelling
     from ..llm import config
 
     try:
@@ -936,8 +921,7 @@ def main() -> None:
         raise SystemExit(2)
     app = create_app()
     print("\n  Scenario generator — http://127.0.0.1:5000\n")
-    print(f"  Settings: {config.tuning_path()} — edits apply to the next call, no restart")
-    print(f"  {labelling.describe()}\n")
+    print(f"  Settings: {config.tuning_path()} — edits apply to the next call, no restart\n")
     app.run(host="127.0.0.1", port=5000, debug=False)
 
 

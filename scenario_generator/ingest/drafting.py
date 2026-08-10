@@ -24,7 +24,6 @@ from typing import Callable, Dict, List, Optional
 from openpyxl import load_workbook
 
 from ..core.intake import write_template
-from ..io import sheets
 from ..llm import config, prompt_loader
 from ..llm.calling import call
 from ..llm.gateway import ask_llm
@@ -371,7 +370,7 @@ def write_drafted_intake(path: Path, draft: DraftedIntake) -> None:
                               "Yes" if tool["changes_state"] else "No"])
 
     _write_review_sheet(book, draft)
-    sheets.save(book, path)
+    book.save(path)
 
 
 def _write_review_sheet(book, draft: DraftedIntake) -> None:

@@ -255,22 +255,6 @@
     {% if groups and produced %}
       <section class="block">
         <h2 class="block__title">Files this stage produced</h2>
-        {% if labelling.on %}
-          <p class="block__body">
-            Written with the sensitivity label <strong>{{ labelling.name }}</strong>.
-          </p>
-        {% elif labelling.enabled %}
-          <div class="banner banner--stale" role="status">
-            <p class="banner__title">These workbooks carry no sensitivity label</p>
-            <p class="banner__body">
-              Where labelling is mandatory an unlabelled file is not unclassified — it takes your
-              organisation's default, which is usually the most restrictive one, and that is what
-              makes a workbook refuse to open. Set <span class="mono">sensitivity.copy_from</span>
-              in <span class="mono">tuning.yml</span> to any workbook already labelled the way
-              these should be, and re-run this stage.
-            </p>
-          </div>
-        {% endif %}
         <ul class="files">
           {% for name, path in produced.items() %}
             <li class="files__row">
