@@ -66,7 +66,7 @@ class TestTierDefinitions(unittest.TestCase):
         self.assertEqual(named, {"judgement", "materiality", "standard"})
 
     def test_materiality_retries_less_than_the_default(self):
-        """Every chunk of the benchmark hits this tier at once, so a busy gateway means several
+        """Every chunk of the scenario space hits this tier at once, so a busy gateway means several
         simultaneous retries rather than one -- this tier is given a shorter ladder for that."""
         self.assertLess(config.MATERIALITY.max_attempts, config.DEFAULT_MAX_ATTEMPTS)
         self.assertEqual(config.JUDGEMENT.max_attempts, config.DEFAULT_MAX_ATTEMPTS)
@@ -208,7 +208,7 @@ class TestSettingsCascade(unittest.TestCase):
         A file that cannot be parsed is a mistake made seconds ago and fixable in seconds. Ignoring
         it reverts every value it was setting -- the model each stage calls, the batch sizes, the
         budgets -- and the run proceeds and produces plausible output, so the mistake surfaces as a
-        benchmark that is subtly not the one that was asked for. See
+        scenario space that is subtly not the one that was asked for. See
         tests/test_tuning_file_is_enforced.py for the whole of this behaviour.
         """
         self._with_tuning("{{{ not yaml at all")
@@ -256,13 +256,13 @@ class TestWhichPassUsesWhichTier(unittest.TestCase):
         """Deciding which of several overlapping routes a transcript actually ends on is the
         hardest judgement in the pipeline, and getting it wrong reports coverage that is not
         there -- so it gets the strongest tier rather than the cheapest."""
-        from scenario_generator.core.models import BenchmarkScenario
+        from scenario_generator.core.models import ScenarioRow
         from scenario_generator.ingest.conversations import Conversation, Turn
 
         recorder = _Recorder()
         ConversationMapper(complete=recorder).map(
             [Conversation(id="C1", turns=[Turn("user", "I want to dispute a charge here")])],
-            [BenchmarkScenario(id="SC-001", path_str="DEC-01=Pass", category="Happy path",
+            [ScenarioRow(id="SC-001", path_str="DEC-01=Pass", category="Happy path",
                                materiality="High", capabilities=[], persona_id="P1",
                                signature=())],
             _INTAKE)

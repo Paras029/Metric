@@ -3,7 +3,7 @@
 Two rules, and they solve the same complaint from opposite directions. A stage shows only the
 columns it has actually produced, because most of these fields carry a default -- every scenario
 is born "Medium" -- and a default rendered as a verdict is worse than a blank. And a stage shows
-its own reading rather than the live registry, because every stage from the benchmark onward
+its own reading rather than the live registry, because every stage from the scenario space onward
 rewrites one file, so going back would otherwise show what later stages have since made of it.
 """
 import json

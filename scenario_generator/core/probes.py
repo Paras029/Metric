@@ -67,7 +67,7 @@ def evaluate(expression: str, intake: IntakeData) -> bool:
 
     An unknown predicate reads as False, so a typo drops the probe rather than applying it
     everywhere -- but it says so. A probe that quietly stops being generated is a hole in the
-    benchmark that nothing else in the pipeline will report.
+    scenario space that nothing else in the pipeline will report.
     """
     result = True
     for term in [term.strip() for term in str(expression or "always").split(" and ")]:

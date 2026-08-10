@@ -33,7 +33,7 @@ as written. An unlabelled arrow gets an empty label — do not invent one.
 **Every arrow that leaves the page gets an entry in `continues_offpage`** instead: which node it
 leaves, its label, and which edge of the image it runs off. This is the single most important
 thing to record accurately, because it is where this image joins another one, and a flow that
-does not join up is a flow the benchmark cannot walk.
+does not join up is a flow the scenario space cannot walk.
 
 **Anything you cannot read goes in `unreadable`** — a label too small to make out, a box cut off
 at the margin, an arrow whose destination is ambiguous. Say what and where. Never guess at a

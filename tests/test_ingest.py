@@ -430,11 +430,11 @@ class TestCoverageAnnotation(unittest.TestCase):
         from test_stage_runners import _intake_workbook
         from scenario_generator.core.intake import read_intake
         from scenario_generator.io import read_scenarios, write_challenge_pack, write_registry
-        from scenario_generator.pipeline import build_scenarios
+        from scenario_generator.pipeline import build_scenario_space
 
         directory = Path(tempfile.mkdtemp())
         intake = read_intake(str(_intake_workbook(directory)))
-        scenarios = build_scenarios(intake, with_probes=True)
+        scenarios = build_scenario_space(intake, with_probes=True)
         scenarios[0].owner_coverage = "Covered"
         scenarios[0].owner_coverage_note = "Their TC-001"
 
@@ -459,21 +459,21 @@ class TestCoverageAnnotation(unittest.TestCase):
         from scenario_generator.core.representation import build_report
         from scenario_generator.io import read_registry, read_scenarios, write_registry
         from scenario_generator.llm.conversation_mapping import Mapping
-        from scenario_generator.pipeline import annotate_coverage, build_scenarios
+        from scenario_generator.pipeline import annotate_coverage, build_scenario_space
 
         directory = Path(tempfile.mkdtemp())
         registry = str(directory / "registry.xlsx")
         intake = read_intake(str(_intake_workbook(directory)))
-        scenarios = build_scenarios(intake, with_probes=True)
+        scenarios = build_scenario_space(intake, with_probes=True)
         write_registry(registry, intake, scenarios)
 
-        benchmark = read_registry(registry)
-        report = build_report([Mapping("C1", benchmark[0].id, "high"),
-                               Mapping("C2", benchmark[0].id, "low")], benchmark)
+        space = read_registry(registry)
+        report = build_report([Mapping("C1", space[0].id, "high"),
+                               Mapping("C2", space[0].id, "low")], space)
 
         self.assertEqual(annotate_coverage(registry, intake, report), 1)
         restored = read_scenarios(registry, intake)
         self.assertEqual(len(restored), len(scenarios))
-        annotated = next(s for s in restored if s.id == benchmark[0].id)
+        annotated = next(s for s in restored if s.id == space[0].id)
         self.assertEqual(annotated.owner_coverage, "2 conversations")
         self.assertIn("C1", annotated.owner_coverage_note)

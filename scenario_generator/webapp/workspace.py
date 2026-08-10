@@ -224,7 +224,7 @@ class Workspace:
         # so changing the threshold re-reports what is already mapped rather than re-running the
         # model over every conversation again.
         self.coverage: dict = dict(coverage or {})
-        # Whether the challenge pack carries only the scenarios their own testing under-covers.
+        # Whether the challenge pack carries only the scenarios their testing under-covers.
         # Off by default, and deliberately so: every other stage adds to what the model owner is
         # asked for, and this is the one setting that takes things away. Narrowing the pack is a
         # decision to trust their evidence for everything left out, which is the user's to make.
@@ -232,40 +232,22 @@ class Workspace:
         self._reconciled = self._settle()
 
     # ----------------------------------------------------------------- added context
-    def add_note(self, stage_key: str, text: str, question: str = "") -> None:
+    def add_note(self, stage_key: str, text: str) -> bool:
         """Record something the user knows that the documents did not say.
 
         Notes accumulate rather than replace, and each carries the stage it was added at. Every
         later stage that consults context sees all of them: a correction made while reading the
         evidence is just as relevant to the final review, and asking the user to repeat it there
         would be a good way to lose it.
+
+        A blank submission is not a note. Returns whether one was actually recorded.
         """
-        self.add_notes([(question, text)], stage_key)
-
-    def add_notes(self, entries: List[tuple], stage_key: str) -> int:
-        """Record several answers at once, as (question, text) pairs. Returns how many landed.
-
-        Answering questions one at a time meant a page reload between each, which turns a list of
-        six into six round trips. Nothing here requires the whole list: blanks are skipped, so a
-        person can settle what they know now, come back, and settle the rest later, and each pass
-        registers what it carried.
-        """
-        added = 0
-        for question, text in entries:
-            text = (text or "").strip()
-            if not text:
-                continue
-            self.notes.append({"stage": stage_key, "text": text, "added_at": _now(),
-                               "question": (question or "").strip()})
-            added += 1
-        if added:
-            self.save()
-        return added
-
-    def answered_questions(self) -> Dict[str, str]:
-        """Every open question a person has answered, newest answer winning."""
-        return {note["question"]: note["text"]
-                for note in self.notes if note.get("question")}
+        text = (text or "").strip()
+        if not text:
+            return False
+        self.notes.append({"stage": stage_key, "text": text, "added_at": _now()})
+        self.save()
+        return True
 
     def notes_for(self, stage_key: str) -> List[dict]:
         return [note for note in self.notes if current_key(note["stage"]) == stage_key]
@@ -281,10 +263,7 @@ class Workspace:
         for note in self.notes:
             stage_key = current_key(note["stage"])
             title = STAGE_BY_KEY[stage_key].title if stage_key in STAGE_BY_KEY else "General"
-            if note.get("question"):
-                lines.append(f"({title}) Q: {note['question']} — A: {note['text']}")
-            else:
-                lines.append(f"({title}) {note['text']}")
+            lines.append(f"({title}) {note['text']}")
         return lines
 
     def context_text(self) -> str:
@@ -292,7 +271,7 @@ class Workspace:
 
         Each note is attributed to the stage it was added at, so a model reading this can tell a
         note written while looking at raw documents from one written while reading the finished
-        benchmark.
+        scenario space.
         """
         if not self.notes:
             return ""
@@ -622,7 +601,7 @@ class Workspace:
         """Mark this stage and everything after it out of date. Outputs are kept.
 
         For a change to a stage's own *input* rather than to something upstream of it. Uploading
-        a corrected intake workbook is the case that matters: the benchmark built from the old one
+        a corrected intake workbook is the case that matters: the scenario space built from the old one
         is out of date, which :meth:`invalidate_after` already said, but so is the intake stage's
         own report of what the workbook declares -- and leaving that showing "5 decision points"
         beside a workbook that now declares seven is the more misleading of the two, because it

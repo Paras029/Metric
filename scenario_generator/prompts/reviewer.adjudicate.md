@@ -30,7 +30,7 @@ WHAT TO RETURN FOR EACH SCENARIO
 
 The two readings differ in what they were given, and that is usually where the answer is. The
 first weighed the scenario against its immediate peers with the redundancy signals in hand. The
-second weighed it against the whole benchmark. Neither is automatically right: the first sees the
+second weighed it against the whole scenario space. Neither is automatically right: the first sees the
 detail of the route, the second sees whether anything else already covers it.
 
 OUTPUT

@@ -19,7 +19,6 @@ there for the length of the longest call.
 """
 import tempfile
 import unittest
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from scenario_generator.core.evidence import DocumentRef, EvidenceRecord, summarise
@@ -28,7 +27,7 @@ from scenario_generator.llm.calling import call_batch
 
 
 def _scenario(scenario_id: str, persona: Persona) -> Scenario:
-    """One benchmark scenario, minimal but complete enough for the writer to be handed it."""
+    """One scenario, minimal but complete enough for the writer to be handed it."""
     return Scenario(id=scenario_id, path=[], category="Happy path", persona=persona,
                     seeded_state="S-00", termination="S-01", capabilities=[], tools=[],
                     touches_state_change=False)

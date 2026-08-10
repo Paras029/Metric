@@ -1,18 +1,18 @@
 """One call that looks at the whole declared graph and proposes how to make it sounder before it
-is walked into a benchmark.
+is walked into a scenario space.
 
-Two different problems, both caught here because both are cheapest to fix before the benchmark
+Two different problems, both caught here because both are cheapest to fix before the scenario space
 exists rather than after:
 
     reconnections   a decision or state that is declared but does not connect to the rest of the
                     graph -- nothing leads to it, or it leads nowhere.
     consolidations  two or more decisions that are alternate ways of establishing the same fact
                     rather than genuinely different branches. Separately, they multiply the
-                    benchmark by every combination without testing anything additional past the
+                    scenario space by every combination without testing anything additional past the
                     point where they converge; merged into one decision, the same downstream
                     behaviour is tested at a fraction of the cost.
 
-Deliberately one call. The declared graph is a small fraction of the size of the benchmark it
+Deliberately one call. The declared graph is a small fraction of the size of the scenario space it
 produces, so the whole of it fits in one prompt, and a pass that only ever proposes -- never
 writes -- is the one place a structural judgement this consequential is allowed to be wrong
 without cost: every proposal is applied by a person, one at a time, from the intake stage. See

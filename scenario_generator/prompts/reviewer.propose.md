@@ -28,7 +28,7 @@ DISCIPLINE -- THIS MATTERS AS MUCH AS THE PROPOSALS
 
 - Proposing nothing is a valid and often correct answer. Only a gap that would materially weaken
   the validation is worth the cost of filling.
-- The benchmark already holds {{total}} scenarios, each run several times by the agent's own
+- The scenario space already holds {{total}} scenarios, each run several times by the agent's own
   team. Propose at most {{limit}}; fewer is usually better.
 - Do not propose a variant of something already present. Check the digest first.
 - Do not propose anything requiring the other team to manipulate infrastructure, force a tool

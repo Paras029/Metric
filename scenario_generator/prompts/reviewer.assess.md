@@ -1,6 +1,6 @@
 {{owner}}THE BENCHMARK AS IT STANDS ({{total}} scenarios)
 
-Every scenario currently in the benchmark, in compact form, so each can be judged against the
+Every scenario currently in the scenario space, in compact form, so each can be judged against the
 whole rather than on its own. Use it to see redundancy, imbalance, and coverage that clusters in
 one area while leaving another thin.
 
@@ -17,7 +17,7 @@ For each one, work through three questions in order:
    other way round.
 2. Does the description match what the route or the expectation implies, and could a tester who
    has never seen this agent run it and get a consistent result?
-3. Does it test something the rest of the benchmark does not already cover better? The digest
+3. Does it test something the rest of the scenario space does not already cover better? The digest
    above is what you check that against.
 
 {{batch}}
@@ -28,7 +28,7 @@ WHAT TO RETURN FOR EACH SCENARIO
   already recorded. Where you land in the same place, repeat it -- agreement is the expected
   outcome for most scenarios and needs no justification beyond the rationale.
 - rationale: one or two sentences giving the business consequence of failure in concrete terms,
-  and what in the wider benchmark supported the tier. Where redundancy drove it down or absent
+  and what in the wider scenario space supported the tier. Where redundancy drove it down or absent
   coverage drove it up, name the scenarios involved.
 - flag: "" for nothing to raise, or one of:
   - "Redundant" -- materially duplicated by another scenario. Name the duplicate in the rationale.

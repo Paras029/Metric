@@ -67,7 +67,7 @@ def repeats_the_ending(text: str, ending: str) -> bool:
 
     Matched on runs of consecutive distinctive words rather than on word overlap. A description of
     a dispute and an ending about a dispute share the word "dispute" honestly, and a check that
-    fired on that would flag most of the benchmark; three consecutive content words in the same
+    fired on that would flag most of the scenario space; three consecutive content words in the same
     order is a phrase that was carried across.
     """
     if not text or not ending:

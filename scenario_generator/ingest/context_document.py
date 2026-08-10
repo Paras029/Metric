@@ -1,7 +1,7 @@
 """Building the context document and the open questions from a synthesised evidence record.
 
 The context document is what every later stage reads to understand the agent, and what the intake
-is drafted from. It is organised as answers to the questions the benchmark depends on, because
+is drafted from. It is organised as answers to the questions the scenario space depends on, because
 that is the form the work downstream actually needs — not a list of the sentences that happened
 to appear in the source.
 
@@ -125,7 +125,7 @@ def build_context_document(record: EvidenceRecord, use_case_name: str = "") -> s
         lines += ["## Not covered by the submitted documents", "",
                   "Nothing in the pack settled the following. Treat these as unknown rather than "
                   "as absent from the agent — a gap in the documentation and a deliberate "
-                  "exclusion have very different consequences for a benchmark.", ""]
+                  "exclusion have very different consequences for a scenario space.", ""]
         lines += [f"- **{FACET_HEADINGS.get(facet, facet)}** — "
                   f"{FACET_QUESTIONS.get(facet, '')}" for facet in missing]
         lines.append("")

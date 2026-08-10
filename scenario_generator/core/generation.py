@@ -211,6 +211,6 @@ def peer_signals(scenarios: List[Scenario]) -> Dict[str, dict]:
     for group in groups.values():
         ranked = sorted(group, key=lambda s: len(s.turn_meta), reverse=True)
         for rank, scenario in enumerate(ranked, start=1):
-            signals[scenario.id] = {"similar_scenarios_in_benchmark": len(group),
+            signals[scenario.id] = {"similar_scenarios_in_space": len(group),
                                     "steps_rank_within_similar_group": rank}
     return signals

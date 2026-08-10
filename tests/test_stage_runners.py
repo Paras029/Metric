@@ -136,13 +136,13 @@ class TestCoverageReportsWhatItMapped(unittest.TestCase):
     """The stage returns its result, and every conversation read is accounted for in it."""
 
     def _run(self, scratch, reply):
-        from scenario_generator.pipeline import build_scenarios, map_conversation_coverage
+        from scenario_generator.pipeline import build_scenario_space, map_conversation_coverage
         from scenario_generator.core.intake import read_intake
         from scenario_generator.io import write_registry
 
         intake_path = _intake_workbook(scratch)
         intake = read_intake(str(intake_path))
-        write_registry(str(scratch / "registry.xlsx"), intake, build_scenarios(intake))
+        write_registry(str(scratch / "registry.xlsx"), intake, build_scenario_space(intake))
 
         with mock.patch("scenario_generator.llm.conversation_mapping.ask_llm",
                         lambda s, u, **k: reply):

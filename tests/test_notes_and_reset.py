@@ -1,7 +1,7 @@
-"""Answering questions in one pass, and clearing work that is genuinely cleared.
+"""Notes a validator adds by hand, and clearing work that is genuinely cleared.
 
-Both are easy to get subtly wrong. Answering one question at a time with a page reload between
-each turns a list of six into six round trips, so answers are saved in one pass. And clearing a
+A note is the one thing on any page that came from the person rather than from a model, so losing
+one is worse than losing a whole stage's output -- the stage can be run again. And clearing a
 stage's status is not clearing the stage: several stages read what they need straight off disk
 rather than through the record, so work that is only forgotten comes straight back on the next
 run.
@@ -15,55 +15,40 @@ from scenario_generator.webapp.app import create_app
 from scenario_generator.webapp.workspace import Workspace
 
 
-class TestAnsweringSeveralAtOnce(unittest.TestCase):
+class TestAddingANote(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
         self.client = create_app(self.root).test_client()
         self.client.post("/workspaces", data={"name": "Test agent"})
         self.workspace = self.root / "test-agent"
 
-    def _answer(self, pairs):
-        data = {}
-        for index, (question, answer) in enumerate(pairs, start=1):
-            data[f"question-{index}"] = question
-            data[f"answer-{index}"] = answer
-        return self.client.post("/stage/intake/answers", data=data)
+    def _note(self, text, stage="intake"):
+        return self.client.post(f"/stage/{stage}/note", data={"note": text})
 
-    def _answered(self):
-        return Workspace.load(self.workspace).answered_questions()
+    def _notes(self):
+        return [note["text"] for note in Workspace.load(self.workspace).notes]
 
-    def test_several_answers_land_in_one_request(self):
-        self._answer([("What are the outcomes of DEC-03?", "Approved or referred"),
-                      ("Which systems does it call?", "The claims API only")])
-        self.assertEqual(self._answered(), {
-            "What are the outcomes of DEC-03?": "Approved or referred",
-            "Which systems does it call?": "The claims API only"})
+    def test_a_note_lands_against_the_stage_it_was_written_at(self):
+        self._note("DEC-03 is approved or referred, never declined.")
+        note = Workspace.load(self.workspace).notes[0]
+        self.assertEqual(note["stage"], "intake")
+        self.assertEqual(note["text"], "DEC-03 is approved or referred, never declined.")
 
-    def test_a_partial_pass_registers_what_it_carried(self):
-        """Nobody has to finish the list in one sitting."""
-        self._answer([("Question one", "An answer"), ("Question two", "")])
-        self.assertEqual(list(self._answered()), ["Question one"])
+    def test_notes_accumulate_rather_than_replace(self):
+        self._note("First thing.")
+        self._note("Second thing.")
+        self.assertEqual(self._notes(), ["First thing.", "Second thing."])
 
-    def test_the_rest_can_be_answered_later(self):
-        self._answer([("Question one", "An answer"), ("Question two", "")])
-        self._answer([("Question two", "A later answer")])
-        self.assertEqual(self._answered(),
-                         {"Question one": "An answer", "Question two": "A later answer"})
+    def test_a_blank_note_records_nothing(self):
+        self._note("   ")
+        self.assertEqual(self._notes(), [])
 
-    def test_an_answer_already_given_can_be_changed(self):
-        self._answer([("Question one", "First thought")])
-        self._answer([("Question one", "Second thought")])
-        self.assertEqual(self._answered()["Question one"], "Second thought")
-
-    def test_a_blank_pass_records_nothing(self):
-        self._answer([("Question one", "  "), ("Question two", "")])
-        self.assertEqual(self._answered(), {})
-
-    def test_answers_reach_the_context_every_later_stage_reads(self):
-        self._answer([("What are the outcomes of DEC-03?", "Approved or referred")])
+    def test_a_note_reaches_the_context_every_later_stage_reads(self):
+        """The whole reason to type one: a note written while reading documents has to inform the
+        review, and asking for it again there is a good way to lose it."""
+        self._note("Disputes over 500 always go to a person.")
         context = Workspace.load(self.workspace).context_text()
-        self.assertIn("What are the outcomes of DEC-03?", context)
-        self.assertIn("Approved or referred", context)
+        self.assertIn("Disputes over 500 always go to a person.", context)
 
 
 class TestClearingWork(unittest.TestCase):
@@ -111,7 +96,7 @@ class TestClearingWork(unittest.TestCase):
         self.assertEqual(self._status("intake"), "complete")
 
     def test_clearing_a_later_stage_leaves_an_earlier_one_alone(self):
-        """The registry belongs to the benchmark stage, not to the stages that rewrite it."""
+        """The registry belongs to the workflow stage, not to the stages that rewrite it."""
         self.client.post("/stage/scenarios/reset", data={"purge": "1"})
         self.assertTrue((self.workspace / "registry.xlsx").exists())
         self.assertEqual(self._status("workflow"), "complete")

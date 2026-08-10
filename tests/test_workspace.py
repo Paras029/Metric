@@ -1,6 +1,6 @@
 """The workspace's job is to stop early changes leaving stale work downstream looking finished.
 
-These tests are about that rule and the states around it, since a benchmark issued from a
+These tests are about that rule and the states around it, since a scenario space issued from a
 registry that no longer matches its intake is exactly the failure the interface exists to make
 impossible to reach by accident.
 """

@@ -20,12 +20,12 @@ to each scenario and how much weight it carries. No single signal decides a tier
   to catch by other means, so it should trend above a shallow one- or two-step route, all else
   being equal.
 
-- similar_scenarios_in_benchmark and steps_rank_within_similar_group: computed redundancy. The
+- similar_scenarios_in_space and steps_rank_within_similar_group: computed redundancy. The
   first counts scenarios sharing this one's category and capability set; the second ranks depth
   within that group, where 1 is the deepest. In a crowded group the rank-1 scenario should carry
   the group's full weight and the shallower near-duplicates should sit a tier below what they
   would merit alone, because they add little once the deepest is covered. This discount never
-  takes a scenario below Medium when it is the only one in the whole benchmark touching a
+  takes a scenario below Medium when it is the only one in the whole scenario space touching a
   state-changing action.
 
 - capabilities_involved: weigh what the capability is for, not that it appears. A gating function

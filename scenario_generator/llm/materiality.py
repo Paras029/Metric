@@ -1,7 +1,7 @@
 """Materiality assessment.
 
 Run as its own sweep rather than alongside the description, because the tier depends on
-comparison: whether a scenario matters is partly a question of what else the benchmark already
+comparison: whether a scenario matters is partly a question of what else the scenario space already
 contains. Redundancy and relative depth are computed deterministically across the whole set
 first, then attached to every batched call as evidence.
 
@@ -85,7 +85,7 @@ class MaterialityAssessor:
 
     def _call(self, user: str) -> str:
         """Its own tier: this reasons about a scenario against its peers, but every chunk of the
-        benchmark is in flight against it at once, which is what makes it worth separating from
+        scenario space is in flight against it at once, which is what makes it worth separating from
         the single-shot judgement passes -- both in what it can be pointed at and in how hard a
         transient failure retries."""
         return call(self._complete, prompt_loader.load(_SYSTEM_PROMPT), user,

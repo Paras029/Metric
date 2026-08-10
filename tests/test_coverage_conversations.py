@@ -15,7 +15,7 @@ from pathlib import Path
 
 from openpyxl import Workbook
 
-from scenario_generator.core.models import BenchmarkScenario
+from scenario_generator.core.models import ScenarioRow
 from scenario_generator.core.representation import build_report
 from scenario_generator.ingest.conversations import (UnreadableConversations, read_conversations,
                                                      _split_prefixed)
@@ -33,7 +33,7 @@ def _sheet(rows) -> Path:
 
 
 def _bench(*ids) -> list:
-    return [BenchmarkScenario(id=i, path_str="DEC-01=Pass", category="Happy path",
+    return [ScenarioRow(id=i, path_str="DEC-01=Pass", category="Happy path",
                               materiality="High", capabilities=[], persona_id="P1",
                               signature=()) for i in ids]
 

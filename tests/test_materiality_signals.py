@@ -22,9 +22,9 @@ class TestPeerSignals(unittest.TestCase):
             _scenario("SC-C", "Happy path", ["CAP-02"], 5),   # different group
         ]
         signals = peer_signals(scenarios)
-        self.assertEqual(signals["SC-A"]["similar_scenarios_in_benchmark"], 2)
-        self.assertEqual(signals["SC-B"]["similar_scenarios_in_benchmark"], 2)
-        self.assertEqual(signals["SC-C"]["similar_scenarios_in_benchmark"], 1)
+        self.assertEqual(signals["SC-A"]["similar_scenarios_in_space"], 2)
+        self.assertEqual(signals["SC-B"]["similar_scenarios_in_space"], 2)
+        self.assertEqual(signals["SC-C"]["similar_scenarios_in_space"], 1)
 
     def test_deepest_scenario_in_group_ranks_first(self):
         scenarios = [
@@ -41,7 +41,7 @@ class TestPeerSignals(unittest.TestCase):
             _scenario("SC-B", "Fallback", ["CAP-02", "CAP-01"], 2),   # same set, different order
         ]
         signals = peer_signals(scenarios)
-        self.assertEqual(signals["SC-A"]["similar_scenarios_in_benchmark"], 2)
+        self.assertEqual(signals["SC-A"]["similar_scenarios_in_space"], 2)
 
 
 if __name__ == "__main__":

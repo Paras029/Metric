@@ -1,6 +1,6 @@
 """Counting the model calls a stage makes.
 
-Reading a document pack or reviewing a large benchmark is anywhere from three calls to a hundred,
+Reading a document pack or reviewing a large scenario space is anywhere from three calls to a hundred,
 and until a run finishes there is nothing that says which. The number is worth reporting for two
 reasons that have nothing to do with curiosity: it is what a gateway quota is spent in, and a
 count that jumps between two runs of the same stage is usually the first visible sign that

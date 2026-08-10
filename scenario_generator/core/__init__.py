@@ -10,13 +10,13 @@ from .graph import DecisionGraph, enumerate_paths
 from .probes import applicable, build_probes, load_library
 from .proposals import instantiate_proposal, instantiate_proposals
 from .intake import read_intake, read_owner_scenarios, write_template
-from .models import (CAPABILITY_TYPES, FUNCTIONAL_ORIGINS, ORIGINS, BenchmarkScenario,
+from .models import (CAPABILITY_TYPES, FUNCTIONAL_ORIGINS, ORIGINS, ScenarioRow,
                      Capability, Decision, IntakeData, OwnerScenario, Persona, Scenario,
                      State, Step, Tool, TurnMeta, canonical_origin)
 
 __all__ = [
     "IntakeData", "Persona", "Capability", "Decision", "State", "Tool",
-    "Scenario", "Step", "TurnMeta", "BenchmarkScenario", "OwnerScenario",
+    "Scenario", "Step", "TurnMeta", "ScenarioRow", "OwnerScenario",
     "read_intake", "read_owner_scenarios", "write_template",
     "DecisionGraph", "enumerate_paths",
     "instantiate_all", "bind_persona", "build_turn_meta", "categorise",

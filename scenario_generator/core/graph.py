@@ -28,7 +28,7 @@ MAX_PATHS = 1000
 # What an opening state says in its "Reached Via" cell when it is not reached by a decision at all.
 # Only consulted for states that name no decision edge: a state reached via "DEC-02=Reconnected"
 # is reached by a decision, and matching "connect" inside that outcome would make it a second
-# place the walk starts from and fill the benchmark with routes the agent cannot take.
+# place the walk starts from and fill the scenario space with routes the agent cannot take.
 _START_HINT = re.compile(r"start|begin|connect|inbound", re.I)
 
 Path = List[Step]

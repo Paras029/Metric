@@ -1,4 +1,4 @@
-"""The review pass: a single sweep over the finished benchmark.
+"""The review pass: a single sweep over the finished scenario space.
 
 Every other pass sees one narrow slice — a batch of scenarios, or one owner scenario at a time.
 This pass is given the whole picture: what the validation is for, what the agent is, its full
@@ -114,7 +114,7 @@ def _batch_payload(scenarios: List[Scenario], signals: dict) -> str:
 
 
 class NullReviewer:
-    """Leaves the benchmark untouched."""
+    """Leaves the scenario space untouched."""
 
     def review(self, scenarios: List[Scenario], intake: IntakeData,
                owner_scenarios: Optional[List[OwnerScenario]] = None
@@ -148,7 +148,7 @@ class ScenarioReviewer:
         chunks concurrently, and running two at once would put twice ``LLM_MAX_CONCURRENCY``
         connections in flight, which is the number that cap exists to hold down. The cost of the
         second column is modest because it needs a much coarser batch: a seventy-scenario
-        benchmark is twelve materiality calls and four category ones.
+        scenario space is twelve materiality calls and four category ones.
         """
         cancellation.check(self._cancel)
         preamble = self._preamble(intake)
@@ -193,9 +193,9 @@ class ScenarioReviewer:
     def _adjudicate(self, scenarios: List[Scenario], preamble: str, shared: dict) -> int:
         """Settle the scenarios the two materiality readings disagree about. Returns how many.
 
-        A third opinion, but only where one is worth paying for. Every scenario in this benchmark
+        A third opinion, but only where one is worth paying for. Every scenario in this scenario space
         is weighed twice already -- once by the materiality pass, against its immediate peers with
-        the redundancy signals in hand, and once by the review, against the whole benchmark -- and
+        the redundancy signals in hand, and once by the review, against the whole scenario space -- and
         those two readings are given genuinely different things to look at. Where they land in the
         same place or one tier apart, that is two readings agreeing to within the precision the
         scale has. Where they land two or more apart, one of them is missing something, and the
@@ -203,7 +203,7 @@ class ScenarioReviewer:
 
         Asking a third time about *everything* would be the expensive version of this and would
         mostly re-litigate agreement. Asking only about the conflicts costs one call on a typical
-        benchmark and nothing at all on a benchmark that has none, and the call is a better call
+        scenario space and nothing at all on a scenario space that has none, and the call is a better call
         for it: both rationales are in front of it, so it is adjudicating an argument rather than
         forming a fresh opinion in isolation.
 
@@ -269,7 +269,7 @@ class ScenarioReviewer:
                done: int, total: int, subject_count: int,
                render: Callable[[List[Scenario]], str],
                apply_reply: Callable[[List[Scenario], object], None]) -> int:
-        """One column judged across the whole benchmark. Returns the running progress count.
+        """One column judged across the whole scenario space. Returns the running progress count.
 
         Every chunk's call goes out together: each judges its own scenarios against the
         whole-set digest built once above, so none of them waits on another's reply. Replies are

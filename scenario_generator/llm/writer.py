@@ -9,7 +9,7 @@ outcome. That is enforced here by what the model is given rather than only by wh
 outcomes are supplied, because the tester has to know which condition to induce, but the route's
 destination is never in the prompt and so cannot reach the challenge pack through this call.
 
-A benchmark of any size is several chunks of scenarios, and every chunk needs its own call. Those
+A scenario space of any size is several chunks of scenarios, and every chunk needs its own call. Those
 calls go out together rather than one after another: nothing in one chunk's text depends on
 another's, so there is no reason the second should wait for the first to come back. What each
 chunk's reply settles is still applied one chunk at a time, in the order the chunks were made, so
@@ -87,47 +87,50 @@ class ScenarioWriter:
         self._cancel = cancel
 
     def write(self, scenarios: List[Scenario], intake: IntakeData) -> List[Scenario]:
-        """Graph scenarios and probes are written by separate prompts, so batch them separately.
+        """Write every scenario, in one flight of calls.
 
-        Every chunk's call goes out together within its group; nothing in one chunk's text
-        depends on another's. Replies are applied in the order the chunks were made regardless
-        of which came back first, so a benchmark written this way reads exactly as it would have
-        one chunk at a time -- only the waiting overlaps.
+        Graph scenarios and probes are written by different prompts, so they are chunked apart --
+        but they share a system prompt and nothing in either depends on the other, so all the
+        chunks go out together. Sending the two groups as separate flights made every probe wait
+        on the slowest graph chunk for no reason at all.
+
+        Replies are applied in the order the chunks were made regardless of which came back
+        first, so a scenario space written this way reads exactly as it would have one chunk at a
+        time -- only the waiting overlaps.
         """
         cancellation.check(self._cancel)
-        written = 0
-        for group in ([s for s in scenarios if not s.is_probe],
-                      [s for s in scenarios if s.is_probe]):
-            if not group:
-                continue
-            pending = list(chunks(group, self._batch))
-            system = prompt_loader.load(_SYSTEM_PROMPT)
-            # Report as replies land rather than only once they are applied. Every call in a group
-            # goes out together, so applying them is a fraction of a second at the end of a wait
-            # that can run to minutes -- a bar driven off the applying loop sits at nothing and
-            # then finishes at once, which is accurate about the code and useless to watch.
-            sizes = [len(chunk) for chunk in pending]
-            base = written
-            replies = call_batch(self._complete, system, [self._render(c, intake) for c in pending],
-                                 tier=config.stage_tier("WRITER", config.STANDARD),
-                                 max_concurrency=config.stage_concurrency("WRITER"),
-                                 cancel=self._cancel,
-                                 on_progress=lambda done, _total, sizes=sizes, base=base: (
-                                     self._progress(
-                                         f"Written {base + sum(sizes[:done])} of "
-                                         f"{len(scenarios)} scenarios",
-                                         base + sum(sizes[:done]), len(scenarios))))
+        pending = [chunk
+                   for group in ([s for s in scenarios if not s.is_probe],
+                                 [s for s in scenarios if s.is_probe])
+                   for chunk in chunks(group, self._batch)]
+        if not pending:
+            return scenarios
 
-            for chunk, reply in zip(pending, replies):
-                cancellation.check(self._cancel)
-                filled = self._apply(chunk, reply)
-                for scenario in chunk:                     # refill anything the batch dropped
-                    if scenario.id not in filled:
-                        cancellation.check(self._cancel)
-                        self._write_one(scenario, intake)
-                written += len(chunk)
-                self._progress(f"Written {written} of {len(scenarios)} scenarios",
-                               written, len(scenarios))
+        system = prompt_loader.load(_SYSTEM_PROMPT)
+        # Report as replies land rather than only once they are applied. Every call goes out
+        # together, so applying them is a fraction of a second at the end of a wait that can run
+        # to minutes -- a bar driven off the applying loop sits at nothing and then finishes at
+        # once, which is accurate about the code and useless to watch.
+        sizes = [len(chunk) for chunk in pending]
+        replies = call_batch(self._complete, system, [self._render(c, intake) for c in pending],
+                             tier=config.stage_tier("WRITER", config.STANDARD),
+                             max_concurrency=config.stage_concurrency("WRITER"),
+                             cancel=self._cancel,
+                             on_progress=lambda done, _total: self._progress(
+                                 f"Written {sum(sizes[:done])} of {len(scenarios)} scenarios",
+                                 sum(sizes[:done]), len(scenarios)))
+
+        written = 0
+        for chunk, reply in zip(pending, replies):
+            cancellation.check(self._cancel)
+            filled = self._apply(chunk, reply)
+            for scenario in chunk:                     # refill anything the batch dropped
+                if scenario.id not in filled:
+                    cancellation.check(self._cancel)
+                    self._write_one(scenario, intake)
+            written += len(chunk)
+            self._progress(f"Written {written} of {len(scenarios)} scenarios",
+                           written, len(scenarios))
 
         self._repair(scenarios, intake)
         return scenarios

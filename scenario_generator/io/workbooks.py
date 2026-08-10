@@ -9,9 +9,9 @@
                      scenario, run and turn.
     Registry         Internal. Full metadata, per-turn expected outcomes, and the text as
                      issued. The canonical index coverage matches against.
-    Coverage Report  Internal. How many of the model owner's own conversations landed on each
-                     benchmark scenario, the per-conversation working behind those counts, and
-                     whether the model owner's own grouping agrees with the benchmark.
+    Coverage Report  Internal. How many of the model owner's conversations landed on each
+                     scenario, the per-conversation working behind those counts, and
+                     whether the model owner's own grouping agrees with the space.
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from ..core.generation import (fallback_description, fallback_turn_plan, recomme
                                 required_runs, turn_plan_lines)
 from ..utils.text import parse_path_str
 from ..core.models import (FUNCTIONAL_ORIGINS, ORIGIN_GRAPH, ORIGIN_PROBE,
-                           BenchmarkScenario, IntakeData, Scenario, Step, TurnMeta,
+                           ScenarioRow, IntakeData, Scenario, Step, TurnMeta,
                            canonical_origin)
 from ..core.probes import ADVERSARIAL_PERSONA
 
@@ -114,12 +114,12 @@ def read_scenarios(path: str, intake: IntakeData) -> List[Scenario]:
     """Reconstruct full Scenario objects from a graph or registry workbook (same Scenario_Metadata
     / Turn_Metadata layout). If a Scenario_Text sheet is present (registry files), its LLM-authored
     description/turn_plan are used; otherwise the deterministic fallback text is recomputed."""
-    with sheets.open_for_reading(path, "a benchmark workbook") as workbook:
+    with sheets.open_for_reading(path, "a scenario space workbook") as workbook:
         turns_by_id: dict = {}
         for row in sheets.read_rows(workbook["Turn_Metadata"]):
             # Positional rather than numbered: these rows are written in order, and a registry
             # that has been through a spreadsheet by hand can arrive with the turn number
-            # reformatted or blanked. Refusing to open the whole benchmark over one such cell
+            # reformatted or blanked. Refusing to open the whole scenario space over one such cell
             # would be a far worse outcome than renumbering from the order it is already in.
             turns = turns_by_id.setdefault(row[0], [])
             turns.append(TurnMeta(
@@ -131,7 +131,7 @@ def read_scenarios(path: str, intake: IntakeData) -> List[Scenario]:
         # below is: a registry written before the Name column existed has Description where Name
         # now sits, and reading positionally would put the description into the name, the turn
         # plan into the description, and nothing at all into the turn plan -- silently, and in
-        # the file that is the record of the whole benchmark.
+        # the file that is the record of the whole space.
         text_by_id: dict = {}
         if "Scenario_Text" in workbook.sheetnames:
             text_header, text_rows = sheets.read_table(workbook["Scenario_Text"])
@@ -266,18 +266,18 @@ def write_registry(path: str, intake: IntakeData, scenarios: List[Scenario]) -> 
     workbook.save(path)
 
 
-def read_registry(path: str, functional_only: bool = True) -> List[BenchmarkScenario]:
-    """Load a generated registry back as the benchmark, keeping its category and materiality.
+def read_registry(path: str, functional_only: bool = True) -> List[ScenarioRow]:
+    """Load a generated registry back as the space, keeping its category and materiality.
 
-    Coverage is a statement about the functional benchmark, so probes are excluded by default —
+    Coverage is a statement about the functional space, so probes are excluded by default —
     filtered on `Origin`, not on having an empty decision path, since other scenario kinds may
     legitimately share a path with a graph scenario.
     """
-    with sheets.open_for_reading(path, "a benchmark workbook") as workbook:
+    with sheets.open_for_reading(path, "a scenario space workbook") as workbook:
         header, rows = sheets.read_table(workbook["Scenario_Metadata"])
 
     at = {name: index for index, name in enumerate(header)}
-    benchmark = []
+    space = []
     for row in rows:
         def cell(name, _row=row):
             index = at.get(name)
@@ -286,7 +286,7 @@ def read_registry(path: str, functional_only: bool = True) -> List[BenchmarkScen
         origin = canonical_origin(cell("Origin")) or ORIGIN_GRAPH
         if functional_only and origin not in FUNCTIONAL_ORIGINS:
             continue
-        benchmark.append(BenchmarkScenario(
+        space.append(ScenarioRow(
             id=cell("SC ID"), path_str=cell("Decision Path"), category=cell("Category"),
             # The same precedence effective_materiality applies, read off the sheet.
             materiality=(cell("Materiality Override") or cell("Reviewed Materiality")
@@ -295,18 +295,18 @@ def read_registry(path: str, functional_only: bool = True) -> List[BenchmarkScen
             persona_id=cell("Persona ID"),
             signature=tuple(parse_path_str(cell("Decision Path"))),
             origin=origin))
-    return benchmark
+    return space
 
 
 def write_coverage_report(path: str, report, mappings, texts: dict = None) -> None:
     """What the model owner's conversations cover, as a workbook.
 
     Three sheets, in the order the questions get asked. *Scenarios* is the answer -- every
-    benchmark scenario with how many conversations landed on it, least covered first, because the
+    scenario with how many conversations landed on it, least covered first, because the
     thin end of that list is what goes back to the model owner. *Conversations* is the working:
     one row per transcript with the scenario it was matched to and how sure the match was, so a
     figure on the first sheet can be traced to the exchanges behind it. *Owner Grouping* appears
-    only where the model owner supplied one, and says whether it agrees with the benchmark.
+    only where the model owner supplied one, and says whether it agrees with the space.
     """
     texts = texts or {}
     workbook = Workbook()

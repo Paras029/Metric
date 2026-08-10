@@ -1,4 +1,4 @@
-"""The benchmark as something a person can read on screen.
+"""The scenario space as something a person can read on screen.
 
 The registry holds everything: decision paths, per-turn expected outcomes, probe provenance,
 signatures. Almost none of that belongs on a page. What a reviewer is doing here is deciding
@@ -7,7 +7,7 @@ what it is judged to be worth, and whether anything has been flagged about it --
 it walks through the graph.
 
 So this module deliberately narrows. The route, the seeded state, the expected outcome and the
-internal identifiers stay in the workbook, which is where someone auditing the benchmark will
+internal identifiers stay in the workbook, which is where someone auditing the scenario space will
 look for them. The screen carries the reading, and the workbook carries the record.
 
 One consequence worth stating: the expected outcome is withheld here as well. It is not secret
@@ -23,7 +23,7 @@ from ..core.models import (MATERIALITY, ORIGIN_GRAPH, ORIGIN_PROBE, ORIGIN_PROPO
                            ORIGIN_VARIANT_GAP, Scenario)
 
 # What each view narrows to. "Needs attention" is first because it is the reason to open this
-# panel at all: a benchmark of three hundred scenarios is not read end to end, it is triaged.
+# panel at all: a space of three hundred scenarios is not read end to end, it is triaged.
 VIEWS = (
     ("attention", "Needs attention"),
     ("high", "Critical and high"),
@@ -68,8 +68,8 @@ PAGE_SIZE_OPTIONS = (50, 100, 250, "all")
 
 # Columns a person can narrow the list to, each mapped to the row field it reads and, where the
 # vocabulary is closed, the values worth offering even before any scenario has one -- so the
-# dropdown does not visibly change shape as a benchmark moves through materiality and review.
-# Persona and flag are left off this map (open-ended or benchmark-specific) and are populated
+# dropdown does not visibly change shape as a scenario space moves through materiality and review.
+# Persona and flag are left off this map (open-ended or scenario space-specific) and are populated
 # from whatever the rows actually contain instead.
 FILTER_FIELDS: Dict[str, str] = {
     "category": "category", "materiality": "materiality", "origin": "origin",
@@ -88,7 +88,7 @@ def _title(scenario: Scenario) -> str:
 
     The name is written for exactly this -- short, distinguishable from its neighbours, and about
     the situation rather than the expected behaviour. Falling back to the first sentence of the
-    description is what a benchmark written before names existed has, and it is a worse handle
+    description is what a scenario space written before names existed has, and it is a worse handle
     for the reason the name exists: three hundred first sentences that all begin "The cardmember"
     are not scannable.
     """
@@ -176,12 +176,12 @@ def needs_attention(row: Dict[str, object]) -> bool:
 
 
 def shape(scenarios: List[Scenario], stage: str = "summary") -> Dict[str, object]:
-    """How the benchmark is distributed, for the side panel.
+    """How the scenario space is distributed, for the side panel.
 
     Counted over every scenario rather than over the rows on screen. The list in the middle of
     the page is a view -- narrowed to what needs attention, filtered, and cut off at a page
     length -- and a tally taken from it would answer "what am I looking at" when the question the
-    panel exists to answer is "what is in the benchmark".
+    panel exists to answer is "what is in the scenario space".
 
     Tiers appear only once the stage has actually produced them, for the reason given on
     :data:`STAGE_COLUMNS`: every scenario carries Medium from the moment it is built, and a
@@ -242,14 +242,14 @@ def build_rows(scenarios: List[Scenario], view: str = "attention", stage: str = 
     ``filters`` narrows within the view rather than replacing it -- picking "Critical and high"
     and then a persona shows critical-and-high scenarios for that persona, not one or the other.
     ``limit`` caps how many of the narrowed set are actually rendered; ``None`` renders all of
-    them, for the person who has decided fifty is not enough for this benchmark.
+    them, for the person who has decided fifty is not enough for this scenario space.
     """
     shows = set(STAGE_COLUMNS.get(stage, STAGE_COLUMNS["summary"]))
     rows = [to_row(s) for s in scenarios]
 
     # Ordering by tier only says something once a tier has been assigned. Before that every
     # scenario carries the same default and the sort is an illusion of ranking, so they stay in
-    # the order the benchmark built them.
+    # the order the scenario space built them.
     if MATERIALITY_COLUMNS in shows:
         ordering = {tier: index for index, tier in enumerate(reversed(MATERIALITY))}
         rows.sort(key=lambda r: (ordering.get(r["materiality"], len(MATERIALITY)), r["id"]))
@@ -266,7 +266,7 @@ def build_rows(scenarios: List[Scenario], view: str = "attention", stage: str = 
     elif view == "high":
         selected = [r for r in rows if r["materiality"] in ("Critical", "High")]
     elif view == "attention":
-        selected = rows                                    # nothing flagged; show the benchmark
+        selected = rows                                    # nothing flagged; show the scenario space
         view = "all"
     else:
         selected = rows

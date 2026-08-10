@@ -214,7 +214,7 @@ def _earns_its_place(persona: dict) -> bool:
 
     An extra persona has to say what the agent does differently for it. One that says nothing, or
     that is named only for a manner of speaking, is a variation on a persona already present --
-    and every one of those multiplies the benchmark without widening it.
+    and every one of those multiplies the scenario space without widening it.
     """
     difference = persona["applies_to"].strip()
     if len(difference) < 12:
@@ -229,7 +229,7 @@ def _personas(data: dict) -> List[dict]:
     Two are guaranteed because two objectives are always in play: someone using the service as
     intended, and someone trying to turn it against its owner. The rest are admitted only where
     the draft says what the agent itself does differently, and never more than a handful -- every
-    persona multiplies the whole benchmark, so a loose one costs a run of the entire pack.
+    persona multiplies the whole scenario space, so a loose one costs a run of the entire pack.
     """
     drafted = []
     for entry in _objects(data, "personas"):

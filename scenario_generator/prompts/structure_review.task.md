@@ -1,6 +1,6 @@
 WHAT THIS IS
 
-The intake below describes an agent as a decision graph, before it is walked into a benchmark.
+The intake below describes an agent as a decision graph, before it is walked into a scenario space.
 This is a chance to catch two kinds of problem while they are still cheap to fix: pieces of the
 declaration that do not connect to anything, and pieces that connect fine but test the same thing
 more than once.
@@ -34,11 +34,11 @@ TWO KINDS OF PROPOSAL
 2. CONSOLIDATIONS — two or more decisions that are alternate ways of establishing the *same* fact
    rather than genuinely different branches. The test that matters: after each of them, does the
    interaction continue exactly the same way regardless of which one was taken? If yes, they are
-   candidates — separately, they multiply the benchmark by every combination without testing
+   candidates — separately, they multiply the scenario space by every combination without testing
    anything additional past that point; merged into one decision, with each original outcome
    folded into a new shared outcome, the same downstream behaviour is tested at a fraction of the
    cost. If no — if what happens afterwards actually differs by which method was used — do not
-   propose merging them, because that difference is exactly what a benchmark exists to catch.
+   propose merging them, because that difference is exactly what a scenario space exists to catch.
 
    Do not propose merging decisions that differ in *what* they gate rather than *how* they
    establish it: authenticating a caller and authorising a specific transaction are different

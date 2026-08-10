@@ -25,9 +25,9 @@ can turn.
 
 A validation team is asked whether an agentic AI system is fit for the business purpose it was
 built for. It did not build the agent, and it does not take the model owner's testing at face
-value: it constructs its own benchmark, issues it, and judges what comes back.
+value: it constructs its own scenario space, issues it, and judges what comes back.
 
-Two properties make that benchmark worth anything.
+Two properties make that scenario space worth anything.
 
 **It is exhaustive over what was declared.** The agent is described as a decision graph, and the
 graph is walked. Every distinct route through it becomes one scenario, so coverage of the declared
@@ -117,13 +117,13 @@ A **Redact** checkbox next to each uploaded model-documentation or supporting fi
 file to be redacted the next time Documents runs, whether or not `PII_REDACTION` is on for
 everything else — one particularly sensitive upload does not require switching redaction on for
 the whole pack. It has no effect the other way round: there is no per-file opt-out once
-`PII_REDACTION` is on. Diagrams have no text to redact, and the model owner's own conversations
+`PII_REDACTION` is on. Diagrams have no text to redact, and the model owner's conversations
 never reach this reading at all, so neither shows the checkbox.
 
 #### The declaration itself
 
 The intake is the authoritative description of the agent, and the boundary of what can be tested.
-Anything absent from it is absent from the benchmark. Draft it from the documents, upload one you
+Anything absent from it is absent from the scenario space. Draft it from the documents, upload one you
 already have, or start from a blank template — see [The intake workbook](#the-intake-workbook).
 
 **The draft is checked and put back to the model once.** A single call over a long context
@@ -220,7 +220,7 @@ stray state should be reached via.
 *Consolidations* — decisions that look like alternate routes to the same fact rather than genuinely
 different branches, the way a caller might be identified by the last four digits of an SSN, the
 full SSN, or a card number, with nothing afterwards depending on which one was used. Every one of
-those multiplies the benchmark by every combination without testing anything additional past the
+those multiplies the scenario space by every combination without testing anything additional past the
 point where they converge; merged into one decision, the same downstream behaviour is tested at a
 fraction of the cost. The pass is told which decisions are *structural* candidates — every outcome
 of each lands on the same downstream point as every outcome of the others — as a computed hint,
@@ -256,7 +256,7 @@ script. The writer is never shown the scenario's terminal state, so the expected
 reach the pack through the text it writes.
 
 The **name** is a handle rather than a summary — six words or fewer, about the situation and never
-about the expected behaviour. It exists because a benchmark is three hundred rows in a spreadsheet
+about the expected behaviour. It exists because a scenario space is three hundred rows in a spreadsheet
 and three hundred rows on a page, and until it existed the only handle on any of them was the
 first sentence of a description; those sentences all open the same way, because they describe the
 same agent. One exists before any model runs, built from the route itself.
@@ -271,13 +271,13 @@ word "dispute" honestly. Failures go back once in a single batched call with the
 rewrite that is not strictly cleaner than what it replaces is discarded, and anything still
 leaking is logged by id.
 
-**Variation space** is not built yet. It reads the benchmark, writes it back unchanged, takes its
+**Variation space** is not built yet. It reads the scenario space, writes it back unchanged, takes its
 snapshot like every other scenario stage, and says so on its own result card — so the pipeline
 already has the shape it will keep and nothing downstream changes when it is filled in.
 
 **Materiality** assigns Low / Medium / High / Critical per scenario, which drives how many runs
 the challenge pack requests. It judges the set rather than each scenario in isolation: whether a
-scenario is the worst thing here depends partly on what else is in the benchmark, and redundancy
+scenario is the worst thing here depends partly on what else is in the scenario space, and redundancy
 is a real discount.
 
 **Final review** is the last pass before the pack is issued. It settles materiality, checks each
@@ -286,7 +286,7 @@ redundant, under-specified or mis-scoped, and proposes additions for what enumer
 reach — everything the intake's author did not think to declare, and everything about this specific
 business a generic probe library could not know.
 
-It is three calls, not one. Materiality and flagging are one sweep over the benchmark; the
+It is three calls, not one. Materiality and flagging are one sweep over the scenario space; the
 declared-ending check is a second, coarser one; proposing additions is a third. The two sweeps are
 different readings — one asks what failure would cost, the other how the interaction ends — and a
 single prompt carrying both tends to answer the first well and the second as an afterthought.
@@ -295,12 +295,12 @@ Every verdict is written to its own column beside the value it disagrees with, n
 both readings stay visible and a person rules. The review cannot remove anything: flagging a
 scenario as redundant is a recommendation.
 
-From stage 5 onward the page shows the benchmark itself: what each scenario asks the agent to do,
+From stage 5 onward the page shows the scenario space itself: what each scenario asks the agent to do,
 what it is judged to be worth and why, and anything the review flagged. Materiality can be
 overridden and a flag dismissed from there, straight into the registry. The side panel carries the
 shape of the whole pack alongside it — how many scenarios sit at each tier, how many test runs that
-adds up to, and how much of it the model owner's own testing has already exercised — because the
-list in the middle is always a view of part of the benchmark and the panel answers what is in all
+adds up to, and how much of it the model owner's testing has already exercised — because the
+list in the middle is always a view of part of the scenario space and the panel answers what is in all
 of it. Routes, expected outcomes and per-turn detail stay in the workbook — the screen carries the
 reading, the workbook carries the record.
 
@@ -322,12 +322,12 @@ cell; or a document with no table at all, conversations separated by headings wi
 `Agent:` prefixes on each line. Spreadsheets, CSV, Word, PDF and plain text all work.
 
 **One conversation maps to exactly one scenario, and the match is decided by where the conversation
-ends.** A benchmark scenario is a complete route to a specific ending, and some routes are prefixes
+ends.** A scenario space scenario is a complete route to a specific ending, and some routes are prefixes
 of others: a conversation that authenticates and stops is not the same test as one that
 authenticates and then goes on to verify a charge, even though the second contains the first.
 Filing the short one under the long one would report coverage that does not exist, so the matcher
 is told explicitly not to. "No scenario fits" is a first-class answer — it means either the model
-owner is testing something the benchmark never enumerated, which is worth knowing, or that
+owner is testing something the scenario space never enumerated, which is worth knowing, or that
 conversation is not a test of this agent.
 
 **Coverage is a count, not a flag.** One conversation against a scenario and forty against it are
@@ -394,7 +394,7 @@ engagement. The decision stays in the sheet and stays in the graph picture, draw
 the graph is not honest without it — but no scenario is generated through it, and it does not
 count against the completeness checks the intake stage reports. Flip it from the intake stage
 itself (a checkbox beside each declared decision, in effect immediately) or in the workbook
-directly; either way it takes hold the next time the benchmark is built.
+directly; either way it takes hold the next time the scenario space is built.
 
 A drafted intake includes a **Review This** sheet giving a confidence per section and the specific
 points the draft could not settle. Read it before relying on the draft.
@@ -417,7 +417,7 @@ names it outright.
 **A file that will not parse stops the run rather than being ignored.** Falling back to the
 built-in defaults is the worse failure: every value the file was setting reverts at once — which
 model each stage calls, the batch sizes, the budgets — and the run proceeds and produces plausible
-output, so the mistake surfaces later as a benchmark that is subtly not the one you asked for. On
+output, so the mistake surfaces later as a scenario space that is subtly not the one you asked for. On
 startup a broken file is a refusal to start, naming the line. If a file that was working is broken
 by an edit *while a run is under way*, the settings from before the edit stay in force and the
 problem is logged as an error; nothing reverts to a default mid-run.
@@ -426,7 +426,7 @@ problem is logged as an error; nothing reverts to a default mid-run.
 
 A tier is shared by every call doing the same *kind* of work, which is coarser than every call
 *site*: weighing a scenario's materiality and checking the review's declared category are both
-Materiality-tier work, but they are two different calls in two different passes, and a benchmark
+Materiality-tier work, but they are two different calls in two different passes, and a scenario space
 can want them tuned differently — a smaller model for the mechanical category check, the full one
 for materiality itself.
 
@@ -456,14 +456,14 @@ this level changes nothing.
 | `REVIEWER_ASSESS` | Review's materiality + flagging sweep, and the adjudication | Judgement | 6 |
 | `REVIEWER_CATEGORY` | Review's declared-category check | Materiality | 20 |
 | `REVIEWER_PROPOSE` | Review's addition proposals | Judgement | — |
-| `COVERAGE_MAP` | Mapping submitted conversations onto the benchmark | Judgement | 5 |
+| `COVERAGE_MAP` | Mapping submitted conversations onto the scenario space | Judgement | 5 |
 
 For example, `LLM_STAGE_REVIEWER_CATEGORY_MODEL_ID=some-cheap-model` moves only the category
 check onto a smaller model, leaving materiality assessment on whatever `LLM_MATERIALITY_MODEL_ID`
 (or `LLM_MODEL_ID`) says, even though both share the Materiality tier by default.
 
 Materiality is split out from judgement rather than sharing it, because it is also the tier under
-the most concurrent load: every chunk of the benchmark is sent at once, so a gateway hiccup there
+the most concurrent load: every chunk of the scenario space is sent at once, so a gateway hiccup there
 means several simultaneous retries rather than one. It defaults to a shorter retry ladder for that
 reason, and can be pointed at a smaller model independently of judgement if you are seeing
 connection errors under load.
@@ -473,7 +473,7 @@ connection errors under load.
 "Batching" is two separate numbers, and they answer two different questions.
 
 **Batch size** — how many rows go into the payload of *one* call. This decides how many calls a
-fixed amount of work turns into: a benchmark of 100 scenarios at a batch size of 10 is 10 calls; at
+fixed amount of work turns into: a space of 100 scenarios at a batch size of 10 is 10 calls; at
 20, it is 5 larger calls. It does not change how much is sent in total, only how it is divided up,
 and dividing it up too coarsely is what lets a single scenario's judgement get lost inside a call
 that is weighing twenty others at the same time.
@@ -493,7 +493,7 @@ actually weighing, not from one shared number:
 - **Scenario text** (8 scenarios a call) writes each one mostly independently — the only shared
   context is the use case and house style — so the chunk exists purely to amortise that shared
   preamble across several scenarios rather than resending it once per scenario.
-- **Materiality** (10 a call) has to see enough of the benchmark at once to judge relative
+- **Materiality** (10 a call) has to see enough of the scenario space at once to judge relative
   consequence — whether a scenario is "the worst thing here" depends partly on what else is in the
   same call — without the call growing so large that a single scenario's tier gets lost in it.
 - **Review's assessment sweep** (6 a call) is the most demanding read per scenario: it is settling
@@ -504,10 +504,10 @@ actually weighing, not from one shared number:
   declared outcome type actually match what the scenario does — so it tolerates a much larger
   chunk without the same loss of attention per item.
 - **The adjudication** reuses the review's own batch size, and fires only on scenarios the two
-  materiality readings put two or more tiers apart. A benchmark whose two readings agree pays
+  materiality readings put two or more tiers apart. A scenario space whose two readings agree pays
   nothing for it; one with a handful of conflicts pays one call.
 - **Coverage mapping** (5 a call) is the smallest, because a transcript is many times the size of
-  a scenario description and every call has to carry the whole benchmark alongside them for the
+  a scenario description and every call has to carry the whole scenario space alongside them for the
   match to be possible at all.
 
 None of this is tuned to a model's context window; every call here is far short of it. It is tuned
@@ -538,7 +538,7 @@ pack is read on its own and in parallel with the others, and parsing several sub
 (PDF, Word, Excel…) into text also happens in parallel — none of that is affected by
 `LLM_MAX_CONCURRENCY` or the per-stage concurrency override, since none of it is chunked the way
 the stages above are: there are only ever a few facet groups or a few files in flight at once
-regardless of benchmark size.
+regardless of scenario space size.
 
 ### What a model call is actually sent
 

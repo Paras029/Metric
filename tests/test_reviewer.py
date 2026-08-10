@@ -6,7 +6,7 @@ import json
 from scenario_generator.core.models import (Capability, Decision, IntakeData, OwnerScenario,
                                             Persona, State, Tool)
 from scenario_generator.core.probes import build_probes
-from scenario_generator.pipeline import build_scenarios
+from scenario_generator.pipeline import build_scenario_space
 from scenario_generator.core.proposals import instantiate_proposals
 from scenario_generator.llm import config
 from scenario_generator.llm.reviewer import ScenarioReviewer
@@ -110,7 +110,7 @@ class TestReviewSweep(unittest.TestCase):
         return complete
 
     def test_review_runs_on_the_judgement_tier(self):
-        """This pass reads the whole benchmark and justifies every verdict, so it takes the
+        """This pass reads the whole scenario space and justifies every verdict, so it takes the
         largest output budget and the highest reasoning effort. Reasoning is drawn from the reply
         budget, so the two only make sense together -- which is why a tier carries both."""
         ScenarioReviewer(complete=self._fake(), batch_size=4).review(self.scenarios, _INTAKE)
@@ -176,7 +176,7 @@ class TestReviewSweep(unittest.TestCase):
     def test_peer_signals_are_supplied_as_evidence(self):
         """Redundancy is measured deterministically and handed over, not left to be guessed."""
         ScenarioReviewer(complete=self._fake(), batch_size=4).review(self.scenarios, _INTAKE)
-        self.assertIn("similar_scenarios_in_benchmark", self.seen[0]["user"])
+        self.assertIn("similar_scenarios_in_space", self.seen[0]["user"])
 
     def test_materiality_scale_and_mission_reach_every_call(self):
         ScenarioReviewer(complete=self._fake(), batch_size=4).review(self.scenarios, _INTAKE)
@@ -222,7 +222,7 @@ class TestTheCategorySweep(unittest.TestCase):
     silently, which is why the review reads it back."""
 
     def setUp(self):
-        self.scenarios = build_scenarios(_INTAKE)
+        self.scenarios = build_scenario_space(_INTAKE)
         self.assertTrue(self.scenarios, "the fixture intake should produce graph scenarios")
 
     def _fake(self, category="Escalation", rationale="ends with a handoff"):

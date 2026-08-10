@@ -11,7 +11,7 @@ happened to be last, and says nothing about having done so, which makes a thin r
 truncated one indistinguishable. So the cap is set where a real context document fits under it
 comfortably, and going over it drops **whole sections**, from the end, and says which ones. A
 reader can then act on it -- trim the pack, or raise the cap -- rather than wondering why a
-threshold that is plainly in the documentation never reached the benchmark.
+threshold that is plainly in the documentation never reached the scenario space.
 """
 from __future__ import annotations
 

@@ -1,8 +1,8 @@
-"""Where the benchmark's shape is decided, and the ways it went quietly wrong.
+"""Where the scenario space's shape is decided, and the ways it went quietly wrong.
 
 Every case here is one a real intake produces and none of them raised anything: the walk started
 somewhere it should not have, a scenario reported the wrong opening state, or a set of adversarial
-probes stopped being generated because a capability was typed with a space. A benchmark that is
+probes stopped being generated because a capability was typed with a space. A scenario space that is
 silently missing routes is the failure this whole tool exists to prevent, so each is pinned.
 """
 import logging

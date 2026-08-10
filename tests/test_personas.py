@@ -4,7 +4,7 @@ A persona is a person arriving with an objective. Two objectives are always in p
 wants the service to work, and someone who wants the agent to act outside its remit — and past
 those, a persona has to earn its place by changing what the agent does.
 
-The reason to be strict is arithmetic. Every persona multiplies the whole benchmark: enumerate
+The reason to be strict is arithmetic. Every persona multiplies the whole scenario space: enumerate
 four temperaments and the same route is tested four times over while the routes that matter go
 untested. "Impatient user" is not a different objective, it is the same objective in a different
 tone, and the agent does not branch on tone.

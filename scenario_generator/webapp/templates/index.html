@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Metric{% endblock %}
+{% block title %}METRIC{% endblock %}
 
 {% block body %}
 {# Two panels: what this is, and what to do about it.
@@ -11,19 +11,18 @@
 
   <aside class="gate__brand">
     <div class="gate__brandInner">
-      <p class="gate__mark">Metric</p>
+      <p class="gate__mark">METRIC</p>
       <p class="gate__lede">
-        An independent test benchmark for an agentic AI system — built from the model owner's own
+        An independent scenario space for an agentic AI system — built from the model owner's own
         documentation, and issued back to them without the answers.
       </p>
 
       <ol class="route" aria-label="The eight steps">
         {% for stage in stages %}
-          <li class="route__step route__step--{{ stage.mode }}">
+          <li class="route__step">
             <span class="route__node" aria-hidden="true"></span>
             <span class="route__mark mono">{{ "%02d" | format(loop.index) }}</span>
             <span class="route__name">{{ stage.title }}</span>
-            <span class="route__mode">{{ stage.mode_label }}</span>
           </li>
         {% endfor %}
       </ol>

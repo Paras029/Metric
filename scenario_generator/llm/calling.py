@@ -41,7 +41,7 @@ def parsed_reply(reply: Any, pass_name: str, subject: str) -> dict:
     caller already handles, because it is also what happens when a reply parses but leaves an id
     out.
 
-    ``subject`` names the ids involved so the log line says which part of the benchmark went
+    ``subject`` names the ids involved so the log line says which part of the scenario space went
     unanswered rather than only that something did.
     """
     if isinstance(reply, BaseException):

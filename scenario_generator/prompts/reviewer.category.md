@@ -1,6 +1,6 @@
 {{owner}}THE BENCHMARK AS IT STANDS ({{total}} scenarios)
 
-Every scenario currently in the benchmark, in compact form.
+Every scenario currently in the scenario space, in compact form.
 
 {{digest}}
 

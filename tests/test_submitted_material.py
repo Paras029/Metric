@@ -3,7 +3,7 @@
 This is the path that had the most ways to lose a document quietly, and each test here pins one
 of them shut. A file that is stored but never read, a format that is refused for its extension
 rather than its content, a document that contributes nothing without anyone noticing -- none of
-these announce themselves. The benchmark simply comes out thinner, months later, with no record
+these announce themselves. The scenario space simply comes out thinner, months later, with no record
 of why.
 """
 import json
@@ -106,7 +106,7 @@ class TestNothingUploadedIsLost(unittest.TestCase):
                       [p.name for p in files_in(self.workspace, "owner_scenarios")])
 
     def test_their_scenarios_are_never_read_as_evidence_about_the_agent(self):
-        """Their blind spots must not reach the benchmark through the back door."""
+        """Their blind spots must not reach the scenario space through the back door."""
         self.assertNotIn("owner_scenarios", EVIDENCE_GROUPS)
 
     def test_an_unsupported_file_says_what_is_supported(self):

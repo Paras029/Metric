@@ -1,6 +1,6 @@
 """What the coverage stage shows on the page, rebuilt from the mappings rather than re-run.
 
-Mapping conversations onto the benchmark is the expensive half of the stage -- one model call per
+Mapping conversations onto the scenario space is the expensive half of the stage -- one model call per
 handful of transcripts -- and counting them is free. So the mappings are what the workspace keeps,
 and everything here is derived from them each time the page is drawn.
 
@@ -30,12 +30,12 @@ def stored_mappings(workspace: Workspace) -> List[Mapping]:
             for entry in workspace.coverage_mappings()]
 
 
-def stored_report(workspace: Workspace, benchmark) -> Optional[CoverageReport]:
+def stored_report(workspace: Workspace, space) -> Optional[CoverageReport]:
     """The last run's coverage, counted at whatever threshold is set now."""
     mappings = stored_mappings(workspace)
     if not mappings:
         return None
-    return build_report(mappings, benchmark, threshold=workspace.coverage_threshold)
+    return build_report(mappings, space, threshold=workspace.coverage_threshold)
 
 
 def coverage_view(workspace: Workspace, report: CoverageReport,

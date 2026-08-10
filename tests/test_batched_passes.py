@@ -17,7 +17,7 @@ import json
 import unittest
 from typing import Callable, List
 
-from scenario_generator.core.models import (BenchmarkScenario, Capability, Decision, IntakeData,
+from scenario_generator.core.models import (ScenarioRow, Capability, Decision, IntakeData,
                                             Persona, State, Tool)
 from scenario_generator.core.probes import build_probes
 from scenario_generator.ingest.conversations import Conversation, Turn
@@ -25,6 +25,7 @@ from scenario_generator.llm.conversation_mapping import ConversationMapper
 from scenario_generator.llm.materiality import MaterialityAssessor
 from scenario_generator.llm.reviewer import ScenarioReviewer
 from scenario_generator.llm.writer import ScenarioWriter
+from scenario_generator.pipeline import build_scenario_space
 
 # Satisfies every predicate in the probe library, so build_probes returns enough scenarios to
 # split into several chunks under each pass's default batch size.
@@ -96,6 +97,21 @@ class TestTheWriterBatches(unittest.TestCase):
         ScenarioWriter(complete=stub).write(self.scenarios, _INTAKE)
         self.assertEqual(len(stub.batch_calls), 1)
         self.assertEqual(len(stub.batch_calls[0]), 3)
+
+    def test_graph_scenarios_and_probes_leave_in_the_same_flight(self):
+        """They are written by two different prompts, so they are chunked apart -- but nothing in
+        either depends on the other, and sending them as two flights made every probe wait on the
+        slowest graph chunk for no reason.
+        """
+        mixed = build_scenario_space(_INTAKE, with_probes=True)
+        self.assertTrue(any(s.is_probe for s in mixed) and any(not s.is_probe for s in mixed))
+
+        stub = _BatchStub(self._respond)
+        ScenarioWriter(complete=stub, batch_size=4).write(mixed, _INTAKE)
+        self.assertEqual(len(stub.batch_calls), 1, "the two groups went out as separate flights")
+        sent = " ".join(stub.batch_calls[0])
+        for scenario in mixed:
+            self.assertIn(scenario.id, sent)
 
     def test_every_scenario_is_written_regardless_of_which_chunk_it_was_in(self):
         stub = _BatchStub(self._respond)
@@ -236,7 +252,7 @@ class TestConversationMapperBatches(unittest.TestCase):
     """Coverage mapping is the batched pass with the largest inputs, so its chunking matters most.
 
     Its batch is smaller than everything else's on purpose -- a transcript dwarfs a scenario
-    description, and every call has to carry the whole benchmark alongside them.
+    description, and every call has to carry the whole scenario space alongside them.
     """
 
     def setUp(self):
@@ -245,7 +261,7 @@ class TestConversationMapperBatches(unittest.TestCase):
                          turns=[Turn("user", f"I need help with thing number {n}"),
                                 Turn("agent", "Done.")])
             for n in range(20)]
-        self.scenarios = [BenchmarkScenario(id="SC-001", path_str="DEC-01=Pass",
+        self.scenarios = [ScenarioRow(id="SC-001", path_str="DEC-01=Pass",
                                             category="Happy path", materiality="High",
                                             capabilities=[], persona_id="P1", signature=())]
 

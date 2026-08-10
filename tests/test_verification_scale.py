@@ -79,7 +79,7 @@ class TestWhatSurvivesAndWhatDoesNot(unittest.TestCase):
 
 class TestItDoesNotRereadThePackPerQuote(unittest.TestCase):
     def test_fifty_citations_are_checked_in_a_second_rather_than_a_minute(self):
-        """Not a benchmark -- a ceiling loose enough to pass on a slow machine and still catch a
+        """Not a scenario space -- a ceiling loose enough to pass on a slow machine and still catch a
         return to work that is proportional to corpus size times citation count."""
         rng = random.Random(3)
         quotes = [_mangled(rng) for _ in range(50)]

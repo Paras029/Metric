@@ -1,8 +1,8 @@
 WHAT THIS IS
 
-Below is a benchmark of scenarios generated independently from the agent's own documentation, and
+Below is a space of scenarios generated independently from the agent's own documentation, and
 a set of conversations the model owner actually ran against the agent. Your job is to say, for
-each conversation, which single benchmark scenario it demonstrates — or that none of them does.
+each conversation, which single scenario it demonstrates — or that none of them does.
 
 This is how the validator finds out what the model owner's testing already covers and, more
 importantly, what it does not.
@@ -53,7 +53,7 @@ about is far more useful than a `high` you are not.
 WHEN NOTHING FITS
 
 Return `"scenario_id": ""` with a reason. This is a genuine finding: it means either the model owner is
-testing something the benchmark does not cover — worth knowing, and worth adding — or the
+testing something the scenario space does not cover — worth knowing, and worth adding — or the
 conversation is not really a test of this agent at all. Do not stretch to the nearest scenario to
 avoid an empty answer.
 
@@ -61,7 +61,7 @@ THE CONVERSATIONS
 
 Some carry a label the model owner filed them under. **Ignore it when deciding the match.** It
 is shown only so you can see what the model owner called it; whether that grouping agrees with the
-benchmark is assessed separately, and a wrong label must not pull the mapping toward it.
+scenario space is assessed separately, and a wrong label must not pull the mapping toward it.
 
 {{conversations}}
 
@@ -73,7 +73,7 @@ Return ONLY a JSON object keyed by conversation id:
 identity is confirmed", "ending": "The dispute is filed and a reference is given",
 "reason": "..."},
  "C2": {"scenario_id": "", "confidence": "high", "intent": "...", "ending": "...",
-"reason": "No benchmark scenario ends with the call being transferred before identity is
+"reason": "No scenario ends with the call being transferred before identity is
 established."}}
 
 `intent` is what the user came to do, in a few words. `ending` is how the conversation actually

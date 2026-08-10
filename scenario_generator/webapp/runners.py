@@ -20,7 +20,6 @@ from collections import Counter
 from pathlib import Path
 from typing import Callable, Dict, List
 
-from ..core.evidence import FACETS
 from ..core.generation import required_runs
 from ..core.intake import (attach_decision_to_state, merge_decisions, read_intake,
                            set_state_reached_via)
@@ -31,7 +30,7 @@ from ..ingest.conversations import UnreadableConversations
 from ..io import read_registry, read_scenarios, write_challenge_pack, write_registry
 from ..llm import MaterialityAssessor, ScenarioReviewer, ScenarioWriter
 from ..llm import cancellation
-from ..pipeline import (build_scenarios, draft_intake_workbook, ingest_documents,
+from ..pipeline import (build_scenario_space, draft_intake_workbook, ingest_documents,
                         map_conversation_coverage, revise_intake_workbook, structural_problems)
 from .coverageview import stored_report
 from .workspace import Workspace
@@ -56,7 +55,7 @@ OVERLAP = "coverage.xlsx"
 
 # What each stage puts on disk, so clearing a stage can actually clear it. Listed against the
 # stage that *creates* the file rather than every stage that rewrites it: clearing the scenario
-# text does not mean throwing away the registry the benchmark stage built.
+# text does not mean throwing away the registry the workflow stage built.
 #
 # Submitted documents appear nowhere here. They are input rather than output, and each already has
 # its own remove -- deleting the pack because a later stage was re-run would be a rout.
@@ -83,7 +82,7 @@ def _snapshot(key: str) -> str:
 def _save_registry(workspace: Workspace, key: str, intake: IntakeData, scenarios) -> None:
     """Write the live registry, and keep a copy of it as this stage left it.
 
-    Every stage from the benchmark onward rewrites one registry, which means going back to an
+    Every stage from the workflow onward rewrites one registry, which means going back to an
     earlier stage's page would otherwise show what *later* stages have since made of it -- a
     scenario-text page listing tiers assigned after it ran, and proposals that did not exist.
     The snapshot is what lets each stage show its own reading. It is a copy of a file already
@@ -102,10 +101,10 @@ def _intake(workspace: Workspace) -> IntakeData:
 
 
 def _scenarios(workspace: Workspace, intake: IntakeData):
-    """The benchmark as the last stage left it."""
+    """The scenario space as the last stage left it."""
     path = workspace.root / REGISTRY
     if not path.exists():
-        raise ValueError("Build the benchmark first.")
+        raise ValueError("Build the scenario space first.")
     return read_scenarios(str(path), intake)
 
 
@@ -152,7 +151,7 @@ def _read_documents(workspace: Workspace, progress=None, cancel=None) -> Dict[st
 
     Only the groups that describe the agent are read (``evidence_files``) -- the model owner's own
     scenarios are excluded, since reading them as evidence would let their blind spots into the
-    benchmark by the back door, which is the thing an independent benchmark exists to avoid.
+    scenario space by the back door, which is the thing an independent scenario space exists to avoid.
     """
     grouped = evidence_files(workspace.root)
     paths = [path for paths in grouped.values() for path in paths]
@@ -299,7 +298,7 @@ def _run_variations(workspace: Workspace, progress=None, cancel=None) -> Dict[st
     """The variation space. Not built yet, and honest about it.
 
     The stage exists so the pipeline has the shape it will keep, and so nothing downstream has to
-    change when it is filled in: it reads the benchmark, writes it back unchanged, and takes its
+    change when it is filled in: it reads the scenario space, writes it back unchanged, and takes its
     own snapshot exactly as every other scenario stage does. What it must not do is quietly report
     success as though it had produced something, which is why the result says what it says.
     """
@@ -353,10 +352,10 @@ def _run_workflow(workspace: Workspace, progress=None, cancel=None) -> Dict[str,
     report("Reading the intake", 0, 3)
     intake = _intake(workspace)
     report("Walking the graph", 1, 3)
-    scenarios = build_scenarios(intake, with_probes=True)
+    scenarios = build_scenario_space(intake, with_probes=True)
     report("Writing the registry", 2, 3)
     _save_registry(workspace, "workflow", intake, scenarios)
-    report("Built the benchmark", 3, 3)
+    report("Built the scenario space", 3, 3)
 
     probes = sum(1 for s in scenarios if s.is_probe)
     return {"Scenarios": len(scenarios), "Routes through the graph": len(scenarios) - probes,
@@ -388,7 +387,7 @@ def _run_materiality(workspace: Workspace, progress=None, cancel=None) -> Dict[s
 
 
 def _run_review(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
-    """One pass over the whole benchmark, then rebuild the pack so its verdict actually lands."""
+    """One pass over the whole scenario space, then rebuild the pack so its verdict actually lands."""
     intake = _intake(workspace)
     scenarios = _scenarios(workspace, intake)
     reviewer = ScenarioReviewer(context=_context(workspace), progress=progress, cancel=cancel)
@@ -412,12 +411,12 @@ def _run_summary(workspace: Workspace, progress=None, cancel=None) -> Dict[str, 
     about how far that testing is trusted rather than anything this can work out.
     """
     report = progress or (lambda *args, **kwargs: None)
-    report("Reading the benchmark", 0, 3)
+    report("Reading the scenario space", 0, 3)
     intake = _intake(workspace)
     scenarios = _scenarios(workspace, intake)
 
     # The registry keeps every scenario regardless -- narrowing what is *issued* must not narrow
-    # what is on record, or the pack becomes the only surviving account of the benchmark.
+    # what is on record, or the pack becomes the only surviving account of the scenario space.
     report("Writing the registry", 1, 3)
     _save_registry(workspace, "summary", intake, scenarios)
 
@@ -456,7 +455,7 @@ def _under_represented(workspace: Workspace):
 
 
 def _run_coverage(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
-    """Map the conversations the model owner actually ran onto this benchmark.
+    """Map the conversations the model owner actually ran onto this scenario space.
 
     The input is transcripts rather than a scenario list -- see :mod:`ingest.conversations` for
     why. The file may have arrived on either stage, with the rest of the pack or here on its own,
@@ -474,7 +473,7 @@ def _run_coverage(workspace: Workspace, progress=None, cancel=None) -> Dict[str,
     if not intake_path:
         raise ValueError("No intake workbook yet. Provide one at the intake stage.")
     if not (workspace.root / REGISTRY).exists():
-        raise ValueError("Build the benchmark first — there is nothing to map the "
+        raise ValueError("Build the scenario space first — there is nothing to map the "
                          "conversations against.")
 
     try:

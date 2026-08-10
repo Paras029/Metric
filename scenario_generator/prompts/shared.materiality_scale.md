@@ -18,17 +18,17 @@ higher without one.
   user experience, remove friction, or avoid rework. Genuinely worth fixing and worth testing,
   but not fundamental to whether the agent works.
 
-- Low: minor or cosmetic consequence, or a close variant of something this benchmark already
+- Low: minor or cosmetic consequence, or a close variant of something this scenario space already
   covers more thoroughly.
 
 CALIBRATION
 
-Judge the set, not each scenario in isolation. A benchmark where everything is High tells the
+Judge the set, not each scenario in isolation. A scenario space where everything is High tells the
 reader nothing and wastes the owner's effort evenly across scenarios that do not deserve it
-evenly; a benchmark where everything is Medium is the same failure wearing a different number.
+evenly; a scenario space where everything is Medium is the same failure wearing a different number.
 Use the full range and make the differences mean something.
 
-In a typical benchmark the distribution is weighted towards Medium and Low, with High reserved
+In a typical scenario space the distribution is weighted towards Medium and Low, with High reserved
 for scenarios that combine several aggravating factors -- a state-changing action, on a core
 journey, at depth, with no redundant coverage elsewhere -- and Critical genuinely rare. Treat
 that as the shape to expect, not a quota to fill: if this particular agent really does carry

@@ -29,7 +29,7 @@ tiers:
     reasoning_effort: high
     # model: a-smaller-model
 
-  # Weighing each scenario against its peers. Judgement-shaped, but every chunk of the benchmark
+  # Weighing each scenario against its peers. Judgement-shaped, but every chunk of the scenario space
   # is in flight against it at once, which is what makes it worth separating: point it somewhere
   # smaller without touching document reading, and let it retry a busy gateway less hard.
   materiality:
@@ -43,13 +43,13 @@ tiers:
     reasoning_effort: minimal
 
 # How many of the batched calls are in flight at once. This caps overlap, not call count: a large
-# benchmark cannot open more connections than the gateway is willing to hold. Raise it if yours
+# run cannot open more connections than the gateway is willing to hold. Raise it if yours
 # comfortably takes more; lower it if calls start failing under load.
 concurrency: 4
 
 # Per call site, one level finer than a tier. A tier is shared by every call doing the same *kind*
 # of work -- weighing materiality and checking the review's declared category are both
-# materiality-tier work, but they are two different calls a benchmark can want tuned differently.
+# materiality-tier work, but they are two different calls a scenario space can want tuned differently.
 #
 # EVERY CALL THE TOOL MAKES IS LISTED BELOW, and every one of them takes the same six settings:
 #
@@ -100,7 +100,7 @@ stages:
     # model: a-smaller-model
     max_attempts: 4
 
-  # --- The benchmark passes. These batch, so they also take batch_size and concurrency.
+  # --- The scenario space passes. These batch, so they also take batch_size and concurrency.
   #     batch_size is how many rows go into one call; concurrency is how many such calls run at
   #     once. Smaller batches with higher concurrency means more, smaller calls sent more in
   #     parallel, which is usually faster and always cheaper to retry.
@@ -127,7 +127,7 @@ stages:
   reviewer_propose:               # what enumeration could not reach
     # model: a-smaller-model
     max_attempts: 4
-  coverage_map:                   # submitted conversations, onto the benchmark
+  coverage_map:                   # submitted conversations, onto the scenario space
     # model: a-smaller-model
     batch_size: 5
     concurrency: 4

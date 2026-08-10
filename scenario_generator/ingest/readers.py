@@ -156,7 +156,7 @@ ROWS_PER_SEGMENT = 40
 def _read_spreadsheet(path: Path) -> List[Segment]:
     """Read a workbook sheet by sheet, or a delimited file as a single table.
 
-    Spreadsheets carry a lot of what a benchmark needs -- decision tables, routing rules, policy
+    Spreadsheets carry a lot of what a scenario space needs -- decision tables, routing rules, policy
     matrices, term glossaries -- and a team that keeps its rules in one will send it. Reading the
     values rather than the formulae is deliberate: the computed result is the behaviour, and the
     formula is how it happens to be worked out.
@@ -267,7 +267,7 @@ def read_document(path: Path) -> Tuple[DocumentRef, List[Segment]]:
 
     Raises :class:`UnreadableDocument` with a reason the person who submitted the pack can act
     on. Failing loudly is the point: a document that silently contributes nothing is worse than
-    one that is refused, because nobody finds out until the benchmark is thin.
+    one that is refused, because nobody finds out until the scenario space is thin.
     """
     path = Path(path)
     entry = READERS.get(path.suffix.lower())

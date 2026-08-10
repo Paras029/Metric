@@ -40,7 +40,7 @@ def load_context(path: str = None, notes=None) -> str:
     return _load_context(path, notes, max_chars=config.MAX_CONTEXT_CHARS)
 
 
-def build_scenarios(intake: IntakeData, with_probes: bool = False) -> List[Scenario]:
+def build_scenario_space(intake: IntakeData, with_probes: bool = False) -> List[Scenario]:
     """Deterministic scenario set from an intake — no LLM."""
     graph = DecisionGraph(intake.decisions, intake.states)
     walked, augmented = enumerate_paths(graph)
@@ -53,7 +53,7 @@ def build_scenarios(intake: IntakeData, with_probes: bool = False) -> List[Scena
 def build_graph(intake_path: str, graph_path: str, with_probes: bool = False) -> List[Scenario]:
     """Stage 1: intake -> decision graph -> scenario metadata + ground truth. No LLM."""
     intake = read_intake(intake_path)
-    scenarios = build_scenarios(intake, with_probes)
+    scenarios = build_scenario_space(intake, with_probes)
     write_scenario_graph(graph_path, intake, scenarios)
     logger.info("Built %d scenarios for '%s' (%d probes). Wrote %s", len(scenarios), intake.name,
                 sum(1 for s in scenarios if s.is_probe), graph_path)
@@ -118,10 +118,10 @@ def assess_materiality(intake_path: str, registry_in_path: str, registry_out_pat
 def generate(intake_path: str, output_prefix: str, writer=None,
             assessor: Optional[MaterialityAssessor] = None, with_probes: bool = False,
             context_path: str = None, notes=None) -> List[Scenario]:
-    """One-shot convenience: build_scenarios + LLM writer + materiality sweep + both workbooks,
+    """One-shot convenience: build_scenario_space + LLM writer + materiality sweep + both workbooks,
     no intermediate files."""
     intake = read_intake(intake_path)
-    scenarios = build_scenarios(intake, with_probes)
+    scenarios = build_scenario_space(intake, with_probes)
     context = load_context(context_path, notes)
     logger.info("Generated %d scenarios for '%s' (%d probes)", len(scenarios), intake.name,
                 sum(1 for s in scenarios if s.is_probe))
@@ -131,7 +131,7 @@ def generate(intake_path: str, output_prefix: str, writer=None,
 
     write_challenge_pack(f"{output_prefix}_challenge_pack.xlsx", intake, scenarios)
     write_registry(f"{output_prefix}_registry.xlsx", intake, scenarios)
-    logger.info("Wrote %s_challenge_pack.xlsx and %s_registry.xlsx. The pack reflects a benchmark "
+    logger.info("Wrote %s_challenge_pack.xlsx and %s_registry.xlsx. The pack reflects a scenario space "
                 "that has not been reviewed; run review and rebuild it before issuing.",
                 output_prefix, output_prefix)
     return scenarios
@@ -176,7 +176,7 @@ def review(intake_path: str, registry_in_path: str, registry_out_path: str,
         logger.info("Rebuilt the challenge pack at %s.", pack_path)
     elif revised or proposals:
         logger.warning(
-            "The review changed the benchmark, so any challenge pack written earlier is now out "
+            "The review changed the space, so any challenge pack written earlier is now out "
             "of date. Rebuild it with: build-pack <intake> %s <pack.xlsx>", registry_out_path)
     return scenarios
 
@@ -490,9 +490,9 @@ def map_conversation_coverage(intake_path: str, registry_path: str, conversation
                               report_path: str, mapper: Optional[ConversationMapper] = None,
                               threshold: int = DEFAULT_THRESHOLD, annotate_registry: bool = True,
                               progress=None, cancel=None) -> ConversationCoverageResult:
-    """Stage: map submitted conversations onto the benchmark and count what they cover.
+    """Stage: map submitted conversations onto the scenario space and count what they cover.
 
-    The benchmark is read from the registry, so each scenario's category and materiality are
+    The scenario space is read from the registry, so each scenario's category and materiality are
     whatever the earlier stages assigned -- this never recomputes them. What it adds is volume:
     how many of the team's conversations landed on each scenario, which of them landed on nothing,
     and whether any grouping the team applied agrees with where the conversations actually went.
@@ -501,14 +501,14 @@ def map_conversation_coverage(intake_path: str, registry_path: str, conversation
     judgement rather than a property of the data -- see :mod:`.core.representation`.
     """
     intake = read_intake(intake_path)
-    benchmark = read_registry(registry_path)
+    space = read_registry(registry_path)
     texts = {s.id: s.description for s in read_scenarios(registry_path, intake)}
 
     conversations, how = read_conversations(Path(conversations_path))
     mapper = mapper or ConversationMapper(progress=progress, cancel=cancel)
-    mappings = mapper.map(conversations, benchmark, intake, texts)
+    mappings = mapper.map(conversations, space, intake, texts)
 
-    report = build_report(mappings, benchmark, threshold=threshold)
+    report = build_report(mappings, space, threshold=threshold)
     write_coverage_report(report_path, report, mappings, texts)
     if annotate_registry:
         annotate_coverage(registry_path, intake, report)
@@ -516,14 +516,14 @@ def map_conversation_coverage(intake_path: str, registry_path: str, conversation
     counts = report.summary()
     logger.info("%d conversation(s) covered %d of %d scenarios at a threshold of %d; "
                 "%d never exercised, %d matched nothing. Wrote %s",
-                counts["Conversations read"], counts["Represented"], counts["Benchmark scenarios"],
+                counts["Conversations read"], counts["Represented"], counts["Scenarios in the space"],
                 threshold, counts["Never exercised"], counts["Matched no scenario"], report_path)
     return ConversationCoverageResult(report=report, mappings=mappings, how_read=how,
                                       report_path=report_path)
 
 
 def annotate_coverage(registry_path: str, intake: IntakeData, report) -> int:
-    """Record against each scenario how much of the model owner's own testing landed on it.
+    """Record against each scenario how much of the model owner's testing landed on it.
 
     An annotation, not a filter. A well-covered scenario stays in the registry and, unless someone
     asks otherwise, in the pack: whether running it again is duplicated effort or independent

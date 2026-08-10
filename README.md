@@ -1,6 +1,6 @@
-# Metric
+# METRIC
 
-Builds an independent test benchmark for a conversational AI agent.
+Builds an independent scenario space for a conversational AI agent.
 
 You give it the documentation a model owner submitted about their agent. It reads that
 documentation, drafts a structured description of the agent, enumerates every distinct route
@@ -173,7 +173,7 @@ python -m scenario_generator ingest submitted_docs/ acme
 # Draft an intake from what was read, then open it and correct it.
 python -m scenario_generator draft-intake acme_context.md acme_intake.xlsx
 
-# Build the benchmark and write it up.
+# Build the scenario space and write it up.
 python -m scenario_generator generate acme_intake.xlsx acme --with-probes \
     --context acme_context.md
 
@@ -200,16 +200,13 @@ the same files these commands produce. A use case can move between the two freel
 | 4 | Variation space | The scenario space | The variants of each scenario worth running separately — **not built yet** |
 | 5 | Materiality | The space | A Low / Medium / High / Critical tier per scenario, driving run counts |
 | 6 | Review | The whole space, against the documentation | Settled materiality, checked endings, flagged weaknesses, proposed additions |
-| 7 | Coverage | The transcripts of the model owner's own testing | How many of those conversations land on each scenario, and which none of them reach |
+| 7 | Coverage | The transcripts of the model owner's testing | How many of those conversations land on each scenario, and which none of them reach |
 | 8 | Summary | The registry | The challenge pack to send, and what still has to be asked for |
 
 Reading the documentation and drafting the intake are one stage because they are one job: the
 reading exists in order to be drafted from, and nothing happens between them that you decide.
-Stages 4 and 7 are optional — the variation space is a placeholder that passes the benchmark
+Stages 4 and 7 are optional — the variation space is a placeholder that passes the scenario space
 through unchanged, and coverage is skipped where the model owner submitted no testing of their own.
-
-Each stage states how its output was produced — **computed**, **model judgement**, or **human
-decision** — because a materiality tier and a graph walk do not deserve the same trust.
 
 Changing an earlier stage marks the later ones out of date rather than leaving them looking
 finished. Their output is kept and stays downloadable. Two ways to clear a stage: *Clear this
@@ -234,7 +231,7 @@ python -m scenario_generator review intake.xlsx registry.xlsx registry.xlsx \
 
 **Every scenario carries a short name** — a handle rather than a summary, about the situation
 rather than the expected behaviour. It leads the `Scenarios` sheet of the pack, sits beside the id
-in the registry, and is the title of every row on screen. A benchmark of three hundred rows whose
+in the registry, and is the title of every row on screen. A scenario space of three hundred rows whose
 only handle was the first sentence of each description was not scannable, because those sentences
 all open the same way.
 
@@ -269,11 +266,11 @@ issued).
 is organised as answers to eleven questions about the agent, each citing verbatim quotes checked
 against the source. The evidence record is the machine-readable form of the same thing.
 
-**Coverage report** — three sheets. `Scenarios` is the answer: every benchmark scenario with how
+**Coverage report** — three sheets. `Scenarios` is the answer: every scenario with how
 many of the model owner's conversations landed on it, least covered first. `Conversations` is the
 working, one row per transcript. `The model owner's grouping` appears only where one was supplied.
 
-**The benchmark on screen.** Every scenario-bearing stage shows the benchmark as cards rather than
+**The scenario space on screen.** Every scenario-bearing stage shows the scenario space as cards rather than
 a spreadsheet. Three view tabs narrow to a starting point (**Needs attention**, **Critical and
 high**, **All**), and dropdown filters narrow further within whichever tab is active. 50 rows
 render at a time; the **Show** control raises that to 100, 250 or all of them, and the page always
@@ -380,7 +377,7 @@ otherwise fail silently:
 - A run where most model calls failed is abandoned rather than written.
 - Facts stated in three separate sections are assembled into one answer.
 - A submitted pack is read in a handful of model calls rather than one per passage.
-- A drafted intake produces a working benchmark without being edited, every field the drafter
+- A drafted intake produces a working scenario space without being edited, every field the drafter
   extracted survives into the workbook, and what the draft leaves structurally broken is put back
   to the model with its own failures named.
 - Submitted conversations are read from a workbook with unfamiliar headings and a cover sheet in

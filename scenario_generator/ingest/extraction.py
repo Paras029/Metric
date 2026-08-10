@@ -702,7 +702,7 @@ class DocumentExtractor:
         """One judgement-budget call, returning None rather than raising when it fails.
 
         ``stage`` names the call site for :func:`config.stage_tier` -- the facet-group reading and
-        the resolution sweep are both JUDGEMENT-tier work but different calls a benchmark can want
+        the resolution sweep are both JUDGEMENT-tier work but different calls a scenario space can want
         tuned independently, which a shared tier alone cannot express.
         """
         user = prompt_loader.render(prompt, **values)

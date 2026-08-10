@@ -414,7 +414,7 @@ def _tier(name: str, prefix: str, max_tokens: int, effort: str,
     )
 
 
-# Reading documents, drafting the intake, weighing materiality, reviewing the benchmark. These
+# Reading documents, drafting the intake, weighing materiality, reviewing the scenario space. These
 # read a lot, reason at length, and must justify what they conclude.
 #
 # The output cap is the model's own ceiling rather than half of it. Reasoning tokens are drawn
@@ -425,7 +425,7 @@ def judgement() -> Tier:
     return _tier("judgement", "LLM_JUDGEMENT", 65_536, "high")
 
 # Weighing materiality. Judgement-shaped work -- it reasons about a scenario against its peers --
-# but unlike drafting or review it runs as many concurrent chunk calls as the benchmark has
+# but unlike drafting or review it runs as many concurrent chunk calls as the scenario space has
 # chunks, all against the same tier at once. That concurrency is what turns an ordinary gateway
 # hiccup into a pile of simultaneous retries, so this tier gets its own retry ladder, shorter than
 # the default, and its own model setting, separate from JUDGEMENT, so it can be pointed at
@@ -446,7 +446,7 @@ def standard() -> Tier:
 # which is usually what is wanted. Sometimes it is not: weighing a scenario's materiality and
 # checking the review's declared category are both MATERIALITY-tier work, but they are two
 # different calls in two different passes, run at two different points in the pipeline, and a
-# benchmark can want them tuned differently -- a smaller model for the mechanical category check,
+# scenario space can want them tuned differently -- a smaller model for the mechanical category check,
 # the full one for materiality itself.
 #
 # STAGE_KEYS names every individual call site this way, one level finer than the tier. Each is

@@ -1,7 +1,7 @@
 """The kinds of material a model owner submits, and where each lands.
 
 Everything arrives as "documents", but the pieces are not interchangeable. The model documentation
-describes the agent; the transcripts of the model owner's own testing describe what has already
+describes the agent; the transcripts of the model owner's testing describe what has already
 been exercised; a workflow diagram states the branching that prose leaves implicit. Keeping them
 apart means each is read the right way, sent to the stage that needs it, and read in parallel with
 the others rather than after them.
@@ -55,7 +55,7 @@ GROUPS: Tuple[Group, ...] = (
           "The conversations the model owner has already run, in whatever shape they arrived — "
           "one row per turn, a transcript per row, or a document of exchanges. Any grouping the "
           "model owner applied is read too, and checked rather than taken at face value. Used to "
-          "measure how much of the benchmark the model owner's testing already exercises.",
+          "measure how much of the scenario space the model owner's testing already exercises.",
           (".xlsx", ".xlsm", ".csv", ".docx", ".pdf", ".md", ".txt"), icon="checklist"),
 
     Group(DIAGRAMS, "Workflow diagrams",
@@ -80,7 +80,7 @@ DEFAULT_GROUP = SUPPORTING
 
 # The groups ingestion reads for evidence. The model owner's own conversations are not among them:
 # they describe the model owner's testing rather than the agent, and reading them as evidence about
-# the agent would let the model owner's blind spots into the benchmark through the back door.
+# the agent would let the model owner's blind spots into the scenario space through the back door.
 EVIDENCE_GROUPS: Tuple[str, ...] = (MODEL_DOC, DIAGRAMS, SUPPORTING)
 
 ALL_EXTENSIONS: Tuple[str, ...] = tuple(sorted(
@@ -104,7 +104,7 @@ def evidence_files(root: Path) -> Dict[str, List[Path]]:
 
 
 def owner_scenario_file(root: Path) -> Path:
-    """The transcripts of the model owner's own testing, if any were submitted."""
+    """The transcripts of the model owner's testing, if any were submitted."""
     found = files_in(root, OWNER_SCENARIOS)
     return found[0] if found else None
 

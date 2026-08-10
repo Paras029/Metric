@@ -234,7 +234,7 @@ class TestABrokenFileNeverDegradesToDefaults(_Tuned):
 
     Every value it was setting reverts, the run proceeds, the output looks plausible, and the only
     sign is one line in a log. A model choice and a batch size go back to their defaults together,
-    and the benchmark that comes out is not the one that was asked for.
+    and the scenario space that comes out is not the one that was asked for.
     """
 
     #: The shape that broke a real file: another key alongside a bare flow mapping.

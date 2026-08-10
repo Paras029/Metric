@@ -80,7 +80,7 @@ class Edge:
 
     out_of_scope: bool = False
     """Whether this edge leaves a decision marked out of scope -- see :class:`Node`. Drawn muted
-    rather than left off: the route is declared, it is just not one the benchmark walks."""
+    rather than left off: the route is declared, it is just not one the scenario space walks."""
 
     is_back: bool = False
     """Whether this edge points back to the same depth or an earlier one -- a retry loop rather

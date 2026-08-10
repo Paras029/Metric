@@ -19,7 +19,6 @@ approved -- writing to the older interface costs nothing and removes a dependenc
 from __future__ import annotations
 
 import logging
-import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,12 +28,8 @@ from flask import (Flask, abort, jsonify, redirect, render_template, request, se
                    session, url_for)
 from werkzeug.utils import secure_filename
 
-from ..core.evidence import FACETS
-from ..core.gaps import find_gaps
-from ..core.intake import read_review_notes, set_decision_scope, write_template
+from ..core.intake import set_decision_scope, write_template
 from ..core.models import MATERIALITY
-from ..ingest import open_questions
-from ..ingest.context_document import FACET_HEADINGS, FACET_QUESTIONS
 from ..ingest.conversations import read_conversations
 from ..ingest.groups import (ALL_EXTENSIONS, DEFAULT_GROUP, GROUP_BY_KEY, GROUPS, MODEL_DOC,
                              OWNER_SCENARIOS, SUPPORTING, folder_for, files_in, remove_file)
@@ -48,7 +43,7 @@ from .coverageview import coverage_view, stored_mappings, stored_report
 from .graphview import graph_summary, render_svg
 from .runners import (CONTEXT, DRAFT_INTAKE, EVIDENCE, OVERLAP, REGISTRY, RUNNERS,
                       STAGE_OUTPUTS,
-                      _apply_proposal, _context, _evidence_record, _intake, _proposal_dicts,
+                      _apply_proposal, _context, _intake, _proposal_dicts,
                       _scenarios, _snapshot)
 from .scenarios import FILTER_FIELDS, PAGE_SIZE, build_rows, shape
 from .stages import RUNNING, STAGE_BY_KEY, STAGES, STATUS_LABELS, downstream_of, index_of
@@ -63,7 +58,7 @@ SCENARIO_STAGES = ("scenarios", "variations", "materiality", "review", "coverage
 GRAPH_STAGES = ("intake", "workflow")
 
 # Groups redaction can actually do something to: the two that carry text ingestion reads. A
-# diagram has no text to redact, and the model owner's own conversations never reach
+# diagram has no text to redact, and the model owner's conversations never reach
 # build_corpus at all -- they are read separately, only to measure coverage, at a later stage.
 REDACTABLE_GROUPS = (MODEL_DOC, SUPPORTING)
 
@@ -119,7 +114,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             abort(404)
         workspace = _workspace()
 
-        # Read once and pass it on. Both the graph and the benchmark panel need it, and reading a
+        # Read once and pass it on. Both the graph and the scenario space panel need it, and reading a
         # workbook twice to render one page is a cost paid on every navigation.
         intake, intake_problem = None, ""
         if workspace.artifact_path("intake", "workbook"):
@@ -130,9 +125,9 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
                 intake_problem = str(exc)
 
         # The graph is drawn wherever the intake is available, since it is the clearest reading
-        # of what the benchmark will and will not be able to reach. Two placements, one drawing:
+        # of what the scenario space will and will not be able to reach. Two placements, one drawing:
         # full width in the page on the stages where reading it *is* the work, and small in the
-        # side panel everywhere after, so what the benchmark was built from stays in view without
+        # side panel everywhere after, so what the scenario space was built from stays in view without
         # anyone navigating back for it.
         graph_svg, graph_facts, aside_graph = "", {}, ""
         if intake is not None:
@@ -184,12 +179,8 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             decisions=decisions,
             structure_proposals=workspace.structure_proposals if key == "intake" else [],
             structure_review_available=key == "intake" and intake is not None,
-            intake_questions=_intake_questions_for(workspace, intake)
-                if key == "intake" else None,
-            answered=workspace.answered_questions(),
-            answers=_answers_for(workspace) if key == "intake" else [],
             groups=_group_rows(workspace, key),
-            benchmark=_benchmark_for(scenarios, key),
+            space=_space_for(scenarios, key),
             shape=_shape_for(scenarios, key),
             coverage=_coverage_for(workspace, key, intake),
             coverage_shape=_coverage_shape(workspace),
@@ -203,7 +194,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         """Every note, newest first, each saying which stage it was added at.
 
         The stage matters because it dates the note against the work: a correction typed while
-        reading the documents and one typed after seeing the benchmark are different kinds of
+        reading the documents and one typed after seeing the scenario space are different kinds of
         remark, and both are handed to every stage that follows.
         """
         rows = []
@@ -231,7 +222,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
     def _group_rows(workspace: Workspace, key: str):
         """What has been submitted under each heading, so gaps in the pack are visible.
 
-        The coverage stage shows only the model owner's own scenarios: it is the one thing that
+        The coverage stage shows only the model owner's scenarios: it is the one thing that
         stage consumes, and the rest of the pack is not its business.
         """
         if key == "intake":
@@ -283,10 +274,10 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             # Never blank the page over one unreadable registry -- but log the traceback rather
             # than the message alone. A malformed workbook and a mistake in this module both
             # arrive here, and only one of them is diagnosable from "could not read".
-            logger.exception("Could not read the benchmark for display")
+            logger.exception("Could not read the scenario space for display")
             return None
 
-    def _benchmark_for(scenarios, key: str):
+    def _space_for(scenarios, key: str):
         """The list in the middle of the page: this stage's scenarios, viewed and filtered."""
         if scenarios is None:
             return None
@@ -299,7 +290,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
         Reading both off one snapshot is the point: a panel that counted the live registry while
         the list showed a stage's own snapshot would put two different totals on the same screen
-        and leave no way to tell which was the benchmark.
+        and leave no way to tell which was the scenario space.
         """
         if not scenarios:
             return None
@@ -309,10 +300,10 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         """What the coverage stage found, small enough for the panel and shown on every stage.
 
         Only the counts that change a decision: how much of the model owner's evidence landed
-        anywhere, and how much of the benchmark it reached. It stays in the panel after the
+        anywhere, and how much of the scenario space it reached. It stays in the panel after the
         coverage stage has been navigated away from because it is the one thing that says how
-        much of this benchmark the model owner has already exercised, and that bears on every
-        judgement made about the benchmark, not only on the stage that measured it.
+        much of this scenario space the model owner has already exercised, and that bears on every
+        judgement made about the scenario space, not only on the stage that measured it.
 
         Counted from the stored mappings at whatever threshold is set now, the same as the stage's
         own page, so the two never disagree.
@@ -333,7 +324,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             "conversations": summary["Conversations read"],
             "mapped": summary["Mapped to a scenario"],
             "unmatched": summary["Matched no scenario"],
-            "counted": summary["Benchmark scenarios"],
+            "counted": summary["Scenarios in the space"],
             "represented": summary["Represented"],
             "under": summary["Under-represented"],
             "untouched": summary["Never exercised"],
@@ -368,150 +359,15 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             return int(raw)
         return PAGE_SIZE
 
-    def _answers_for(workspace: Workspace):
-        """One row per question, with the whole reading behind it.
-
-        The summary line answers "was this question answered, and how well"; the detail answers
-        "what did it actually say". Both belong on the page, but a page carrying eleven full
-        readings at once is a page nobody reads, so the detail is folded away until asked for.
-
-        ``points`` and ``unknowns`` are the two halves of one reading and are named as such here
-        rather than left as bare counts: a *point* is a specific thing the documents establish
-        about this question, and an *unknown* is something they were asked and did not settle.
-        """
-        record = _evidence_record(workspace)
-        if not record:
-            return []
-        rows = []
-        for facet in FACETS:
-            answer = record.answer_for(facet)
-            sources = record.claims_by_id() if answer else {}
-            rows.append({
-                "heading": FACET_HEADINGS.get(facet, facet),
-                "question": FACET_QUESTIONS.get(facet, ""),
-                "answered": bool(answer and answer.is_answered),
-                "confidence": answer.confidence if answer else "Low",
-                "points": list(answer.points) if answer else [],
-                "unknowns": list(answer.unknowns) if answer else [],
-                "answer": (answer.answer if answer else "") or "",
-                # What the answer was actually built from, so a reader can go and check it. The
-                # quote is what was found in the source; the statement is the reading of it.
-                "sources": [{"statement": sources[claim_id].statement,
-                            "quote": sources[claim_id].quote,
-                            "where": str(sources[claim_id].source)}
-                           for claim_id in (answer.sources if answer else [])
-                           if claim_id in sources],
-            })
-        return rows
-
-    # Which kind of row a gap addresses, in the order they are worth reading -- a decision that
-    # names no outcome blocks enumeration entirely, so it comes before a persona's phrasing.
-    _GAP_GROUP_ORDER = (("use_case", "Use case"), ("decision", "Decisions"), ("state", "States"),
-                       ("capability", "Capabilities"), ("tool", "Tools"), ("persona", "Personas"))
-
-    # A review note's own "field" text is free-form -- whatever the model wrote, not a schema
-    # this can rely on -- so only an unambiguous row id is trusted to place it in a group. Ids
-    # loose enough to false-match ordinary words (a persona's "P1" against any word starting with
-    # a "p") are left to fall through to cross-cutting rather than risk a wrong placement.
-    _ROW_ID_IN_TEXT = re.compile(r"\b(DEC-\d+|S-\d+|CAP-\d+)\b", re.I)
-    _KIND_BY_PREFIX = {"DEC": "decision", "S": "state", "CAP": "capability"}
-
-    def _intake_questions_for(workspace: Workspace, intake) -> Dict[str, list]:
-        """What the current declaration needs, addressed to the row that needs it.
-
-        Row-scoped gaps -- see core.gaps -- come first, grouped by the kind of row they concern,
-        because that is how a person filling them in thinks about the intake: one decision, one
-        state, one capability at a time. What is left is cross-cutting: a structural gap that is
-        not about any single row (no state marked as the start), and whatever the documents never
-        addressed at all, which is a property of the evidence rather than of the declaration and
-        so cannot be pinned to one. Both use the same answer mechanism as everything else that
-        adds context -- see :func:`save_answers` -- so answering one is recorded as a note under
-        its own question, exactly like an open question always has been.
-        """
-        if intake is None:
-            return {"row_groups": [], "cross_cutting": []}
-
-        answered = workspace.answered_questions()
-
-        def _row(question: str, why: str, heading: str = "", example: str = "") -> dict:
-            return {"heading": heading, "question": question, "why": why, "example": example,
-                   "answered": question in answered}
-
-        grouped: Dict[str, list] = {}
-        cross_cutting = []
-        for gap in find_gaps(intake):
-            row = _row(gap.question, gap.why, gap.heading, gap.example)
-            if gap.kind:
-                grouped.setdefault(gap.kind, []).append(row)
-            else:
-                cross_cutting.append(row)
-
-        # The drafter's own hedges -- what it inferred rather than read, what it could not
-        # settle -- read back from the workbook. A softer signal than a structural gap: the row
-        # is filled in, but not with confidence, and only the model that wrote it knows why.
-        path = workspace.artifact_path("intake", "workbook")
-        if path:
-            for note in read_review_notes(str(path)):
-                field = str(note.get("field", ""))
-                text = str(note.get("note", ""))
-                if not text:
-                    continue
-                match = _ROW_ID_IN_TEXT.search(field) or _ROW_ID_IN_TEXT.search(text)
-                # The drafter's note *is* the question here -- it says what it was unsure of --
-                # so the heading names the row and the note carries the ask, rather than a
-                # manufactured "is this right?" that says nothing about what to check.
-                question = (f"Confirm or correct {field}" if field
-                            else "Confirm or correct what the draft was unsure of")
-                row = _row(question, text, match.group(1).upper() if match else field,
-                           example="Yes, that is right — or the correction")
-                kind = _KIND_BY_PREFIX.get(match.group(1).upper().split("-")[0]) if match else None
-                if kind:
-                    grouped.setdefault(kind, []).append(row)
-                else:
-                    cross_cutting.append(row)
-
-        record = _evidence_record(workspace)
-        if record is not None:
-            for question in open_questions(record):
-                cross_cutting.append(_row(question["question"], question["detail"],
-                                          question["heading"]))
-
-        row_groups = [{"label": label, "rows": grouped[key]}
-                      for key, label in _GAP_GROUP_ORDER if grouped.get(key)]
-        return {"row_groups": row_groups, "cross_cutting": cross_cutting}
-
     @app.route("/stage/<key>/note", methods=["POST"])
     def add_note(key: str):
         """Record something the user knows that the documents did not say.
 
-        An answer to one of the open questions carries that question with it, so a later stage
-        reads it as an answer rather than as a loose remark. Neither needs the stage re-run: the
-        note joins the context every following stage receives.
+        The stage does not need re-running for this to count: the note joins the context every
+        following stage receives, and is attributed to the stage it was written at.
         """
         workspace = _workspace()
-        workspace.add_note(key, request.form.get("note", ""),
-                           question=request.form.get("question", ""))
-        return redirect(url_for("stage", key=key))
-
-    @app.route("/stage/<key>/answers", methods=["POST"])
-    def save_answers(key: str):
-        """Save several answers at once, and accept a partial pass.
-
-        The open questions are a list, and a list answered one item at a time is a page reload per
-        item. Everything filled in is saved together; everything left blank is left open, so a
-        person can settle what they know now and come back for the rest. What has been answered
-        stays editable -- a second thought about an answer is worth more than the first one.
-        """
-        workspace = _workspace()
-        entries = []
-        for field in request.form:
-            if not field.startswith("answer-"):
-                continue
-            question = request.form.get(f"question-{field[len('answer-'):]}", "")
-            entries.append((question, request.form.get(field, "")))
-
-        saved = workspace.add_notes(entries, key)
-        logger.info("Recorded %d answer(s) at the %s stage.", saved, key)
+        workspace.add_note(key, request.form.get("note", ""))
         return redirect(url_for("stage", key=key))
 
     @app.route("/stage/<key>/upload", methods=["POST"])
@@ -674,7 +530,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         """One call: look for decisions and states worth reconnecting or consolidating.
 
         Synchronous rather than the background-thread machinery the pipeline stages use -- this is
-        one call, not the dozens a document pack or a whole benchmark can take, so there is
+        one call, not the dozens a document pack or a whole scenario space can take, so there is
         nothing here for a progress bar to usefully report on.
         """
         workspace = _workspace()
@@ -742,9 +598,9 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         path = workspace.root / REGISTRY
         if mappings and path.exists():
             intake = _intake(workspace)
-            benchmark = read_registry(str(path))
+            space = read_registry(str(path))
             texts = {s.id: s.description for s in read_scenarios(str(path), intake)}
-            report = stored_report(workspace, benchmark)
+            report = stored_report(workspace, space)
             write_coverage_report(str(workspace.root / OVERLAP), report, mappings, texts)
             # The pack's contents can depend on this line -- see runners._run_issue -- so a pack
             # written under the old threshold is no longer what this workspace would issue.
@@ -756,7 +612,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/summary/scope", methods=["POST"])
     def set_pack_scope():
-        """Choose whether the challenge pack carries the whole benchmark or only the gaps.
+        """Choose whether the challenge pack carries the whole scenario space or only the gaps.
 
         Off by default. Every other stage widens what the model owner is asked to run, and this is
         the one control that narrows it: leaving a scenario out says the model owner's own
@@ -933,7 +789,7 @@ def main() -> None:
         print(f"\n{exc}\n\nFix that line and run again.\n")
         raise SystemExit(2)
     app = create_app()
-    print("\n  Metric — http://127.0.0.1:5000\n")
+    print("\n  METRIC — http://127.0.0.1:5000\n")
     print(f"  Settings: {config.tuning_path()} — edits apply to the next call, no restart\n")
     app.run(host="127.0.0.1", port=5000, debug=False)
 

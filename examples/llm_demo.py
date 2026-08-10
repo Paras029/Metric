@@ -15,13 +15,13 @@ INTAKE = "claims_intake.xlsx"
 PREFIX = "claims"
 REGISTRY = f"{PREFIX}_registry.xlsx"
 
-# Build the benchmark: graph walk, probes, descriptions, materiality.
+# Build the scenario space: graph walk, probes, descriptions, materiality.
 generate(INTAKE, PREFIX, with_probes=True)
 
 # Review it as a whole. Updates the registry in place, and may propose additions.
 review(INTAKE, REGISTRY, REGISTRY)
 
-# Count how much of the benchmark the team's own conversations already exercise.
+# Count how much of the space the team's own conversations already exercise.
 # their_conversations.xlsx holds transcripts in any of the layouts ingest.conversations reads:
 # one row per turn with a conversation id, one row per whole transcript, or prose with
 # 'User:'/'Agent:' prefixes. threshold is how many conversations a scenario needs before it

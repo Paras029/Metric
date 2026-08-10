@@ -7,7 +7,7 @@
 
 Prompt wording lives in ``scenario_generator/prompts`` and is reached through
 :mod:`~scenario_generator.llm.prompt_loader`. What each pass builds from intake data -- the use
-case description, the declared graph, the benchmark digest -- lives in
+case description, the declared graph, the scenario space digest -- lives in
 :mod:`~scenario_generator.llm.context`.
 """
 from .context import describe_graph, describe_use_case

@@ -1,7 +1,7 @@
 WHAT THIS IS FOR
 
-An independent team is about to build a test benchmark for an AI agent it did not build.
-Everything the benchmark can test comes from what is understood about the agent here, so a fact
+An independent team is about to build a scenario space for an AI agent it did not build.
+Everything the scenario space can test comes from what is understood about the agent here, so a fact
 you miss is a fact nobody tests, and nobody finds out.
 
 You have the complete documentation the model owner submitted, below. Read all of it and
@@ -15,7 +15,7 @@ Every one of these was sent because someone thought it bore on the agent. Read a
 only the longest. The main document describes the intended design; the rest is where the
 exceptions live — a vendor limitation, a policy extract that overrides the general rule, a
 spreadsheet of thresholds, a deck that states what the prose only implies. A pack read as though
-it were its largest file misses exactly the material that makes a benchmark worth having.
+it were its largest file misses exactly the material that makes a scenario space worth having.
 
 THE QUESTIONS
 

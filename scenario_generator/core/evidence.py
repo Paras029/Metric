@@ -225,7 +225,7 @@ class EvidenceRecord:
 
         This is the gap report's backbone. A question with no answer is not an extraction failure
         to be worked around -- it means the submitted pack does not describe something the
-        benchmark needs, and the person who submitted it is the one who can fix that.
+        scenario space needs, and the person who submitted it is the one who can fix that.
 
         Judged on the synthesised answer where synthesis has run, because scattered observations
         that were never assembled into an answer are not, in any useful sense, an answer.

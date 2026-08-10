@@ -21,7 +21,7 @@ ORIGIN_PROPOSED = "llm-proposed"       # added by the review, and marked as such
 
 ORIGINS = (ORIGIN_GRAPH, ORIGIN_VARIANT_GAP, ORIGIN_PROBE, ORIGIN_PROPOSED)
 
-# Origins that represent the functional benchmark -- routes through the declared graph, however
+# Origins that represent the functional scenario space -- routes through the declared graph, however
 # they were reached. Probes are excluded by origin rather than by having an empty decision path,
 # which stops a proposal with no declared route from being mistaken for one.
 FUNCTIONAL_ORIGINS = (ORIGIN_GRAPH, ORIGIN_VARIANT_GAP)
@@ -235,8 +235,8 @@ class Scenario:
 
 
 @dataclass
-class BenchmarkScenario:
-    """A generated scenario loaded back from the registry — the benchmark coverage maps against.
+class ScenarioRow:
+    """A generated scenario loaded back from the registry — the scenario space coverage maps against.
 
     Carries the category and materiality already assigned, so coverage never recomputes them.
     """

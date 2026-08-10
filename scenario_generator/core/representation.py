@@ -1,4 +1,4 @@
-"""How much of the benchmark the model owner's conversations actually exercise.
+"""How much of the scenario space the model owner's conversations actually exercise.
 
 Coverage is measured as a count, not as a yes/no per scenario. One conversation against a scenario
 and forty against it are not the same evidence, and the question the validator is actually
@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List
 
-from ..core.models import BenchmarkScenario
+from ..core.models import ScenarioRow
 
 # Below this many conversations a scenario is treated as under-represented and goes back to the
 # model owner. A starting point rather than a rule -- the interface offers it as a setting, and
@@ -29,9 +29,9 @@ DEFAULT_THRESHOLD = 1
 
 @dataclass
 class ScenarioCoverage:
-    """One benchmark scenario and the conversations that landed on it."""
+    """One scenario and the conversations that landed on it."""
 
-    scenario: BenchmarkScenario
+    scenario: ScenarioRow
     conversation_ids: List[str] = field(default_factory=list)
     by_confidence: Dict[str, int] = field(default_factory=dict)
 
@@ -70,7 +70,7 @@ class GroupAssessment:
 
     @property
     def agrees(self) -> bool:
-        """Whether the model owner's group corresponds to exactly one benchmark scenario."""
+        """Whether the model owner's group corresponds to exactly one scenario space scenario."""
         return len(self.scenario_counts) == 1 and not self.unmatched
 
     @property
@@ -82,12 +82,12 @@ class GroupAssessment:
     @property
     def verdict(self) -> str:
         if not self.scenario_counts:
-            return "None of these matched any benchmark scenario"
+            return "None of these matched any scenario"
         if self.agrees:
             return f"All {self.total} map to {self.dominant}"
         spread = len(self.scenario_counts)
         tail = f", {self.unmatched} matching nothing" if self.unmatched else ""
-        return f"Split across {spread} scenarios{tail} — the grouping and the benchmark disagree"
+        return f"Split across {spread} scenarios{tail} — the grouping and the scenario space disagree"
 
 
 @dataclass
@@ -119,14 +119,14 @@ class CoverageReport:
             "Conversations read": self.conversations,
             "Mapped to a scenario": self.conversations - len(self.unmatched),
             "Matched no scenario": len(self.unmatched),
-            "Benchmark scenarios": len(self.scenarios),
+            "Scenarios in the space": len(self.scenarios),
             "Represented": len(self.represented()),
             "Under-represented": len(under),
             "Never exercised": len(self.untouched()),
         }
 
 
-def build_report(mappings, scenarios: List[BenchmarkScenario],
+def build_report(mappings, scenarios: List[ScenarioRow],
                  threshold: int = DEFAULT_THRESHOLD) -> CoverageReport:
     """Turn per-conversation mappings into per-scenario counts and per-group verdicts.
 

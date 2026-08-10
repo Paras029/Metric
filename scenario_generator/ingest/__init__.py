@@ -1,7 +1,7 @@
 """Document ingestion: submitted files in, verified evidence out.
 
 The stage that runs before everything else. It reads the pack a model owner submits, extracts
-what the benchmark needs, checks every claim against the document it cites, and produces three
+what the scenario space needs, checks every claim against the document it cites, and produces three
 things: the evidence record, a cited context document for the later stages, and the questions
 nobody's documents answered.
 

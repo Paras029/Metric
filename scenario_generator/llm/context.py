@@ -97,7 +97,7 @@ def supplementary_context(text: str) -> str:
 
 
 def digest(scenarios: List[Scenario], description_chars: int = 160) -> str:
-    """One line per scenario — the whole benchmark in a form a single prompt can carry."""
+    """One line per scenario — the whole scenario space in a form a single prompt can carry."""
     lines = []
     for s in scenarios:
         parts = [s.id, f"[{s.origin}]", f"({s.category})",

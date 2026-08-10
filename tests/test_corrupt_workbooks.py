@@ -26,7 +26,7 @@ def _not_really_a_workbook(name: str) -> Path:
 
 
 class TestTheirConversations(unittest.TestCase):
-    """Where the user hit this: submitting their own testing under Stage 1 or the coverage stage."""
+    """Where the user hit this: submitting their testing under Stage 1 or the coverage stage."""
 
     def test_a_bad_file_is_reported_not_traced(self):
         with self.assertRaises(UnreadableConversations) as raised:

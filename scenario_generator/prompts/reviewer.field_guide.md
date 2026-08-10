@@ -16,10 +16,10 @@ WHAT EACH FIELD MEANS
   assertion for a probe. Never issued.
 - capabilities, touches_state_changing_action: what the scenario exercises.
 - num_steps, num_turns: how deep the scenario runs.
-- similar_scenarios_in_benchmark: how many scenarios share this one's category and capability
+- similar_scenarios_in_space: how many scenarios share this one's category and capability
   set. Computed, not estimated -- treat it as evidence of redundancy.
 - steps_rank_within_similar_group: depth rank within that group, 1 being deepest. A shallow
-  scenario in a crowded group is usually the weakest thing in the benchmark.
+  scenario in a crowded group is usually the weakest thing in the scenario space.
 - existing_materiality: the tier currently recorded. It may come from an earlier assessment pass,
   or it may still be an untouched default where that pass was not run. Treat it as one reader's
   opinion that you are free to depart from, not as a starting point to justify moving away from.

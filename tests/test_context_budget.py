@@ -1,7 +1,7 @@
 """How much of the reading actually reaches a model call, and what happens when it will not fit.
 
 The context document is the whole of what a later stage knows about the agent. Anything cut out of
-it on the way to a call is a fact the benchmark was built without, and cutting at a character count
+it on the way to a call is a fact the scenario space was built without, and cutting at a character count
 is the worst way to do it: it lands mid-sentence, it drops whichever answers happened to be last,
 and it is invisible -- a thin reading and a truncated one look identical from the outside.
 
@@ -12,9 +12,9 @@ quote, source and page behind every claim, which is what an auditor needs and wh
 check. Sending that provenance spends the budget on the one part of the reading that cannot inform
 anything.
 
-*A note is never dropped.* Notes and answers are the smallest part of the context and the part
-somebody typed deliberately. A budget that spent itself on documents and then cut the answer just
-given would be exactly backwards.
+*A note is never dropped.* Notes are the smallest part of the context and the part somebody typed
+deliberately. A budget that spent itself on documents and then cut the correction just given would
+be exactly backwards.
 
 *Going over the budget drops whole sections and says so.* A reader can act on that.
 """
@@ -101,7 +101,7 @@ class TestTheBudgetIsGenerousAndHonest(unittest.TestCase):
 
     def test_a_realistic_reading_is_nowhere_near_the_budget(self):
         """The cap exists to catch an outlier, not to trim every run. A cap a normal pack exceeds
-        degrades every benchmark quietly, which is the failure this is set to avoid."""
+        degrades every scenario space quietly, which is the failure this is set to avoid."""
         model = build_model_context(_record(claims_per_facet=12))
         self.assertLess(len(model), MAX_CHARS / 4)
 
@@ -145,8 +145,8 @@ class TestTheBudgetIsGenerousAndHonest(unittest.TestCase):
         self.assertIn("truncated", "\n".join(logged.output))
 
 
-class TestAnAnswerReachesTheCallThatNeedsIt(unittest.TestCase):
-    """The question behind "will my answer actually be used": yes, and this is the path."""
+class TestANoteReachesTheCallThatNeedsIt(unittest.TestCase):
+    """The question behind "will what I typed actually be used": yes, and this is the path."""
 
     def setUp(self):
         from scenario_generator.webapp.workspace import Workspace
@@ -154,16 +154,11 @@ class TestAnAnswerReachesTheCallThatNeedsIt(unittest.TestCase):
         self.workspace = Workspace.create(Path(tempfile.mkdtemp()), "Answers")
         (self.workspace.root / "ingest_evidence.json").write_text("{}", encoding="utf-8")
 
-    def test_an_answer_saved_on_the_page_is_in_what_later_stages_are_given(self):
+    def test_a_note_saved_on_the_page_is_in_what_later_stages_are_given(self):
         from scenario_generator.webapp.runners import _context
 
-        self.workspace.add_notes(
-            [("What are DEC-02's outcomes?", "Eligible / Not eligible")], "intake")
-        context = _context(self.workspace)
-
-        self.assertIn("Eligible / Not eligible", context)
-        # Carried with its question, so a later pass reads it as an answer rather than a remark.
-        self.assertIn("What are DEC-02's outcomes?", context)
+        self.workspace.add_note("intake", "DEC-02's outcomes are Eligible / Not eligible.")
+        self.assertIn("Eligible / Not eligible", _context(self.workspace))
 
     def test_an_answer_given_at_one_stage_reaches_the_stages_after_it(self):
         from scenario_generator.webapp.runners import _context

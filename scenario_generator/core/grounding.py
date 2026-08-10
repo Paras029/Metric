@@ -32,7 +32,7 @@ MIN_QUOTE_CHARS = 16
 # fabricated quote is caught at almost any threshold, because invented text shares little with the
 # document. A real quote fails when the model tidied punctuation, joined two sentences, or dropped
 # a clause -- all of which are faithful readings expressed loosely. Losing those is how extraction
-# ends up thin, and a benchmark built on a thin reading of the documentation is the expensive
+# ends up thin, and a scenario space built on a thin reading of the documentation is the expensive
 # outcome, so the threshold sits where loose-but-faithful quotes survive.
 MATCH_THRESHOLD = 0.78
 

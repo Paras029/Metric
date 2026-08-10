@@ -16,7 +16,7 @@ is wrong. ``StrOutputParser`` turns the reply message into text, including the c
 returns its content as a list of parts. None of that is reimplemented here.
 
 Several passes in this package -- writing scenario text, weighing materiality, mapping the model
-owner's scenarios -- split a large benchmark into chunks. ``ask_llm_batch`` sends those chunks
+owner's scenarios -- split a large scenario space into chunks. ``ask_llm_batch`` sends those chunks
 concurrently using the chain's own ``.batch``, which is LangChain's documented way of running one
 runnable over many inputs at once rather than a queue this module manages by hand. It needs a
 template with real placeholders to do that -- a chain built with the finished text already baked
@@ -341,7 +341,7 @@ def ask_llm_batch(system_prompt: str, user_messages: List[str],
     That is LangChain's own ``return_exceptions``, not something reimplemented here.
 
     ``max_concurrency`` caps how many of the messages are in flight at once, defaulting to
-    ``LLM_MAX_CONCURRENCY`` -- without a cap, a large benchmark split into many chunks would open
+    ``LLM_MAX_CONCURRENCY`` -- without a cap, a large scenario space split into many chunks would open
     as many connections as it has chunks, which is more than a gateway is necessarily willing to
     hold open at the same time.
 

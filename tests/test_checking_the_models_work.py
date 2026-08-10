@@ -14,17 +14,17 @@ anything. That text is issued to the model owner. If it states the ending, the e
 nothing, and it fails silently — the pack looks complete either way.
 
 The other half of this file is the adjudication: a third opinion, but only where the two readings
-the benchmark already pays for landed two or more tiers apart.
+the scenario space already pays for landed two or more tiers apart.
 """
 import json
 import unittest
 
-from scenario_generator.core.models import (Capability, Decision, IntakeData, Persona, Scenario,
-                                            State, Tool)
+from scenario_generator.core.models import (Capability, Decision, IntakeData, Persona, State,
+                                            Tool)
 from scenario_generator.llm import quality
 from scenario_generator.llm.reviewer import ADJUDICATE_GAP, ScenarioReviewer, _tiers_apart
 from scenario_generator.llm.writer import ScenarioWriter
-from scenario_generator.pipeline import build_scenarios
+from scenario_generator.pipeline import build_scenario_space
 
 _INTAKE = IntakeData(
     use_case={"Use case name": "Disputes", "Business objective": "Resolve disputes"},
@@ -60,7 +60,7 @@ class TestTheAnswerKeyCheck(unittest.TestCase):
 
     def test_sharing_the_subject_matter_is_not_a_leak(self):
         """A description of a dispute and an ending about a dispute share words honestly. A check
-        that fired on that would flag most of the benchmark and be switched off within a week."""
+        that fired on that would flag most of the scenario space and be switched off within a week."""
         self.assertFalse(quality.repeats_the_ending(
             "The cardmember raises a dispute about a charge they do not recognise.",
             "The dispute is filed and a reference number is given"))
@@ -76,7 +76,7 @@ class TestTheAnswerKeyCheck(unittest.TestCase):
     def test_it_is_judged_against_this_scenario_own_ending(self):
         """Two scenarios can be written identically and only one of them be leaking, because a
         leak is a statement of where *this* route finishes."""
-        happy, locked = build_scenarios(_INTAKE, with_probes=False)
+        happy, locked = build_scenario_space(_INTAKE, with_probes=False)
         text = "The cardmember tries and is locked out after two failed attempts."
         happy.description = locked.description = text
         self.assertEqual(quality.leaking([happy, locked]), [locked])
@@ -84,7 +84,7 @@ class TestTheAnswerKeyCheck(unittest.TestCase):
 
 class TestWhatElseTheAuditCatches(unittest.TestCase):
     def _scenario(self, **overrides):
-        scenario = build_scenarios(_INTAKE, with_probes=False)[0]
+        scenario = build_scenario_space(_INTAKE, with_probes=False)[0]
         for key, value in overrides.items():
             setattr(scenario, key, value)
         return scenario
@@ -102,7 +102,7 @@ class TestWhatElseTheAuditCatches(unittest.TestCase):
 
 class TestTheWriterRewritesOnlyWhatFailed(unittest.TestCase):
     def setUp(self):
-        self.scenarios = build_scenarios(_INTAKE, with_probes=False)
+        self.scenarios = build_scenario_space(_INTAKE, with_probes=False)
         self.calls = []
 
     def _writer(self, first_reply, repair_reply=_GOOD):
@@ -161,7 +161,7 @@ class TestSettlingADisagreement(unittest.TestCase):
     """A third opinion, and only where one is worth paying for."""
 
     def setUp(self):
-        self.scenarios = build_scenarios(_INTAKE, with_probes=False)
+        self.scenarios = build_scenario_space(_INTAKE, with_probes=False)
         for scenario in self.scenarios:
             scenario.materiality = "Low"
             scenario.materiality_rationale = "Nothing much turns on it."

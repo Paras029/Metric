@@ -74,7 +74,7 @@ class TestTheCoveragePage(unittest.TestCase):
         return read_registry(str(self._workspace().root / "registry.xlsx"))[0].id
 
     def _map(self, calls=None):
-        """Run coverage with both conversations landing on the first benchmark scenario."""
+        """Run coverage with both conversations landing on the first scenario."""
         target = self._first_scenario()
         reply = json.dumps({f"C{n}": {"scenario_id": target, "confidence": "high" if n == 1
                                       else "low", "reason": "ends signed in"}
@@ -184,7 +184,7 @@ class TestWhatGoesInThePack(unittest.TestCase):
         book = load_workbook(self._workspace().root / "challenge_pack.xlsx")
         return book["Scenarios"].max_row - 1
 
-    def test_the_whole_benchmark_is_issued_by_default(self):
+    def test_the_whole_space_is_issued_by_default(self):
         self.assertFalse(self._workspace().pack_gaps_only)
         self.assertGreater(self._issue(), 0)
 

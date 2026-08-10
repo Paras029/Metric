@@ -182,12 +182,12 @@ class TestMergeAndReconnectWriters(unittest.TestCase):
     def test_set_state_reached_via_on_an_unknown_state_reports_failure(self):
         self.assertFalse(set_state_reached_via(str(self.path), "S-99", "DEC-03=Matched"))
 
-    def test_merging_two_decisions_collapses_the_benchmark(self):
+    def test_merging_two_decisions_collapses_the_space(self):
         before = read_intake(str(self.path))
-        from scenario_generator.pipeline import build_scenarios
+        from scenario_generator.pipeline import build_scenario_space
         # 2x2 combinations through DEC-03/DEC-05, plus DEC-09's own two outcomes as an orphan
         # decision nothing leads to -- unmerged, unconnected, but still enumerated on its own.
-        self.assertEqual(len(build_scenarios(before)), 6)
+        self.assertEqual(len(build_scenario_space(before)), 6)
 
         ok = merge_decisions(
             str(self.path), ["DEC-03", "DEC-05"], "DEC-03", "Identify caller",
@@ -205,7 +205,7 @@ class TestMergeAndReconnectWriters(unittest.TestCase):
         self.assertEqual(kept.name, "Identify caller")
         self.assertEqual(set(kept.variants), {"Identified", "Not identified"})
 
-        self.assertEqual(len(build_scenarios(after)), 4)      # the combinatorial blow-up is gone
+        self.assertEqual(len(build_scenario_space(after)), 4)      # the combinatorial blow-up is gone
 
     def test_merging_requires_the_kept_id_to_be_a_member(self):
         self.assertFalse(merge_decisions(

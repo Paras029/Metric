@@ -1,6 +1,6 @@
 """Every scenario carries a short name, and the name survives every round trip.
 
-A benchmark is three hundred rows in a spreadsheet and three hundred rows on a page, and until
+A scenario space is three hundred rows in a spreadsheet and three hundred rows on a page, and until
 now the only handle on any of them was the first sentence of its description. Those sentences all
 begin the same way -- they are describing the same agent -- so the list was unscannable exactly
 when it was large enough to need scanning.
@@ -15,13 +15,13 @@ import unittest
 from pathlib import Path
 
 from scenario_generator.core.generation import fallback_name
-from scenario_generator.core.models import (Capability, Decision, IntakeData, Persona, Scenario,
-                                            State, Step, Tool, TurnMeta)
+from scenario_generator.core.models import (Capability, Decision, IntakeData, Persona, State,
+                                            Tool, TurnMeta)
 from scenario_generator.core.probes import build_probes
 from scenario_generator.io import read_scenarios, write_registry
 from scenario_generator.io.sheets import add_sheet, write_rows
 from scenario_generator.llm.writer import MAX_NAME_CHARS, _clean_name
-from scenario_generator.pipeline import build_scenarios
+from scenario_generator.pipeline import build_scenario_space
 
 _INTAKE = IntakeData(
     use_case={"Use case name": "Disputes", "Business objective": "Resolve disputes"},
@@ -67,11 +67,11 @@ class TestTheNameIsAHandle(unittest.TestCase):
 
 
 class TestEveryScenarioHasOneBeforeAnyModelRuns(unittest.TestCase):
-    """The walk is deterministic and so is the name it produces. A benchmark is scannable from
+    """The walk is deterministic and so is the name it produces. A scenario space is scannable from
     the moment the graph is walked, not only after the writing stage has been paid for."""
 
     def test_a_walked_route_is_named_from_its_own_route(self):
-        scenarios = build_scenarios(_INTAKE, with_probes=False)
+        scenarios = build_scenario_space(_INTAKE, with_probes=False)
         self.assertTrue(scenarios)
         for scenario in scenarios:
             self.assertTrue(scenario.name, f"{scenario.id} has no name")
@@ -96,7 +96,7 @@ class TestTheNameSurvivesTheWorkbook(unittest.TestCase):
         return {s.id: s for s in read_scenarios(str(path), _INTAKE)}
 
     def test_a_written_name_comes_back(self):
-        scenarios = build_scenarios(_INTAKE, with_probes=False)
+        scenarios = build_scenario_space(_INTAKE, with_probes=False)
         scenarios[0].name = "Locked out after two failed checks"
         back = self._round_trip(scenarios)
         self.assertEqual(back[scenarios[0].id].name, "Locked out after two failed checks")
@@ -104,10 +104,8 @@ class TestTheNameSurvivesTheWorkbook(unittest.TestCase):
     def test_a_registry_written_before_names_existed_still_reads_correctly(self):
         """The Name column was inserted in the middle of the text sheet. Read by position, an
         older file would put its description into the name and its turn plan into the description
-        -- silently, in the file that is the record of the whole benchmark."""
-        from openpyxl import Workbook
-
-        scenarios = build_scenarios(_INTAKE, with_probes=False)
+        -- silently, in the file that is the record of the whole scenario space."""
+        scenarios = build_scenario_space(_INTAKE, with_probes=False)
         scenarios[0].description = "The cardmember disputes a charge."
         scenarios[0].turn_plan = "1. Open the conversation."
 
@@ -133,7 +131,7 @@ class TestTheNameReachesThePageAndThePack(unittest.TestCase):
     def test_the_page_shows_the_name_as_the_handle(self):
         from scenario_generator.webapp.scenarios import to_row
 
-        scenario = build_scenarios(_INTAKE, with_probes=False)[0]
+        scenario = build_scenario_space(_INTAKE, with_probes=False)[0]
         scenario.name = "Locked out after two failed checks"
         scenario.description = "The cardmember fails identity twice and the account locks."
         self.assertEqual(to_row(scenario)["title"], "Locked out after two failed checks")
@@ -142,7 +140,7 @@ class TestTheNameReachesThePageAndThePack(unittest.TestCase):
         from scenario_generator.io import write_challenge_pack
         from scenario_generator.io.sheets import open_for_reading, read_table
 
-        scenarios = build_scenarios(_INTAKE, with_probes=False)
+        scenarios = build_scenario_space(_INTAKE, with_probes=False)
         scenarios[0].name = "Locked out after two failed checks"
         path = Path(tempfile.mkdtemp()) / "pack.xlsx"
         write_challenge_pack(str(path), _INTAKE, scenarios)
@@ -157,7 +155,7 @@ class TestTheNameReachesThePageAndThePack(unittest.TestCase):
         from scenario_generator.io import write_challenge_pack
         from scenario_generator.io.sheets import open_for_reading, read_table
 
-        scenarios = build_scenarios(_INTAKE, with_probes=False)
+        scenarios = build_scenario_space(_INTAKE, with_probes=False)
         path = Path(tempfile.mkdtemp()) / "pack.xlsx"
         write_challenge_pack(str(path), _INTAKE, scenarios)
 

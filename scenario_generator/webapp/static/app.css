@@ -1,4 +1,4 @@
-/* Metric — local interface.
+/* METRIC — local interface.
  *
  * This is an instrument, not an app, and it is drawn like one. A validator uses it to measure
  * something and to defend the measurement afterwards, which is the same posture as a calibration
@@ -8,8 +8,9 @@
  * **The route is the motif.** The whole premise of the tool is walking every path through a
  * declared graph. So the pipeline is not drawn as a list of links -- it is drawn as the thing it
  * is, a spine with nodes on it, the spine drawn solid through what has been walked and hairline
- * through what has not. The same figure opens the entry screen. A product whose central idea is
- * a traversal should look like one.
+ * through what has not. The same figure opens the entry screen, so the first screen a reader
+ * sees is teaching them the navigation they are about to use. A product whose central idea is a
+ * traversal should look like one.
  *
  * **Numbers are the texture.** Everything here reduces to counts -- routes, tiers, runs,
  * conversations -- so figures are set in the monospace face with tabular numerals, larger than
@@ -82,14 +83,9 @@
   --on-navy-mid: #A9C0E2;
   --on-navy-dim: #8098BE;
 
-  /* How a stage's output was produced, as one colour each. Used in the rail against navy and in
-     the legend beneath it, so they are tuned for that background rather than for the page. */
-  --mode-computed: #4EC08A;
-  --mode-judged: #5FA8F5;
-  /* Drafted is both -- a model wrote it, a person settles it -- so it sits between the two it
-     is made of rather than claiming a hue of its own. */
-  --mode-drafted: #9C8BE8;
-  --mode-review: #F2B857;
+  /* Walked, in the rail. The page's --ok is tuned to sit on a white tint and disappears against
+     navy, so the rail carries its own value for the same idea. */
+  --done-on-navy: #4EC08A;
 
   --font-sans: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue",
                Arial, sans-serif;
@@ -204,19 +200,15 @@ ol, ul { list-style: none; padding: 0; }
   display: grid;
   align-content: center;
 }
-/* The four mode colours down the leading edge, in the order the stages use them. The product's
-   one colour idea -- who decided this -- stated before it is explained. */
+/* The leading edge as a graduated rule: the edge of a measuring instrument, stated before the
+   product is explained. Everything downstream of this screen is something placed on a scale. */
 .gate__brand::before {
   content: "";
   position: absolute;
   inset: 0 auto 0 0;
   width: 3px;
-  background: linear-gradient(to bottom,
-    var(--mode-drafted)  0     12.5%,
-    var(--mode-computed) 12.5% 25%,
-    var(--mode-judged)   25%   75%,
-    var(--mode-judged)   75%   87.5%,
-    var(--mode-computed) 87.5% 100%);
+  background: repeating-linear-gradient(to bottom,
+    var(--blue) 0 1.75rem, var(--navy-line) 1.75rem 3.5rem);
 }
 .gate__brandInner { width: min(30rem, 100%); margin: 0 auto; }
 
@@ -229,15 +221,14 @@ ol, ul { list-style: none; padding: 0; }
 }
 .gate__lede { margin-top: var(--s4); max-width: 30rem; color: var(--on-navy-mid); }
 
-/* The eight steps as the route the tool walks: a spine with a node per stage, each coloured by
-   how that stage's output is produced. Top to bottom, the way the work runs. The mode is spelled
-   out beside each rather than put in a key -- on the one screen a first-time reader sees, a
-   legend they have to look up is a legend nobody reads. */
+/* The eight steps as the route the tool walks: a spine with a node per stage, numbered, top to
+   bottom, the way the work runs. This is the same figure as the rail inside the tool, so the one
+   screen a first-time reader sees is teaching them the navigation they are about to use. */
 .route { margin-top: var(--s6); }
 .route__step {
   position: relative;
   display: grid;
-  grid-template-columns: 1rem max-content minmax(0, 1fr) max-content;
+  grid-template-columns: 1rem max-content minmax(0, 1fr);
   align-items: center;
   gap: var(--s3);
   padding: .35rem 0;
@@ -250,15 +241,10 @@ ol, ul { list-style: none; padding: 0; }
   bottom: -.35rem;
   border-left: 1px solid var(--navy-line);
 }
-.route__node { width: .5rem; height: .5rem; border-radius: var(--r-sm); background: var(--on-navy-dim); }
-.route__step--computed .route__node { background: var(--mode-computed); }
-.route__step--judged   .route__node { background: var(--mode-judged); }
-.route__step--drafted  .route__node { background: var(--mode-drafted); }
-.route__step--review   .route__node { background: var(--mode-review); }
+.route__node { width: .5rem; height: .5rem; border-radius: var(--r-sm); background: var(--blue); }
 
 .route__mark { font-size: var(--t-meta); color: var(--on-navy-dim); }
 .route__name { font-size: var(--t-ui); color: var(--on-navy); }
-.route__mode { font-size: var(--t-meta); color: var(--on-navy-dim); white-space: nowrap; }
 
 .gate__work {
   padding: var(--s7) clamp(var(--s5), 4vw, var(--s7));
@@ -431,7 +417,7 @@ ol, ul { list-style: none; padding: 0; }
 }
 .steps__item--complete:not(:last-child) .steps__link::after,
 .steps__item--stale:not(:last-child) .steps__link::after {
-  border-left: 2px solid var(--mode-computed);
+  border-left: 2px solid var(--done-on-navy);
   left: 2.16rem;
 }
 
@@ -464,8 +450,8 @@ ol, ul { list-style: none; padding: 0; }
 }
 
 .steps__item--complete .steps__marker {
-  background: var(--mode-computed);
-  border-color: var(--mode-computed);
+  background: var(--done-on-navy);
+  border-color: var(--done-on-navy);
   color: var(--navy-deep);
 }
 .steps__item--stale .steps__marker {
@@ -492,37 +478,6 @@ ol, ul { list-style: none; padding: 0; }
   background: var(--on-navy);
   box-shadow: 0 0 0 3px rgba(255, 255, 255, .14);
 }
-
-/* How each stage's output is produced, marked in the rail so the shape of the pipeline -- which
-   parts a model touches -- is readable without opening anything. */
-.steps__mode {
-  flex: none;
-  width: .375rem;
-  height: .375rem;
-  margin-left: auto;
-  border-radius: var(--r-sm);
-}
-.steps__mode--computed { background: var(--mode-computed); }
-.steps__mode--judged   { background: var(--mode-judged); }
-.steps__mode--drafted  { background: var(--mode-drafted); }
-.steps__mode--review   { background: var(--mode-review); }
-
-.rail__legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s1) var(--s3);
-  margin: var(--s5) var(--s5) 0;
-  padding-top: var(--s3);
-  border-top: 1px solid var(--navy-line);
-  font-size: var(--t-micro);
-  color: var(--on-navy-dim);
-}
-.rail__legend span { display: inline-flex; align-items: center; gap: var(--s1); }
-.dot { width: .375rem; height: .375rem; border-radius: var(--r-sm); display: inline-block; flex: none; }
-.dot--computed { background: var(--mode-computed); }
-.dot--judged   { background: var(--mode-judged); }
-.dot--drafted  { background: var(--mode-drafted); }
-.dot--review   { background: var(--mode-review); }
 
 /* =================================================================== the page */
 /* Wider than a reading measure on purpose: this column carries tables, a scenario list and a
@@ -570,7 +525,6 @@ ol, ul { list-style: none; padding: 0; }
 }
 .head__blurb { margin-top: var(--s2); color: var(--ink-mid); max-width: var(--measure); }
 .head__actions { display: flex; align-items: center; gap: var(--s2); flex: none; }
-.head__step { font-size: var(--t-meta); color: var(--ink-dim); white-space: nowrap; }
 
 @media (max-width: 46rem) {
   .head { grid-template-columns: max-content minmax(0, 1fr); }
@@ -842,11 +796,9 @@ ol, ul { list-style: none; padding: 0; }
 }
 .aside--warn { background: var(--warn-tint); color: #6D4100; }
 .aside--bad  { background: var(--bad-tint); color: var(--bad-deep); }
-.aside--ok   { background: var(--ok-tint); color: #0C5239; }
-.aside--blue { background: var(--blue-tint); color: var(--blue-dark); }
 
 /* One chip, one size, one shape, wherever a short verdict sits beside something. */
-.tag, .mark, .badge {
+.tag, .mark {
   display: inline-block;
   font-size: var(--t-micro);
   font-weight: 700;
@@ -857,7 +809,7 @@ ol, ul { list-style: none; padding: 0; }
   background: var(--surface-sunk);
   color: var(--ink-mid);
 }
-.badge, .tag { text-transform: uppercase; letter-spacing: .08em; }
+.tag { text-transform: uppercase; letter-spacing: .08em; }
 
 .tag--stale { background: var(--warn-tint); color: var(--warn); }
 .mark--flag { background: var(--warn-tint); color: var(--warn); }
@@ -865,10 +817,6 @@ ol, ul { list-style: none; padding: 0; }
 .mark--covered { background: var(--ok-tint); color: var(--ok); }
 .mark--tier-critical { background: var(--bad-tint); color: var(--bad); }
 .mark--tier-high { background: var(--warn-tint); color: var(--warn); }
-.badge--computed { background: var(--ok-tint); color: var(--ok); }
-.badge--judged   { background: var(--blue-tint); color: var(--blue-dark); }
-.badge--drafted  { background: #EFECFB; color: #4A3C93; }
-.badge--review   { background: var(--warn-tint); color: var(--warn); }
 
 /* =================================================================== a running stage */
 .running {
@@ -1006,41 +954,11 @@ ol, ul { list-style: none; padding: 0; }
 
 .graph__facts { margin-top: var(--s3); font-size: var(--t-meta); color: var(--ink-dim); }
 
-/* =================================================================== questions and answers */
-.questions { margin-top: var(--s3); }
-.questions__row {
-  display: grid;
-  grid-template-columns: 6rem 1fr;
-  gap: var(--s3);
-  padding: var(--s3) 0;
-  border-bottom: 1px solid var(--rule-soft);
-  align-items: start;
-}
-.questions__kind {
-  font-size: var(--t-micro);
-  font-weight: 700;
-  letter-spacing: .07em;
-  text-transform: uppercase;
-  color: var(--ink-dim);
-  padding-top: .15rem;
-}
-.questions__row--done .questions__kind { color: var(--ok); }
-.questions__body { min-width: 0; }
-.questions__text { display: block; font-size: var(--t-ui); }
-.questions__detail {
-  display: block;
-  font-size: var(--t-small);
-  color: var(--ink-dim);
-  margin-top: var(--s1);
-  white-space: pre-line;
-}
-.field__input--inline { margin-top: var(--s2); max-width: 34rem; }
-
 /* =================================================================== folds
  *
  * A section body that collapses. Used wherever a list can run long enough that the reader wants
- * one row in it rather than all of them -- every declared decision, every question about one part
- * of the intake. The summary carries the count and what is outstanding, so a folded section still
+ * one row in it rather than all of them -- every declared decision, every file submitted under
+ * one heading. The summary carries the count and what is outstanding, so a folded section still
  * answers "is there anything in here for me" without being opened.
  */
 .fold { margin-top: var(--s3); border-top: 1px solid var(--rule-soft); }
@@ -1077,112 +995,6 @@ ol, ul { list-style: none; padding: 0; }
 }
 .fold__note { font-size: var(--t-meta); color: var(--ink-dim); }
 .fold > :not(.fold__summary) { margin-bottom: var(--s4); }
-
-.questions__group-title { margin: var(--s5) 0 var(--s1); }
-.questions__group-title:first-child { margin-top: 0; }
-.questions__foot-note { font-size: var(--t-meta); color: var(--ink-dim); }
-
-.questions__foot,
-.questions__revise {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--s3);
-  margin-top: var(--s4);
-  padding-top: var(--s3);
-  border-top: 1px solid var(--rule-soft);
-}
-.questions__progress { font-size: var(--t-small); color: var(--ink-dim); }
-.questions__blocks { color: var(--warn); font-style: normal; font-weight: 600; }
-.questions__more { margin-top: var(--s4); }
-.questions__more-summary {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s2);
-  font-size: var(--t-small);
-  font-weight: 600;
-  color: var(--blue-dark);
-  cursor: pointer;
-  padding: var(--s1) 0;
-  list-style: none;
-}
-.questions__more-summary::-webkit-details-marker { display: none; }
-.questions__more-summary::before {
-  content: "";
-  width: .4rem; height: .4rem;
-  border-right: 1.5px solid currentColor;
-  border-bottom: 1.5px solid currentColor;
-  transform: rotate(-45deg);
-  transition: transform var(--quick);
-}
-.questions__more[open] .questions__more-summary::before { transform: rotate(45deg); }
-.questions__revise .switch__count { margin: 0; max-width: 32rem; }
-
-.answers { margin-top: var(--s3); }
-.answers__row {
-  display: grid;
-  gap: var(--s1);
-  padding: var(--s3) 0;
-  border-bottom: 1px solid var(--rule-soft);
-}
-.answers__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s2); }
-.answers__heading { font-weight: 600; font-size: var(--t-ui); color: var(--navy); }
-.answers__confidence--high   { background: var(--ok-tint); color: var(--ok); }
-.answers__confidence--medium { background: var(--warn-tint); color: var(--warn); }
-.answers__confidence--low    { background: var(--bad-tint); color: var(--bad); }
-.answers__body { font-size: var(--t-ui); color: var(--ink-mid); }
-.answers__counts { font-size: var(--t-meta); color: var(--ink-dim); }
-.answers__row--missing .answers__heading { color: var(--ink-dim); }
-
-/* The whole reading, folded away until asked for. Eleven of these open at once is a wall; the
-   summary line above is what the page is actually for, and this is the check behind it. */
-.answers__summary { display: grid; gap: var(--s1); cursor: pointer; }
-.answers__summary::marker, .answers__summary::-webkit-details-marker { color: var(--rule-strong); }
-.answers__detail[open] .answers__summary .answers__body { color: var(--ink); }
-
-.reading {
-  margin: var(--s3) 0 var(--s2);
-  padding: var(--s4);
-  background: var(--surface-sunk);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-md);
-  max-width: var(--measure);
-}
-.reading__question {
-  font-size: var(--t-meta);
-  color: var(--ink-dim);
-  font-style: italic;
-}
-.reading__answer { margin-top: var(--s2); font-size: var(--t-ui); color: var(--ink); }
-.reading__label {
-  margin-top: var(--s4);
-  font-size: var(--t-meta);
-  font-weight: 650;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-  color: var(--ink-dim);
-}
-.reading__list { margin-top: var(--s2); padding-left: var(--s5); display: grid; gap: var(--s1); }
-.reading__list li { font-size: var(--t-small); color: var(--ink-mid); list-style: disc; }
-.reading__list--open li { color: var(--warn); }
-.reading__note { margin-top: var(--s2); font-size: var(--t-meta); color: var(--ink-dim); }
-
-.reading__sources { margin-top: var(--s2); display: grid; gap: var(--s3); }
-.reading__source {
-  padding: var(--s3);
-  background: var(--surface);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-sm);
-}
-.reading__statement { font-size: var(--t-small); color: var(--ink); }
-.reading__quote {
-  margin-top: var(--s2);
-  padding-left: var(--s3);
-  border-left: 2px solid var(--blue-edge);
-  font-size: var(--t-small);
-  color: var(--ink-mid);
-}
-.reading__where { margin-top: var(--s2); font-size: var(--t-meta); color: var(--ink-dim); }
 
 .field__input--area { resize: vertical; font-size: var(--t-ui); line-height: 1.5; }
 
@@ -1306,7 +1118,6 @@ ol, ul { list-style: none; padding: 0; }
   cursor: pointer;
 }
 .upload__input::file-selector-button:hover { background: var(--surface-sunk); }
-.upload__note { font-size: var(--t-meta); color: var(--ink-dim); }
 
 /* =================================================================== the benchmark on screen
  *
@@ -1594,7 +1405,6 @@ ol, ul { list-style: none; padding: 0; }
   border: 1px solid var(--rule);
   border-radius: var(--r-sm);
 }
-.side__note-question { font-size: var(--t-meta); font-weight: 600; color: var(--ink-dim); }
 .side__note-text { font-size: var(--t-small); color: var(--ink); }
 .side__note-when { margin-top: var(--s1); font-size: var(--t-meta); color: var(--ink-dim); }
 .side__note-form { margin-top: var(--s3); display: grid; gap: var(--s2); justify-items: start; }
@@ -1661,10 +1471,8 @@ ol, ul { list-style: none; padding: 0; }
   .steps::before { display: none; }
   .steps__link { padding: var(--s2) var(--s3); }
   .steps__item--active .steps__link::before { top: auto; height: 2px; width: 100%; left: 0; }
-  .steps__status, .steps__mode { display: none; }
-  .rail__legend { display: none; }
+  .steps__status { display: none; }
   .canvas { padding: var(--s5) var(--s4) var(--s6); }
-  .questions__row { grid-template-columns: 1fr; gap: var(--s1); }
   /* The chips are fixed-width and the title is not, so on a narrow column the title was being
      squeezed to one word per line while the chips kept their full size. They wrap to their own
      line instead. */

@@ -1,7 +1,7 @@
-"""The benchmark as it appears on screen.
+"""The scenario space as it appears on screen.
 
 Two things are being pinned. The first is that the page narrows to what a reviewer can act on: a
-benchmark of three hundred scenarios is triaged, not read, so the default view is whatever is
+scenario space of three hundred scenarios is triaged, not read, so the default view is whatever is
 asking for a decision, and the page always says how much it is not showing.
 
 The second is what must never appear. The registry holds the decision path, the seeded state and
@@ -141,7 +141,7 @@ class TestWhichScenariosAreShown(unittest.TestCase):
         result = build_rows(self._mixed(), "attention")
         self.assertEqual({r["id"] for r in result["rows"]}, {"SC-003", "SC-004", "SC-005"})
 
-    def test_it_falls_back_to_the_whole_benchmark_when_nothing_is_flagged(self):
+    def test_it_falls_back_to_the_whole_space_when_nothing_is_flagged(self):
         """An empty list would read as 'no scenarios', which is the opposite of the truth."""
         result = build_rows([_scenario("SC-001"), _scenario("SC-002")], "attention")
         self.assertEqual(result["view"], "all")
@@ -162,7 +162,7 @@ class TestWhichScenariosAreShown(unittest.TestCase):
         self.assertEqual(result["total"], PAGE_SIZE + 20)
         self.assertGreater(result["selected"], result["shown"])
 
-    def test_the_counts_are_of_the_whole_benchmark_not_the_page(self):
+    def test_the_counts_are_of_the_whole_space_not_the_page(self):
         result = build_rows(self._mixed(), "high")
         self.assertEqual(result["total"], 5)
         self.assertEqual(result["attention"], 3)
@@ -187,7 +187,7 @@ class TestFilteringAndPageSize(unittest.TestCase):
         result = build_rows(self._mixed(), "all", filters={"materiality": "Nonexistent"})
         self.assertEqual(result["rows"], [])
 
-    def test_filter_options_reflect_the_view_not_the_whole_benchmark(self):
+    def test_filter_options_reflect_the_view_not_the_whole_space(self):
         """Choosing between personas should offer what the current view actually has."""
         result = build_rows(self._mixed(), "high")
         self.assertEqual(result["rows"][0]["id"], "SC-002")

@@ -38,44 +38,12 @@
 </details>
 {% endmacro %}
 
-{# One gap in the current declaration, addressed to the row it concerns. Same answer mechanism
-   as an open question always has had -- see save_answers -- just addressed more specifically.
-
-   Three lines, in the order they are needed: what is being asked, a box carrying an example of
-   what an answer looks like, and only then why it matters. The example is the placeholder rather
-   than a caption because the uncertainty it settles -- a word, a list, or a sentence? -- is felt
-   at the moment of typing, and that is where it has to be answered. #}
-{% macro gap_row(row, index, given) %}
-<li class="questions__row {% if given %}questions__row--done{% endif %}">
-  <span class="questions__kind">{% if given %}Answered{% else %}To answer{% endif %}</span>
-  <span class="questions__body">
-    <span class="questions__text">
-      {# The chip is dropped wherever the question already names the row -- anywhere in it, not
-         only at the start, since "Which capability does DEC-02 belong to?" says it in the middle
-         and printing the id twice reads as a rendering fault. #}
-      {%- if row.heading and row.heading not in row.question -%}
-        <span class="mono">{{ row.heading }}</span> —
-      {% endif %}{{ row.question }}
-    </span>
-    <input type="hidden" name="question-{{ index }}" value="{{ row.question }}">
-    <input class="field__input field__input--inline" type="text" name="answer-{{ index }}"
-           value="{{ given or '' }}"
-           aria-label="{{ row.question }}"
-           placeholder="{% if row.example %}For example: {{ row.example }}{% else %}Type your answer{% endif %}">
-    <span class="questions__detail">
-      {% if not given %}Leave it blank if you do not know. {% endif %}{{ row.why }}
-    </span>
-  </span>
-</li>
-{% endmacro %}
-
-
 {% block body %}
 <div class="shell">
 
   <nav class="rail" aria-label="Pipeline stages">
     <div class="rail__head">
-      <a class="rail__home" href="{{ url_for('index') }}">Metric</a>
+      <a class="rail__home" href="{{ url_for('index') }}">METRIC</a>
       <p class="rail__workspace">{{ workspace.name }}</p>
       {% set progress = workspace.progress() %}
       <div class="rail__progress">
@@ -105,19 +73,11 @@
                 {{ item.status | stage_status }}{% if item.stage.optional %} · optional{% endif %}
               </span>
             </span>
-            <span class="steps__mode steps__mode--{{ item.stage.mode }}"
-                  title="{{ item.stage.mode_label }}" aria-hidden="true"></span>
           </a>
         </li>
       {% endfor %}
     </ol>
 
-    <p class="rail__legend">
-      <span><i class="dot dot--computed"></i>Deterministic</span>
-      <span><i class="dot dot--judged"></i>LLM</span>
-      <span><i class="dot dot--drafted"></i>LLM, then you</span>
-      <span><i class="dot dot--review"></i>Human</span>
-    </p>
   </nav>
 
   <main class="canvas">
@@ -141,10 +101,7 @@
         <b>{{ "%02d" | format(view.number) }}</b>/{{ "%02d" | format(rail | length) }}
       </p>
       <div class="head__text">
-        <h1 class="head__title">
-          {{ stage.title }}
-          <span class="badge badge--{{ stage.mode }}">{{ stage.mode_label }}</span>
-        </h1>
+        <h1 class="head__title">{{ stage.title }}</h1>
         <p class="head__blurb">{{ stage.blurb }}</p>
       </div>
       <div class="head__actions">
@@ -266,7 +223,7 @@
       </section>
     {% endif %}
 
-    {% if intake_problem and stage.key in ('intake', 'benchmark') %}
+    {% if intake_problem and stage.key in ('intake', 'workflow') %}
       <div class="banner banner--failed" role="alert">
         <p class="banner__title">The graph could not be drawn</p>
         <p class="banner__body">
@@ -320,7 +277,7 @@
         <p class="block__body">
           Mark a decision out of scope where it has already been reviewed elsewhere and is being
           reused as-is -- a plug-and-play sub-system covered by a separate engagement is the usual
-          case. It stays in the graph, drawn muted, but the benchmark generates no scenario through
+          case. It stays in the graph, drawn muted, but the scenario space generates no scenario through
           it. Takes effect immediately; nothing here needs the intake re-uploaded.
         </p>
         {% call fold("Every declared decision", decisions | length,
@@ -357,7 +314,7 @@
           One pass over the whole declared graph: proposes where a disconnected decision or state
           most plausibly belongs, and where two or more decisions look like alternate routes to
           the same fact rather than genuinely different branches -- which is usually what is
-          multiplying the benchmark on low-value variation rather than widening it. Optional, and
+          multiplying the scenario space on low-value variation rather than widening it. Optional, and
           nothing is written until you apply a proposal individually.
         </p>
         <form method="post" action="{{ url_for('run_structure_review') }}">
@@ -521,7 +478,7 @@
         {% if coverage.groups %}
           <h3 class="label card__label">The model owner's own grouping</h3>
           <p class="block__body">
-            A group that splits across scenarios means either the grouping is loose, or the benchmark
+            A group that splits across scenarios means either the grouping is loose, or the scenario space
           draws a distinction their testing does not.
           </p>
           <ul class="rows">
@@ -545,7 +502,7 @@
       <section class="block">
         <h2 class="block__title">What goes in the pack</h2>
         <p class="block__body">
-          The pack carries the whole benchmark by default. Narrowing it to what their testing
+          The pack carries the whole scenario space by default. Narrowing it to what their testing
           under-covers is a decision to accept their evidence for the rest.
         </p>
         <form class="controls" method="post" action="{{ url_for('set_pack_scope') }}">
@@ -566,42 +523,42 @@
         {% elif pack_gaps_only %}
           <p class="block__foot">
             The coverage stage has not mapped anything yet, so nothing can be held back — the pack
-            will carry the whole benchmark until it has.
+            will carry the whole scenario space until it has.
           </p>
         {% endif %}
       </section>
     {% endif %}
 
     {# On the coverage stage the section above already lists every scenario, with the count of
-       the model owner's conversations against each. Repeating the benchmark here would put the same
+       the model owner's conversations against each. Repeating the scenario space here would put the same
        rows on
        the same screen twice. #}
-    {% if benchmark and not (coverage and stage.key == 'coverage') %}
+    {% if space and not (coverage and stage.key == 'coverage') %}
       <section class="block">
-        <h2 class="block__title">The benchmark so far</h2>
+        <h2 class="block__title">The scenario space so far</h2>
         <p class="block__body">
           What each scenario asks the agent to do, and what it is judged to be worth. Routes and
           expected outcomes stay in the registry.
         </p>
 
         <div class="switch" role="group" aria-label="Which scenarios to show">
-          {% for key, label in benchmark.views %}
-            <a class="switch__option {% if benchmark.view == key %}switch__option--on{% endif %}"
+          {% for key, label in space.views %}
+            <a class="switch__option {% if space.view == key %}switch__option--on{% endif %}"
                href="{{ url_for('stage', key=stage.key, view=key) }}">{{ label }}</a>
           {% endfor %}
         </div>
 
-        {% if benchmark.filter_options or benchmark.total > benchmark.limit_options[0] %}
+        {% if space.filter_options or space.total > space.limit_options[0] %}
           <form class="filters" method="get" action="{{ url_for('stage', key=stage.key) }}">
-            <input type="hidden" name="view" value="{{ benchmark.view }}">
-            {% for field, values in benchmark.filter_options.items() %}
+            <input type="hidden" name="view" value="{{ space.view }}">
+            {% for field, values in space.filter_options.items() %}
               <label class="filters__field">
                 {{ field | capitalize }}
                 <select name="filter_{{ field }}" onchange="this.form.submit()">
                   <option value="">Any</option>
                   {% for value in values %}
                     <option value="{{ value }}"
-                      {% if benchmark.active_filters.get(field) == value %}selected{% endif %}>
+                      {% if space.active_filters.get(field) == value %}selected{% endif %}>
                       {{ value }}
                     </option>
                   {% endfor %}
@@ -609,25 +566,25 @@
               </label>
             {% endfor %}
             {# Every other active filter has to survive a change to one of them. #}
-            {% for field, value in benchmark.active_filters.items() %}
-              {% if field not in benchmark.filter_options %}
+            {% for field, value in space.active_filters.items() %}
+              {% if field not in space.filter_options %}
                 <input type="hidden" name="filter_{{ field }}" value="{{ value }}">
               {% endif %}
             {% endfor %}
             <label class="filters__field">
               Show
               <select name="limit" onchange="this.form.submit()">
-                {% for option in benchmark.limit_options %}
+                {% for option in space.limit_options %}
                   <option value="{{ option }}"
-                    {% if (option == 'all' and benchmark.limit is none)
-                          or (option != 'all' and option == benchmark.limit) %}selected{% endif %}>
+                    {% if (option == 'all' and space.limit is none)
+                          or (option != 'all' and option == space.limit) %}selected{% endif %}>
                     {{ option if option == 'all' else option }}
                   </option>
                 {% endfor %}
               </select>
             </label>
-            {% if benchmark.active_filters %}
-              <a class="filters__clear" href="{{ url_for('stage', key=stage.key, view=benchmark.view) }}">
+            {% if space.active_filters %}
+              <a class="filters__clear" href="{{ url_for('stage', key=stage.key, view=space.view) }}">
                 Clear filters
               </a>
             {% endif %}
@@ -635,21 +592,21 @@
         {% endif %}
 
         <p class="switch__count">
-          {%- if benchmark.selected == benchmark.total %}
-            Showing <span class="mono">{{ benchmark.shown }}</span> of
-            <span class="mono">{{ benchmark.total }}</span> scenarios
+          {%- if space.selected == space.total %}
+            Showing <span class="mono">{{ space.shown }}</span> of
+            <span class="mono">{{ space.total }}</span> scenarios
           {%- else %}
-            <span class="mono">{{ benchmark.selected }}</span> of
-            <span class="mono">{{ benchmark.total }}</span> scenarios match this view
+            <span class="mono">{{ space.selected }}</span> of
+            <span class="mono">{{ space.total }}</span> scenarios match this view
           {%- endif %}
-          {%- if benchmark.selected > benchmark.shown %}
-            — <span class="mono">{{ benchmark.selected - benchmark.shown }}</span> more; choose
+          {%- if space.selected > space.shown %}
+            — <span class="mono">{{ space.selected - space.shown }}</span> more; choose
             "Show" above to see them
           {%- endif %}
         </p>
 
         <ul class="cards">
-          {% for row in benchmark.rows %}
+          {% for row in space.rows %}
             <li class="card" id="{{ row.id }}">
               <details class="card__body">
                 <summary class="card__head">
@@ -662,7 +619,7 @@
                   <span class="card__id mono">{{ row.id }}</span>
                   <span class="card__title">{{ row.title }}</span>
                   <span class="card__marks">
-                    {% if 'review' in benchmark.shows %}
+                    {% if 'review' in space.shows %}
                       {% if row.flag %}
                         <span class="mark mark--flag">{{ row.flag }}</span>
                       {% endif %}
@@ -671,10 +628,10 @@
                         <span class="mark mark--flag">Category</span>
                       {% endif %}
                     {% endif %}
-                    {% if 'coverage' in benchmark.shows and row.coverage %}
+                    {% if 'coverage' in space.shows and row.coverage %}
                       <span class="mark mark--covered">{{ row.coverage }}</span>
                     {% endif %}
-                    {% if 'materiality' in benchmark.shows %}
+                    {% if 'materiality' in space.shows %}
                       <span class="mark mark--tier mark--tier-{{ row.materiality | lower }}">
                         {{ row.materiality }}
                       </span>
@@ -695,7 +652,7 @@
                     <span>{{ row.persona }}</span>
                     <span>{{ row.turns }} turn{{ '' if row.turns == 1 else 's' }}</span>
                     {% if row.category %}<span>{{ row.category }}</span>{% endif %}
-                    {% if 'materiality' in benchmark.shows %}
+                    {% if 'materiality' in space.shows %}
                       <span>{{ row.runs }} run{{ '' if row.runs == 1 else 's' }} requested</span>
                     {% endif %}
                   </p>
@@ -704,46 +661,46 @@
                      the review's own reading sit next to each other and can be read against one
                      another rather than hunted for at opposite ends of the card. #}
                   <div class="card__notes">
-                    {% if 'materiality' in benchmark.shows and row.materiality_reason %}
+                    {% if 'materiality' in space.shows and row.materiality_reason %}
                       {# The flag rides on this note where the review gave one reason for both,
                          rather than repeating the same sentence in a box underneath. #}
                       <p class="aside {{ 'aside--warn' if row.flag_shares_reason }}">
                         <strong>{{ row.materiality }}{% if row.flag_shares_reason %} ·
                           {{ row.flag }}{% endif %}</strong> — {{ row.materiality_reason }}
                       </p>
-                    {% elif 'materiality' in benchmark.shows and row.overridden %}
+                    {% elif 'materiality' in space.shows and row.overridden %}
                       <p class="aside"><strong>{{ row.materiality }}</strong> — your override.</p>
                     {% endif %}
-                    {% if 'review' in benchmark.shows and row.category_changed %}
+                    {% if 'review' in space.shows and row.category_changed %}
                       <p class="aside aside--warn">
                         <strong>Reads as {{ row.category }}</strong>, not
                         {{ row.declared_category }} as declared — {{ row.category_reason }}
                         The fix is the Outcome Type on that state in the intake workbook.
                       </p>
                     {% endif %}
-                    {% if 'review' in benchmark.shows and row.flag_reason %}
+                    {% if 'review' in space.shows and row.flag_reason %}
                       <p class="aside aside--warn">
                         <strong>{{ row.flag }}</strong> — {{ row.flag_reason }}
                       </p>
                     {% endif %}
-                    {% if 'review' in benchmark.shows and row.proposal_reason %}
+                    {% if 'review' in space.shows and row.proposal_reason %}
                       <p class="aside">
                         <strong>Proposed</strong> — {{ row.proposal_reason }}
                       </p>
                     {% endif %}
-                    {% if 'coverage' in benchmark.shows and row.coverage_note %}
+                    {% if 'coverage' in space.shows and row.coverage_note %}
                       <p class="aside">
-                        <strong>{{ row.coverage }}</strong> from the model owner's own testing
+                        <strong>{{ row.coverage }}</strong> from the model owner's testing
                         ({{ row.coverage_note }}). Left in the pack — whether to run it again is
                         yours to decide.
                       </p>
                     {% endif %}
                   </div>
 
-                  {% if 'materiality' in benchmark.shows %}
+                  {% if 'materiality' in space.shows %}
                   <form class="card__rule" method="post"
                         action="{{ url_for('rule_on_scenario', key=stage.key, scenario_id=row.id) }}">
-                    <input type="hidden" name="view" value="{{ benchmark.view }}">
+                    <input type="hidden" name="view" value="{{ space.view }}">
                     <label class="card__rule-label" for="tier-{{ row.id }}">Set materiality</label>
                     <select class="card__select" id="tier-{{ row.id }}" name="materiality">
                       <option value="">Leave as judged</option>
@@ -770,7 +727,7 @@
           {% endfor %}
         </ul>
 
-        {% if not benchmark.rows %}
+        {% if not space.rows %}
           <p class="card__empty">No scenarios match this view.</p>
         {% endif %}
       </section>
@@ -812,9 +769,9 @@
             {% if stage.key == 'coverage' %}
               The conversations the model owner has already run, in whatever shape they arrived. Read to
               measure coverage and never as a description of the agent — the model owner's blind
-              spots must not become the benchmark's.
+              spots must not become the scenario space's.
             {% else %}
-              Keep the kinds apart. Each is read differently, and the model owner's own conversations
+              Keep the kinds apart. Each is read differently, and the model owner's conversations
               are used to measure coverage rather than to describe the agent.
             {% endif %}
           </p>
@@ -972,13 +929,13 @@
       </details>
     {% endif %}
 
-    {# The benchmark as a whole, beside a page that is only ever showing part of it. The tiers are
+    {# The scenario space as a whole, beside a page that is only ever showing part of it. The tiers are
        the effective ones, so from the review stage onwards a tier the review moved is counted
        where the review put it, and the shape of the pack changes under you as it should. #}
     {% if shape and shape.tiers %}
       <details class="side__part" open>
         <summary class="side__title">
-          The benchmark
+          The scenario space
           <span class="side__count mono">{{ shape.total }}</span>
         </summary>
         <ul class="side__bars">
@@ -998,7 +955,7 @@
         </ul>
         <dl class="side__facts">
           <div><dt>Test runs requested</dt><dd class="mono">{{ shape.runs }}</dd></div>
-          {% if benchmark and 'review' in benchmark.shows %}
+          {% if space and 'review' in space.shows %}
             <div><dt>Flagged by the review</dt><dd class="mono">{{ shape.flagged }}</dd></div>
             <div><dt>Proposed by the review</dt><dd class="mono">{{ shape.proposed }}</dd></div>
           {% endif %}
@@ -1013,7 +970,7 @@
       </details>
     {% endif %}
 
-    {# Kept in the panel after the coverage stage has been left behind: how much of this benchmark
+    {# Kept in the panel after the coverage stage has been left behind: how much of this scenario space
        the model owner has already exercised bears on every judgement made about it, not only on
        the stage that measured it. #}
     {% if coverage_shape %}
@@ -1036,7 +993,7 @@
         </dl>
         {% if shape and shape.total and shape.total != coverage_shape.counted %}
           <p class="side__warn">
-            Counted against {{ coverage_shape.counted }} scenarios; the benchmark now has
+            Counted against {{ coverage_shape.counted }} scenarios; the scenario space now has
             {{ shape.total }}. Run the coverage stage again to place the difference.
           </p>
         {% endif %}
@@ -1087,7 +1044,6 @@
         <ul class="side__notes">
           {% for note in notes %}
             <li class="side__note">
-              {% if note.question %}<p class="side__note-question">{{ note.question }}</p>{% endif %}
               <p class="side__note-text">{{ note.text }}</p>
               <p class="side__note-when">
                 {{ note.origin }} ·

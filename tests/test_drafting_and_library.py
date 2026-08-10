@@ -14,7 +14,7 @@ from openpyxl import Workbook, load_workbook
 from scenario_generator.core.intake import read_intake
 from scenario_generator.ingest import (UnreadableConversations, draft_intake, read_conversations,
                                        write_drafted_intake)
-from scenario_generator.pipeline import build_scenarios
+from scenario_generator.pipeline import build_scenario_space
 
 _DRAFT = {
     "use_case": {"name": "Charge Verification Assistant", "objective": "Resolve disputes",
@@ -62,9 +62,9 @@ class TestDraftedIntake(unittest.TestCase):
         self.assertEqual(len(intake.decisions), 2)
         self.assertEqual(len(intake.states), 4)
 
-    def test_the_draft_produces_a_benchmark_without_being_edited(self):
+    def test_the_draft_produces_a_scenario_space_without_being_edited(self):
         """The point of drafting: a person corrects it, but it works before they do."""
-        scenarios = build_scenarios(read_intake(str(_drafted())), with_probes=True)
+        scenarios = build_scenario_space(read_intake(str(_drafted())), with_probes=True)
         self.assertTrue(scenarios)
 
     def test_retry_bounds_and_input_sources_survive(self):

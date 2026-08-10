@@ -1,7 +1,7 @@
 WHAT YOU ARE DOING
 
 You are filling in the intake: the structured description of an AI agent that a validation team
-will build its entire test benchmark from. Everything the benchmark can test comes from what is
+will build its entire scenario space from. Everything the scenario space can test comes from what is
 written here, so a branch you leave out is a branch nobody ever tests.
 
 A person will review and correct what you produce. That is what makes this worth attempting
@@ -49,7 +49,7 @@ differs in `applies_to`. If you cannot name what the agent does differently, it 
 These are **not** personas, whatever the documents say about them: an impatient user, a confused
 user, a user who types badly, a user in a hurry, a first-time versus returning customer where the
 agent treats them identically, a customer segment that changes nothing about the conversation.
-Every one of those is the same objective pursued in a different tone, and a benchmark that
+Every one of those is the same objective pursued in a different tone, and a scenario space that
 enumerates tones tests the same route four times over while the routes that matter go untested.
 
 Four personas is the ceiling. Two is a perfectly good answer.
@@ -72,7 +72,7 @@ belongs to, and its **named outcomes**. Outcomes are the branch labels — `Pass
 uses. Each decision also carries:
 - `input_source`: `User`, `Tool`, `Memory-Session`, `Memory-CrossSession`, `System-Context` or
   `Document`. **Only `User` steps become conversational turns**, so this is what tells the
-  benchmark whether a step is something a tester can drive or something that happens inside the
+  scenario space whether a step is something a tester can drive or something that happens inside the
   agent.
 - `max_attempts`: how many times this decision can be retried before the interaction moves on.
   1 unless the evidence describes a retry.
