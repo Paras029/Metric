@@ -127,11 +127,24 @@ def read_scenarios(path: str, intake: IntakeData) -> List[Scenario]:
                 expected_variant=_at(row, 4), expected_tool=_at(row, 5), next_state=_at(row, 6),
                 input_source=_at(row, 7) or "User"))
 
+        # Addressed by heading rather than by position, for the same reason the metadata sheet
+        # below is: a registry written before the Name column existed has Description where Name
+        # now sits, and reading positionally would put the description into the name, the turn
+        # plan into the description, and nothing at all into the turn plan -- silently, and in
+        # the file that is the record of the whole benchmark.
         text_by_id: dict = {}
         if "Scenario_Text" in workbook.sheetnames:
-            for row in sheets.read_rows(workbook["Scenario_Text"]):
-                text_by_id[row[0]] = (row[1] if len(row) > 1 else "",
-                                      row[2] if len(row) > 2 else "")
+            text_header, text_rows = sheets.read_table(workbook["Scenario_Text"])
+            index = {heading: position for position, heading in enumerate(text_header)}
+
+            def field(row, heading):
+                position = index.get(heading)
+                return str(row[position]).strip() if position is not None and position < len(row) \
+                    and row[position] is not None else ""
+
+            for row in text_rows:
+                text_by_id[field(row, "SC ID")] = (field(row, "Name"), field(row, "Description"),
+                                                  field(row, "Turn Plan"))
 
         header, metadata = sheets.read_table(workbook["Scenario_Metadata"])
 
@@ -181,7 +194,8 @@ def read_scenarios(path: str, intake: IntakeData) -> List[Scenario]:
             review_category=cell("Reviewed Category"),
             review_category_rationale=cell("Review Category Rationale"),
         ))
-        description, turn_plan = text_by_id.get(cell("SC ID"), ("", ""))
+        name, description, turn_plan = text_by_id.get(cell("SC ID"), ("", "", ""))
+        scenarios[-1].name = name
         scenarios[-1].description = description or fallback_description(scenarios[-1].category, turn_meta)
         scenarios[-1].turn_plan = turn_plan or fallback_turn_plan(turn_meta)
     return scenarios
@@ -202,9 +216,9 @@ def write_challenge_pack(path: str, intake: IntakeData, scenarios: List[Scenario
     sheets.write_rows(guide, _PACK_INSTRUCTIONS)
 
     index = sheets.add_sheet(workbook, "Scenarios",
-                             ["SC ID", "Description", "Persona", "Starting Situation",
-                              "Recommended Turns", "Required Runs"], [10, 66, 30, 32, 18, 14])
-    sheets.write_rows(index, [[s.id, s.description, s.persona.name, s.seeded_state,
+                             ["SC ID", "Name", "Description", "Persona", "Starting Situation",
+                              "Recommended Turns", "Required Runs"], [10, 40, 66, 30, 32, 18, 14])
+    sheets.write_rows(index, [[s.id, s.name, s.description, s.persona.name, s.seeded_state,
                                recommended_turns(s), required_runs(s.effective_materiality, runs_mapping)]
                               for s in scenarios])
 
@@ -236,8 +250,8 @@ def write_challenge_pack(path: str, intake: IntakeData, scenarios: List[Scenario
 
 def _write_text_sheet(workbook: Workbook, scenarios: List[Scenario]) -> None:
     text = sheets.add_sheet(workbook, "Scenario_Text",
-                            ["SC ID", "Description", "Turn Plan"], [10, 60, 66])
-    sheets.write_rows(text, [[s.id, s.description, s.turn_plan] for s in scenarios])
+                            ["SC ID", "Name", "Description", "Turn Plan"], [10, 40, 60, 66])
+    sheets.write_rows(text, [[s.id, s.name, s.description, s.turn_plan] for s in scenarios])
 
 
 def write_registry(path: str, intake: IntakeData, scenarios: List[Scenario]) -> None:

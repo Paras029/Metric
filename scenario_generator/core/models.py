@@ -157,6 +157,7 @@ class Scenario:
     touches_state_change: bool
     turn_meta: List[TurnMeta] = field(default_factory=list)
     origin: str = "graph"
+    name: str = ""                # issued to the owner -- a handle, not a summary
     description: str = ""          # issued to the owner
     turn_plan: str = ""           # issued to the owner
     materiality: str = "Medium"           # first LLM sweep

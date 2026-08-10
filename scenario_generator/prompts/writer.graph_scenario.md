@@ -23,6 +23,13 @@ the agent will do, and they are not the answer key.
 
 WHAT TO RETURN FOR EACH SCENARIO
 
+- name: a handle for this scenario, not a summary of it. Six words or fewer, no ending full
+  stop, no "test that" or "verify" or "scenario where". It is read in a list of three hundred
+  others and in the left-hand column of a spreadsheet, so it has to be scannable and it has to be
+  distinguishable from its neighbours: two scenarios differing only in one condition must differ
+  in their names by that condition. Name the situation, never the expected behaviour --
+  "Locked out after two failed checks", not "Agent correctly locks the account".
+
 - description: two or three sentences. Say what situation the tester is setting up and what makes
   this route distinct from the straightforward version of the same journey -- the specific
   condition, the specific failure, the specific sequence. Name the real subject matter. Do not say
@@ -46,6 +53,9 @@ Good description:
 recorded against it for the current billing period. The route matters because the submission
 path is being entered from an empty-history state rather than an existing series, which is where
 the reading is validated against nothing."
+
+Good name:
+"Meter reading with no history on the property"
 
 Good turn_plan:
 "1. Open the conversation as the named account holder and provide the account number and postcode
@@ -73,7 +83,8 @@ differ somewhere, and that difference is the reason both exist.
 
 Return ONLY a single JSON object mapping each "id" to its object, of the form:
 
-{"SC-001": {"description": "...", "turn_plan": "1. ...\n2. ..."}, "SC-002": {...}}
+{"SC-001": {"name": "...", "description": "...", "turn_plan": "1. ...\n2. ..."},
+"SC-002": {...}}
 
 No markdown fences and no text outside the JSON. Keep description on a single line, and use \n in
 turn_plan only between numbered lines.

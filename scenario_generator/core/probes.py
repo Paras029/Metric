@@ -138,6 +138,7 @@ def instantiate_probe(probe: dict, index: int, personas: List[Persona]) -> Scena
     )
     scenario.probe_id = probe["id"]
     scenario.probe_family = probe.get("family", "")
+    scenario.name = probe.get("name") or probe.get("family", "").replace("_", " ").title()
     scenario.description = probe["intent"]
     scenario.turn_plan = probe_script(probe)
     scenario.materiality_rationale = "Not assessed (materiality sweep not run)."

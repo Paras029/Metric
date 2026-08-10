@@ -79,6 +79,7 @@ def instantiate_proposal(entry: dict, index: int, intake: IntakeData) -> Scenari
         turn_meta=_turn_meta(steps, entry, intake),
         origin=ORIGIN_PROPOSED,
     )
+    scenario.name = prose(entry, "title") or prose(entry, "name")
     scenario.description = prose(entry, "description")
     scenario.turn_plan = prose(entry, "turn_plan")
     scenario.materiality = one_of(entry.get("materiality"), MATERIALITY, "Medium")

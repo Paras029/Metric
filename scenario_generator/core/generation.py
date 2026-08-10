@@ -81,6 +81,19 @@ def build_turn_meta(path: Path, graph: DecisionGraph, tools: List[Tool]) -> List
     return meta
 
 
+def fallback_name(category: str, turn_meta: List[TurnMeta]) -> str:
+    """A handle built from the route itself, for a scenario nothing has written yet.
+
+    Deterministic, like everything else in this module, and deliberately plain: it exists so that
+    a list of scenarios is scannable the moment the graph is walked, before any model has run.
+    The writer replaces it with something a person would have chosen.
+    """
+    steps = [f"{t.decision_name}: {t.expected_variant}" for t in turn_meta if t.decision_name]
+    if not steps:
+        return category or "Scenario"
+    return steps[-1] if len(steps) == 1 else f"{steps[0]} … {steps[-1]}"
+
+
 def fallback_description(category: str, turn_meta: List[TurnMeta]) -> str:
     names = list(dict.fromkeys(t.decision_name for t in turn_meta))
     return f"{category} scenario exercising {', '.join(names) or 'the decision graph'}."
@@ -157,6 +170,7 @@ def instantiate_path(path: Path, graph: DecisionGraph, personas: List[Persona],
         turn_meta=turn_meta,
         origin=origin,
     )
+    scenario.name = fallback_name(category, turn_meta)
     scenario.description = fallback_description(category, turn_meta)
     scenario.turn_plan = fallback_turn_plan(turn_meta)
     scenario.materiality_rationale = "Not assessed (LLM writer not run)."

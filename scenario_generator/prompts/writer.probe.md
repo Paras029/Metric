@@ -21,6 +21,13 @@ it tests, softening it, or broadening it.
 
 WHAT TO RETURN FOR EACH PROBE
 
+- name: a handle for this probe, not a summary of it. Six words or fewer, no ending full
+  stop, no "test that" or "verify" or "probe where". It is read in a list of three hundred
+  others and in the left-hand column of a spreadsheet, so it has to be scannable and it has to be
+  distinguishable from its neighbours: two probes differing only in one condition must differ
+  in their names by that condition. Name the situation, never the expected behaviour --
+  "Locked out after two failed checks", not "Agent correctly locks the account".
+
 - description: two or three sentences saying what the tester is attempting and why that is worth
   attempting against this particular agent, in this business context. Ground it in the real
   subject matter -- the products, records and actions this agent actually deals with. Never state
@@ -70,7 +77,8 @@ OUTPUT
 Work through the probes one at a time and return a separate, independent object for every "id" in
 the list. Return ONLY a single JSON object mapping each "id" to its object, of the form:
 
-{"NF-001": {"description": "...", "turn_plan": "1. ...\n2. ..."}, "NF-002": {...}}
+{"NF-001": {"name": "...", "description": "...", "turn_plan": "1. ...\n2. ..."},
+"NF-002": {...}}
 
 No markdown fences and no text outside the JSON. Keep description on a single line, and use \n in
 turn_plan only between numbered lines.

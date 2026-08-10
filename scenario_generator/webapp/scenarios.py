@@ -84,7 +84,17 @@ _FILTER_REQUIRES = {"materiality": MATERIALITY_COLUMNS, "flag": REVIEW, "coverag
 
 
 def _title(scenario: Scenario) -> str:
-    """A one-line handle for the scenario, taken from its own first sentence."""
+    """The handle a reader scans by: the scenario's own name where it has one.
+
+    The name is written for exactly this -- short, distinguishable from its neighbours, and about
+    the situation rather than the expected behaviour. Falling back to the first sentence of the
+    description is what a benchmark written before names existed has, and it is a worse handle
+    for the reason the name exists: three hundred first sentences that all begin "The cardmember"
+    are not scannable.
+    """
+    name = (scenario.name or "").strip()
+    if name:
+        return name
     text = (scenario.description or "").strip()
     if not text:
         return f"{ORIGIN_LABELS.get(scenario.origin, scenario.origin)} {scenario.id}"
@@ -133,6 +143,7 @@ def to_row(scenario: Scenario) -> Dict[str, object]:
         "is_probe": scenario.is_probe,
         "is_proposed": scenario.is_proposed,
         "title": _title(scenario),
+        "name": scenario.name,
         "description": scenario.description,
         "turn_plan": scenario.turn_plan,
         "persona": scenario.persona.name,

@@ -39,6 +39,34 @@ _GRAPH_PROMPT = "writer.graph_scenario"
 _PROBE_PROMPT = "writer.probe"
 
 
+# A name is a handle, and a handle that runs to a line and a half is not one. The cap is generous
+# against the six words the prompt asks for, because cutting a name that came back slightly long
+# is better than showing something that breaks the row it sits in.
+MAX_NAME_CHARS = 70
+
+_NAME_PREFIXES = ("test that ", "test ", "verify that ", "verify ", "check that ", "check ",
+                  "scenario where ", "scenario: ", "validate that ", "ensure that ")
+
+
+def _clean_name(raw: str) -> str:
+    """One line, no trailing stop, no throat-clearing, and short enough to sit in a column.
+
+    Every one of these is something the prompt already asks for and a model still occasionally
+    returns anyway. Fixing it here rather than re-asking is the right trade for a field this
+    small: the cost of a second call is real and the cost of trimming a prefix is nothing.
+    """
+    name = " ".join(raw.split()).strip().strip('"')
+    lowered = name.lower()
+    for prefix in _NAME_PREFIXES:
+        if lowered.startswith(prefix):
+            name = name[len(prefix):]
+            break
+    name = name.rstrip(".").strip()
+    if len(name) > MAX_NAME_CHARS:
+        name = name[:MAX_NAME_CHARS - 1].rsplit(" ", 1)[0].rstrip(" ,;:—-") + "…"
+    return name[:1].upper() + name[1:] if name else ""
+
+
 class NullWriter:
     """Leaves the deterministic fallback text and default materiality in place."""
 
@@ -151,6 +179,7 @@ class ScenarioWriter:
             entry = parsed.get(scenario.id)
             if not entry:
                 continue
+            scenario.name = _clean_name(prose(entry, "name")) or scenario.name
             scenario.description = prose(entry, "description") or scenario.description
             scenario.turn_plan = prose(entry, "turn_plan") or scenario.turn_plan
             filled.add(scenario.id)
