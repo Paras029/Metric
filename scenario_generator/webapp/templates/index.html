@@ -1,16 +1,15 @@
 {% extends "base.html" %}
-{% block title %}Scenario generator{% endblock %}
+{% block title %}Metric{% endblock %}
 
 {% block body %}
 <main class="entry">
   <div class="entry__inner">
     {# No label above the title. The heading carries its own weight, and a kicker only pushes it
        further down a screen whose whole job is one field and one button. #}
-    <h1 class="entry__title">Scenario generator</h1>
+    <h1 class="entry__title">Metric</h1>
     <p class="entry__lede">
-      Build a test benchmark for an agentic AI system from the documentation the model owner
-      submitted, issue it back to them, and measure what the model owner's own testing already
-      covers. Independent of the model owner throughout.
+      An independent test benchmark for an agentic AI system, built from the model owner's own
+      documentation and issued back to them without the answers.
     </p>
 
     <form class="entry__form" method="post" action="{{ url_for('create_workspace') }}">
@@ -24,7 +23,7 @@
 
     {% if workspaces %}
       <section class="entry__recent">
-        <h2 class="label entry__recent-title">Open a use case</h2>
+        <h2 class="label entry__recent-title">Continue</h2>
         <ul class="ledger">
           {% for workspace in workspaces %}
             {% set progress = workspace.progress() %}
@@ -32,7 +31,7 @@
               <a class="ledger__link" href="{{ url_for('open_workspace', slug=workspace.root.name) }}">
                 <span class="ledger__name">{{ workspace.name }}</span>
                 <span class="ledger__meta">
-                  <span class="mono">{{ progress.done }}/{{ progress.total }}</span> complete
+                  <span class="mono">{{ progress.done }}/{{ progress.total }}</span>
                   {% if progress.stale %}
                     <span class="tag tag--stale">{{ progress.stale }} out of date</span>
                   {% endif %}
@@ -43,6 +42,30 @@
         </ul>
       </section>
     {% endif %}
+
+    {# The eight stages, on the one screen everybody sees before they have any of their own work
+       to look at. It answers "what is this going to ask of me" in the time it takes to read eight
+       words, which is the question a first-time user and somebody's director both arrive with.
+       Names only -- the stage pages carry what each one does. #}
+    <section class="entry__flow">
+      <h2 class="label entry__recent-title">How it runs</h2>
+      <ol class="flow">
+        {% for stage in stages %}
+          <li class="flow__step">
+            <span class="flow__mark mono">{{ loop.index }}</span>
+            <span class="flow__name">{{ stage.title }}</span>
+            <span class="flow__mode flow__mode--{{ stage.mode }}"
+                  title="{{ stage.mode_label }}"></span>
+          </li>
+        {% endfor %}
+      </ol>
+      <p class="flow__legend">
+        <span><i class="dot dot--computed"></i>Deterministic</span>
+        <span><i class="dot dot--judged"></i>Model</span>
+        <span><i class="dot dot--drafted"></i>Model, then you</span>
+        <span><i class="dot dot--review"></i>You</span>
+      </p>
+    </section>
   </div>
 </main>
 {% endblock %}

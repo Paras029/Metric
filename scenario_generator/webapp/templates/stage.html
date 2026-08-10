@@ -75,7 +75,7 @@
 
   <nav class="rail" aria-label="Pipeline stages">
     <div class="rail__head">
-      <a class="rail__home" href="{{ url_for('index') }}">Scenario generator</a>
+      <a class="rail__home" href="{{ url_for('index') }}">Metric</a>
       <p class="rail__workspace">{{ workspace.name }}</p>
       {% set progress = workspace.progress() %}
       <div class="rail__progress">
@@ -156,8 +156,7 @@
 
     {% if runnable and view.has_output and not workspace.is_blocked(stage.key) %}
       <p class="block__foot">
-        Running again replaces the output below and marks every later stage out of date, so
-        nothing downstream is left claiming to reflect it.
+        Running again replaces this and marks later stages out of date.
       </p>
     {% endif %}
 
@@ -190,11 +189,7 @@
           </span>
           <span id="run-elapsed" data-started="{{ state.updated_at }}"></span>
         </p>
-        <p class="block__foot">
-          This keeps running if you navigate away or close the tab. Reading a long document is
-          several minutes of model calls. The step count is an estimate — a pack large enough to
-          be read in parts adds steps as it goes.
-        </p>
+        <p class="block__foot">Keeps running if you close the tab. The step count is an estimate.</p>
         <form method="post" action="{{ url_for('stop_stage', key=stage.key) }}" id="stop-form"
               class="running__actions">
           <button class="button button--quiet" type="submit" id="stop-button">Stop</button>
@@ -281,11 +276,9 @@
       <section class="block">
         <h2 class="block__title">The declared graph</h2>
         <p class="block__body">
-          <strong>Boxes are decisions</strong> — the points where the agent branches.
-          <strong>Arrows are the states between them</strong>, each labelled with the outcome that
-          took it there. Rounded boxes are the ways an interaction can end. Hover anything for its
-          detail. This is the whole of what the benchmark can reach — a branch missing here is a
-          branch that will never be tested.
+          <strong>Boxes are decisions</strong>, <strong>arrows the states between them</strong>,
+          rounded boxes the ways an interaction can end. A branch missing here is a branch that
+          will never be tested.
         </p>
 
         {% if graph_facts.unreachable %}
@@ -406,77 +399,13 @@
       </section>
     {% endif %}
 
-    {% if intake_questions and (intake_questions.row_groups or intake_questions.cross_cutting) %}
-      {% set ns = namespace(index=0) %}
-      <section class="block" id="intake-questions">
-        <h2 class="block__title">What the declaration still needs</h2>
-        <p class="block__body">
-          Each question is addressed to the specific decision, state, capability, tool or persona
-          it concerns. Answer what you can and press Save — nothing needs re-running yet; when
-          you have answered what you want to for now, press <strong>Revise the intake</strong>
-          below to fold the answers into the declaration. An answer already given can be changed,
-          and leaving the rest is fine.
-        </p>
-
-        {# One fold per part of the intake. Answering is done a part at a time -- all the
-           decisions, then all the states -- and a page that opens with forty boxes is a page
-           nobody starts. A collapsed fold still submits everything inside it, so an answer typed
-           and then folded away is saved like any other. #}
-        <form method="post" action="{{ url_for('save_answers', key='intake') }}">
-          {% for group in intake_questions.row_groups %}
-            {% set open_rows = group.rows | rejectattr('answered') | list | length %}
-            {% call fold(group.label, group.rows | length,
-                         "all answered" if not open_rows else open_rows ~ " to answer",
-                         open=loop.first) %}
-              <ul class="questions">
-                {% for row in group.rows %}
-                  {% set ns.index = ns.index + 1 %}
-                  {{ gap_row(row, ns.index, answered.get(row.question)) }}
-                {% endfor %}
-              </ul>
-            {% endcall %}
-          {% endfor %}
-
-          {% if intake_questions.cross_cutting %}
-            {% call fold("Not about any one row", intake_questions.cross_cutting | length, "",
-                         open=not intake_questions.row_groups) %}
-              <ul class="questions">
-                {% for row in intake_questions.cross_cutting %}
-                  {% set ns.index = ns.index + 1 %}
-                  {{ gap_row(row, ns.index, answered.get(row.question)) }}
-                {% endfor %}
-              </ul>
-            {% endcall %}
-          {% endif %}
-
-          <div class="questions__foot">
-            <button class="button button--primary" type="submit">Save answers</button>
-            <span class="questions__foot-note">
-              Saves every box on this page, folded or not. Blanks stay open.
-            </span>
-          </div>
-        </form>
-
-        <form method="post" action="{{ url_for('revise_intake') }}" class="questions__revise">
-          <button class="button button--quiet" type="submit">Revise the intake with these answers</button>
-          <span class="switch__count">
-            Rewrites the declaration using every note and answer so far, alongside what is
-            already there — nothing is discarded that this revision does not touch.
-          </span>
-        </form>
-      </section>
-    {% endif %}
 
     {% if coverage and stage.key == 'coverage' %}
       <section class="block" id="coverage">
         <h2 class="block__title">What the model owner's conversations cover</h2>
         <p class="block__body">
-          Every conversation the model owner submitted was matched to at most one scenario, decided by
-          where the
-          exchange <em>ends</em> rather than by what it passes through on the way. A conversation
-          that authenticates and stops is not evidence for a scenario that authenticates and then
-          goes on to do something else.
-          {% if coverage.how_read %}Read as {{ coverage.how_read }}.{% endif %}
+          Each conversation matched to at most one scenario, decided by where it <em>ends</em>. A count
+          rather than a flag — one conversation and forty are not the same evidence.
         </p>
 
         <dl class="figures">
@@ -507,6 +436,12 @@
             <li class="card">
               <details class="card__body">
                 <summary class="card__head">
+                  {# A row that opens has to look like one. Without a marker the list reads as a
+                     table and the detail underneath is never found. #}
+                  <svg class="card__chevron" viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5"
+                          stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
                   <span class="card__id mono">{{ row.id }}</span>
                   <span class="card__title">{{ row.description or row.route }}</span>
                   <span class="card__marks">
@@ -559,9 +494,8 @@
         {% if coverage.unmatched %}
           <h3 class="label card__label">Matched no scenario ({{ coverage.unmatched | length }})</h3>
           <p class="block__body">
-            Worth reading rather than dismissing. A conversation that fits nothing is either a test of
-            something the benchmark never enumerated — a candidate to add — or not a test of this
-            agent at all.
+            A conversation that fits nothing is either a scenario worth adding, or a route the intake is
+          missing.
           </p>
           <ul class="rows">
             {% for conversation in coverage.unmatched %}
@@ -583,9 +517,8 @@
         {% if coverage.groups %}
           <h3 class="label card__label">The model owner's own grouping</h3>
           <p class="block__body">
-            A model owner who groups their conversations is making a claim — these are the same test —
-            and it is checkable. Where a group splits across scenarios, either that grouping or the
-            validator's is wrong, and it is worth knowing which.
+            A group that splits across scenarios means either the grouping is loose, or the benchmark
+          draws a distinction their testing does not.
           </p>
           <ul class="rows">
             {% for group in coverage.groups %}
@@ -608,11 +541,8 @@
       <section class="block">
         <h2 class="block__title">What goes in the pack</h2>
         <p class="block__body">
-          By default the pack carries the whole benchmark. Where the coverage stage has run, it can
-          instead carry only what the model owner's conversations under-cover — everything at or below
-          the representation threshold. Leaving a scenario out accepts the model owner's evidence for
-          it,
-          so this is off unless you turn it on. The registry keeps every scenario either way.
+          The pack carries the whole benchmark by default. Narrowing it to what their testing
+          under-covers is a decision to accept their evidence for the rest.
         </p>
         <form class="controls" method="post" action="{{ url_for('set_pack_scope') }}">
           <label class="check"
@@ -646,9 +576,8 @@
       <section class="block">
         <h2 class="block__title">The benchmark so far</h2>
         <p class="block__body">
-          What each scenario asks the agent to do, and what it is judged to be worth. Routes,
-          expected outcomes and per-turn detail are in the registry workbook — this is the reading,
-          and that is the record.
+          What each scenario asks the agent to do, and what it is judged to be worth. Routes and
+          expected outcomes stay in the registry.
         </p>
 
         <div class="switch" role="group" aria-label="Which scenarios to show">
@@ -720,6 +649,12 @@
             <li class="card" id="{{ row.id }}">
               <details class="card__body">
                 <summary class="card__head">
+                  {# A row that opens has to look like one. Without a marker the list reads as a
+                     table and the detail underneath is never found. #}
+                  <svg class="card__chevron" viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5"
+                          stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
                   <span class="card__id mono">{{ row.id }}</span>
                   <span class="card__title">{{ row.title }}</span>
                   <span class="card__marks">
@@ -837,91 +772,6 @@
       </section>
     {% endif %}
 
-    {% if answers %}
-      <section class="block">
-        <h2 class="block__title">What the documents said about the agent</h2>
-        <p class="block__body">
-          Eleven questions, each answered from everything bearing on it across all the documents at
-          once — documentation rarely answers them in one place. Open one to read the whole answer,
-          the specific things it establishes, what it could not settle, and the quotes it rests on.
-        </p>
-        <ul class="answers">
-          {% for row in answers %}
-            <li class="answers__row {% if not row.answered %}answers__row--missing{% endif %}">
-              {% if row.answered %}
-                <details class="answers__detail">
-                  <summary class="answers__summary">
-                    <span class="answers__head">
-                      <span class="answers__heading">{{ row.heading }}</span>
-                      <span class="answers__confidence answers__confidence--{{ row.confidence|lower }}">
-                        {{ row.confidence }} confidence
-                      </span>
-                    </span>
-                    <span class="answers__body">{{ row.answer[:260] }}{% if row.answer|length > 260 %}…{% endif %}</span>
-                    <span class="answers__counts">
-                      {{ row.points | length }} thing{{ '' if row.points | length == 1 else 's' }}
-                      the documents establish
-                      {%- if row.unknowns %} · {{ row.unknowns | length }} the documents
-                      did not settle{% endif %}
-                      {%- if row.sources %} · {{ row.sources | length }} supporting
-                      quote{{ '' if row.sources | length == 1 else 's' }}{% endif %}
-                    </span>
-                  </summary>
-
-                  <div class="reading">
-                    <p class="reading__question">{{ row.question }}</p>
-                    <p class="reading__answer">{{ row.answer }}</p>
-
-                    {% if row.points %}
-                      <h3 class="reading__label">What the documents establish</h3>
-                      <ul class="reading__list">
-                        {% for point in row.points %}<li>{{ point }}</li>{% endfor %}
-                      </ul>
-                    {% endif %}
-
-                    {% if row.unknowns %}
-                      <h3 class="reading__label">What they did not settle</h3>
-                      <ul class="reading__list reading__list--open">
-                        {% for unknown in row.unknowns %}<li>{{ unknown }}</li>{% endfor %}
-                      </ul>
-                      <p class="reading__note">
-                        Recorded rather than guessed at. Whichever of these actually blocks the
-                        declaration comes back as a question on the intake stage.
-                      </p>
-                    {% endif %}
-
-                    {% if row.sources %}
-                      <h3 class="reading__label">Where it came from</h3>
-                      <ul class="reading__sources">
-                        {% for source in row.sources %}
-                          <li class="reading__source">
-                            <p class="reading__statement">{{ source.statement }}</p>
-                            <blockquote class="reading__quote">{{ source.quote }}</blockquote>
-                            <p class="reading__where mono">{{ source.where }}</p>
-                          </li>
-                        {% endfor %}
-                      </ul>
-                      <p class="reading__note">
-                        Every quote was found in the document it names before the answer was
-                        allowed to rest on it.
-                      </p>
-                    {% endif %}
-                  </div>
-                </details>
-              {% else %}
-                <span class="answers__head">
-                  <span class="answers__heading">{{ row.heading }}</span>
-                  <span class="answers__confidence answers__confidence--none">Not answered</span>
-                </span>
-                <span class="answers__body">
-                  No submitted document settled this. {{ row.question }}
-                </span>
-              {% endif %}
-            </li>
-          {% endfor %}
-        </ul>
-      </section>
-    {% endif %}
 
     {% if state.artifacts and not groups %}
       <section class="block">
@@ -1039,10 +889,8 @@
         <section class="block">
           <h2 class="block__title">Provide the intake workbook</h2>
           <p class="block__body">
-            Upload a completed intake workbook, or run this stage to have one drafted from the
-            documents. Uploading does not finish the stage — running it reads the workbook back and
-            reports what it declares, which is the check worth having. Need a blank one?
-            <a class="link" href="{{ url_for('blank_template') }}">Download the template</a>.
+            Already have one? Upload it and it is read, never written to.
+            <a class="link" href="{{ url_for('blank_template') }}">Blank template</a>.
           </p>
           <form class="upload" method="post" enctype="multipart/form-data"
                 action="{{ url_for('upload', key=stage.key) }}">
@@ -1228,10 +1076,8 @@
         {% if note_total %}<span class="side__count mono">{{ note_total }}</span>{% endif %}
       </summary>
       <p class="side__blurb">
-        Anything the documents do not say. Every note here — wherever it was added, and including
-        your answers to the intake questions — is handed to every model call from this point on:
-        the intake drafter, the scenario text, materiality, the review. Nothing re-runs by itself,
-        so a note lands the next time you run a stage.
+        Anything the documents do not say. Handed to every model call from here on, the next time
+        you run a stage.
       </p>
       {% if notes %}
         <ul class="side__notes">

@@ -1,4 +1,4 @@
-# Agentic Scenario Generator
+# Metric
 
 Builds an independent test benchmark for a conversational AI agent.
 
@@ -194,17 +194,19 @@ the same files these commands produce. A use case can move between the two freel
 
 | # | Stage | Input | Output |
 |---|---|---|---|
-| 1 | Documents | The submitted pack: model documentation, the transcripts of the model owner's own testing, workflow diagrams, supporting material | A cited context document, and answers to eleven questions about the agent |
-| 2 | Intake | A drafted or completed intake workbook | The agent as a decision graph, drafted, structurally checked, and confirmed by you |
-| 3 | Benchmark | The intake | Every distinct route through the graph, plus applicable probes |
-| 4 | Scenario text | The benchmark | A description and tester script per scenario |
-| 5 | Materiality | The benchmark | A Low / Medium / High / Critical tier per scenario, driving run counts |
-| 6 | Final review | The whole benchmark | Settled materiality, checked categories, flagged weaknesses, proposed additions |
-| 7 | Coverage | The transcripts of the model owner's own testing | How many of those conversations land on each scenario, and which scenarios none of them reach |
-| 8 | Issue | The registry | The challenge pack to send, and the registry to keep |
+| 1 | Intake drafting | The submitted pack — model documentation, workflow diagrams, supporting material — or a completed intake workbook | The agent as a decision graph, drafted from the documentation and confirmed by you |
+| 2 | Workflow | The intake | Every distinct route through the graph, walked depth-first, plus applicable probes |
+| 3 | Scenario space | The routes | A name, a description and a tester script per scenario |
+| 4 | Variation space | The scenario space | The variants of each scenario worth running separately — **not built yet** |
+| 5 | Materiality | The space | A Low / Medium / High / Critical tier per scenario, driving run counts |
+| 6 | Review | The whole space, against the documentation | Settled materiality, checked endings, flagged weaknesses, proposed additions |
+| 7 | Coverage | The transcripts of the model owner's own testing | How many of those conversations land on each scenario, and which none of them reach |
+| 8 | Summary | The registry | The challenge pack to send, and what still has to be asked for |
 
-Stages 1 and 7 are optional. Skip 1 if you already have an intake; skip 7 if the model owner
-submitted no testing of their own.
+Reading the documentation and drafting the intake are one stage because they are one job: the
+reading exists in order to be drafted from, and nothing happens between them that you decide.
+Stages 4 and 7 are optional — the variation space is a placeholder that passes the benchmark
+through unchanged, and coverage is skipped where the model owner submitted no testing of their own.
 
 Each stage states how its output was produced — **computed**, **model judgement**, or **human
 decision** — because a materiality tier and a graph walk do not deserve the same trust.
@@ -229,6 +231,20 @@ python -m scenario_generator review intake.xlsx registry.xlsx registry.xlsx \
     --note "Disputes over 500 always go to a person." \
     --note "The vendor document is a version behind."
 ```
+
+**Every scenario carries a short name** — a handle rather than a summary, about the situation
+rather than the expected behaviour. It leads the `Scenarios` sheet of the pack, sits beside the id
+in the registry, and is the title of every row on screen. A benchmark of three hundred rows whose
+only handle was the first sentence of each description was not scannable, because those sentences
+all open the same way.
+
+**What the writer produces is audited before you see it.** A name, a description that is one, a
+turn plan with lines in it — and whether the text carries a distinctive phrase out of that
+scenario's own ending. The writer is never shown where a route finishes, but it is shown the
+outcome of every step on the way, so a route ending in a lockout can be written up as "and the
+account is locked" with nothing having told it so. That text is issued to the model owner, and a
+pack that states the answer measures nothing. Anything that fails goes back once with the fault
+named; anything still failing is logged by id.
 
 **[HOW_IT_WORKS.md](HOW_IT_WORKS.md#the-stages-in-detail)** covers each stage properly: how the
 documents are read, how a workflow diagram becomes a decision graph, what the intake workbook's

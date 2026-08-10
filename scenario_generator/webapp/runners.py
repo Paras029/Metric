@@ -176,6 +176,14 @@ def _read_documents(workspace: Workspace, progress=None, cancel=None) -> Dict[st
     counts = result.summary
     unreadable = counts["documents"] - counts["readable"]
 
+    # What a person can act on, and nothing else. How many facts were extracted, how many were
+    # dropped for want of a quote and how many of eleven internal questions came back answered are
+    # all real numbers, and all of them are about the machinery rather than about the agent being
+    # validated -- they belong in the log and in the evidence file, both of which still have them.
+    # What is left here changes what somebody does next: a document nothing rests on was either
+    # irrelevant or passed over, and a document that could not be read at all has to be asked for
+    # again.
+    #
     # Documents and images are counted apart because they are not the same submission. A workflow
     # drawn across five pictures is one flow sent as five files, and rolling it into "6 documents
     # read" says the pack was six times the size it was.
@@ -184,16 +192,8 @@ def _read_documents(workspace: Workspace, progress=None, cancel=None) -> Dict[st
         summary["Documents read"] = f"{counts['texts_read']} of {counts['texts']}"
     if counts["images"]:
         summary["Workflow images read"] = f"{counts['images_read']} of {counts['images']}"
-
-    # Read and drawn on are different things, and the difference is the interesting one: a file
-    # that contributed to nothing was either irrelevant or passed over.
-    summary["Files anything rests on"] = f"{counts['drawn_on']} of {counts['readable']}"
-    summary["Questions about the agent answered"] = f"{counts['answered']} of {len(FACETS)}"
-    summary["Facts found and checked against the documents"] = counts["usable"]
-    if counts["rejected"]:
-        summary["Facts dropped — quote not found in any document"] = counts["rejected"]
-    if counts["to_ask"]:
-        summary["Left for you to answer at the intake stage"] = counts["to_ask"]
+    if counts["readable"] and counts["drawn_on"] < counts["readable"]:
+        summary["Documents nothing rests on"] = counts["readable"] - counts["drawn_on"]
     if unreadable:
         summary["Files that could not be read at all"] = unreadable
     return summary

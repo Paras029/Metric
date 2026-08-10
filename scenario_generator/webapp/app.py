@@ -95,7 +95,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/")
     def index():
-        return render_template("index.html",
+        return render_template("index.html", stages=STAGES,
                                workspaces=Workspace.list_all(app.config["WORKSPACE_ROOT"]))
 
     @app.route("/workspaces", methods=["POST"])
@@ -933,7 +933,7 @@ def main() -> None:
         print(f"\n{exc}\n\nFix that line and run again.\n")
         raise SystemExit(2)
     app = create_app()
-    print("\n  Scenario generator — http://127.0.0.1:5000\n")
+    print("\n  Metric — http://127.0.0.1:5000\n")
     print(f"  Settings: {config.tuning_path()} — edits apply to the next call, no restart\n")
     app.run(host="127.0.0.1", port=5000, debug=False)
 

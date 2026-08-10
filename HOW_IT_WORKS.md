@@ -10,12 +10,11 @@ can turn.
 
 - [The idea](#the-idea)
 - [The stages in detail](#the-stages-in-detail)
-  - [1. Documents](#1-documents)
-  - [2. Intake](#2-intake)
-  - [3. Benchmark](#3-benchmark)
-  - [4–6. Scenario text, materiality, final review](#46-scenario-text-materiality-final-review)
+  - [1. Intake drafting](#1-intake-drafting)
+  - [2. Workflow](#2-workflow)
+  - [3–6. Scenario space, variations, materiality, review](#36-scenario-space-variations-materiality-review)
   - [7. Coverage](#7-coverage)
-  - [8. Issue](#8-issue)
+  - [8. Summary](#8-summary)
 - [The intake workbook](#the-intake-workbook)
 - [Tuning](#tuning)
   - [What a model call is actually sent](#what-a-model-call-is-actually-sent)
@@ -45,9 +44,12 @@ Everything else in the tool is in service of one of those two.
 
 ## The stages in detail
 
-### 1. Documents
+### 1. Intake drafting
 
-Optional. Skip it if you already have an intake workbook.
+Reading the documentation and drafting the declaration are one stage, because they are one
+job: the reading exists in order to be drafted from and nothing between them is yours to decide.
+Skip the reading entirely by uploading a completed intake workbook, which is then read and never
+written to.
 
 The documents are read **whole**. Every submitted file is turned into text with its locators
 intact, joined into one corpus, and put to the model in a handful of calls that each answer a
@@ -118,7 +120,7 @@ the whole pack. It has no effect the other way round: there is no per-file opt-o
 `PII_REDACTION` is on. Diagrams have no text to redact, and the model owner's own conversations
 never reach this reading at all, so neither shows the checkbox.
 
-### 2. Intake
+#### The declaration itself
 
 The intake is the authoritative description of the agent, and the boundary of what can be tested.
 Anything absent from it is absent from the benchmark. Draft it from the documents, upload one you
@@ -231,7 +233,7 @@ merged decisions used as a note against the new one, since the workbook's Trigge
 column holds only one id; the rest survive as text a person can see rather than as a structural
 link. Dismissing a proposal discards it without touching anything.
 
-### 3. Benchmark
+### 2. Workflow
 
 Deterministic, and no model is called. The graph is walked exhaustively: every distinct route
 becomes one scenario, with its route recorded as the expected outcome. Routes are deduplicated by
@@ -247,11 +249,31 @@ which probes apply is determined mechanically from what the intake declares, chi
 The strength of that approach is that it is exhaustive over what was declared. Its weakness is that
 it is bounded by what was declared, which is what the final review exists to push against.
 
-### 4–6. Scenario text, materiality, final review
+### 3–6. Scenario space, variations, materiality, review
 
-**Scenario text** writes each scenario's business description and tester script. The writer is
-never shown the scenario's terminal state, so the expected outcome cannot reach the pack through
-the text it writes.
+**Scenario space** writes each scenario up: a short name, a business description, and the tester
+script. The writer is never shown the scenario's terminal state, so the expected outcome cannot
+reach the pack through the text it writes.
+
+The **name** is a handle rather than a summary — six words or fewer, about the situation and never
+about the expected behaviour. It exists because a benchmark is three hundred rows in a spreadsheet
+and three hundred rows on a page, and until it existed the only handle on any of them was the
+first sentence of a description; those sentences all open the same way, because they describe the
+same agent. One exists before any model runs, built from the route itself.
+
+**What comes back is audited, and only the failures go back.** A name, a description that is one,
+a turn plan with lines in it — and whether the text carries a distinctive phrase out of that
+scenario's *own* ending. The writer is never told where a route finishes, but it is told the
+outcome of every step on the way, so a route ending in a lockout can be written up as "and the
+account is locked" with nothing having told it so. The match is on three consecutive content words
+rather than on word overlap: a description of a dispute and an ending about a dispute share the
+word "dispute" honestly. Failures go back once in a single batched call with the fault named; a
+rewrite that is not strictly cleaner than what it replaces is discarded, and anything still
+leaking is logged by id.
+
+**Variation space** is not built yet. It reads the benchmark, writes it back unchanged, takes its
+snapshot like every other scenario stage, and says so on its own result card — so the pipeline
+already has the shape it will keep and nothing downstream changes when it is filled in.
 
 **Materiality** assigns Low / Medium / High / Critical per scenario, which drives how many runs
 the challenge pack requests. It judges the set rather than each scenario in isolation: whether a
@@ -324,7 +346,7 @@ conversation ids behind it. By default that is an annotation and nothing more �
 dropped, because whether running something already tested is duplicated effort or independent
 confirmation is your call rather than the tool's.
 
-### 8. Issue
+### 8. Summary
 
 Writes the challenge pack to send and the registry to keep.
 
@@ -430,7 +452,8 @@ this level changes nothing.
 | `STRUCTURE_REVIEW` | Proposing reconnections/consolidations on the intake | Judgement | — |
 | `WRITER` | Writing scenario text | Standard | 8 |
 | `MATERIALITY_ASSESS` | Weighing each scenario's materiality | Materiality | 10 |
-| `REVIEWER_ASSESS` | Review's materiality + flagging sweep | Judgement | 6 |
+| `WRITER` (repair) | Rewriting only the scenarios that failed the audit | Standard | one call |
+| `REVIEWER_ASSESS` | Review's materiality + flagging sweep, and the adjudication | Judgement | 6 |
 | `REVIEWER_CATEGORY` | Review's declared-category check | Materiality | 20 |
 | `REVIEWER_PROPOSE` | Review's addition proposals | Judgement | — |
 | `COVERAGE_MAP` | Mapping submitted conversations onto the benchmark | Judgement | 5 |
@@ -480,6 +503,9 @@ actually weighing, not from one shared number:
 - **Review's category sweep** (20 a call) is a narrower, more mechanical judgement — does the
   declared outcome type actually match what the scenario does — so it tolerates a much larger
   chunk without the same loss of attention per item.
+- **The adjudication** reuses the review's own batch size, and fires only on scenarios the two
+  materiality readings put two or more tiers apart. A benchmark whose two readings agree pays
+  nothing for it; one with a handful of conflicts pays one call.
 - **Coverage mapping** (5 a call) is the smallest, because a transcript is many times the size of
   a scenario description and every call has to carry the whole benchmark alongside them for the
   match to be possible at all.
