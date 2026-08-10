@@ -354,9 +354,15 @@ class TestTheConfiguredNumbersAreWhatTheCallsActuallyUse(_Tuned):
         persona = Persona("P1", "Default", ["x"], True)
         intake = IntakeData(use_case={"Use case name": "X"}, personas=[persona],
                             capabilities=[], decisions=[], states=[], tools=[])
+        # Written well enough to pass the audit that follows the writing, so what this counts is
+        # the batching the tuning file asked for rather than the repair pass a bad reply triggers.
         scenarios = [Scenario(id=f"SC-{n:03d}", path=[], category="Happy path", persona=persona,
                               seeded_state="S-00", termination="S-01", capabilities=[], tools=[],
-                              touches_state_change=False)
+                              touches_state_change=False,
+                              name=f"Handle {n}",
+                              description="A situation the tester sets up, said at enough length "
+                                          "to read as a description rather than a fragment.",
+                              turn_plan="1. Open the conversation.")
                      for n in range(scenario_count)]
 
         seen = {"waves": [], "messages": 0}

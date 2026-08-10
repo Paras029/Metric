@@ -83,7 +83,10 @@ class TestTheWriterBatches(unittest.TestCase):
         self.scenarios = build_probes(_INTAKE)[:20]
 
     def _respond(self, system, user):
-        return json.dumps({i: {"description": f"Description for {i}.", "turn_plan": "1. Go."}
+        return json.dumps({i: {"name": f"Handle for {i}",
+                               "description": f"Description for {i}, long enough to pass the "
+                                              f"audit that follows the writing.",
+                               "turn_plan": "1. Go."}
                            for i in _ids_in(user)})
 
     def test_one_call_covers_every_chunk_in_a_group(self):
@@ -98,7 +101,7 @@ class TestTheWriterBatches(unittest.TestCase):
         stub = _BatchStub(self._respond)
         ScenarioWriter(complete=stub).write(self.scenarios, _INTAKE)
         for scenario in self.scenarios:
-            self.assertEqual(scenario.description, f"Description for {scenario.id}.")
+            self.assertIn(f"Description for {scenario.id}", scenario.description)
 
     def test_a_chunk_the_batch_could_not_reach_is_refilled_individually(self):
         """One chunk's call raises inside the batch; call_batch reports that as the exception
@@ -118,7 +121,7 @@ class TestTheWriterBatches(unittest.TestCase):
         ScenarioWriter(complete=stub).write(self.scenarios, _INTAKE)
 
         for scenario in self.scenarios:
-            self.assertEqual(scenario.description, f"Description for {scenario.id}.")
+            self.assertIn(f"Description for {scenario.id}", scenario.description)
         self.assertTrue(stub.solo_calls, "the failed chunk's scenarios were never refilled")
 
     def test_a_plain_function_with_no_batch_attribute_still_works(self):
@@ -128,7 +131,7 @@ class TestTheWriterBatches(unittest.TestCase):
 
         ScenarioWriter(complete=plain).write(self.scenarios, _INTAKE)
         for scenario in self.scenarios:
-            self.assertEqual(scenario.description, f"Description for {scenario.id}.")
+            self.assertIn(f"Description for {scenario.id}", scenario.description)
 
 
 class TestMaterialityBatches(unittest.TestCase):
@@ -183,7 +186,7 @@ class TestReviewerBatchesTheAssessStep(unittest.TestCase):
     def _respond(self, system, user):
         if '"proposals"' in user:
             return json.dumps({"proposals": []})
-        return json.dumps({i: {"materiality": "Critical", "rationale": "r", "flag": ""}
+        return json.dumps({i: {"materiality": "Medium", "rationale": "r", "flag": ""}
                            for i in _ids_in(user)})
 
     def test_the_assess_step_is_one_call_and_propose_is_a_separate_solo_one(self):
@@ -198,7 +201,7 @@ class TestReviewerBatchesTheAssessStep(unittest.TestCase):
     def test_every_scenario_is_reviewed(self):
         stub = _BatchStub(self._respond)
         ScenarioReviewer(complete=stub, batch_size=6).review(self.scenarios, _INTAKE)
-        self.assertTrue(all(s.review_materiality == "Critical" for s in self.scenarios))
+        self.assertTrue(all(s.review_materiality == "Medium" for s in self.scenarios))
 
     def test_a_chunk_that_fails_inside_the_batch_is_left_unchanged_not_raised(self):
         """The review pass has no individual refill of its own -- a failed chunk is simply left
@@ -218,7 +221,7 @@ class TestReviewerBatchesTheAssessStep(unittest.TestCase):
 
         failed_ids = set(first["ids"])
         self.assertTrue(all(s.review_materiality == "" for s in reviewed if s.id in failed_ids))
-        self.assertTrue(all(s.review_materiality == "Critical"
+        self.assertTrue(all(s.review_materiality == "Medium"
                             for s in reviewed if s.id not in failed_ids))
 
     def test_a_plain_function_with_no_batch_attribute_still_works(self):
@@ -226,7 +229,7 @@ class TestReviewerBatchesTheAssessStep(unittest.TestCase):
             return self._respond(system, user)
 
         ScenarioReviewer(complete=plain, batch_size=6).review(self.scenarios, _INTAKE)
-        self.assertTrue(all(s.review_materiality == "Critical" for s in self.scenarios))
+        self.assertTrue(all(s.review_materiality == "Medium" for s in self.scenarios))
 
 
 class TestConversationMapperBatches(unittest.TestCase):

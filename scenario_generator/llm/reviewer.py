@@ -62,6 +62,12 @@ _ASSESS_PROMPT = "reviewer.assess"
 _CATEGORY_PROMPT = "reviewer.category"
 _PROPOSE_PROMPT = "reviewer.propose"
 _OWNER_PROMPT = "reviewer.owner_block"
+_ADJUDICATE_PROMPT = "reviewer.adjudicate"
+
+# How far apart the two materiality readings have to land before a third is worth paying for.
+# One tier apart is two readings agreeing to within the precision the scale has; two is one of
+# them having missed something.
+ADJUDICATE_GAP = 2
 
 
 def _owner_block(owner_scenarios: Optional[List[OwnerScenario]]) -> str:
@@ -71,6 +77,22 @@ def _owner_block(owner_scenarios: Optional[List[OwnerScenario]]) -> str:
         return ""
     lines = "\n".join(f"- {s.id}: {s.description[:200]}" for s in owner_scenarios)
     return prompt_loader.render(_OWNER_PROMPT, owner_scenarios=lines) + "\n\n"
+
+
+def _tiers_apart(scenario: Scenario) -> int:
+    """How far the two materiality readings are from each other, in tiers.
+
+    Zero where the review did not set one, which is the ordinary case for a scenario the review
+    agreed with: nothing was written to the review's column, so there is no second reading to
+    disagree with the first.
+    """
+    if not scenario.review_materiality or not scenario.materiality:
+        return 0
+    try:
+        return abs(MATERIALITY.index(scenario.review_materiality)
+                   - MATERIALITY.index(scenario.materiality))
+    except ValueError:                                     # a tier outside the scale settles nothing
+        return 0
 
 
 def _batch_payload(scenarios: List[Scenario], signals: dict) -> str:
@@ -160,10 +182,88 @@ class ScenarioReviewer:
             self._apply_category)
 
         cancellation.check(self._cancel)
+        self._adjudicate(scenarios, preamble, shared)
+
+        cancellation.check(self._cancel)
         self._progress("Looking for what enumeration could not reach", done, total)
         proposals = self._propose(intake, preamble, shared)
         self._progress("Review complete", total, total)
         return scenarios, proposals
+
+    def _adjudicate(self, scenarios: List[Scenario], preamble: str, shared: dict) -> int:
+        """Settle the scenarios the two materiality readings disagree about. Returns how many.
+
+        A third opinion, but only where one is worth paying for. Every scenario in this benchmark
+        is weighed twice already -- once by the materiality pass, against its immediate peers with
+        the redundancy signals in hand, and once by the review, against the whole benchmark -- and
+        those two readings are given genuinely different things to look at. Where they land in the
+        same place or one tier apart, that is two readings agreeing to within the precision the
+        scale has. Where they land two or more apart, one of them is missing something, and the
+        tier decides how many runs the model owner is asked for.
+
+        Asking a third time about *everything* would be the expensive version of this and would
+        mostly re-litigate agreement. Asking only about the conflicts costs one call on a typical
+        benchmark and nothing at all on a benchmark that has none, and the call is a better call
+        for it: both rationales are in front of it, so it is adjudicating an argument rather than
+        forming a fresh opinion in isolation.
+
+        The verdict lands in the review's own column, beside the first assessment rather than over
+        it -- the same rule every other verdict in this pass follows.
+        """
+        conflicts = [s for s in scenarios if _tiers_apart(s) >= ADJUDICATE_GAP]
+        if not conflicts:
+            return 0
+
+        logger.info("%d scenario(s) were weighed %d or more tiers apart; asking once more with "
+                    "both readings in view.", len(conflicts), ADJUDICATE_GAP)
+        self._progress(f"Settling {len(conflicts)} disagreements", 0, len(conflicts))
+
+        pending = list(chunks(conflicts, self._batch))
+        replies = call_batch(
+            self._complete, prompt_loader.load(_SYSTEM_PROMPT),
+            [self._render_adjudication(chunk, preamble, shared) for chunk in pending],
+            tier=config.stage_tier("REVIEWER_ASSESS", config.JUDGEMENT),
+            max_concurrency=config.stage_concurrency("REVIEWER_ASSESS"), cancel=self._cancel,
+            on_progress=lambda done, total: self._progress(
+                f"Settled {done} of {total} disagreements", done, total))
+
+        settled = 0
+        for chunk, reply in zip(pending, replies):
+            cancellation.check(self._cancel)
+            parsed = parsed_reply(reply, "Adjudication call", ", ".join(s.id for s in chunk))
+            for scenario in chunk:
+                entry = parsed.get(scenario.id)
+                if not isinstance(entry, dict):
+                    continue
+                tier = one_of(entry.get("materiality"), MATERIALITY)
+                if not tier:
+                    continue
+                scenario.review_materiality = tier
+                scenario.review_rationale = prose(entry, "rationale") or scenario.review_rationale
+                settled += 1
+
+        logger.info("Settled %d of %d.", settled, len(conflicts))
+        return settled
+
+    def _render_adjudication(self, chunk: List[Scenario], preamble: str, shared: dict) -> str:
+        """The prompt for one chunk of disagreements, with both readings side by side.
+
+        Only the slots this prompt has. The owner's own scenarios are context for proposing
+        something new; this is settling an argument about a scenario that already exists.
+        """
+        return f"{preamble}\n\n" + prompt_loader.render(
+            _ADJUDICATE_PROMPT, total=shared["total"], digest=shared["digest"],
+            materiality=prompt_loader.load("shared.materiality_scale"),
+            scale_values=", ".join(MATERIALITY),
+            batch=json.dumps([{
+                "id": s.id,
+                "name": s.name,
+                "description": s.description,
+                "first_reading": {"materiality": s.materiality,
+                                  "rationale": s.materiality_rationale},
+                "second_reading": {"materiality": s.review_materiality,
+                                   "rationale": s.review_rationale},
+            } for s in chunk], indent=2))
 
     def _sweep(self, pending: List[List[Scenario]], label: str, tier, concurrency: int,
                done: int, total: int, subject_count: int,

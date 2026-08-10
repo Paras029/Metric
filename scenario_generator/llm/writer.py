@@ -19,12 +19,13 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import replace
 from typing import Callable, List
 
 from ..core.models import IntakeData, Scenario
-from ..utils import chunks
+from ..utils import chunks, parse_json_object
 from ..utils.replies import prose
-from . import cancellation, config, prompt_loader
+from . import cancellation, config, prompt_loader, quality
 from .calling import call, call_batch, parsed_reply
 from .context import describe_use_case, supplementary_context
 from .gateway import ask_llm
@@ -37,6 +38,7 @@ ProgressFn = Callable[..., None]
 _SYSTEM_PROMPT = "writer.system"
 _GRAPH_PROMPT = "writer.graph_scenario"
 _PROBE_PROMPT = "writer.probe"
+_REPAIR_PROMPT = "writer.repair"
 
 
 # A name is a handle, and a handle that runs to a line and a half is not one. The cap is generous
@@ -126,7 +128,91 @@ class ScenarioWriter:
                 written += len(chunk)
                 self._progress(f"Written {written} of {len(scenarios)} scenarios",
                                written, len(scenarios))
+
+        self._repair(scenarios, intake)
         return scenarios
+
+    def _repair(self, scenarios: List[Scenario], intake: IntakeData) -> int:
+        """Audit what was written and put only the specific failures back. Returns how many.
+
+        The pattern the diagram reading and the intake draft already use, applied to the one pass
+        that did not have it and needs it most: produce, check with code, and re-ask about exactly
+        what failed. What makes it worth a call is that the fault is *named* -- "your description
+        states how the interaction ends" is something a model can act on, where "write it better"
+        returns something different rather than something better.
+
+        Once, not until clean. A second attempt fixes what a first got wrong; a third mostly
+        rewrites what the second decided, and every pass costs a call per scenario. Anything still
+        failing after this is left as it is and reported, because a scenario nobody looked at is
+        worse than a scenario somebody has been told about.
+        """
+        faults = [(s, quality.problems(s)) for s in scenarios]
+        broken = [(s, problems) for s, problems in faults if problems]
+        if not broken:
+            return 0
+
+        logger.info("%d of %d scenarios need rewriting: %s", len(broken), len(scenarios),
+                    ", ".join(s.id for s, _ in broken[:10]))
+        leaks = sum(1 for _, problems in broken
+                    if any("how the interaction ends" in p for p in problems))
+        if leaks:
+            logger.warning("%d scenario(s) gave the ending away in text that is issued to the "
+                           "model owner. Rewriting them.", leaks)
+
+        system = prompt_loader.load(_SYSTEM_PROMPT)
+        prompts = [self._render_repair(s, problems, intake) for s, problems in broken]
+        self._progress(f"Rewriting {len(broken)} scenarios", 0, len(broken))
+        replies = call_batch(self._complete, system, prompts,
+                             tier=config.stage_tier("WRITER", config.STANDARD),
+                             max_concurrency=config.stage_concurrency("WRITER"),
+                             cancel=self._cancel,
+                             on_progress=lambda done, total: self._progress(
+                                 f"Rewritten {done} of {total} scenarios", done, total))
+
+        fixed = 0
+        for (scenario, _), reply in zip(broken, replies):
+            cancellation.check(self._cancel)
+            if isinstance(reply, BaseException):
+                logger.warning("Rewrite of %s did not come back: %s", scenario.id, reply)
+                continue
+            try:
+                entry = parse_json_object(reply)
+            except Exception as exc:
+                logger.warning("Rewrite of %s would not parse: %s", scenario.id, exc)
+                continue
+            # Applied to a copy first: a rewrite that fixes one fault and introduces another is
+            # not an improvement, and the text already there at least came from a call that saw
+            # the whole chunk. Only a strictly cleaner result replaces it.
+            candidate = replace(scenario)
+            candidate.name = _clean_name(prose(entry, "name")) or candidate.name
+            candidate.description = prose(entry, "description") or candidate.description
+            candidate.turn_plan = prose(entry, "turn_plan") or candidate.turn_plan
+            if len(quality.problems(candidate)) < len(quality.problems(scenario)):
+                scenario.name, scenario.description, scenario.turn_plan = (
+                    candidate.name, candidate.description, candidate.turn_plan)
+                fixed += 1
+
+        remaining = quality.leaking(scenarios)
+        if remaining:
+            logger.warning(
+                "%d scenario(s) still describe how the interaction ends after being rewritten: "
+                "%s. They are in the pack as written -- read them before it goes out.",
+                len(remaining), ", ".join(s.id for s in remaining[:10]))
+        logger.info("Rewrote %d of %d.", fixed, len(broken))
+        return fixed
+
+    def _render_repair(self, scenario: Scenario, problems: List[str], intake: IntakeData) -> str:
+        """The prompt for one scenario being written again, with its faults named."""
+        current = json.dumps({"name": scenario.name, "description": scenario.description,
+                              "turn_plan": scenario.turn_plan}, indent=2)
+        return prompt_loader.render(
+            _REPAIR_PROMPT,
+            use_case=describe_use_case(intake),
+            context=supplementary_context(self._context),
+            house_style=prompt_loader.load("shared.house_style"),
+            current=current,
+            problems="\n".join(f"- {problem}" for problem in problems),
+            scenario=json.dumps(self._payload(scenario), indent=2))
 
     def _payload(self, scenario: Scenario) -> dict:
         """What the model is shown. The terminal state is deliberately absent: it is the answer
