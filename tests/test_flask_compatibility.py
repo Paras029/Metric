@@ -72,7 +72,7 @@ class TestEveryRouteIsReachable(unittest.TestCase):
             "/stage/intake/structure-review/<proposal_id>/apply": ["POST"],
             "/stage/intake/structure-review/<proposal_id>/dismiss": ["POST"],
             "/stage/coverage/threshold": ["POST"],
-            "/stage/issue/scope": ["POST"],
+            "/stage/summary/scope": ["POST"],
             "/stage/<key>/reset": ["POST"],
             "/stage/<key>/download/<name>": ["GET"],
             "/template": ["GET"],
@@ -83,11 +83,11 @@ class TestEveryRouteIsReachable(unittest.TestCase):
         self.assertEqual(self.client.get("/").status_code, 200)
         created = self.client.post("/workspaces", data={"name": "Compatibility check"})
         self.assertEqual(created.status_code, 302)
-        self.assertEqual(self.client.get("/stage/documents").status_code, 200)
+        self.assertEqual(self.client.get("/stage/intake").status_code, 200)
 
     def test_progress_answers_before_anything_has_run(self):
         self.client.post("/workspaces", data={"name": "Compatibility check"})
-        body = self.client.get("/stage/documents/progress").get_json()
+        body = self.client.get("/stage/intake/progress").get_json()
         self.assertEqual(body["status"], "ready")
         self.assertEqual(body["percent"], 0)
 

@@ -86,83 +86,106 @@ class Stage:
 
 # The order here is the order of the pipeline, and the dependency chain is linear: each stage
 # depends on the one before it. Optional stages can be skipped without blocking what follows.
+#
+# The blurb is the whole of what a stage says about itself before you run it. One sentence, in
+# the language a business reader already has: it is read by a validator on their first day and by
+# somebody's director on the way past their desk, and neither of them is served by a paragraph.
+# The detail below it is for the person who wants the reasoning, folded away until asked for.
 STAGES: Tuple[Stage, ...] = (
-    Stage("documents", "Documents", JUDGED,
-          "Add whatever the model owner sent, then read it. Model documentation, vendor material, "
-          "workflow diagrams and decks.",
-          "Takes the submitted pack and reads it. Every passage is read for what it establishes, "
-          "then each question is answered from everything found across all documents at once — "
-          "documentation rarely answers them in one place. Statements are kept only where the "
-          "quote supporting them is found in the source, and what the documents leave unsettled "
-          "is recorded rather than filled in.",
+    Stage("intake", "Intake drafting", DRAFTED,
+          "What the agent is, as a decision graph. Drafted from the model owner's own "
+          "documentation, then confirmed by you.",
+          "Reads everything submitted — documentation, vendor material, workflow diagrams — and "
+          "drafts the declaration the whole benchmark is built from. Reading and drafting are one "
+          "step because they are one job: the reading exists to be drafted from, and a person has "
+          "no decision to make between them. Whatever the documents leave unsettled is folded into "
+          "the draft as a note against the row it concerns, so the work is correction rather than "
+          "transcription. Upload a completed intake instead if you already have one — it is then "
+          "read and never written to.\n\n"
+          "This is the boundary of what can be tested. Nothing absent from here reaches the "
+          "benchmark."),
+
+    Stage("workflow", "Workflow", COMPUTED,
+          "Every distinct route through the graph, walked exhaustively. Plus the adversarial "
+          "probes that apply to this agent.",
+          "Walks the declared graph depth-first and turns every distinct route into a scenario, so "
+          "coverage of the declared design is demonstrable rather than asserted. Adversarial "
+          "probes are added separately, since they test properties of the agent rather than routes "
+          "through it. No model decides which scenarios exist — this stage is the reason the "
+          "benchmark can be defended."),
+
+    Stage("scenarios", "Scenario space", JUDGED,
+          "Each route written up as something a tester can run: a name, what happens, and the "
+          "turns to take.",
+          "Writes each scenario in business language, for somebody who has never seen how the "
+          "agent was built. The expected outcome is withheld from this step by construction — it "
+          "is never put in the prompt — because what this produces is issued to the model owner, "
+          "and text that revealed the answer would leave the exercise measuring nothing."),
+
+    Stage("variations", "Variation space", JUDGED,
+          "The variants of each scenario worth running separately — different phrasing, different "
+          "user, different conditions.",
+          "A scenario says what is being tested; a variation says how else the same test can "
+          "arrive. Not built yet: the stage is here so the shape of the pipeline is the shape you "
+          "will use, and it passes through without changing anything.",
           optional=True),
 
-    Stage("intake", "Intake", DRAFTED,
-          "The agent described as a decision graph. Drafted from the evidence by a model, "
-          "corrected and confirmed by you. Nothing reaches the benchmark that is not here.",
-          "The authoritative description of the agent, and the boundary of what can be tested. It "
-          "is drafted from the documents so the work is correction rather than transcription, and "
-          "what it could not settle comes back as questions addressed to the specific decision, "
-          "state, capability, tool or persona that needs them — answer what you can, then revise "
-          "the declaration with those answers folded in. Upload a completed intake instead if you "
-          "already have one."),
-
-    Stage("benchmark", "Benchmark", COMPUTED,
-          "Every distinct route through the decision graph, plus the adversarial probes that "
-          "apply to this agent. Enumerated, not chosen.",
-          "Walks the declared graph and turns every distinct route into a scenario, so coverage of "
-          "the declared design is demonstrable rather than asserted. Adversarial probes are "
-          "added separately, since they test properties of the agent rather than routes through "
-          "it. No model decides which scenarios exist."),
-
-    Stage("text", "Scenario text", JUDGED,
-          "The description and tester script for each scenario, written in business language. "
-          "This is what the model owner reads.",
-          "Writes each scenario as instructions a tester can follow without knowing how the agent "
-          "was built. The expected outcome is withheld from this step: what it produces is "
-          "issued to the model owner, and text that revealed the answer would leave the "
-          "exercise measuring nothing."),
-
     Stage("materiality", "Materiality", JUDGED,
-          "What it would cost the business if the agent handled each scenario badly, and how "
-          "many runs that justifies.",
+          "What it would cost the business if the agent handled each scenario badly, and how many "
+          "runs that justifies.",
           "Assigns each scenario a tier by business consequence rather than abstract severity, "
           "judged across the set — whether a scenario matters depends partly on what else the "
           "benchmark covers. The tier decides how many runs each scenario is issued with, so it "
           "governs the size of the request you make."),
 
-    Stage("review", "Final review", JUDGED,
-          "One pass over the whole benchmark: settles materiality with everything in view, "
-          "flags weak scenarios, and proposes what enumeration could not reach.",
-          "The only step that sees the benchmark whole. Enumeration is exhaustive over what was "
-          "declared but bounded by it, so this works at that boundary: it settles materiality, "
-          "flags scenarios that are redundant, under-specified or mis-scoped, and proposes "
-          "additions. It cannot remove anything — a flag is a recommendation to you."),
+    Stage("review", "Review", JUDGED,
+          "One pass over the whole space, with the documentation still in view. Settles "
+          "materiality, flags what is weak, proposes what was missed.",
+          "The only step that sees the scenario and variation space whole, against the context "
+          "read at intake. Enumeration is exhaustive over what was declared but bounded by it, so "
+          "this works at that boundary: it settles materiality with everything in view, checks the "
+          "ending each scenario is filed under, flags what is redundant, under-specified or "
+          "mis-scoped, and proposes what enumeration could not reach. It cannot remove anything — "
+          "a flag is a recommendation to you."),
 
     Stage("coverage", "Coverage", JUDGED,
-          "How many of the model owner's conversations land on each scenario, and which scenarios "
-          "none of them reach. Skip it if the model owner submitted none.",
-          "Reads the transcripts of the testing the model owner has already done and maps each "
-          "conversation onto at most one scenario, decided by where the exchange ends rather than "
-          "by what it passes through — a conversation that authenticates and stops is not evidence "
-          "for a scenario that authenticates and then does something else. What comes out is a "
-          "count per scenario rather than a covered/not-covered flag, because one conversation and "
-          "forty are not the same evidence. Where the model owner has grouped the conversations, "
-          "that grouping is checked against where the conversations actually landed rather than "
-          "taken as given.",
-          optional=True, requires=("intake", "benchmark")),
+          "How much of the space the model owner's own testing already reaches. Skip it if they "
+          "submitted none.",
+          "Reads the transcripts of the testing already done and maps each conversation onto at "
+          "most one scenario, decided by where the exchange ends rather than by what it passes "
+          "through — a conversation that authenticates and stops is not evidence for a scenario "
+          "that authenticates and then does something else. What comes out is a count per "
+          "scenario rather than a covered/not-covered flag, because one conversation and forty are "
+          "not the same evidence.",
+          optional=True, requires=("intake", "workflow")),
 
-    Stage("issue", "Issue", COMPUTED,
-          "The challenge pack to send the model owner, and the registry you keep. The pack "
-          "carries no expected outcomes.",
-          "Writes the two workbooks. The challenge pack goes to the model owner and carries no "
-          "expected outcome, decision path or materiality. The registry stays with you and holds "
-          "the ground truth. The pack is derived from the registry, so rebuild it after anything "
-          "that changes the registry."),
+    Stage("summary", "Summary", COMPUTED,
+          "What to send the model owner: the challenge pack, and what still has to be asked for.",
+          "Writes the two workbooks and states what is outstanding. The challenge pack goes to the "
+          "model owner and carries no expected outcome, decision path or materiality. The registry "
+          "stays with you and holds the ground truth. Alongside them: what the documentation never "
+          "settled, what the review flagged, and where the model owner's own evidence is thin — "
+          "the request to make of them, in one place."),
 )
 
 STAGE_BY_KEY: Dict[str, Stage] = {stage.key: stage for stage in STAGES}
 STAGE_KEYS: Tuple[str, ...] = tuple(stage.key for stage in STAGES)
+
+# What a stage used to be called, so a workspace recorded under the old names still opens.
+# Reading the documents and drafting the intake used to be two stages and are now one, which is
+# why "documents" maps onto "intake": whatever the old documents stage produced is now part of
+# what the intake stage produces, and the intake stage is where it is shown.
+RENAMED: Dict[str, str] = {
+    "documents": "intake",
+    "benchmark": "workflow",
+    "text": "scenarios",
+    "issue": "summary",
+}
+
+
+def current_key(key: str) -> str:
+    """The key a stage goes by now, given whatever it was called when it was recorded."""
+    return RENAMED.get(key, key)
 
 
 def index_of(key: str) -> int:

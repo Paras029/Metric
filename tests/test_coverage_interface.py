@@ -48,14 +48,14 @@ class TestTheCoveragePage(unittest.TestCase):
         self.client.post("/workspaces", data={"name": "Coverage check"})
 
         scratch = Path(tempfile.mkdtemp())
-        for key, path, group in (("intake", _intake_workbook(scratch), ""),
+        for key, path, group in (("intake", _intake_workbook(scratch), "intake_workbook"),
                                  ("coverage", _conversations(scratch, 2), "owner_scenarios")):
             with open(path, "rb") as handle:
                 self.client.post(f"/stage/{key}/upload",
                                  data={"files": (handle, path.name), "group": group},
                                  content_type="multipart/form-data")
         self._run("intake")
-        self._run("benchmark")
+        self._run("workflow")
 
     def _run(self, key):
         self.client.post(f"/stage/{key}/run")
@@ -161,9 +161,9 @@ class TestWhatGoesInThePack(unittest.TestCase):
         scratch = Path(tempfile.mkdtemp())
         with open(_intake_workbook(scratch), "rb") as handle:
             self.client.post("/stage/intake/upload",
-                             data={"files": (handle, "intake.xlsx")},
+                             data={"files": (handle, "intake.xlsx"), "group": "intake_workbook"},
                              content_type="multipart/form-data")
-        for key in ("intake", "benchmark"):
+        for key in ("intake", "workflow"):
             self.client.post(f"/stage/{key}/run")
             self._settle(key)
 
@@ -179,8 +179,8 @@ class TestWhatGoesInThePack(unittest.TestCase):
         return Workspace.load(self.root / "pack-scope")
 
     def _issue(self):
-        self.client.post("/stage/issue/run")
-        self._settle("issue")
+        self.client.post("/stage/summary/run")
+        self._settle("summary")
         book = load_workbook(self._workspace().root / "challenge_pack.xlsx")
         return book["Scenarios"].max_row - 1
 
@@ -192,7 +192,7 @@ class TestWhatGoesInThePack(unittest.TestCase):
         """Nothing mapped is not the same as everything covered, and emptying the pack on the
         strength of a stage that never ran would be the worst outcome available."""
         everything = self._issue()
-        self.client.post("/stage/issue/scope", data={"on": "1"})
+        self.client.post("/stage/summary/scope", data={"on": "1"})
         self.assertTrue(self._workspace().pack_gaps_only)
         self.assertEqual(self._issue(), everything)
 

@@ -42,11 +42,12 @@ VIEWS = (
 TEXT, MATERIALITY_COLUMNS, REVIEW, COVERAGE = "text", "materiality", "review", "coverage"
 
 STAGE_COLUMNS = {
-    "text": (TEXT,),
+    "scenarios": (TEXT,),
+    "variations": (TEXT,),
     "materiality": (TEXT, MATERIALITY_COLUMNS),
     "review": (TEXT, MATERIALITY_COLUMNS, REVIEW),
     "coverage": (TEXT, MATERIALITY_COLUMNS, REVIEW, COVERAGE),
-    "issue": (TEXT, MATERIALITY_COLUMNS, REVIEW, COVERAGE),
+    "summary": (TEXT, MATERIALITY_COLUMNS, REVIEW, COVERAGE),
 }
 
 # Every origin gets a label, and the map must stay exhaustive: a scenario whose origin is missing
@@ -163,7 +164,7 @@ def needs_attention(row: Dict[str, object]) -> bool:
     return bool(row["flag"] or row["is_proposed"] or row["coverage"] or row["category_changed"])
 
 
-def shape(scenarios: List[Scenario], stage: str = "issue") -> Dict[str, object]:
+def shape(scenarios: List[Scenario], stage: str = "summary") -> Dict[str, object]:
     """How the benchmark is distributed, for the side panel.
 
     Counted over every scenario rather than over the rows on screen. The list in the middle of
@@ -177,7 +178,7 @@ def shape(scenarios: List[Scenario], stage: str = "issue") -> Dict[str, object]:
     stage onwards the tiers here are the effective ones, so a tier the review moved is counted
     where the review put it.
     """
-    shows = set(STAGE_COLUMNS.get(stage, STAGE_COLUMNS["issue"]))
+    shows = set(STAGE_COLUMNS.get(stage, STAGE_COLUMNS["summary"]))
     rows = [to_row(s) for s in scenarios]
     tiers = []
     if MATERIALITY_COLUMNS in shows:
@@ -219,7 +220,7 @@ def _filter_options(rows: List[Dict[str, object]], shows: set) -> Dict[str, List
     return options
 
 
-def build_rows(scenarios: List[Scenario], view: str = "attention", stage: str = "issue",
+def build_rows(scenarios: List[Scenario], view: str = "attention", stage: str = "summary",
                filters: Dict[str, str] = None, limit: int = PAGE_SIZE) -> Dict[str, object]:
     """The rows to show, the view and filters that produced them, and what was left out.
 
@@ -232,7 +233,7 @@ def build_rows(scenarios: List[Scenario], view: str = "attention", stage: str = 
     ``limit`` caps how many of the narrowed set are actually rendered; ``None`` renders all of
     them, for the person who has decided fifty is not enough for this benchmark.
     """
-    shows = set(STAGE_COLUMNS.get(stage, STAGE_COLUMNS["issue"]))
+    shows = set(STAGE_COLUMNS.get(stage, STAGE_COLUMNS["summary"]))
     rows = [to_row(s) for s in scenarios]
 
     # Ordering by tier only says something once a tier has been assigned. Before that every

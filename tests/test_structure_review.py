@@ -237,7 +237,7 @@ class TestStructureReviewRoutes(unittest.TestCase):
         workbook = _workbook(scratch)
         with open(workbook, "rb") as handle:
             self.client.post("/stage/intake/upload",
-                             data={"files": (handle, workbook.name)},
+                             data={"files": (handle, workbook.name), "group": "intake_workbook"},
                              content_type="multipart/form-data")
 
     def _reply(self, payload):

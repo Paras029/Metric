@@ -26,8 +26,8 @@ class TestStageOrder(unittest.TestCase):
     def test_downstream_is_everything_after_and_nothing_before(self):
         keys = [s.key for s in downstream_of("intake")]
         self.assertNotIn("intake", keys)
-        self.assertIn("benchmark", keys)
-        self.assertEqual(keys[0], "benchmark")
+        self.assertIn("workflow", keys)
+        self.assertEqual(keys[0], "workflow")
 
     def test_an_unknown_stage_is_an_error_rather_than_a_guess(self):
         with self.assertRaises(KeyError):
@@ -42,26 +42,28 @@ class TestReachability(unittest.TestCase):
         self.assertEqual(workspace.state("intake").status, READY)
         self.assertFalse(workspace.is_blocked("intake"))
 
-    def test_the_document_stage_is_open_but_not_required(self):
+    def test_a_fresh_workspace_starts_at_the_intake(self):
+        """Reading the documents is part of drafting the intake, so there is nothing before it."""
         workspace = _workspace()
-        self.assertEqual(workspace.state("documents").status, READY)
+        self.assertEqual(workspace.state("intake").status, READY)
 
     def test_a_stage_behind_a_required_one_is_locked(self):
         workspace = _workspace()
-        self.assertTrue(workspace.is_blocked("benchmark"))
-        self.assertFalse(workspace.can_run("benchmark"))
+        self.assertTrue(workspace.is_blocked("workflow"))
+        self.assertFalse(workspace.can_run("workflow"))
 
-    def test_the_intake_alone_unlocks_the_benchmark(self):
-        """Reading documents is a way to produce an intake, not a precondition for having one."""
+    def test_the_intake_alone_unlocks_the_workflow(self):
+        """Drafting the intake is the whole of the first stage; nothing precedes it."""
         workspace = _workspace()
         workspace.complete("intake")
-        self.assertEqual(workspace.state("benchmark").status, READY)
+        self.assertEqual(workspace.state("workflow").status, READY)
 
     def test_skipping_an_optional_stage_does_not_strand_the_run(self):
         workspace = _workspace()
-        for key in ("intake", "benchmark", "text", "materiality", "review"):
+        # Variations and coverage are both optional and both skipped here.
+        for key in ("intake", "workflow", "scenarios", "materiality", "review"):
             workspace.complete(key)
-        self.assertEqual(workspace.state("issue").status, READY)
+        self.assertEqual(workspace.state("summary").status, READY)
         self.assertEqual(workspace.state("coverage").status, READY)
 
 
@@ -74,40 +76,40 @@ class TestInvalidation(unittest.TestCase):
 
     def test_redoing_a_stage_marks_everything_after_it_out_of_date(self):
         workspace = _workspace()
-        self._through(workspace, "issue")
+        self._through(workspace, "summary")
         invalidated = workspace.complete("intake")
 
         self.assertEqual(workspace.state("intake").status, COMPLETE)
-        self.assertEqual(workspace.state("benchmark").status, STALE)
-        self.assertEqual(workspace.state("issue").status, STALE)
-        self.assertIn("Benchmark", [s.title for s in invalidated])
+        self.assertEqual(workspace.state("workflow").status, STALE)
+        self.assertEqual(workspace.state("summary").status, STALE)
+        self.assertIn("Workflow", [s.title for s in invalidated])
 
     def test_stages_before_the_change_are_untouched(self):
         workspace = _workspace()
-        self._through(workspace, "issue")
-        workspace.complete("benchmark")
+        self._through(workspace, "summary")
+        workspace.complete("workflow")
         self.assertEqual(workspace.state("intake").status, COMPLETE)
-        self.assertEqual(workspace.state("documents").status, COMPLETE)
+        self.assertEqual(workspace.state("intake").status, COMPLETE)
 
     def test_out_of_date_output_is_kept_rather_than_deleted(self):
         workspace = _workspace()
         workspace.complete("intake", artifacts={"workbook": "intake.xlsx"})
-        workspace.complete("benchmark", artifacts={"registry": "registry.xlsx"})
+        workspace.complete("workflow", artifacts={"registry": "registry.xlsx"})
         workspace.complete("intake")
-        self.assertEqual(workspace.state("benchmark").status, STALE)
-        self.assertEqual(workspace.state("benchmark").artifacts["registry"], "registry.xlsx")
+        self.assertEqual(workspace.state("workflow").status, STALE)
+        self.assertEqual(workspace.state("workflow").artifacts["registry"], "registry.xlsx")
 
     def test_an_out_of_date_stage_can_still_be_run_again(self):
         workspace = _workspace()
         workspace.complete("intake")
-        workspace.complete("benchmark")
+        workspace.complete("workflow")
         workspace.complete("intake")
-        self.assertTrue(workspace.can_run("benchmark"))
+        self.assertTrue(workspace.can_run("workflow"))
 
     def test_out_of_date_stages_are_not_counted_as_done(self):
         workspace = _workspace()
         workspace.complete("intake")
-        workspace.complete("benchmark")
+        workspace.complete("workflow")
         workspace.complete("intake")
         progress = workspace.progress()
         self.assertEqual(progress["stale"], 1)
@@ -118,42 +120,42 @@ class TestInvalidation(unittest.TestCase):
         left over, so uploading a corrected intake has to mark the intake stage itself."""
         workspace = _workspace()
         workspace.complete("intake", summary={"Decision points": 5})
-        workspace.complete("benchmark")
+        workspace.complete("workflow")
 
         invalidated = workspace.invalidate_from("intake")
 
         self.assertEqual(workspace.state("intake").status, STALE)
-        self.assertEqual(workspace.state("benchmark").status, STALE)
+        self.assertEqual(workspace.state("workflow").status, STALE)
         self.assertIn("intake", [s.key for s in invalidated])
 
     def test_a_change_upstream_still_leaves_that_stage_alone(self):
         """invalidate_after is the other case, and must not start clearing its own stage."""
         workspace = _workspace()
         workspace.complete("intake")
-        workspace.complete("benchmark")
+        workspace.complete("workflow")
 
         workspace.invalidate_after("intake")
 
         self.assertEqual(workspace.state("intake").status, COMPLETE)
-        self.assertEqual(workspace.state("benchmark").status, STALE)
+        self.assertEqual(workspace.state("workflow").status, STALE)
 
     def test_clearing_a_stage_clears_everything_after_it(self):
         workspace = _workspace()
-        self._through(workspace, "issue")
-        workspace.reset_from("benchmark")
-        self.assertEqual(workspace.state("benchmark").status, READY)
-        self.assertEqual(workspace.state("issue").status, LOCKED)
+        self._through(workspace, "summary")
+        workspace.reset_from("workflow")
+        self.assertEqual(workspace.state("workflow").status, READY)
+        self.assertEqual(workspace.state("summary").status, LOCKED)
         self.assertEqual(workspace.state("intake").status, COMPLETE)
 
 
 class TestPersistence(unittest.TestCase):
     def test_a_workspace_survives_being_reopened(self):
         workspace = _workspace()
-        workspace.complete("documents", summary={"Files": 3})
+        workspace.complete("intake", summary={"Files": 3})
         reopened = Workspace.load(workspace.root)
         self.assertEqual(reopened.name, "Cardmember Disputes Assistant")
-        self.assertEqual(reopened.state("documents").summary["Files"], 3)
-        self.assertEqual(reopened.state("documents").status, COMPLETE)
+        self.assertEqual(reopened.state("intake").summary["Files"], 3)
+        self.assertEqual(reopened.state("intake").status, COMPLETE)
 
     def test_the_current_stage_is_the_first_needing_attention(self):
         workspace = _workspace()
@@ -164,7 +166,7 @@ class TestPersistence(unittest.TestCase):
     def test_coverage_is_read_before_the_pack_is_issued(self):
         """What the owner already covers changes what is worth issuing, so it comes first."""
         keys = [s.key for s in STAGES]
-        self.assertLess(keys.index("coverage"), keys.index("issue"))
+        self.assertLess(keys.index("coverage"), keys.index("summary"))
 
     def test_artifacts_outside_the_workspace_do_not_resolve(self):
         workspace = _workspace()

@@ -16,7 +16,7 @@ from scenario_generator.ingest.readers import Segment
 from scenario_generator.ingest.redaction import RedactionUnavailable, redact_segments
 from scenario_generator.llm import config
 from scenario_generator.webapp.app import create_app
-from scenario_generator.webapp.runners import _run_documents
+from scenario_generator.webapp.runners import _read_documents
 from scenario_generator.webapp.workspace import Workspace
 
 
@@ -271,7 +271,7 @@ class TestThePerFileToggleReachesIngestion(unittest.TestCase):
             return _StubIngestResult()
 
         with mock.patch("scenario_generator.webapp.runners.ingest_documents", fake_ingest_documents):
-            _run_documents(self.workspace)
+            _read_documents(self.workspace)
 
         should_redact = captured["should_redact"]
         marked = self.workspace.root / "sources" / "model_doc" / "spec.md"
@@ -290,7 +290,7 @@ class TestTheToggleRouteThroughTheInterface(unittest.TestCase):
         self.client = self.app.test_client()
         self.client.post("/workspaces", data={"name": "Redact toggle"})
 
-        self.client.post("/stage/documents/upload",
+        self.client.post("/stage/intake/upload",
                          data={"files": (io.BytesIO(b"# Spec\nSome content."), "spec.md"),
                               "group": "model_doc"},
                          content_type="multipart/form-data")
@@ -301,34 +301,34 @@ class TestTheToggleRouteThroughTheInterface(unittest.TestCase):
         return Workspace.load(directories[0])
 
     def test_checking_the_box_marks_the_file(self):
-        response = self.client.post("/stage/documents/redact",
+        response = self.client.post("/stage/intake/redact",
                                     data={"group": "model_doc", "name": "spec.md", "on": "1"})
         self.assertEqual(response.status_code, 302)
         self.assertTrue(self._workspace().is_marked_for_redaction("model_doc", "spec.md"))
 
     def test_unchecking_it_clears_the_mark(self):
-        self.client.post("/stage/documents/redact",
+        self.client.post("/stage/intake/redact",
                          data={"group": "model_doc", "name": "spec.md", "on": "1"})
         # An unchecked checkbox submits no "on" field at all -- this is the real request shape.
-        self.client.post("/stage/documents/redact", data={"group": "model_doc", "name": "spec.md"})
+        self.client.post("/stage/intake/redact", data={"group": "model_doc", "name": "spec.md"})
         self.assertFalse(self._workspace().is_marked_for_redaction("model_doc", "spec.md"))
 
     def test_the_toggle_is_refused_for_a_group_redaction_cannot_apply_to(self):
         """Diagrams have no text to redact, and an unknown group name is not a real upload."""
-        self.client.post("/stage/documents/redact",
+        self.client.post("/stage/intake/redact",
                          data={"group": "diagrams", "name": "flow.png", "on": "1"})
         self.assertFalse(self._workspace().is_marked_for_redaction("diagrams", "flow.png"))
 
     def test_removing_the_file_also_clears_its_mark(self):
-        self.client.post("/stage/documents/redact",
+        self.client.post("/stage/intake/redact",
                          data={"group": "model_doc", "name": "spec.md", "on": "1"})
-        self.client.post("/stage/documents/remove", data={"group": "model_doc", "name": "spec.md"})
+        self.client.post("/stage/intake/remove", data={"group": "model_doc", "name": "spec.md"})
         self.assertFalse(self._workspace().is_marked_for_redaction("model_doc", "spec.md"))
 
     def test_the_checkbox_state_is_reflected_back_on_the_page(self):
-        self.client.post("/stage/documents/redact",
+        self.client.post("/stage/intake/redact",
                          data={"group": "model_doc", "name": "spec.md", "on": "1"})
-        page = self.client.get("/stage/documents").data.decode()
+        page = self.client.get("/stage/intake").data.decode()
         # The checkbox for spec.md must be checked; a loose "checked" anywhere on the page would
         # pass even if it landed on the wrong element, so this looks at the specific input.
         self.assertRegex(page, r'name="name" value="spec\.md">\s*<label[^>]*>\s*<input '

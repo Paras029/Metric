@@ -26,8 +26,9 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 from ..core.representation import DEFAULT_THRESHOLD
-from .stages import (COMPLETE, FAILED, LOCKED, READY, RUNNING, STAGE_BY_KEY, STAGE_KEYS,
-                     STALE, STAGES, STOPPED, Stage, downstream_of, index_of, required_before)
+from .stages import (COMPLETE, FAILED, LOCKED, READY, RENAMED, RUNNING, STAGE_BY_KEY,
+                     STAGE_KEYS, STALE, STAGES, STOPPED, Stage, current_key, downstream_of,
+                     index_of, required_before)
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +124,23 @@ def _replace(source: Path, destination: Path) -> None:
             last_error = exc
             time.sleep(_REPLACE_BACKOFF * (attempt + 1))
     raise last_error
+
+
+# How far through its own life a recorded stage is, for deciding which of two records to keep
+# when a rename makes them collide. Anything that has run beats anything that has not.
+_PROGRESSION = (LOCKED, READY, RUNNING, STOPPED, FAILED, STALE, COMPLETE)
+
+
+def _further_on(candidate: dict, existing: Optional[dict]) -> bool:
+    """Whether ``candidate`` is a more advanced record of a stage than ``existing``."""
+    if not existing:
+        return True
+
+    def rank(entry: dict) -> int:
+        status = entry.get("status", LOCKED)
+        return _PROGRESSION.index(status) if status in _PROGRESSION else 0
+
+    return rank(candidate) > rank(existing)
 
 
 def slugify(name: str) -> str:
@@ -250,7 +268,7 @@ class Workspace:
                 for note in self.notes if note.get("question")}
 
     def notes_for(self, stage_key: str) -> List[dict]:
-        return [note for note in self.notes if note["stage"] == stage_key]
+        return [note for note in self.notes if current_key(note["stage"]) == stage_key]
 
     def note_lines(self) -> List[str]:
         """Every note as one line each, attributed to the stage it was added at.
@@ -261,7 +279,8 @@ class Workspace:
         """
         lines = []
         for note in self.notes:
-            title = STAGE_BY_KEY[note["stage"]].title if note["stage"] in STAGE_BY_KEY else "General"
+            stage_key = current_key(note["stage"])
+            title = STAGE_BY_KEY[stage_key].title if stage_key in STAGE_BY_KEY else "General"
             if note.get("question"):
                 lines.append(f"({title}) Q: {note['question']} — A: {note['text']}")
             else:
@@ -420,8 +439,19 @@ class Workspace:
     def load(cls, root: Path) -> "Workspace":
         root = Path(root)
         data = json.loads((root / STATE_FILE).read_text(encoding="utf-8"))
-        stages = {key: StageState.from_dict(data.get("stages", {}).get(key, {}))
-                  for key in STAGE_KEYS}
+
+        # Stages recorded under a name they have since stopped going by are read under the name
+        # they go by now -- see stages.RENAMED. A workspace part-finished before the pipeline was
+        # reshaped keeps every status and artifact it earned rather than opening as untouched,
+        # which is what dropping the unknown keys would do. Where two old stages now share one
+        # name, the further-advanced record wins: reading documents and drafting the intake became
+        # one stage, and the drafting half is the one that carries the workbook.
+        recorded = dict(data.get("stages", {}))
+        for old, new in RENAMED.items():
+            if old in recorded and _further_on(recorded[old], recorded.get(new)):
+                recorded[new] = recorded[old]
+
+        stages = {key: StageState.from_dict(recorded.get(key, {})) for key in STAGE_KEYS}
         workspace = cls(root=root, name=data.get("name", root.name),
                         created_at=data.get("created_at", ""), stages=stages,
                         notes=data.get("notes", []),

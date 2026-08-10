@@ -61,17 +61,17 @@ OVERLAP = "coverage.xlsx"
 # Submitted documents appear nowhere here. They are input rather than output, and each already has
 # its own remove -- deleting the pack because a later stage was re-run would be a rout.
 STAGE_OUTPUTS: Dict[str, tuple] = {
-    "documents": (EVIDENCE, CONTEXT, "ingest_questions.md"),
-    "intake": (DRAFT_INTAKE,),
-    "benchmark": (REGISTRY,),
+    "intake": (EVIDENCE, CONTEXT, "ingest_questions.md", DRAFT_INTAKE),
+    "workflow": (REGISTRY,),
     "coverage": (OVERLAP,),
-    "issue": (PACK,),
+    "summary": (PACK,),
 }
 
 # Each scenario stage also keeps a copy of the registry as it left it -- see _save_registry. They
 # are listed against their own stage so that clearing one clears its snapshot with it, and a
 # cleared stage stops showing a reading it is no longer claiming to have produced.
-for _key in ("benchmark", "text", "materiality", "review", "coverage", "issue"):
+for _key in ("workflow", "scenarios", "variations", "materiality", "review",
+             "coverage", "summary"):
     STAGE_OUTPUTS[_key] = STAGE_OUTPUTS.get(_key, ()) + (f"registry.{_key}.xlsx",)
 
 
@@ -147,7 +147,7 @@ def _evidence_record(workspace: Workspace):
         return None
 
 
-def _run_documents(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
+def _read_documents(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
     """Read every submitted document, then answer each question from all of them at once.
 
     Only the groups that describe the agent are read (``evidence_files``) -- the model owner's own
@@ -168,7 +168,7 @@ def _run_documents(workspace: Workspace, progress=None, cancel=None) -> Dict[str
     result = ingest_documents([str(p) for p in paths], str(workspace.root / "ingest"),
                               progress=progress, cancel=cancel,
                               should_redact=lambda path: Path(path) in forced)
-    workspace.state("documents").artifacts.update({
+    workspace.state("intake").artifacts.update({
         "evidence": Path(result.evidence_path).name,
         "context": Path(result.context_path).name,
     })
@@ -199,20 +199,41 @@ def _run_documents(workspace: Workspace, progress=None, cancel=None) -> Dict[str
     return summary
 
 
-def _run_intake(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
-    """Draft the intake where there is none, revise it where there is, and report what it declares.
+def _needs_reading(workspace: Workspace) -> bool:
+    """Whether the submitted documents still have to be read before anything can be drafted.
 
-    Correcting a draft is an afternoon; writing one from a sixty-page document is a week, and the
-    stage exists so a person does the correcting either way.
+    True where documents were submitted and either nothing has been read yet, or a file has been
+    added or removed since -- the reading is of the pack as a whole, so a pack that has changed
+    has not been read. Compared by name rather than by content: a file replaced under the same
+    name is the case this cannot see, and re-reading a sixty-page pack on every run to catch it
+    would cost far more than it saves. Running the stage again is always available.
+    """
+    submitted = {path.name for paths in evidence_files(workspace.root).values() for path in paths}
+    if not submitted:
+        return False
+    record = _evidence_record(workspace)
+    if record is None:
+        return True
+    return submitted != {document.name for document in record.documents}
+
+
+def _run_intake(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
+    """Read whatever was submitted, then draft or revise the declaration from it.
+
+    **Reading and drafting are one stage because they are one job.** The reading exists in order
+    to be drafted from; nothing happens between them that a person decides. Splitting them put a
+    Run button in the middle of a single thought, and made the questions the reading raised look
+    like an artefact to work through rather than what they are -- notes against the rows of a
+    draft. The reading is still exactly the same work, and everything it produces is still on
+    disk; it simply is not a step anybody has to take on purpose.
 
     **A re-run revises rather than redrafts.** This is the whole difference between a second run
     that helps and one that undoes the first. Everything that has happened since the last run --
-    answers to the questions on this page, notes typed anywhere, a document read again -- is new
-    information about a declaration that already exists, and a fresh draft has no way to tell a
-    correction somebody made by hand from something it should re-derive from nothing. It would
-    discard the repair the first run made, and any edit made to the drafted workbook since. So the
-    current declaration goes to the model as *what to revise*, with instructions to carry forward
-    everything the new information does not touch.
+    an answer typed against a row, a note, a document added -- is new information about a
+    declaration that already exists, and a fresh draft has no way to tell a correction somebody
+    made by hand from something it should re-derive from nothing. So the current declaration goes
+    to the model as *what to revise*, with instructions to carry forward everything the new
+    information does not touch.
 
     A workbook you uploaded is never written to at all. A re-run reads it and reports on it,
     because a stage that silently replaced somebody's own file would be the worst thing this could
@@ -223,10 +244,17 @@ def _run_intake(workspace: Workspace, progress=None, cancel=None) -> Dict[str, o
     ours = provided is None or Path(provided).name == DRAFT_INTAKE
     context = workspace.root / CONTEXT
     target = workspace.root / DRAFT_INTAKE
+    summary: Dict[str, object] = {}
     action = "read"
 
+    # Reading first, and only where it is needed. An uploaded intake is authoritative, so a pack
+    # submitted alongside it is still read -- later stages are grounded on that reading -- but it
+    # never competes with the workbook for what the agent is.
+    if _needs_reading(workspace):
+        cancellation.check(cancel)
+        summary.update(_read_documents(workspace, progress=report, cancel=cancel))
+
     if ours and provided is not None and target.exists():
-        # Revised, not redrafted: build on the declaration that is already there.
         cancellation.check(cancel)
         action = "revised"
         revise_intake_workbook(str(target), str(target),
@@ -236,8 +264,8 @@ def _run_intake(workspace: Workspace, progress=None, cancel=None) -> Dict[str, o
     elif ours:
         if not context.exists():
             raise ValueError(
-                "No intake workbook, and no documents have been read to draft one from. Either "
-                "upload a completed intake here, or add documents on the first stage.")
+                "Nothing to draft from. Add the model owner's documentation above, or upload a "
+                "completed intake workbook if you already have one.")
         cancellation.check(cancel)
         action = "drafted"
         draft_intake_workbook(str(context), str(target),
@@ -248,24 +276,42 @@ def _run_intake(workspace: Workspace, progress=None, cancel=None) -> Dict[str, o
         report("Reading the intake workbook", 1, 2)
 
     intake = _intake(workspace)
-    summary: Dict[str, object] = {
+    summary.update({
         "Use case": intake.name, "Capabilities": len(intake.capabilities),
         "Decision points": len(intake.decisions), "States": len(intake.states),
-        "Personas": len(intake.personas), "Tools": len(intake.tools)}
+        "Personas": len(intake.personas), "Tools": len(intake.tools)})
 
-    # What is still structurally missing, said here rather than only in the questions below. A
-    # count on the result card is what tells you whether the run improved the declaration; the
-    # questions tell you what to do about it.
+    # What is still structurally missing. A count here is what tells you whether the run improved
+    # the declaration; the notes on the rows themselves tell you what to do about it.
     outstanding = structural_problems(intake)
     summary["Still needs an answer"] = len(outstanding) or "nothing — the graph is complete"
     summary["This run"] = {
-        "drafted": "drafted the declaration from the documents",
-        "revised": ("revised the declaration already here, folding in every note and answer "
-                    "since — nothing it does not touch was changed"),
+        "drafted": "drafted the declaration from the documentation",
+        "revised": ("revised the declaration already here, folding in every answer and note "
+                    "since — nothing they do not touch was changed"),
         "read": "read the workbook you provided; it is never overwritten",
     }[action]
-    report("Read the intake", 2, 2)
+    report("Intake ready", 2, 2)
     return summary
+
+
+def _run_variations(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
+    """The variation space. Not built yet, and honest about it.
+
+    The stage exists so the pipeline has the shape it will keep, and so nothing downstream has to
+    change when it is filled in: it reads the benchmark, writes it back unchanged, and takes its
+    own snapshot exactly as every other scenario stage does. What it must not do is quietly report
+    success as though it had produced something, which is why the result says what it says.
+    """
+    report = progress or (lambda *args, **kwargs: None)
+    report("Reading the scenario space", 0, 2)
+    intake = _intake(workspace)
+    scenarios = _scenarios(workspace, intake)
+    report("Passing it through unchanged", 1, 2)
+    _save_registry(workspace, "variations", intake, scenarios)
+    report("Nothing to vary yet", 2, 2)
+    return {"Scenarios carried through": len(scenarios),
+            "Variations written": "none — this stage is not built yet"}
 
 
 def _proposal_dicts(review) -> List[Dict[str, object]]:
@@ -301,7 +347,7 @@ def _apply_proposal(path: Path, entry: dict) -> bool:
     return False
 
 
-def _run_benchmark(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
+def _run_workflow(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
     """Enumerate every route through the declared graph and add the applicable probes."""
     report = progress or (lambda *args, **kwargs: None)
     report("Reading the intake", 0, 3)
@@ -309,7 +355,7 @@ def _run_benchmark(workspace: Workspace, progress=None, cancel=None) -> Dict[str
     report("Walking the graph", 1, 3)
     scenarios = build_scenarios(intake, with_probes=True)
     report("Writing the registry", 2, 3)
-    _save_registry(workspace, "benchmark", intake, scenarios)
+    _save_registry(workspace, "workflow", intake, scenarios)
     report("Built the benchmark", 3, 3)
 
     probes = sum(1 for s in scenarios if s.is_probe)
@@ -317,13 +363,13 @@ def _run_benchmark(workspace: Workspace, progress=None, cancel=None) -> Dict[str
             "Probes": probes}
 
 
-def _run_text(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
+def _run_scenarios(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
     """Write each scenario up for the model owner."""
     intake = _intake(workspace)
     scenarios = _scenarios(workspace, intake)
     ScenarioWriter(context=_context(workspace), progress=progress,
                   cancel=cancel).write(scenarios, intake)
-    _save_registry(workspace, "text", intake, scenarios)
+    _save_registry(workspace, "scenarios", intake, scenarios)
 
     written = sum(1 for s in scenarios if s.description)
     return {"Scenarios written": written, "Turns scripted": sum(s.turn_count for s in scenarios)}
@@ -356,7 +402,7 @@ def _run_review(workspace: Workspace, progress=None, cancel=None) -> Dict[str, o
             "Proposed additions": len(proposals), "Flagged for a second look": flagged}
 
 
-def _run_issue(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
+def _run_summary(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
     """Write the challenge pack for the model owner and the registry kept internally.
 
     Where the workspace is set to issue gaps only, the pack carries just the scenarios the model
@@ -373,7 +419,7 @@ def _run_issue(workspace: Workspace, progress=None, cancel=None) -> Dict[str, ob
     # The registry keeps every scenario regardless -- narrowing what is *issued* must not narrow
     # what is on record, or the pack becomes the only surviving account of the benchmark.
     report("Writing the registry", 1, 3)
-    _save_registry(workspace, "issue", intake, scenarios)
+    _save_registry(workspace, "summary", intake, scenarios)
 
     issued, held_back = scenarios, 0
     gaps = _under_represented(workspace)
@@ -383,7 +429,7 @@ def _run_issue(workspace: Workspace, progress=None, cancel=None) -> Dict[str, ob
 
     report("Writing the challenge pack", 2, 3)
     write_challenge_pack(str(workspace.root / PACK), intake, issued)
-    workspace.state("issue").artifacts["challenge_pack"] = PACK
+    workspace.state("summary").artifacts["challenge_pack"] = PACK
     report("Wrote the pack and the registry", 3, 3)
 
     runs = sum(required_runs(s.effective_materiality) for s in issued)
@@ -461,12 +507,12 @@ def _run_coverage(workspace: Workspace, progress=None, cancel=None) -> Dict[str,
 # Every stage that does work has a runner. The two that only take input from the user -- the
 # document pack and the intake workbook -- are handled by the upload route instead.
 RUNNERS: Dict[str, Callable[..., Dict[str, object]]] = {
-    "documents": _run_documents,
     "intake": _run_intake,
-    "benchmark": _run_benchmark,
-    "text": _run_text,
+    "workflow": _run_workflow,
+    "scenarios": _run_scenarios,
+    "variations": _run_variations,
     "materiality": _run_materiality,
     "review": _run_review,
-    "issue": _run_issue,
     "coverage": _run_coverage,
+    "summary": _run_summary,
 }

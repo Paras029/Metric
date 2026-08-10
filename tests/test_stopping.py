@@ -104,13 +104,13 @@ class TestStoppingAStageThroughTheInterface(unittest.TestCase):
         intake_path = _intake_workbook(scratch)
         with open(intake_path, "rb") as handle:
             self.client.post("/stage/intake/upload",
-                             data={"files": (handle, intake_path.name)},
+                             data={"files": (handle, intake_path.name), "group": "intake_workbook"},
                              content_type="multipart/form-data")
 
         self.client.post("/stage/intake/run")
         self._settle("intake")
-        self.client.post("/stage/benchmark/run")
-        self._settle("benchmark")
+        self.client.post("/stage/workflow/run")
+        self._settle("workflow")
 
     # Generous on purpose. Every wait here is a poll that ends the moment the thing it is waiting
     # for happens, so a long ceiling costs nothing when the machine is quick -- and the whole

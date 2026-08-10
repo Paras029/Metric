@@ -971,7 +971,7 @@
                           {% if row.problem %}drop--problem{% endif %}"
                    data-drop="{{ row.group.key }}">
                 <form class="drop__form" method="post" enctype="multipart/form-data"
-                      action="{{ url_for('upload', key='documents') }}">
+                      action="{{ url_for('upload', key='intake') }}">
                   <input type="hidden" name="group" value="{{ row.group.key }}">
                   <label class="drop__target">
                     <input class="drop__input" type="file" name="files"
@@ -1046,6 +1046,8 @@
           </p>
           <form class="upload" method="post" enctype="multipart/form-data"
                 action="{{ url_for('upload', key=stage.key) }}">
+            {# Marks this as the declaration itself rather than another document to read. #}
+            <input type="hidden" name="group" value="{{ intake_group }}">
             <input class="upload__input" type="file" name="files" accept=".xlsx,.xlsm">
             <button class="button button--quiet" type="submit">Upload</button>
           </form>
@@ -1205,11 +1207,11 @@
       {% else %}
         <p class="side__empty">Nothing submitted yet.</p>
       {% endif %}
-      {% if stage.key != 'documents' %}
+      {% if stage.key != 'intake' %}
         {# Anything that turns up after the pack was read. Filed under supporting material, since
            that is what a late arrival almost always is, and read in the next documents run. #}
         <form class="side__upload" method="post" enctype="multipart/form-data"
-              action="{{ url_for('upload', key='documents') }}">
+              action="{{ url_for('upload', key='intake') }}">
           <input type="hidden" name="group" value="supporting">
           <input class="upload__input" type="file" name="files" multiple
                  accept=".pdf,.docx,.pptx,.xlsx,.xlsm,.csv,.png,.jpg,.jpeg,.md,.txt">

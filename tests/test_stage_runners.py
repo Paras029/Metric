@@ -86,9 +86,9 @@ class TestEveryStageRuns(unittest.TestCase):
         scratch = Path(tempfile.mkdtemp())
         (scratch / "notes.md").write_text(_SOURCE, encoding="utf-8")
 
-        uploads = (("documents", scratch / "notes.md", "model_doc"),
-                   ("documents", _conversation_workbook(scratch), "owner_scenarios"),
-                   ("intake", _intake_workbook(scratch), ""))
+        uploads = (("intake", scratch / "notes.md", "model_doc"),
+                   ("intake", _conversation_workbook(scratch), "owner_scenarios"),
+                   ("intake", _intake_workbook(scratch), "intake_workbook"))
         for key, path, group in uploads:
             with open(path, "rb") as handle:
                 self.client.post(f"/stage/{key}/upload",

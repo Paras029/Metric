@@ -279,7 +279,8 @@ class TestARerunBuildsOnWhatIsAlreadyThere(unittest.TestCase):
             payload = Path(tempfile.mkdtemp()) / "drafted_intake.xlsx"
             write_drafted_intake(payload, DraftedIntake(_validate(_REPAIRED)))
             client.post("/stage/intake/upload", data={
-                "files": (payload.open("rb"), "drafted_intake.xlsx")},
+                "files": (payload.open("rb"), "drafted_intake.xlsx"),
+                "group": "intake_workbook"},
                 content_type="multipart/form-data")
 
         from scenario_generator.webapp.workspace import Workspace

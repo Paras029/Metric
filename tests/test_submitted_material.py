@@ -112,16 +112,16 @@ class TestNothingUploadedIsLost(unittest.TestCase):
     def test_an_unsupported_file_says_what_is_supported(self):
         path = _scratch() / "old.doc"
         path.write_bytes(b"not really a word document")
-        self._upload("documents", path, "model_doc")
+        self._upload("intake", path, "model_doc")
 
-        state = json.loads((self.workspace / "workspace.json").read_text())["stages"]["documents"]
+        state = json.loads((self.workspace / "workspace.json").read_text())["stages"]["intake"]
         self.assertEqual(state["status"], "failed")
         self.assertIn("old.doc", state["note"])
         self.assertIn(".docx", state["note"])
 
     def test_a_file_can_be_taken_back_out(self):
         path = _rules_workbook(_scratch())
-        self._upload("documents", path, "supporting")
+        self._upload("intake", path, "supporting")
         self.assertTrue(remove_file(self.workspace, "supporting", "thresholds.xlsx"))
         self.assertEqual(files_in(self.workspace, "supporting"), [])
 
@@ -133,7 +133,7 @@ class TestNothingUploadedIsLost(unittest.TestCase):
     def test_uploading_does_not_claim_a_result_nobody_produced(self):
         """Attaching the intake is not the same as having read it."""
         path = _rules_workbook(_scratch())
-        self._upload("intake", path)
+        self._upload("intake", path, "intake_workbook")
         state = json.loads((self.workspace / "workspace.json").read_text())["stages"]["intake"]
         self.assertNotEqual(state["status"], "complete")
         self.assertEqual(state["artifacts"]["workbook"], "thresholds.xlsx")

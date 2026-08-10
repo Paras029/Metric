@@ -32,7 +32,7 @@ class TestTheRecordIsNeverCaughtHalfWritten(unittest.TestCase):
         def write():
             count = 0
             while not stop.is_set():
-                workspace.report_progress("documents", f"step {count}", count, 100)
+                workspace.report_progress("intake", f"step {count}", count, 100)
                 count += 1
 
         def read():
@@ -71,7 +71,7 @@ class TestTheRecordIsNeverCaughtHalfWritten(unittest.TestCase):
             count = 0
             while not stop.is_set():
                 try:
-                    Workspace.load(root).report_progress("documents", f"{tag}-{count}", count, 100)
+                    Workspace.load(root).report_progress("intake", f"{tag}-{count}", count, 100)
                 except Exception as exc:
                     failures.append(exc)
                     return

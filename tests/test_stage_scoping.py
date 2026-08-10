@@ -44,12 +44,12 @@ class TestColumnScoping(unittest.TestCase):
     def test_the_text_stage_shows_no_tier(self):
         """Every scenario carries "Medium" from the moment it is built. Showing that on the page
         that writes the text would read as an assessment nothing has made yet."""
-        rows = build_rows(self.scenarios, view="all", stage="text")
+        rows = build_rows(self.scenarios, view="all", stage="scenarios")
         self.assertNotIn("materiality", rows["shows"])
         self.assertIn("text", rows["shows"])
 
     def test_each_stage_adds_to_the_one_before_it(self):
-        for stage, expected in (("text", {"text"}),
+        for stage, expected in (("scenarios", {"text"}),
                                 ("materiality", {"text", "materiality"}),
                                 ("review", {"text", "materiality", "review"}),
                                 ("coverage", {"text", "materiality", "review", "coverage"})):
@@ -57,18 +57,18 @@ class TestColumnScoping(unittest.TestCase):
                              expected, stage)
 
     def test_the_tier_views_are_offered_only_once_there_are_tiers(self):
-        text = build_rows(self.scenarios, stage="text")
+        text = build_rows(self.scenarios, stage="scenarios")
         later = build_rows(self.scenarios, stage="materiality")
         self.assertEqual([key for key, _ in text["views"]], ["all"])
         self.assertIn("high", [key for key, _ in later["views"]])
 
     def test_a_view_the_stage_cannot_offer_falls_back_rather_than_emptying_the_page(self):
-        rows = build_rows(self.scenarios, view="high", stage="text")
+        rows = build_rows(self.scenarios, view="high", stage="scenarios")
         self.assertEqual(rows["view"], "all")
         self.assertEqual(len(rows["rows"]), len(self.scenarios))
 
     def test_scenarios_keep_their_own_order_until_a_tier_can_rank_them(self):
-        rows = build_rows(self.scenarios, view="all", stage="text")["rows"]
+        rows = build_rows(self.scenarios, view="all", stage="scenarios")["rows"]
         self.assertEqual([r["id"] for r in rows], sorted(r["id"] for r in rows))
 
 
@@ -83,7 +83,7 @@ class TestSnapshots(unittest.TestCase):
         workbook = _intake_workbook(Path(tempfile.mkdtemp()))
         with open(workbook, "rb") as handle:
             self.client.post("/stage/intake/upload",
-                             data={"files": (handle, "intake.xlsx")},
+                             data={"files": (handle, "intake.xlsx"), "group": "intake_workbook"},
                              content_type="multipart/form-data")
 
         stubs = {
@@ -106,7 +106,7 @@ class TestSnapshots(unittest.TestCase):
         for patch in patches:
             patch.start()
         try:
-            for key in ("intake", "benchmark", "text", "materiality", "review"):
+            for key in ("intake", "workflow", "scenarios", "materiality", "review"):
                 self.client.post(f"/stage/{key}/run")
                 self._settle(key)
         finally:
@@ -127,8 +127,8 @@ class TestSnapshots(unittest.TestCase):
     def test_every_scenario_stage_keeps_its_own_copy_of_the_registry(self):
         workspace = next(p for p in self.root.iterdir() if (p / "workspace.json").exists())
         kept = sorted(p.name for p in workspace.glob("registry.*.xlsx"))
-        self.assertEqual(kept, ["registry.benchmark.xlsx", "registry.materiality.xlsx",
-                                "registry.review.xlsx", "registry.text.xlsx"])
+        self.assertEqual(kept, ["registry.materiality.xlsx", "registry.review.xlsx",
+                                "registry.scenarios.xlsx", "registry.workflow.xlsx"])
 
     def test_going_back_shows_what_that_stage_assessed_not_what_came_after(self):
         """The review downgraded everything to Low. The materiality page must still show the
@@ -143,7 +143,7 @@ class TestSnapshots(unittest.TestCase):
         self.assertIn("duplicated elsewhere", review)
 
     def test_the_writing_stage_shows_text_but_no_tier_and_no_run_count(self):
-        text = self._page("text")
+        text = self._page("scenarios")
         self.assertIn("Text for ", text)
         self.assertNotIn("mark--tier", text)
         self.assertNotIn("requested", text)

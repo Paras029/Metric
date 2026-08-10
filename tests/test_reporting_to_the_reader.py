@@ -59,8 +59,8 @@ class TestPicturesAreNotDocuments(unittest.TestCase):
         self.assertEqual(counts["images_read"], 2)
         self.assertEqual(counts["texts"], 2)
 
-    def test_the_documents_stage_reports_the_two_separately(self):
-        from scenario_generator.webapp.runners import _run_documents
+    def test_the_reading_reports_documents_and_images_separately(self):
+        from scenario_generator.webapp.runners import _read_documents
         from scenario_generator.webapp.workspace import Workspace
 
         record = self._record()
@@ -77,14 +77,14 @@ class TestPicturesAreNotDocuments(unittest.TestCase):
         from unittest import mock
         with mock.patch("scenario_generator.webapp.runners.ingest_documents",
                         lambda *a, **k: _Result()):
-            summary = _run_documents(workspace)
+            summary = _read_documents(workspace)
 
         self.assertEqual(summary["Documents read"], "2 of 2")
         self.assertEqual(summary["Workflow images read"], "2 of 3")
 
     def test_a_pack_with_no_images_does_not_show_an_image_line(self):
         """A line reading "0 of 0" is a question about why it is there."""
-        from scenario_generator.webapp.runners import _run_documents
+        from scenario_generator.webapp.runners import _read_documents
         from scenario_generator.webapp.workspace import Workspace
         from unittest import mock
 
@@ -99,7 +99,7 @@ class TestPicturesAreNotDocuments(unittest.TestCase):
 
         with mock.patch("scenario_generator.webapp.runners.ingest_documents",
                         lambda *a, **k: _Result()):
-            summary = _run_documents(workspace)
+            summary = _read_documents(workspace)
 
         self.assertIn("Documents read", summary)
         self.assertNotIn("Workflow images read", summary)
@@ -277,13 +277,13 @@ class TestTimestampsAreReadable(unittest.TestCase):
 
         root = Path(self.app.config["WORKSPACE_ROOT"])
         workspace = Workspace.create(root, "Timestamps")
-        workspace.complete("documents", summary={"Documents read": "1 of 1"})
-        stamp = workspace.state("documents").updated_at
+        workspace.complete("intake", summary={"Documents read": "1 of 1"})
+        stamp = workspace.state("intake").updated_at
 
         with self.app.test_client() as client:
             with client.session_transaction() as session:
                 session["workspace"] = workspace.root.name
-            page = client.get("/stage/documents").get_data(as_text=True)
+            page = client.get("/stage/intake").get_data(as_text=True)
 
         self.assertIn(f'datetime="{stamp}"', page)
         self.assertIn('class="when"', page)

@@ -195,7 +195,7 @@ class TestFilteringAndPageSize(unittest.TestCase):
         self.assertNotIn("materiality", result["filter_options"])
 
     def test_a_column_the_stage_has_not_produced_is_never_offered(self):
-        result = build_rows(self._mixed(), "all", stage="text")
+        result = build_rows(self._mixed(), "all", stage="scenarios")
         self.assertNotIn("materiality", result["filter_options"])
         self.assertNotIn("coverage", result["filter_options"])
 

@@ -168,13 +168,13 @@ class TestAnAnswerReachesTheCallThatNeedsIt(unittest.TestCase):
     def test_an_answer_given_at_one_stage_reaches_the_stages_after_it(self):
         from scenario_generator.webapp.runners import _context
 
-        self.workspace.add_note("documents", "Disputes over 500 always go to a person.")
+        self.workspace.add_note("intake", "Disputes over 500 always go to a person.")
         self.assertIn("Disputes over 500", _context(self.workspace))
 
     def test_notes_accumulate_rather_than_replace(self):
         from scenario_generator.webapp.runners import _context
 
-        self.workspace.add_note("documents", "First thing.")
+        self.workspace.add_note("intake", "First thing.")
         self.workspace.add_note("intake", "Second thing.")
         context = _context(self.workspace)
         self.assertIn("First thing.", context)

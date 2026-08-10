@@ -83,7 +83,7 @@ class TestClearingWork(unittest.TestCase):
 
         space = Workspace.load(self.workspace)
         space.state("intake").artifacts["workbook"] = "intake.xlsx"
-        for key in ("intake", "benchmark", "text", "materiality", "review", "issue"):
+        for key in ("intake", "workflow", "scenarios", "materiality", "review", "summary"):
             space.stages[key].status = "complete"
         space.save()
 
@@ -91,35 +91,35 @@ class TestClearingWork(unittest.TestCase):
         return json.loads((self.workspace / "workspace.json").read_text())["stages"][key]["status"]
 
     def test_clearing_the_status_leaves_the_files_readable(self):
-        self.client.post("/stage/benchmark/reset")
+        self.client.post("/stage/workflow/reset")
         self.assertTrue((self.workspace / "registry.xlsx").exists())
-        self.assertNotEqual(self._status("benchmark"), "complete")
+        self.assertNotEqual(self._status("workflow"), "complete")
 
     def test_starting_again_deletes_what_those_stages_produced(self):
-        self.client.post("/stage/benchmark/reset", data={"purge": "1"})
+        self.client.post("/stage/workflow/reset", data={"purge": "1"})
         self.assertFalse((self.workspace / "registry.xlsx").exists())
         self.assertFalse((self.workspace / "challenge_pack.xlsx").exists())
 
     def test_starting_again_keeps_the_submitted_documents(self):
         """They are input, not output. Losing the pack because a stage was rerun would be a rout."""
-        self.client.post("/stage/benchmark/reset", data={"purge": "1"})
+        self.client.post("/stage/workflow/reset", data={"purge": "1"})
         self.assertTrue((self.workspace / "sources" / "model_doc" / "notes.md").exists())
 
     def test_starting_again_keeps_the_intake_workbook_you_provided(self):
-        self.client.post("/stage/benchmark/reset", data={"purge": "1"})
+        self.client.post("/stage/workflow/reset", data={"purge": "1"})
         self.assertTrue((self.workspace / "intake.xlsx").exists())
         self.assertEqual(self._status("intake"), "complete")
 
     def test_clearing_a_later_stage_leaves_an_earlier_one_alone(self):
         """The registry belongs to the benchmark stage, not to the stages that rewrite it."""
-        self.client.post("/stage/text/reset", data={"purge": "1"})
+        self.client.post("/stage/scenarios/reset", data={"purge": "1"})
         self.assertTrue((self.workspace / "registry.xlsx").exists())
-        self.assertEqual(self._status("benchmark"), "complete")
+        self.assertEqual(self._status("workflow"), "complete")
 
     def test_deletion_cannot_reach_outside_the_workspace(self):
         outside = self.root / "elsewhere.xlsx"
         outside.write_bytes(b"not ours")
-        Workspace.load(self.workspace).reset_from("benchmark", delete=["../elsewhere.xlsx"])
+        Workspace.load(self.workspace).reset_from("workflow", delete=["../elsewhere.xlsx"])
         self.assertTrue(outside.exists())
 
 

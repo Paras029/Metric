@@ -55,16 +55,22 @@ from .stages import RUNNING, STAGE_BY_KEY, STAGES, STATUS_LABELS, downstream_of,
 from .workspace import Workspace, stage_view
 
 # Stages whose output is a set of scenarios, so the page shows them rather than only counts.
-SCENARIO_STAGES = ("text", "materiality", "review", "coverage", "issue")
+SCENARIO_STAGES = ("scenarios", "variations", "materiality", "review", "coverage",
+                   "summary")
 
 # Stages where reading the decision graph is the work rather than a reference, so it is drawn at
 # full width in the page. Everywhere else it goes in the side panel at thumbnail size.
-GRAPH_STAGES = ("intake", "benchmark")
+GRAPH_STAGES = ("intake", "workflow")
 
 # Groups redaction can actually do something to: the two that carry text ingestion reads. A
 # diagram has no text to redact, and the model owner's own conversations never reach
 # build_corpus at all -- they are read separately, only to measure coverage, at a later stage.
 REDACTABLE_GROUPS = (MODEL_DOC, SUPPORTING)
+
+# The group name the "upload a completed intake" drop sends. Not one of the submission headings:
+# an intake workbook is the declaration itself rather than evidence for one, so it goes to the
+# workspace root and is never read as a document.
+INTAKE_GROUP = "intake_workbook"
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +170,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             view=stage_view(workspace, STAGE_BY_KEY[key]),
             runnable=key in RUNNERS,
             invalidated=request.args.get("invalidated", ""),
+            intake_group=INTAKE_GROUP,
             # Every note, not only this stage's. A note added while reading the documents is
             # given to every stage after it, so showing only the ones typed here would hide the
             # thing that is actually informing the run in front of you.
@@ -180,7 +187,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             intake_questions=_intake_questions_for(workspace, intake)
                 if key == "intake" else None,
             answered=workspace.answered_questions(),
-            answers=_answers_for(workspace) if key == "documents" else [],
+            answers=_answers_for(workspace) if key == "intake" else [],
             groups=_group_rows(workspace, key),
             benchmark=_benchmark_for(scenarios, key),
             shape=_shape_for(scenarios, key),
@@ -227,7 +234,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         The coverage stage shows only the model owner's own scenarios: it is the one thing that
         stage consumes, and the rest of the pack is not its business.
         """
-        if key == "documents":
+        if key == "intake":
             wanted = GROUPS
         elif key == "coverage":
             wanted = tuple(g for g in GROUPS if g.key == OWNER_SCENARIOS)
@@ -339,7 +346,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         own summary, so moving the threshold changes what is shown immediately. See
         :mod:`.coverageview`.
         """
-        if key not in ("coverage", "issue") or intake is None:
+        if key not in ("coverage", "summary") or intake is None:
             return None
         path = workspace.root / REGISTRY
         if not path.exists() or not workspace.coverage_mappings():
@@ -526,9 +533,15 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         if not uploads:
             return redirect(url_for("stage", key=key))
 
+        # Two different things arrive on the intake stage now that reading and drafting are one:
+        # the model owner's documentation, which is filed under its heading like any other
+        # submission, and a completed intake workbook, which *is* the declaration and goes to the
+        # root. The group is what tells them apart -- the intake-workbook drop sends INTAKE_GROUP,
+        # everything else names a real heading.
         group = request.form.get("group", "") or (
             OWNER_SCENARIOS if key == "coverage" else DEFAULT_GROUP)
-        if key == "intake":
+        as_intake = group == INTAKE_GROUP
+        if as_intake:
             target = workspace.root
         else:
             group = group if group in GROUP_BY_KEY else DEFAULT_GROUP
@@ -548,7 +561,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             workspace.mark_failed(key, _refusal(refused))
             return redirect(url_for("stage", key=key))
 
-        if key == "intake":
+        if as_intake:
             # An upload that happens to carry the drafter's own filename would be taken for the
             # tool's file and revised over. Stored under another name so "never overwrite what
             # somebody uploaded" holds on the filename alone, which is what decides it.
@@ -559,11 +572,11 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             workspace.state("intake").artifacts["workbook"] = stored[0]
         else:
             for name in stored:
-                workspace.state("documents").artifacts[name] = f"sources/{group}/{name}"
+                workspace.state("intake").artifacts[name] = f"sources/{group}/{name}"
 
         # A new file invalidates the stage that reads it as well as everything built on top:
         # the reading itself has not seen this file, so its own reported result is out of date.
-        invalidated = workspace.invalidate_from("documents" if key != "intake" else "intake")
+        invalidated = workspace.invalidate_from("intake")
         workspace.save()
         return redirect(url_for("stage", key=key,
                                 invalidated=", ".join(s.title for s in invalidated)))
@@ -578,9 +591,9 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         workspace = _workspace()
         group, name = request.form.get("group", ""), request.form.get("name", "")
         if group in GROUP_BY_KEY and remove_file(workspace.root, group, name):
-            workspace.state("documents").artifacts.pop(Path(name).name, None)
+            workspace.state("intake").artifacts.pop(Path(name).name, None)
             workspace.set_redact(group, name, False)
-            workspace.invalidate_from("documents")
+            workspace.invalidate_from("intake")
             workspace.save()
         return redirect(url_for("stage", key=key))
 
@@ -596,7 +609,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         group, name = request.form.get("group", ""), request.form.get("name", "")
         if group in REDACTABLE_GROUPS and name:
             workspace.set_redact(group, name, bool(request.form.get("on")))
-            workspace.invalidate_from("documents")
+            workspace.invalidate_from("intake")
             workspace.save()
         return redirect(url_for("stage", key=key))
 
@@ -741,7 +754,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         workspace.save()
         return redirect(url_for("stage", key="coverage", _anchor="coverage"))
 
-    @app.route("/stage/issue/scope", methods=["POST"])
+    @app.route("/stage/summary/scope", methods=["POST"])
     def set_pack_scope():
         """Choose whether the challenge pack carries the whole benchmark or only the gaps.
 
@@ -753,9 +766,9 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         """
         workspace = _workspace()
         workspace.pack_gaps_only = bool(request.form.get("on"))
-        invalidated = workspace.invalidate_from("issue")
+        invalidated = workspace.invalidate_from("summary")
         workspace.save()
-        return redirect(url_for("stage", key="issue",
+        return redirect(url_for("stage", key="summary",
                                 invalidated=", ".join(s.title for s in invalidated)))
 
     @app.route("/stage/<key>/scenario/<scenario_id>", methods=["POST"])
