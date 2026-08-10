@@ -476,7 +476,7 @@
         {% endif %}
 
         {% if coverage.groups %}
-          <h3 class="label card__label">The model owner's own grouping</h3>
+          <h3 class="label card__label">The model owner's grouping</h3>
           <p class="block__body">
             A group that splits across scenarios means either the grouping is loose, or the scenario space
           draws a distinction their testing does not.
@@ -530,9 +530,8 @@
     {% endif %}
 
     {# On the coverage stage the section above already lists every scenario, with the count of
-       the model owner's conversations against each. Repeating the scenario space here would put the same
-       rows on
-       the same screen twice. #}
+       the model owner's conversations against each. Repeating the scenario space here would put
+       the same rows on the same screen twice. #}
     {% if space and not (coverage and stage.key == 'coverage') %}
       <section class="block">
         <h2 class="block__title">The scenario space so far</h2>
@@ -547,6 +546,70 @@
                href="{{ url_for('stage', key=stage.key, view=key) }}">{{ label }}</a>
           {% endfor %}
         </div>
+
+        {# The space as a grid, and the only control on this page that can show what is *not*
+           there. Every cell is an ordinary link carrying the same filter the dropdowns below set,
+           so it works with scripting off and a filtered view can be sent to somebody as a URL. #}
+        {% if space.matrix %}
+          <figure class="matrix">
+            <div class="matrix__grid"
+                 style="--matrix-cols: {{ space.matrix.tiers | length }}"
+                 role="group" aria-label="Scenarios by category and materiality">
+              <span class="matrix__corner" aria-hidden="true"></span>
+              {% for column in space.matrix.tiers %}
+                <a class="matrix__head {% if column.active %}matrix__head--on{% endif %}"
+                   href="{{ url_for('stage', key=stage.key, view=space.view,
+                                    filter_materiality=column.tier) }}"
+                   title="Every {{ column.tier | lower }} scenario">
+                  <span class="matrix__headName">{{ column.tier }}</span>
+                  <span class="matrix__headCount mono">{{ column.count }}</span>
+                </a>
+              {% endfor %}
+              {% for row in space.matrix.rows %}
+                <a class="matrix__side {% if row.active %}matrix__side--on{% endif %}"
+                   href="{{ url_for('stage', key=stage.key, view=space.view,
+                                    filter_category=row.category) }}"
+                   title="Every {{ row.category | lower }} scenario">
+                  <span class="matrix__sideName">{{ row.category }}</span>
+                  <span class="matrix__sideCount mono">{{ row.total }}</span>
+                </a>
+                {% for cell in row.cells %}
+                  {% if cell.count %}
+                    <a class="matrix__cell matrix__cell--d{{ cell.density }}
+                              {% if cell.active %}matrix__cell--on{% endif %}"
+                       href="{{ url_for('stage', key=stage.key, view=space.view,
+                                        filter_category=cell.category,
+                                        filter_materiality=cell.tier) }}"
+                       title="{{ cell.count }} {{ cell.tier | lower }} · {{ cell.category }}">
+                      <span class="mono">{{ cell.count }}</span>
+                    </a>
+                  {% else %}
+                    {# Nothing to click, and deliberately not styled as a disabled control: an
+                       empty cell is a finding, not a control that happens to be off. #}
+                    <span class="matrix__cell matrix__cell--none"
+                          title="No {{ cell.tier | lower }} {{ cell.category | lower }} scenario">
+                      <span aria-hidden="true">·</span>
+                      <span class="visually-hidden">none</span>
+                    </span>
+                  {% endif %}
+                {% endfor %}
+              {% endfor %}
+            </div>
+            <figcaption class="matrix__caption">
+              {%- if space.view == 'all' %}
+                Every scenario by what it asks for and what it is worth
+              {%- else %}
+                {{ space.matrix.total }} scenario{{ 's' if space.matrix.total != 1 }} in this view,
+                by what they ask for and what they are worth
+              {%- endif %} — pick a cell to narrow the list.
+              {%- if space.matrix.empty %}
+                <span class="matrix__gap">{{ space.matrix.empty }} combination{{ 's' if
+                  space.matrix.empty != 1 }} with nothing in {{ 'them' if
+                  space.matrix.empty != 1 else 'it' }}.</span>
+              {%- endif %}
+            </figcaption>
+          </figure>
+        {% endif %}
 
         {% if space.filter_options or space.total > space.limit_options[0] %}
           <form class="filters" method="get" action="{{ url_for('stage', key=stage.key) }}">
@@ -976,7 +1039,7 @@
     {% if coverage_shape %}
       <details class="side__part" open>
         <summary class="side__title">
-          The model owner's own testing
+          The model owner's testing
           <span class="side__count mono">{{ coverage_shape.conversations }}</span>
         </summary>
         <p class="side__blurb">

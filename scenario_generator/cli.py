@@ -87,7 +87,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                           help="cap on scenarios the review may add (default 15)")
     p_review.add_argument("--pack", help="also rebuild the challenge pack at this path")
     p_review.add_argument("--owner-scenarios",
-                          help="optional: the model owner's own scenario list, shown as context")
+                          help="optional: the model owner's scenario list, shown as context")
 
     p_pack = sub.add_parser("build-pack",
                             help="write the challenge pack from a registry (no LLM)")

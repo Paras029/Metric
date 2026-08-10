@@ -231,6 +231,76 @@ def _filter_options(rows: List[Dict[str, object]], shows: set) -> Dict[str, List
     return options
 
 
+# How dark a cell in the matrix gets, as five steps rather than a continuous ramp. Discrete steps
+# are what makes an unequal distribution legible: a reader comparing two continuously-shaded cells
+# is guessing, where five steps can be told apart at a glance and counted off against each other.
+_DENSITY_STEPS = 4
+_FLAT_DENSITY = 2
+
+
+def matrix(rows: List[Dict[str, object]], active: Dict[str, str] = None) -> Dict[str, object]:
+    """The scenario space as a grid: what kind of situation, against what it is worth.
+
+    A list of three hundred scenarios sorted by tier answers "what is most material" and nothing
+    else. The two questions actually being asked at this point in a validation are *where is the
+    mass* -- is this a scenario space of eighty happy paths and four terminations? -- and, more
+    sharply, *which cells are empty*. An empty Critical/Termination cell is a hole in the exercise,
+    and no ranked list will ever show it, because a hole has no row.
+
+    Counted over the rows handed in, which is the current view before its filters are applied, so
+    every cell's count is exactly what clicking that cell will show.
+    """
+    active = active or {}
+    tiers = [t for t in reversed(MATERIALITY) if any(r["materiality"] == t for r in rows)]
+    categories = sorted({str(r["category"]) for r in rows if r.get("category")})
+    if not tiers or not categories:
+        return {}
+
+    counts = {(str(r["category"]), str(r["materiality"])): 0 for r in rows}
+    for row in rows:
+        key = (str(row["category"]), str(row["materiality"]))
+        counts[key] = counts.get(key, 0) + 1
+    filled = [count for count in counts.values() if count]
+    highest = max(filled) if filled else 0
+    # A grid where every occupied cell holds the same number has no distribution to draw, and
+    # scaling it against its own maximum paints all of them at full strength -- which reads as
+    # "everything is dense" when it means "nothing here varies". One middling step for all of
+    # them says the true thing, and leaves the empty cells as the only contrast, which is what
+    # such a grid is actually showing.
+    flat = highest and min(filled) == highest
+
+    grid, empty = [], 0
+    for category in categories:
+        cells = []
+        for tier in tiers:
+            count = counts.get((category, tier), 0)
+            empty += not count
+            cells.append({
+                "tier": tier,
+                "category": category,
+                "count": count,
+                # Ceiling rather than rounding: a cell holding one scenario must never shade as
+                # empty, which is the one distinction this grid exists to make.
+                "density": (0 if not count else _FLAT_DENSITY if flat
+                            else -(-count * _DENSITY_STEPS // highest)),
+                "active": (active.get("category") == category
+                           and active.get("materiality") == tier),
+            })
+        grid.append({"category": category, "cells": cells,
+                     "total": sum(cell["count"] for cell in cells),
+                     "active": active.get("category") == category
+                     and not active.get("materiality")})
+    return {
+        "tiers": [{"tier": tier,
+                   "count": sum(counts.get((c, tier), 0) for c in categories),
+                   "active": active.get("materiality") == tier and not active.get("category")}
+                  for tier in tiers],
+        "rows": grid,
+        "total": len(rows),
+        "empty": empty,
+    }
+
+
 def build_rows(scenarios: List[Scenario], view: str = "attention", stage: str = "summary",
                filters: Dict[str, str] = None, limit: int = PAGE_SIZE) -> Dict[str, object]:
     """The rows to show, the view and filters that produced them, and what was left out.
@@ -278,6 +348,10 @@ def build_rows(scenarios: List[Scenario], view: str = "attention", stage: str = 
 
     active = {field: value for field, value in (filters or {}).items()
              if value and field in FILTER_FIELDS}
+    # Built from the view before the filters run, for the same reason as the options above: a grid
+    # rebuilt after filtering shows one cell holding everything, which is a picture of the filter
+    # rather than of the scenario space.
+    grid = matrix(selected, active) if MATERIALITY_COLUMNS in shows else {}
     for field, value in active.items():
         row_key = FILTER_FIELDS[field]
         selected = [r for r in selected if str(r.get(row_key)) == value]
@@ -290,6 +364,7 @@ def build_rows(scenarios: List[Scenario], view: str = "attention", stage: str = 
         "views": tuple(views),
         "shows": shows,
         "filter_options": filter_options,
+        "matrix": grid,
         "active_filters": active,
         "limit": limit,
         "limit_options": PAGE_SIZE_OPTIONS,

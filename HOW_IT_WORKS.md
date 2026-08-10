@@ -295,9 +295,15 @@ Every verdict is written to its own column beside the value it disagrees with, n
 both readings stay visible and a person rules. The review cannot remove anything: flagging a
 scenario as redundant is a recommendation.
 
-From stage 5 onward the page shows the scenario space itself: what each scenario asks the agent to do,
-what it is judged to be worth and why, and anything the review flagged. Materiality can be
-overridden and a flag dismissed from there, straight into the registry. The side panel carries the
+From stage 5 onward the page shows the scenario space itself: what each scenario asks the agent to
+do, what it is judged to be worth and why, and anything the review flagged. Materiality can be
+overridden and a flag dismissed from there, straight into the registry.
+
+Above the list is the same space as a grid — category down, materiality across, the count in each
+cell. It exists for the one question a ranked list cannot answer: which combinations have nothing
+in them. A hole has no row, so no amount of sorting will surface it, and a space with no critical
+termination scenario looks complete right up until somebody asks. Every cell is a link that
+narrows the list to it, so the grid is a control as well as a picture. The side panel carries the
 shape of the whole pack alongside it — how many scenarios sit at each tier, how many test runs that
 adds up to, and how much of it the model owner's testing has already exercised — because the
 list in the middle is always a view of part of the scenario space and the panel answers what is in all

@@ -270,11 +270,17 @@ against the source. The evidence record is the machine-readable form of the same
 many of the model owner's conversations landed on it, least covered first. `Conversations` is the
 working, one row per transcript. `The model owner's grouping` appears only where one was supplied.
 
-**The scenario space on screen.** Every scenario-bearing stage shows the scenario space as cards rather than
-a spreadsheet. Three view tabs narrow to a starting point (**Needs attention**, **Critical and
-high**, **All**), and dropdown filters narrow further within whichever tab is active. 50 rows
-render at a time; the **Show** control raises that to 100, 250 or all of them, and the page always
-states how many matched versus how many are rendered.
+**The scenario space on screen.** Every scenario-bearing stage shows the scenario space as cards
+rather than a spreadsheet. Three view tabs narrow to a starting point (**Needs attention**,
+**Critical and high**, **All**), and dropdown filters narrow further within whichever tab is
+active. 50 rows render at a time; the **Show** control raises that to 100, 250 or all of them, and
+the page always states how many matched versus how many are rendered.
+
+From the materiality stage onward the same page carries the space as a grid: category down,
+materiality across, the count in each cell, shaded by how much sits there. Picking a cell, a row
+or a column narrows the list to it. The grid is the only view here that shows what is *not* in the
+space — a combination nothing landed in has no row in a ranked list, and an empty
+Critical × Termination cell is usually the finding.
 
 ---
 

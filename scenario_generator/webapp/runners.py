@@ -149,7 +149,7 @@ def _evidence_record(workspace: Workspace):
 def _read_documents(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
     """Read every submitted document, then answer each question from all of them at once.
 
-    Only the groups that describe the agent are read (``evidence_files``) -- the model owner's own
+    Only the groups that describe the agent are read (``evidence_files``) -- the model owner's
     scenarios are excluded, since reading them as evidence would let their blind spots into the
     scenario space by the back door, which is the thing an independent scenario space exists to avoid.
     """
@@ -405,7 +405,7 @@ def _run_summary(workspace: Workspace, progress=None, cancel=None) -> Dict[str, 
     """Write the challenge pack for the model owner and the registry kept internally.
 
     Where the workspace is set to issue gaps only, the pack carries just the scenarios the model
-    owner's own conversations under-cover. This is the one place in the pipeline that takes
+    owner's conversations under-cover. This is the one place in the pipeline that takes
     scenarios away rather than adding to them, and it is off unless someone turns it on: leaving a
     scenario out is a decision to accept the model owner's evidence for it, which is a judgement
     about how far that testing is trusted rather than anything this can work out.
@@ -466,7 +466,7 @@ def _run_coverage(workspace: Workspace, progress=None, cancel=None) -> Dict[str,
     if not submitted:
         raise ValueError(
             "No conversations from the model owner. Upload the transcripts of what was run "
-            "here, or add them on the documents stage under \"The model owner's own testing\". "
+            "here, or add them on the documents stage under \"The model owner's testing\". "
             "Skip this stage if none were submitted.")
 
     intake_path = workspace.artifact_path("intake", "workbook")

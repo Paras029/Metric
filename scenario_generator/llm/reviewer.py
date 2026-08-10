@@ -71,7 +71,7 @@ ADJUDICATE_GAP = 2
 
 
 def _owner_block(owner_scenarios: Optional[List[OwnerScenario]]) -> str:
-    """The owner's own scenarios as context, or nothing at all. The trailing blank lines keep
+    """The owner's scenarios as context, or nothing at all. The trailing blank lines keep
     the block separated from the section that follows it in the task prompts."""
     if not owner_scenarios:
         return ""
@@ -248,7 +248,7 @@ class ScenarioReviewer:
     def _render_adjudication(self, chunk: List[Scenario], preamble: str, shared: dict) -> str:
         """The prompt for one chunk of disagreements, with both readings side by side.
 
-        Only the slots this prompt has. The owner's own scenarios are context for proposing
+        Only the slots this prompt has. The owner's scenarios are context for proposing
         something new; this is settling an argument about a scenario that already exists.
         """
         return f"{preamble}\n\n" + prompt_loader.render(

@@ -393,6 +393,6 @@ def read_conversations(path: Path) -> Tuple[List[Conversation], str]:
     logger.info("Read %d conversation(s) from %s (%s).", len(conversations), path.name, how)
     grouped = sum(1 for c in conversations if c.group)
     if grouped:
-        logger.info("%d of them carry the model owner's own scenario label, which will be assessed "
+        logger.info("%d of them carry the model owner's scenario label, which will be assessed "
                     "rather than taken as given.", grouped)
     return conversations, how

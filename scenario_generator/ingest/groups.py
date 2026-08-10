@@ -51,7 +51,7 @@ GROUPS: Tuple[Group, ...] = (
           "do. The main source for everything downstream.",
           _DOCUMENTS, icon="document"),
 
-    Group(OWNER_SCENARIOS, "The model owner's own testing",
+    Group(OWNER_SCENARIOS, "The model owner's testing",
           "The conversations the model owner has already run, in whatever shape they arrived — "
           "one row per turn, a transcript per row, or a document of exchanges. Any grouping the "
           "model owner applied is read too, and checked rather than taken at face value. Used to "
@@ -78,7 +78,7 @@ GROUP_BY_KEY: Dict[str, Group] = {group.key: group for group in GROUPS}
 # the claim that some particular file is *the* model documentation.
 DEFAULT_GROUP = SUPPORTING
 
-# The groups ingestion reads for evidence. The model owner's own conversations are not among them:
+# The groups ingestion reads for evidence. The model owner's conversations are not among them:
 # they describe the model owner's testing rather than the agent, and reading them as evidence about
 # the agent would let the model owner's blind spots into the scenario space through the back door.
 EVIDENCE_GROUPS: Tuple[str, ...] = (MODEL_DOC, DIAGRAMS, SUPPORTING)

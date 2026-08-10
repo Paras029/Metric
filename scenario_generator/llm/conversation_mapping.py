@@ -2,7 +2,7 @@
 
 The coverage question is "what does the model owner's testing already cover", and the honest way
 to answer it is from the transcripts rather than from whatever the transcripts were filed under.
-The model owner's own scenario labels are frequently absent, and where present are frequently the
+The model owner's scenario labels are frequently absent, and where present are frequently the
 thing being checked.
 
 One conversation maps to at most one scenario, and the discriminator is **where it ends**. A

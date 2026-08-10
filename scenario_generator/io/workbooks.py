@@ -11,7 +11,7 @@
                      issued. The canonical index coverage matches against.
     Coverage Report  Internal. How many of the model owner's conversations landed on each
                      scenario, the per-conversation working behind those counts, and
-                     whether the model owner's own grouping agrees with the space.
+                     whether the model owner's grouping agrees with the space.
 """
 from __future__ import annotations
 

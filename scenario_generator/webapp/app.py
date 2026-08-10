@@ -615,7 +615,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         """Choose whether the challenge pack carries the whole scenario space or only the gaps.
 
         Off by default. Every other stage widens what the model owner is asked to run, and this is
-        the one control that narrows it: leaving a scenario out says the model owner's own
+        the one control that narrows it: leaving a scenario out says the model owner's
         conversations are evidence enough for it. That is a judgement about how far the model
         owner's testing is trusted, so it is asked for explicitly rather than applied because
         coverage happens to have run.

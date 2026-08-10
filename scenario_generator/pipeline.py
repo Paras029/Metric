@@ -148,7 +148,7 @@ def review(intake_path: str, registry_in_path: str, registry_out_path: str,
     earlier assessment, and proposals arrive with origin "llm-proposed" so they are never mistaken
     for graph-derived scenarios. Pass the same path twice to update in place.
 
-    Supplying the model owner's own scenario list is optional; where given, it is shown as context
+    Supplying the model owner's scenario list is optional; where given, it is shown as context
     so the review can see where the owner's attention already went.
     """
     intake = read_intake(intake_path)

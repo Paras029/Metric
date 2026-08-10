@@ -60,7 +60,7 @@ class Stage:
 # The detail below it is for the person who wants the reasoning, folded away until asked for.
 STAGES: Tuple[Stage, ...] = (
     Stage("intake", "Intake drafting",
-          "What the agent is, as a decision graph. Drafted from the model owner's own "
+          "What the agent is, as a decision graph. Drafted from the model owner's "
           "documentation, then confirmed by you.",
           "Reads everything submitted — documentation, vendor material, workflow diagrams — and "
           "drafts the declaration the whole scenario space is built on. Reading and drafting are one "
