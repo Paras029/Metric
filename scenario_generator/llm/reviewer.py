@@ -7,26 +7,20 @@ digest of every scenario generated, and, where available, the scenarios the mode
 submitted. It runs with raised reasoning effort and smaller batches because it is asked to weigh
 rather than classify.
 
-Two calls, and the split between them follows what each is actually reading:
+Three powers, and the first two are separate sweeps rather than one prompt asked to do both --
+they are different readings, and a single call carrying both answers the first well and the
+second as an afterthought:
 
-    assess    one call per chunk of scenarios, settling three things at once. What failure here
-              would cost, judged with the whole set visible. How the route actually ends, against
-              the ending the intake declared -- category is deterministic everywhere else, taken
-              from the Outcome Type on the state a route finishes in, which makes it the column a
-              wrong or blank declaration corrupts without anything noticing, and a disagreement
-              here usually means the workbook needs correcting rather than the scenario. And
-              whether anything is wrong with the scenario: redundant, too vague to run, or
-              describing something other than what it tests.
-
-              These are one call rather than three because they are answered from the same
-              material -- the route, the expected outcome and the description. Reading it once to
-              answer all three is cheaper and more coherent than reading it three times, and it
-              stops one batch size from having to serve two incompatible kinds of judgement.
-
-    propose   one call for the whole benchmark, adding scenarios that are materially missing.
-              Capped, validated against the intake's vocabulary, and marked "llm-proposed". It is
-              asked about the set rather than about any chunk of it, so it has nothing to batch
-              and nothing to share with a per-scenario reading.
+    assess    settle each scenario's materiality with the whole set visible, and flag scenarios
+              that are redundant, too vague to run, or describing something other than what they
+              test.
+    category  read back how each route actually ends, against the ending the intake declared.
+              Category is deterministic everywhere else -- it comes from the Outcome Type on the
+              state a route finishes in -- which makes it the column a wrong or blank declaration
+              corrupts without anything noticing. A disagreement here usually means the workbook
+              needs correcting rather than the scenario.
+    propose   add scenarios that are materially missing. Capped, validated against the intake's
+              vocabulary, and marked with origin "llm-proposed".
 
 Every verdict is written to its own column beside the value it disagrees with, never over it, so
 both readings stay visible and a person rules. It cannot remove anything: flagging a scenario as
@@ -54,17 +48,18 @@ CompletionFn = Callable[..., str]
 ProgressFn = Callable[..., None]
 
 DEFAULT_PROPOSAL_LIMIT = 15
-
-# How many scenarios one review call weighs. Small, because this is the most demanding read in the
-# pipeline: it settles materiality against the whole benchmark, checks the declared ending and
-# looks for what is wrong with each scenario, with the full field guide in view. A chunk large
-# enough to skim is a chunk that gets skimmed.
 DEFAULT_BATCH_SIZE = 6
+
+# Checking a category is a narrower judgement than weighing materiality -- it compares an ending
+# against a five-value vocabulary rather than reasoning about business consequence -- so it takes
+# a much coarser batch, and the second reviewed column costs a fraction of the first's calls.
+CATEGORY_BATCH_SIZE = 20
 
 REVIEW_FLAGS = ("Redundant", "Under-specified", "Mis-scoped")
 
 _SYSTEM_PROMPT = "reviewer.system"
 _ASSESS_PROMPT = "reviewer.assess"
+_CATEGORY_PROMPT = "reviewer.category"
 _PROPOSE_PROMPT = "reviewer.propose"
 _OWNER_PROMPT = "reviewer.owner_block"
 
@@ -120,19 +115,18 @@ class ScenarioReviewer:
     def review(self, scenarios: List[Scenario], intake: IntakeData,
                owner_scenarios: Optional[List[OwnerScenario]] = None
                ) -> Tuple[List[Scenario], List[Scenario]]:
-        """Settle every judged column in place and return (scenarios, proposals).
+        """Settle each judged column in place and return (scenarios, proposals).
 
-        **One sweep, not one per column.** Materiality, the ending a scenario is filed under and
-        anything wrong with it are three questions answered from the same material -- the route,
-        the expected outcome and the description -- and reading that material once to answer all
-        three is both cheaper and more coherent than reading it three times. Splitting them also
-        made the batch size mean two different things at once, since a mechanical category check
-        tolerates a far coarser chunk than a materiality judgement does, so a benchmark could not
-        be tuned for one without mistuning the other.
+        One sweep per column rather than one sweep asked to settle everything at once. The two
+        are genuinely different readings -- materiality asks what failure would cost, category
+        asks how the interaction ends -- and a single prompt carrying both tends to answer the
+        first well and the second as an afterthought.
 
-        Proposing what enumeration could not reach stays a separate call, and genuinely is one: it
-        is asked about the benchmark as a whole rather than about any chunk of it, so it has
-        nothing to batch and nothing to share with a per-scenario reading.
+        The sweeps run one after another rather than together. Each already sends all of its own
+        chunks concurrently, and running two at once would put twice ``LLM_MAX_CONCURRENCY``
+        connections in flight, which is the number that cap exists to hold down. The cost of the
+        second column is modest because it needs a much coarser batch: a seventy-scenario
+        benchmark is twelve materiality calls and four category ones.
         """
         cancellation.check(self._cancel)
         preamble = self._preamble(intake)
@@ -140,8 +134,14 @@ class ScenarioReviewer:
         shared = {"total": len(scenarios), "digest": digest(scenarios),
                   "owner": _owner_block(owner_scenarios)}
 
+        # Probes are not routes through the graph and have no ending to categorise -- their
+        # "category" is the probe family they came from, which is not one of CATEGORIES at all.
+        routed = [s for s in scenarios if not s.is_probe]
+
+        category_batch = config.stage_batch_size("REVIEWER_CATEGORY", CATEGORY_BATCH_SIZE)
         assess_chunks = list(chunks(scenarios, self._batch))
-        total = len(assess_chunks) + 1                               # + the proposal call
+        category_chunks = list(chunks(routed, category_batch))
+        total = len(assess_chunks) + len(category_chunks) + 1        # + the proposal call
         done = 0
 
         done = self._sweep(
@@ -150,6 +150,14 @@ class ScenarioReviewer:
             config.stage_concurrency("REVIEWER_ASSESS"), done, total, len(scenarios),
             lambda chunk: self._render_assess(chunk, preamble, shared, signals),
             self._apply_assessment)
+
+        done = self._sweep(
+            category_chunks, "Checked the category of",
+            config.stage_tier("REVIEWER_CATEGORY", config.MATERIALITY),
+            config.stage_concurrency("REVIEWER_CATEGORY"), done, total,
+            len(routed),
+            lambda chunk: self._render_category(chunk, preamble, shared),
+            self._apply_category)
 
         cancellation.check(self._cancel)
         self._progress("Looking for what enumeration could not reach", done, total)
@@ -216,20 +224,19 @@ class ScenarioReviewer:
 
     def _render_assess(self, chunk: List[Scenario], preamble: str, shared: dict,
                        signals: dict) -> str:
-        """The user prompt for one chunk, built but not yet sent."""
+        """The user prompt for one chunk's assessment, built but not yet sent."""
         return f"{preamble}\n\n" + prompt_loader.render(
             _ASSESS_PROMPT, **shared, materiality=", ".join(MATERIALITY),
-            categories=", ".join(CATEGORIES), batch=_batch_payload(chunk, signals))
+            batch=_batch_payload(chunk, signals))
+
+    def _render_category(self, chunk: List[Scenario], preamble: str, shared: dict) -> str:
+        """The user prompt for one chunk's category check, built but not yet sent."""
+        return f"{preamble}\n\n" + prompt_loader.render(
+            _CATEGORY_PROMPT, **shared, categories=", ".join(CATEGORIES),
+            batch=_batch_payload(chunk, {}))
 
     def _apply_assessment(self, chunk: List[Scenario], reply) -> None:
-        """Write one chunk's verdict onto its scenarios: materiality, ending, and any flag.
-
-        The category is recorded **only where it disagrees** with what the intake declared.
-        Agreement is the expected result for most scenarios, and writing it down anyway would fill
-        the registry's review columns with restatements of the declared value and bury the handful
-        of rows that actually want a second look. A probe has no ending to categorise, so whatever
-        comes back for one is ignored.
-        """
+        """Write one chunk's materiality verdict and flag onto its scenarios."""
         parsed = parsed_reply(reply, "Review call", ", ".join(s.id for s in chunk))
         for scenario in chunk:
             entry = parsed.get(scenario.id)
@@ -239,14 +246,23 @@ class ScenarioReviewer:
             scenario.review_rationale = prose(entry, "rationale")
             scenario.review_flag = one_of(entry.get("flag"), REVIEW_FLAGS)
 
-            if scenario.is_probe:
+    def _apply_category(self, chunk: List[Scenario], reply) -> None:
+        """Record where the review reads a scenario's ending differently from the intake.
+
+        Only a disagreement is stored. Agreement is the expected result for most scenarios, and
+        writing it down anyway would fill the registry's review columns with restatements of the
+        declared value and bury the handful of rows that actually want a second look.
+        """
+        parsed = parsed_reply(reply, "Review call", ", ".join(s.id for s in chunk))
+        for scenario in chunk:
+            entry = parsed.get(scenario.id)
+            if not entry:
                 continue
             category = one_of(entry.get("category"), CATEGORIES)
             if not category or category == scenario.category:
                 continue
             scenario.review_category = category
-            scenario.review_category_rationale = (prose(entry, "category_rationale")
-                                                  or prose(entry, "rationale"))
+            scenario.review_category_rationale = prose(entry, "rationale")
 
     def _propose(self, intake: IntakeData, preamble: str, shared: dict) -> List[Scenario]:
         user = f"{preamble}\n\n" + prompt_loader.render(
