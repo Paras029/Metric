@@ -1,16 +1,28 @@
-/* Scenario generator — local interface.
+/* Metric — local interface.
  *
- * A validator's workbench. The person using this is inside a task, not browsing, so the interface
- * is dense, quiet and consistent, and it disappears into the work. Three ideas carry the design.
+ * This is an instrument, not an app, and it is drawn like one. A validator uses it to measure
+ * something and to defend the measurement afterwards, which is the same posture as a calibration
+ * report or a lab notebook: precise, tabular, quiet, and confident about small type. Four ideas
+ * carry the design, and each of them is about this product rather than about interfaces in general.
  *
- * The page has a spine, not a stack. Sections are separated by a rule and a label rather than each
- * being boxed: a page of nine identical cards gives every part of it the same weight, which is
- * another way of saying it has no hierarchy at all. A surface is spent only where one earns it --
- * something you drop files onto, something that is running, something you draw on.
+ * **The route is the motif.** The whole premise of the tool is walking every path through a
+ * declared graph. So the pipeline is not drawn as a list of links -- it is drawn as the thing it
+ * is, a spine with nodes on it, the spine drawn solid through what has been walked and hairline
+ * through what has not. The same figure opens the entry screen. A product whose central idea is
+ * a traversal should look like one.
  *
- * Every stage declares how its output was produced: computed, judged by a model, or decided by the
- * person using it. That distinction is real and consequential, so it gets a consistent treatment
- * everywhere it appears rather than being buried in prose.
+ * **Numbers are the texture.** Everything here reduces to counts -- routes, tiers, runs,
+ * conversations -- so figures are set in the monospace face with tabular numerals, larger than
+ * their labels and aligned in a column. A result card reads as a readout. This is the single
+ * biggest thing separating this from a generic dashboard, and it costs nothing.
+ *
+ * **Square, not soft.** Structural surfaces have a 2px radius and hairline borders; only a status
+ * chip is a pill. Rounded corners everywhere are the universal tell of an interface that has not
+ * decided what it is.
+ *
+ * **Rules carry weight.** A section boundary and an incidental divider are not the same line. The
+ * heavy rule under a section label is the one that organises the page; everything else is lighter
+ * than it. A page of identically-weighted hairlines has no hierarchy at all.
  *
  * Work that has gone out of date announces itself. A stale stage is never allowed to look finished.
  *
@@ -53,9 +65,10 @@
   /* Verdict colours, darkened until each clears 4.5:1 on its own tint. */
   --ok: #10684A;
   --ok-tint: #E7F5EF;
-  /* Amber carries "out of date" on both surfaces the interface has, so it needs a value for each:
-     the page one is darkened for contrast on white, the rail one lightened for contrast on navy. */
-  --stale: #8A5200;
+  /* Amber carries "out of date" on both surfaces the interface has, so it needs a value for
+     each: the page one darkened for contrast on white, the rail one lightened for contrast on
+     navy. On the page it is the same amber that carries every other warning, and one value with
+     two names is two values waiting to drift. */
   --stale-on-navy: #F2B857;
   --warn: #8A5200;
   --warn-tint: #FCF3E3;
@@ -91,7 +104,6 @@
   --t-small: .8125rem;   /* 13px — dense UI: chips, table cells, controls */
   --t-ui: .875rem;       /* 14px — the default: buttons, list rows, form text */
   --t-body: .9375rem;    /* 15px — prose */
-  --t-head: 1.0625rem;   /* 17px — section headings */
   --t-title: 1.375rem;   /* 22px — page title */
   --t-figure: 1.5rem;    /* 24px — a reported count, the one number meant to be read at a glance */
   --t-display: 1.875rem; /* 30px — entry screen only */
@@ -105,16 +117,21 @@
   --graph-fallback: #6047B5;
   --graph-loop: #8676C4;
 
-  --r-sm: 3px;
-  --r-md: 5px;
+  /* Square, not soft -- see the note at the top. Structural surfaces get the smallest radius
+     that still reads as intentional rather than as an unstyled box; only a status chip is a pill. */
+  --r-sm: 2px;
+  --r-md: 2px;
   --r-pill: 999px;
 
   --rail-width: 16.5rem;
   --side-width: 20rem;
   --measure: 42rem;      /* prose line length, ~70ch at 15px */
 
-  /* One shadow, and it has an offset and a real blur. A zero-offset halo is decoration. */
-  --lift: 0 1px 2px rgba(10, 26, 49, .05), 0 6px 16px -10px rgba(10, 26, 49, .22);
+  /* Rules carry weight. Three, and the difference between them is what gives the page its
+     structure: a section boundary is not the same line as a divider between two rows of a list. */
+  --rule-heavy: #0A1A31;
+  --rule-mid: #C7D0E0;
+
   --ease: cubic-bezier(.2, 0, 0, 1);
   --quick: .15s var(--ease);
 }
@@ -160,31 +177,106 @@ ol, ul { list-style: none; padding: 0; }
 }
 
 /* =================================================================== entry screen */
-.entry {
+/* =================================================================== entry screen
+ *
+ * Two panels: what this is, and what to do about it.
+ *
+ * The left one is the only place in the product with room for an identity, so it takes one --
+ * the deep navy the rail uses, at full height, carrying the wordmark and the eight steps drawn as
+ * the route the tool walks. Every other screen is a working surface and stays quiet; this one is
+ * allowed to state what the thing is. A centred white column on an off-white field, which is what
+ * this was, states nothing.
+ *
+ * The right one is the whole of the interaction: one field, one button, and whatever is already
+ * in progress. */
+.gate {
   min-height: 100vh;
   display: grid;
-  align-content: center;
-  justify-items: center;
-  padding: var(--s7) var(--s5);
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
   background: var(--canvas);
 }
-.entry__inner { width: min(36rem, 100%); }
 
-.entry__title {
-  font-size: var(--t-display);
+.gate__brand {
+  position: relative;
+  background: var(--navy);
+  color: var(--on-navy-mid);
+  padding: var(--s7) clamp(var(--s5), 4vw, var(--s7));
+  display: grid;
+  align-content: center;
+}
+/* The four mode colours down the leading edge, in the order the stages use them. The product's
+   one colour idea -- who decided this -- stated before it is explained. */
+.gate__brand::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(to bottom,
+    var(--mode-drafted)  0     12.5%,
+    var(--mode-computed) 12.5% 25%,
+    var(--mode-judged)   25%   75%,
+    var(--mode-judged)   75%   87.5%,
+    var(--mode-computed) 87.5% 100%);
+}
+.gate__brandInner { width: min(30rem, 100%); margin: 0 auto; }
+
+.gate__mark {
+  font-size: clamp(2.25rem, 4vw, 3rem);
+  font-weight: 700;
+  letter-spacing: -.045em;
+  line-height: 1;
+  color: var(--on-navy);
+}
+.gate__lede { margin-top: var(--s4); max-width: 30rem; color: var(--on-navy-mid); }
+
+/* The eight steps as the route the tool walks: a spine with a node per stage, each coloured by
+   how that stage's output is produced. Top to bottom, the way the work runs. The mode is spelled
+   out beside each rather than put in a key -- on the one screen a first-time reader sees, a
+   legend they have to look up is a legend nobody reads. */
+.route { margin-top: var(--s6); }
+.route__step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1rem max-content minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: var(--s3);
+  padding: .35rem 0;
+}
+.route__step:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: .28rem;
+  top: 1.15rem;
+  bottom: -.35rem;
+  border-left: 1px solid var(--navy-line);
+}
+.route__node { width: .5rem; height: .5rem; border-radius: var(--r-sm); background: var(--on-navy-dim); }
+.route__step--computed .route__node { background: var(--mode-computed); }
+.route__step--judged   .route__node { background: var(--mode-judged); }
+.route__step--drafted  .route__node { background: var(--mode-drafted); }
+.route__step--review   .route__node { background: var(--mode-review); }
+
+.route__mark { font-size: var(--t-meta); color: var(--on-navy-dim); }
+.route__name { font-size: var(--t-ui); color: var(--on-navy); }
+.route__mode { font-size: var(--t-meta); color: var(--on-navy-dim); white-space: nowrap; }
+
+.gate__work {
+  padding: var(--s7) clamp(var(--s5), 4vw, var(--s7));
+  display: grid;
+  align-content: center;
+}
+.gate__workInner { width: min(30rem, 100%); }
+.gate__title {
+  font-size: var(--t-title);
   font-weight: 650;
   letter-spacing: -.025em;
-  line-height: 1.15;
   color: var(--navy);
-  text-wrap: balance;
 }
-.entry__lede { margin-top: var(--s3); color: var(--ink-mid); max-width: var(--measure); }
-
-.entry__form {
-  margin-top: var(--s6);
-  padding-top: var(--s5);
-  border-top: 1px solid var(--rule);
-}
+.gate__sub { margin-top: var(--s1); color: var(--ink-dim); font-size: var(--t-ui); }
+.gate__form { margin-top: var(--s5); }
+.gate__form .button { margin-top: var(--s3); }
+.gate__recent { margin-top: var(--s6); padding-top: var(--s4); border-top: 1px solid var(--rule); }
+.gate__recent .label { display: block; margin-bottom: var(--s2); }
 
 .field { display: block; }
 .field__label {
@@ -201,8 +293,8 @@ ol, ul { list-style: none; padding: 0; }
   font-size: var(--t-ui);
   color: var(--ink);
   background: var(--surface);
-  border: 1px solid var(--rule);
-  border-radius: var(--r-md);
+  border: 1px solid var(--rule-mid);
+  border-radius: var(--r-sm);
   transition: border-color var(--quick), box-shadow var(--quick);
 }
 .field__input::placeholder { color: var(--ink-dim); }
@@ -212,84 +304,31 @@ ol, ul { list-style: none; padding: 0; }
   outline: none;
   box-shadow: 0 0 0 3px rgba(0, 111, 207, .16);
 }
-.entry__form .button { margin-top: var(--s3); }
-
-.entry__recent { margin-top: var(--s6); }
-.entry__recent-title { margin-bottom: var(--s2); }
 
 .ledger { border-top: 1px solid var(--rule); }
 .ledger__row { border-bottom: 1px solid var(--rule); }
 .ledger__link {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: baseline;
-  gap: var(--s4);
-  padding: var(--s3) var(--s2);
-  margin: 0 calc(var(--s2) * -1);
+  gap: var(--s3);
+  padding: var(--s3) 0;
   color: inherit;
   text-decoration: none;
-  border-radius: var(--r-sm);
-  transition: background-color var(--quick);
+  font-size: var(--t-ui);
 }
-.ledger__link:hover { background: var(--surface-sunk); }
+.ledger__link:hover .ledger__name { color: var(--blue-dark); }
 .ledger__name { font-weight: 600; }
-.ledger__meta { font-size: var(--t-meta); color: var(--ink-dim); }
+.ledger__meta { display: flex; align-items: center; gap: var(--s2); }
+.ledger__count { font-size: var(--t-small); color: var(--ink-dim); }
 
-/* The eight stages on the entry screen. It is the one page everybody sees before they have any
-   work of their own to look at, and the question a first-time user and somebody's director both
-   arrive with is what this is going to ask of them. Eight names answers it faster than a
-   paragraph. Names only: the stage pages carry what each one does. */
-.entry__flow { margin-top: var(--s6); }
-.flow {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1px;
-  background: var(--rule);
-  border: 1px solid var(--rule);
-  border-radius: var(--r-md);
-  overflow: hidden;
-}
-.flow__step {
-  display: flex;
-  align-items: center;
-  gap: var(--s2);
-  padding: var(--s2) var(--s3);
-  background: var(--surface);
-  font-size: var(--t-small);
-}
-.flow__mark {
-  flex: none;
-  width: 1.25rem;
-  font-size: var(--t-meta);
-  color: var(--ink-dim);
-}
-.flow__name { flex: 1; color: var(--ink); }
-/* The same four colours the rail uses, so how a stage's output was produced is one idea across
-   the whole interface rather than a different code on each screen. */
-.flow__mode {
-  flex: none;
-  width: 3px;
-  height: 1rem;
-  border-radius: var(--r-pill);
-}
-.flow__mode--computed { background: var(--mode-computed); }
-.flow__mode--judged   { background: var(--mode-judged); }
-.flow__mode--drafted  { background: var(--mode-drafted); }
-.flow__mode--review   { background: var(--mode-review); }
-
-.flow__legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s1) var(--s3);
-  margin-top: var(--s2);
-  font-size: var(--t-micro);
-  color: var(--ink-dim);
-}
-.flow__legend span { display: inline-flex; align-items: center; gap: var(--s1); }
-.flow__legend .dot { width: 6px; height: 6px; }
-
-@media (max-width: 30rem) {
-  .flow { grid-template-columns: minmax(0, 1fr); }
+/* One column below the width where two panels stop being two panels. The brand panel keeps its
+   surface: losing it on a laptop would mean the product has no identity on a laptop. */
+@media (max-width: 60rem) {
+  .gate { grid-template-columns: minmax(0, 1fr); }
+  .gate__brand, .gate__work { padding: var(--s6) var(--s5); }
+  .gate__brandInner, .gate__workInner { width: 100%; max-width: 34rem; }
+  .route { margin-top: var(--s5); }
 }
 
 /* =================================================================== shell
@@ -359,16 +398,14 @@ ol, ul { list-style: none; padding: 0; }
 
 /* The stage list. One connector line behind the markers, so the sequence reads as a single run of
    work rather than eight unrelated links. */
+/* The pipeline drawn as the traversal it is, rather than as a list of links.
+ *
+ * A spine runs down the rail with a node on it per stage. The spine is drawn *per segment* rather
+ * than as one line behind everything, which is what lets the walked part of it be solid and the
+ * part not yet reached be a hairline -- the same distinction the decision graph makes between an
+ * edge that was walked and one that was not. It is the product's own central idea, used as its
+ * navigation, and it costs one pseudo-element. */
 .steps { position: relative; padding: var(--s4) 0 0; }
-.steps::before {
-  content: "";
-  position: absolute;
-  left: 2.19rem;
-  top: 1.9rem;
-  bottom: 1.3rem;
-  width: 1px;
-  background: var(--navy-line);
-}
 
 .steps__link {
   position: relative;
@@ -382,6 +419,24 @@ ol, ul { list-style: none; padding: 0; }
 }
 .steps__link:hover { background: rgba(255, 255, 255, .06); }
 
+/* One segment of the spine, from this node down to the next. Hairline by default; solid where
+   the stage it leaves has actually been walked. */
+.steps__item:not(:last-child) .steps__link::after {
+  content: "";
+  position: absolute;
+  left: 2.19rem;
+  top: 50%;
+  height: 100%;
+  border-left: 1px solid var(--navy-line);
+}
+.steps__item--complete:not(:last-child) .steps__link::after,
+.steps__item--stale:not(:last-child) .steps__link::after {
+  border-left: 2px solid var(--mode-computed);
+  left: 2.16rem;
+}
+
+/* A node on the spine. Square, because the thing it stands for is a step in a traversal rather
+   than an avatar -- and because a page of circles is the look this design is trying not to have. */
 .steps__marker {
   position: relative;
   z-index: 1;
@@ -390,11 +445,12 @@ ol, ul { list-style: none; padding: 0; }
   height: 1.375rem;
   display: grid;
   place-items: center;
-  border-radius: 50%;
+  border-radius: var(--r-sm);
   background: var(--navy);
   border: 1px solid var(--navy-line);
   font-family: var(--font-mono);
   font-size: var(--t-micro);
+  font-variant-numeric: tabular-nums;
   color: var(--on-navy-dim);
   transition: background-color var(--quick), border-color var(--quick), color var(--quick);
 }
@@ -407,7 +463,11 @@ ol, ul { list-style: none; padding: 0; }
   color: var(--on-navy-dim);
 }
 
-.steps__item--complete .steps__marker { background: var(--ok); border-color: var(--ok); color: #fff; }
+.steps__item--complete .steps__marker {
+  background: var(--mode-computed);
+  border-color: var(--mode-computed);
+  color: var(--navy-deep);
+}
 .steps__item--stale .steps__marker {
   border-color: var(--stale-on-navy);
   color: var(--stale-on-navy);
@@ -426,7 +486,12 @@ ol, ul { list-style: none; padding: 0; }
   background: var(--blue);
 }
 .steps__item--active .steps__title { font-weight: 650; color: var(--on-navy); }
-.steps__item--active .steps__marker { border-color: var(--blue); color: var(--on-navy); }
+.steps__item--active .steps__marker {
+  border-color: var(--on-navy);
+  color: var(--navy-deep);
+  background: var(--on-navy);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, .14);
+}
 
 /* How each stage's output is produced, marked in the rail so the shape of the pipeline -- which
    parts a model touches -- is readable without opening anything. */
@@ -435,7 +500,7 @@ ol, ul { list-style: none; padding: 0; }
   width: .375rem;
   height: .375rem;
   margin-left: auto;
-  border-radius: 50%;
+  border-radius: var(--r-sm);
 }
 .steps__mode--computed { background: var(--mode-computed); }
 .steps__mode--judged   { background: var(--mode-judged); }
@@ -453,7 +518,7 @@ ol, ul { list-style: none; padding: 0; }
   color: var(--on-navy-dim);
 }
 .rail__legend span { display: inline-flex; align-items: center; gap: var(--s1); }
-.dot { width: .375rem; height: .375rem; border-radius: 50%; display: inline-block; flex: none; }
+.dot { width: .375rem; height: .375rem; border-radius: var(--r-sm); display: inline-block; flex: none; }
 .dot--computed { background: var(--mode-computed); }
 .dot--judged   { background: var(--mode-judged); }
 .dot--drafted  { background: var(--mode-drafted); }
@@ -467,16 +532,31 @@ ol, ul { list-style: none; padding: 0; }
 /* Title, what the stage is for, and its primary action on one line. The action belongs here
    rather than at the foot of the page: it is what the person came to do, and a Run button found
    only after eight sections of reading is a Run button nobody finds. */
+/* The page head, set the way a numbered section of a report is: the index numeral large and in
+   the monospace face, hung in the margin to the left of the title so the eye lands on where it is
+   in the sequence before it reads what the sequence is. The "3 / 8" tucked in beside the button
+   said the same thing and was never seen, because it was small, grey, and next to the one control
+   on the page everybody was already looking at. */
 .head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--s4) var(--s5);
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  align-items: start;
+  gap: var(--s4) var(--s4);
   padding-bottom: var(--s4);
-  border-bottom: 1px solid var(--rule);
+  border-bottom: 1.5px solid var(--rule-heavy);
 }
-.head__text { min-width: 0; flex: 1 1 26rem; }
+.head__index {
+  font-family: var(--font-mono);
+  font-size: var(--t-display);
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: -.05em;
+  color: var(--rule-mid);
+  padding-top: .1em;
+}
+.head__index b { font-weight: 600; color: var(--navy); font-style: normal; }
+.head__text { min-width: 0; }
 .head__title {
   display: flex;
   align-items: center;
@@ -484,26 +564,38 @@ ol, ul { list-style: none; padding: 0; }
   gap: var(--s3);
   font-size: var(--t-title);
   font-weight: 650;
-  letter-spacing: -.02em;
-  line-height: 1.2;
+  letter-spacing: -.025em;
+  line-height: 1.15;
   color: var(--navy);
 }
 .head__blurb { margin-top: var(--s2); color: var(--ink-mid); max-width: var(--measure); }
 .head__actions { display: flex; align-items: center; gap: var(--s2); flex: none; }
 .head__step { font-size: var(--t-meta); color: var(--ink-dim); white-space: nowrap; }
 
+@media (max-width: 46rem) {
+  .head { grid-template-columns: max-content minmax(0, 1fr); }
+  .head__actions { grid-column: 1 / -1; }
+}
+
 /* A section of the page. A rule and a heading, not a card: nine boxes down a page is nine things
    claiming equal importance. */
 .block { margin-top: var(--s6); }
+/* A section is announced by a label sitting on a heavy rule, not by a bigger font. That single
+   rule is what organises the page; every other line on it is lighter. It is the move a printed
+   report makes, and it works here for the same reason -- the reader is scanning for a section,
+   not admiring a heading. */
 .block__title {
-  font-size: var(--t-head);
-  font-weight: 650;
-  letter-spacing: -.01em;
-  color: var(--navy);
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink);
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--s2);
+  padding-bottom: var(--s2);
+  border-bottom: 1.5px solid var(--rule-heavy);
 }
 .block__body { margin-top: var(--s2); color: var(--ink-mid); max-width: var(--measure); }
 .block__foot { margin-top: var(--s3); font-size: var(--t-meta); color: var(--ink-dim); }
@@ -586,21 +678,48 @@ ol, ul { list-style: none; padding: 0; }
 /* Two real columns, so every value starts at the same place. Rows are `display: contents` for
    that reason: a label and its value laid out per row align only with themselves, which puts a
    ragged edge down the middle of a list whose whole job is to be run an eye down. */
-.facts {
-  margin-top: var(--s3);
+/* The readout. Everything this tool produces reduces to counts, so the figures are set larger
+   than their labels, in the monospace face, with tabular numerals and right-aligned on a shared
+   column -- which is what makes a column of them scan as one reading rather than as eight
+   sentences. A dotted leader carries the eye across the gap, the way a table of contents does;
+   it is the one piece of ornament here and it is doing a job. */
+.facts { margin-top: var(--s3); display: grid; gap: 0; }
+.facts__row {
   display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: var(--s2) var(--s5);
-  font-size: var(--t-ui);
+  grid-template-columns: max-content 1fr max-content;
   align-items: baseline;
+  gap: var(--s3);
+  padding: .3rem 0;
 }
-.facts__row { display: contents; }
-.facts__label { color: var(--ink-dim); }
-.facts__value { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.facts__label { font-size: var(--t-small); color: var(--ink-mid); }
+/* The leader, drawn on the middle cell so it stretches to whatever is left between the two.
+   Aligned to the baseline rather than centred: an empty box takes its bottom margin edge as its
+   baseline, so aligning it puts the dotted border exactly on the line the text sits on. Centring
+   it drops the leader below the row, which reads as an underline for the wrong thing. */
+.facts__row::after {
+  content: "";
+  /* Pinned to the row, not only the column: auto-placement puts a third grid item on a new
+     implicit row, which is what dropped the leader underneath the pair it belongs between. */
+  grid-row: 1;
+  grid-column: 2;
+  align-self: baseline;
+  height: .3em;
+  border-bottom: 1px dotted var(--rule-mid);
+}
+.facts__value {
+  grid-column: 3;
+  font-family: var(--font-mono);
+  font-size: var(--t-body);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em;
+  color: var(--ink);
+  text-align: right;
+}
 
 @media (max-width: 40rem) {
-  .facts { grid-template-columns: 1fr; gap: 0; }
-  .facts__label { margin-top: var(--s2); }
+  .facts__row { grid-template-columns: 1fr max-content; }
+  .facts__row::after { display: none; }
+  .facts__value { grid-column: 2; }
 }
 
 /* =================================================================== produced files */

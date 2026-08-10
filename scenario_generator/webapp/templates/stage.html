@@ -135,6 +135,11 @@
        what the person came to do, and a Run button reachable only after eight sections of reading
        is a Run button nobody finds. #}
     <header class="head">
+      {# Where you are in the sequence, hung in the margin. Reading "03" before the title is the
+         difference between a page and a numbered section of something. #}
+      <p class="head__index" aria-hidden="true">
+        <b>{{ "%02d" | format(view.number) }}</b>/{{ "%02d" | format(rail | length) }}
+      </p>
       <div class="head__text">
         <h1 class="head__title">
           {{ stage.title }}
@@ -143,7 +148,6 @@
         <p class="head__blurb">{{ stage.blurb }}</p>
       </div>
       <div class="head__actions">
-        <span class="head__step mono">{{ view.number }} / {{ rail | length }}</span>
         {% if runnable and not workspace.is_blocked(stage.key) and state.status != 'running' %}
           <form method="post" action="{{ url_for('run_stage', key=stage.key) }}">
             <button class="button button--primary" type="submit">
