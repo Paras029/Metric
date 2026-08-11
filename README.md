@@ -361,6 +361,40 @@ ready to fill in, and each also takes its own output cap, temperature, reasoning
 retries, batch size and concurrency. See **[HOW_IT_WORKS.md](HOW_IT_WORKS.md#tuning)** for the stage keys,
 the batching model and every remaining setting.
 
+### An LLM council
+
+Five call sites can be answered by three models instead of one. Two **workers** answer the same
+prompt independently and in parallel, knowing nothing of each other; a **reconciler** then answers
+the same prompt itself with both readings in front of it, and its answer is the one used.
+
+It is not a vote and not a merge. A vote over two answers cannot break a tie, and a merge of two
+JSON documents is a document neither model wrote and neither would defend. The independence is the
+whole point: two models shown each other's work converge, and that agreement is one reading with a
+second signature on it.
+
+```yaml
+council:
+  enabled: on
+  workers: [a-model, another-model]     # exactly two, ideally not the same model twice
+  reconciler: a-strong-model
+  stages:
+    intake_draft: on
+    reviewer_assess: on
+```
+
+Off unless you switch it on and name the models. Only five passes can take one — intake drafting,
+intake repair, the review's assessment and proposal sweeps, and coverage mapping — and the reason
+is the same for each: it is one judgement over a whole body of evidence that every later stage
+takes as given, with nothing downstream that would catch it being wrong. Writing scenario text and
+assigning materiality are deliberately not on the list; those are made per scenario, hundreds of
+times, and a bad one is visible on the page beside its neighbours.
+
+Expect roughly three times the tokens of the pass you turn it on for and about twice its wall
+time: the two workers overlap, the reconciler waits for them. On a batched pass it is three
+flights rather than three calls per chunk. It degrades rather than fails at every step — one
+worker down leaves the reconciler with one reading, both down falls back to a single ordinary
+call, and a reconciler that does not answer hands back a worker's reading.
+
 ---
 
 ## Testing

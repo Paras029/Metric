@@ -28,8 +28,8 @@ from ..core.models import ScenarioRow, IntakeData
 from ..ingest.conversations import Conversation
 from ..utils import chunks
 from ..utils.replies import text as _text
-from . import cancellation, config, prompt_loader
-from .calling import call, call_batch, parsed_reply
+from . import cancellation, config, council, prompt_loader
+from .calling import call, parsed_reply
 from .context import describe_use_case
 from .gateway import ask_llm
 
@@ -168,9 +168,10 @@ class ConversationMapper:
         # Reported as replies land, not as they are applied: every chunk is in flight at once, so
         # the applying loop below runs in a fraction of a second after a wait of minutes.
         sizes = [len(chunk) for chunk in pending]
-        replies = call_batch(
+        replies = council.deliberate_batch(
             self._complete, prompt_loader.load(_SYSTEM_PROMPT),
             [self._render(chunk, space, use_case) for chunk in pending],
+            stage="COVERAGE_MAP",
             tier=config.stage_tier("COVERAGE_MAP", config.JUDGEMENT),
             max_concurrency=config.stage_concurrency("COVERAGE_MAP"), cancel=self._cancel,
             on_progress=lambda done, _total: self._progress(

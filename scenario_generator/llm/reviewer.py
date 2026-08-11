@@ -37,8 +37,8 @@ from ..core.models import (CATEGORIES, MATERIALITY, IntakeData, OwnerScenario, S
 from ..core.proposals import instantiate_proposals
 from ..utils import chunks, one_of, parse_json_object
 from ..utils.replies import prose
-from . import cancellation, config, prompt_loader
-from .calling import call, call_batch, parsed_reply
+from . import cancellation, config, council, prompt_loader
+from .calling import call_batch, parsed_reply
 from .context import describe_graph, describe_use_case, digest, supplementary_context
 from .gateway import ask_llm
 
@@ -167,14 +167,14 @@ class ScenarioReviewer:
         done = 0
 
         done = self._sweep(
-            assess_chunks, "Reviewed",
+            assess_chunks, "Reviewed", "REVIEWER_ASSESS",
             config.stage_tier("REVIEWER_ASSESS", config.JUDGEMENT),
             config.stage_concurrency("REVIEWER_ASSESS"), done, total, len(scenarios),
             lambda chunk: self._render_assess(chunk, preamble, shared, signals),
             self._apply_assessment)
 
         done = self._sweep(
-            category_chunks, "Checked the category of",
+            category_chunks, "Checked the category of", "REVIEWER_CATEGORY",
             config.stage_tier("REVIEWER_CATEGORY", config.MATERIALITY),
             config.stage_concurrency("REVIEWER_CATEGORY"), done, total,
             len(routed),
@@ -265,8 +265,8 @@ class ScenarioReviewer:
                                    "rationale": s.review_rationale},
             } for s in chunk], indent=2))
 
-    def _sweep(self, pending: List[List[Scenario]], label: str, tier, concurrency: int,
-               done: int, total: int, subject_count: int,
+    def _sweep(self, pending: List[List[Scenario]], label: str, stage: str, tier,
+               concurrency: int, done: int, total: int, subject_count: int,
                render: Callable[[List[Scenario]], str],
                apply_reply: Callable[[List[Scenario], object], None]) -> int:
         """One column judged across the whole scenario space. Returns the running progress count.
@@ -281,8 +281,9 @@ class ScenarioReviewer:
         # the applying loop below takes a fraction of a second at the end of a wait that can run
         # to minutes, and a bar driven off it stands still and then finishes all at once.
         sizes = [len(chunk) for chunk in pending]
-        replies = call_batch(self._complete, prompt_loader.load(_SYSTEM_PROMPT),
-                             [render(chunk) for chunk in pending], tier=tier,
+        replies = council.deliberate_batch(
+                             self._complete, prompt_loader.load(_SYSTEM_PROMPT),
+                             [render(chunk) for chunk in pending], stage=stage, tier=tier,
                              max_concurrency=concurrency, cancel=self._cancel,
                              on_progress=lambda landed, _total, at=done: self._progress(
                                  f"{label} {min(sum(sizes[:landed]), subject_count)} of "
@@ -319,8 +320,9 @@ class ScenarioReviewer:
 
     def _call(self, user: str) -> str:
         """Judgement budgets: this pass reasons at length and must justify every verdict."""
-        return call(self._complete, prompt_loader.load(_SYSTEM_PROMPT), user,
-                    tier=config.stage_tier("REVIEWER_PROPOSE", config.JUDGEMENT))
+        return council.deliberate(
+            self._complete, prompt_loader.load(_SYSTEM_PROMPT), user, stage="REVIEWER_PROPOSE",
+            tier=config.stage_tier("REVIEWER_PROPOSE", config.JUDGEMENT), cancel=self._cancel)
 
     def _render_assess(self, chunk: List[Scenario], preamble: str, shared: dict,
                        signals: dict) -> str:

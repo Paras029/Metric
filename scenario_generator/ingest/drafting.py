@@ -24,8 +24,7 @@ from typing import Callable, Dict, List, Optional
 from openpyxl import load_workbook
 
 from ..core.intake import write_template
-from ..llm import config, prompt_loader
-from ..llm.calling import call
+from ..llm import config, council, prompt_loader
 from ..llm.gateway import ask_llm
 from ..utils import parse_json_object
 from ..utils.replies import at_least_one, objects as _objects, text as _text
@@ -106,11 +105,8 @@ def draft_intake(context: str, complete: Optional[Callable[..., str]] = None,
                                 structure=_structure_block(structure))
     system = prompt_loader.load(_SYSTEM_PROMPT)
 
-    try:
-        reply = complete(system, user, tier=config.stage_tier("INTAKE_DRAFT", config.JUDGEMENT))
-    except TypeError:                                      # a stub completion without the keywords
-        reply = complete(system, user)
-
+    reply = council.deliberate(complete, system, user, stage="INTAKE_DRAFT",
+                               tier=config.stage_tier("INTAKE_DRAFT", config.JUDGEMENT))
     return DraftedIntake(_validate(parse_json_object(reply)))
 
 
@@ -193,8 +189,8 @@ def repair_intake(context: str, current: str, problems: List[str],
     system = prompt_loader.load(_SYSTEM_PROMPT)
 
     try:
-        reply = call(complete, system, user,
-                     tier=config.stage_tier("INTAKE_REPAIR", config.JUDGEMENT))
+        reply = council.deliberate(complete, system, user, stage="INTAKE_REPAIR",
+                                   tier=config.stage_tier("INTAKE_REPAIR", config.JUDGEMENT))
         repaired = DraftedIntake(_validate(parse_json_object(reply)))
     except Exception as exc:
         logger.warning("Could not fill in what the draft left out: %s", exc)

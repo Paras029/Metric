@@ -136,6 +136,38 @@ stages:
     concurrency: 4
     max_attempts: 4
 
+# --- An LLM council: three models on one judgement, for the passes where a second opinion is
+#     worth what it costs. Off unless you switch it on and name the models.
+#
+# Two workers answer the same prompt independently and in parallel, knowing nothing of each other
+# -- two models shown each other's work agree, and that agreement means nothing. A reconciler then
+# answers the same prompt itself with both readings in view. It is not a vote and not a merge: a
+# vote over two answers cannot break a tie, and a merged JSON document is one neither model wrote
+# and neither would defend. The reconciler's answer is the one used.
+#
+# Only these five call sites can take one, and the reason is the same for each: it is one judgement
+# over a whole body of evidence that every later stage then takes as given, and nothing downstream
+# would catch it being wrong. Writing scenario text and assigning materiality are deliberately not
+# on the list -- those are made per scenario, hundreds of times, and a bad one is visible on the
+# page beside its neighbours.
+#
+# A council costs roughly three times the tokens of the pass it is turned on for, and about twice
+# its wall time: the two workers overlap, the reconciler waits for them.
+council:
+  enabled: off                    # the master switch; every stage below needs it on
+  # workers:                      # exactly two. Different models make a better council than one
+  #   - a-model                   # model called twice, which mostly agrees with itself.
+  #   - another-model
+  # reconciler: a-strong-model    # answers the task itself, with both readings in view
+
+  # Per call site, so a council can be paid for where it earns its keep and not elsewhere.
+  stages:
+    intake_draft: off             # the declaration the whole scenario space is built from
+    intake_repair: off            # filling in what that draft left structurally incomplete
+    reviewer_assess: off          # materiality settled and weak scenarios flagged
+    reviewer_propose: off         # what enumeration could not reach
+    coverage_map: off             # the model owner's conversations, onto the scenario space
+
 ingestion:
   # How much submitted text goes into one reading call. Four characters to a token puts this near
   # 500k tokens, well inside a million-token window. A pack larger than this is split across
