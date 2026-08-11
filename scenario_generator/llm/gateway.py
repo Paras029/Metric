@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import re
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -159,6 +160,53 @@ def _load_safechain():
     raise ModelUnavailable("Could not find SafeChain's model factory. " + _describe_safechain())
 
 
+class SettingRejected(ValueError):
+    """A generation parameter this tool set is outside what the model accepts.
+
+    A configuration fault rather than a gateway one, and the distinction matters: a busy gateway
+    is worth retrying and this is not. It will fail identically on every attempt, on every call,
+    for the whole run.
+    """
+
+
+# What a provider says when a generation parameter is out of range, across the wordings they use.
+# Matched loosely on purpose -- the exact phrasing is the provider's to change, and the cost of
+# missing one is only that the raw error is shown instead of the plain sentence.
+_OUT_OF_RANGE = re.compile(
+    r"(max_?output_?tokens|max_?tokens|maxOutputTokens)\b.{0,120}?"
+    r"(supported range|must be|range is|between|exceeds|greater than|less than)",
+    re.I | re.S)
+_RANGE_BOUND = re.compile(r"to\s+(\d{3,})\s*\(exclusive\)|maximum(?: of)?\s+(\d{3,})", re.I)
+
+
+def _explain(exc: BaseException, tier: Optional["config.Tier"],
+             max_tokens: Optional[int]) -> BaseException:
+    """The same failure with an actionable first line, where this is one we recognise.
+
+    A provider rejects an out-of-range output cap with a 400 carrying a nested JSON body, and the
+    sentence that says what to change is several levels inside it. Every caller logs the exception
+    with ``%s``, so what a person sees is that whole body -- and the one thing they need out of it
+    is which setting of ours to lower and to what. Anything not recognised is returned untouched:
+    guessing at an error nobody has read is how a real fault gets a misleading label.
+    """
+    text = str(exc)
+    if not _OUT_OF_RANGE.search(text):
+        return exc
+
+    asked = max_tokens if max_tokens is not None else (tier.max_tokens if tier else None)
+    bound = next((g for g in (_RANGE_BOUND.search(text) or ()).groups() or () if g), None) \
+        if _RANGE_BOUND.search(text) else None
+    ceiling = f" This model's ceiling is {int(bound) - 1:,}." if bound else ""
+    where = (f"LLM_{tier.name.split(':')[0].upper()}_MAX_TOKENS, or tiers.{tier.name.split(':')[0]}"
+             f".max_tokens in tuning.yml" if tier else "the max_tokens for this call")
+
+    return SettingRejected(
+        f"The model refused the output cap this run asked for"
+        f"{f' ({asked:,} tokens)' if asked else ''}.{ceiling} Lower it with {where}. "
+        f"Retrying will not help -- every call in the run will be refused the same way.\n\n"
+        f"The gateway said: {text}")
+
+
 def _generation_parameters(tier: Optional["config.Tier"], temperature: Optional[float],
                            max_tokens: Optional[int],
                            reasoning_effort: Optional[str]) -> Dict[str, Any]:
@@ -275,9 +323,12 @@ def ask_llm(system_prompt: str, user_message: str,
     arguments still override it, one call at a time.
     """
     record_call()
-    return build_chain(system_prompt, user_message, tier=tier, model=model,
-                       temperature=temperature, max_tokens=max_tokens,
-                       reasoning_effort=reasoning_effort).invoke({})
+    try:
+        return build_chain(system_prompt, user_message, tier=tier, model=model,
+                           temperature=temperature, max_tokens=max_tokens,
+                           reasoning_effort=reasoning_effort).invoke({})
+    except Exception as exc:
+        raise _explain(exc, tier, max_tokens) from exc
 
 
 def ask_llm_with_images(system_prompt: str, user_message: str, images: list,
@@ -295,9 +346,12 @@ def ask_llm_with_images(system_prompt: str, user_message: str, images: list,
         raise RuntimeError("Vision is disabled (LLM_VISION=off), so images cannot be sent.")
 
     record_call()
-    return build_chain(system_prompt, user_message, images, tier=tier, model=model,
-                       temperature=temperature, max_tokens=max_tokens,
-                       reasoning_effort=reasoning_effort).invoke({})
+    try:
+        return build_chain(system_prompt, user_message, images, tier=tier, model=model,
+                           temperature=temperature, max_tokens=max_tokens,
+                           reasoning_effort=reasoning_effort).invoke({})
+    except Exception as exc:
+        raise _explain(exc, tier, max_tokens) from exc
 
 
 _BATCH_PROMPT = None
