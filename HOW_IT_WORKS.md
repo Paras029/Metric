@@ -192,10 +192,31 @@ deliberately not automatic: a plain redraft has no way to tell your hand correct
 it should re-derive from scratch, and would silently discard it. Revise as many times as you like;
 each pass sees everything answered so far.
 
-**The graph picture.** **Boxes are decisions**, **arrows are the states between them**, labelled
-with the outcome that took them there. Zoom, drag to pan, hover for detail. Below it, what the
-declaration leaves out — a branch with one outcome, an outcome leading nowhere, a state nothing
-reaches — each said as something you can go and fix.
+**The graph picture.** **Square boxes are decisions**, **arrows are the states between them**
+labelled with the outcome that took them there, and **stadium-shaped boxes are the ways an
+interaction can end**. The shape carries that distinction rather than the colour, so it survives
+being printed.
+
+**Hover anything to follow one thread.** A declared graph of any size is a picture in which every
+line crosses every other, and the question a reader actually has is never "what is the whole
+shape" — it is "where does *this* come from and where does it go". Hovering a box holds it, every
+arrow touching it, and the box at the far end of each of those at full strength, and drops the
+rest of the graph back to a faint outline until the pointer leaves. Hovering an arrow does the
+same for that arrow and the two boxes it joins. One hop, not the whole downstream tree —
+highlighting everything reachable from a box near the start lights the entire graph and answers
+nothing. With scripting off the picture renders exactly as it always did and every box and arrow
+still carries its own tooltip.
+
+**The same ending is drawn once.** A drafted intake usually writes one terminal state per decision
+outcome, so "escalated to a case handler" arrives as four states with four ids — which drawn
+literally is four endings, and is what fills the right-hand columns with boxes that are all the
+same box. States whose description *and* outcome type match exactly are drawn as one box with
+every route arriving at it, the ids it stands for are named in its hover, and the duplication is
+reported above the picture as something to tidy in the intake. Endings that differ by a word are
+left alone: two endings that differ may well be two endings, and merging them would hide a route.
+
+Below the picture, what the declaration leaves out — a branch with one outcome, an outcome leading
+nowhere, a state nothing reaches — each said as something you can go and fix.
 
 A retry — a decision whose failed outcome leads back to itself or an earlier point — is drawn as a
 dashed loop through a lane on the right rather than a straight arrow back up through the rows in

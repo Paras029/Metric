@@ -250,12 +250,25 @@
           </p>
         {% endif %}
 
+        {% if graph_facts.duplicate_endings %}
+          <p class="aside aside--warn">
+            The same ending is declared more than once:
+            {% for group in graph_facts.duplicate_endings -%}
+              <span class="mono">{{ group | join(', ') }}</span>
+              {%- if not loop.last %}; {% endif %}
+            {%- endfor %}.
+            Each group is drawn as one box, because they describe the same place. Worth tidying in
+            the intake — a state per route into an ending makes the picture read as several
+            endings and gives every one of them its own id downstream.
+          </p>
+        {% endif %}
+
         <div class="graph__tools">
           <button class="graph__zoom" type="button" data-zoom="out" title="Zoom out">−</button>
           <button class="graph__zoom" type="button" data-zoom="in" title="Zoom in">+</button>
           <button class="graph__zoom" type="button" data-zoom="fit" title="Fit to width">Fit</button>
           <span class="graph__level mono" data-zoom-level>100%</span>
-          <span class="graph__hint">Drag to pan · scroll to move</span>
+          <span class="graph__hint">Hover to follow one thread · drag to pan</span>
         </div>
         <div class="graph__frame" data-graph>
           <div class="graph__canvas" data-graph-canvas>{{ graph_svg | safe }}</div>
@@ -1198,6 +1211,71 @@
           event.target.closest('.graph__node, .graph__edge, .graph__label');
         if (el && el.parentNode) { el.parentNode.appendChild(el); }
       });
+    }
+
+    // Following one thread. A declared graph of any size is a picture where every line crosses
+    // every other, and the question a reader has is never "what is the whole shape" -- it is
+    // "where does *this* one come from and where does it go". Hovering anything holds that
+    // thread at full strength and drops the rest back, which reads the answer straight off the
+    // page instead of asking somebody to trace it with a finger.
+    //
+    // One hop, not the whole downstream tree: highlighting everything reachable from a box near
+    // the start lights the entire graph and answers nothing.
+    if (svg) {
+      var lit = [];
+
+      function light(el, source) {
+        if (!el) { return; }
+        el.classList.add('is-lit');
+        if (source) { el.classList.add('is-lit--source'); }
+        lit.push(el);
+      }
+
+      function clear() {
+        svg.classList.remove('graph--focused');
+        lit.forEach(function (el) {
+          el.classList.remove('is-lit');
+          el.classList.remove('is-lit--source');
+        });
+        lit = [];
+      }
+
+      function joining(id) {
+        return svg.querySelectorAll('[data-source="' + id + '"], [data-target="' + id + '"]');
+      }
+
+      function focusNode(el) {
+        var id = el.getAttribute('data-node');
+        light(el, true);
+        Array.prototype.forEach.call(joining(id), function (line) {
+          light(line, false);
+          // The box at the far end of each arrow, so a hover answers "from where, to where"
+          // rather than only "which arrows touch this".
+          var other = line.getAttribute('data-source') === id
+            ? line.getAttribute('data-target') : line.getAttribute('data-source');
+          light(svg.querySelector('[data-node="' + other + '"]'), false);
+        });
+      }
+
+      function focusEdge(el) {
+        var from = el.getAttribute('data-source'), to = el.getAttribute('data-target');
+        // Both the arrow and its own label, which are two elements standing for one thing.
+        Array.prototype.forEach.call(
+          svg.querySelectorAll('[data-source="' + from + '"][data-target="' + to + '"]'),
+          function (part) { light(part, part === el); });
+        light(svg.querySelector('[data-node="' + from + '"]'), false);
+        light(svg.querySelector('[data-node="' + to + '"]'), false);
+      }
+
+      svg.addEventListener('mouseover', function (event) {
+        var el = event.target.closest &&
+          event.target.closest('.graph__node, .graph__edge, .graph__label');
+        if (!el) { return; }
+        clear();
+        svg.classList.add('graph--focused');
+        if (el.hasAttribute('data-node')) { focusNode(el); } else { focusEdge(el); }
+      });
+      svg.addEventListener('mouseleave', clear);
     }
   })();
 </script>

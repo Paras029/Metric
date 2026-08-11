@@ -66,6 +66,17 @@ class Node:
     x: float = 0.0
     y: float = 0.0
 
+    merged_ids: Tuple[str, ...] = ()
+    """Every state id this box stands for, where several declare the same ending.
+
+    A graph drawn from a real intake is full of endings declared once per route into them --
+    "Handed to a case handler" as S-07, S-11 and S-19, because each was written as the destination
+    of one decision outcome and nothing joined them up. Drawn as three boxes that is three
+    different endings, which is not what the agent does and not what anyone reading the picture
+    should conclude. Drawn as one box with three arrows into it, it is the flow as it actually
+    runs, and the ids it stands for are named in the hover so nothing is hidden.
+    """
+
 
 @dataclass
 class Edge:
@@ -99,6 +110,11 @@ class Layout:
     height: float = 0.0
     unreachable: List[str] = field(default_factory=list)
     orphans: List[str] = field(default_factory=list)
+
+    duplicate_endings: List[Tuple[str, ...]] = field(default_factory=list)
+    """Groups of state ids that declare the same ending. Drawn as one box each -- see
+    :attr:`Node.merged_ids` -- and reported as a finding, because an intake that says the same
+    thing three times is a declaration somebody should tidy rather than a fact about the agent."""
 
 
 def _start_states(intake: IntakeData) -> List[State]:
@@ -156,11 +172,31 @@ def _decision_detail(decision: Decision) -> str:
                 if decision.out_of_scope else ""))
 
 
-def _state_detail(state: State) -> str:
+def _state_detail(state: State, also: Sequence[State] = ()) -> str:
+    reached = ", ".join([state.reached_via] + [s.reached_via for s in also if s.reached_via])
+    footer = _ends_note(state)
+    if also:
+        footer = (f"{footer}\n\nDeclared {len(also) + 1} times over, as "
+                  f"{', '.join([state.id] + [s.id for s in also])}. Drawn once, because they "
+                  f"describe the same ending.").strip()
     return _panel(
         f"{state.id} · {state.description or 'no description'}",
-        [("Reached via", state.reached_via)],
-        footer=_ends_note(state))
+        [("Reached via", reached)],
+        footer=footer)
+
+
+def _ending_key(state: State) -> Optional[tuple]:
+    """What makes two declared endings the same ending, or ``None`` for one that cannot be judged.
+
+    The description and the outcome type together, normalised for case, spacing and trailing
+    punctuation. Deliberately an exact match on the words rather than anything looser: two endings
+    that differ by a word may well be two endings, and a picture that merged them would be lying
+    about the agent in the direction that hides a route. A state with no description at all is
+    never merged -- there is nothing to compare, and grouping every blank one together would
+    invent a convergence out of an omission.
+    """
+    words = " ".join((state.description or "").split()).strip().rstrip(".").lower()
+    return (words, (state.outcome_type or "").strip().lower()) if words else None
 
 
 def _edge_detail(decision: Decision, variant: str, state: State) -> str:
@@ -198,12 +234,27 @@ def build_layout(intake: IntakeData, pending_decisions: Sequence[str] = (),
             detail=_decision_detail(decision), pending=decision.id in pending_decisions,
             out_of_scope=decision.out_of_scope)
 
+    # One box per *ending*, not one per declared state. See Node.merged_ids for why.
+    endings: Dict[tuple, List[State]] = {}
     for state in intake.states:
-        if state.is_terminal:
-            layout.nodes[state.id] = Node(
-                id=state.id, kind=TERMINAL, title=state.id, caption=state.description,
-                detail=_state_detail(state), pending=state.id in pending_states,
-                outcome_type=state.outcome_type)
+        if not state.is_terminal:
+            continue
+        key = _ending_key(state)
+        endings.setdefault(key or ("", state.id), []).append(state)
+
+    stands_for: Dict[str, str] = {}
+    for group in endings.values():
+        head, also = group[0], group[1:]
+        for state in group:
+            stands_for[state.id] = head.id
+        layout.nodes[head.id] = Node(
+            id=head.id, kind=TERMINAL, title=head.id, caption=head.description,
+            detail=_state_detail(head, also),
+            pending=any(s.id in pending_states for s in group),
+            outcome_type=head.outcome_type,
+            merged_ids=tuple(s.id for s in group))
+    layout.duplicate_endings = sorted(
+        tuple(s.id for s in group) for group in endings.values() if len(group) > 1)
 
     def _leaving(state: State, source: str, pending: bool) -> None:
         """Draw the arrow out of a state into each decision it leads to."""
@@ -227,7 +278,7 @@ def build_layout(intake: IntakeData, pending_decisions: Sequence[str] = (),
             pending = decision.id in pending_decisions or state.id in pending_states
             if state.is_terminal:
                 layout.edges.append(Edge(
-                    source=decision.id, target=state.id, outcome=variant,
+                    source=decision.id, target=stands_for.get(state.id, state.id), outcome=variant,
                     state_label=state.description or state.id,
                     detail=_edge_detail(decision, variant, state),
                     pending=pending, out_of_scope=decision.out_of_scope))
@@ -255,7 +306,8 @@ def build_layout(intake: IntakeData, pending_decisions: Sequence[str] = (),
     reachable = {e.target for e in layout.edges} | {_START_ID}
     layout.unreachable = sorted(
         s.id for s in intake.states
-        if s.is_terminal and s.id not in reachable and s.id in layout.nodes)
+        if s.is_terminal and stands_for.get(s.id, s.id) not in reachable
+        and stands_for.get(s.id, s.id) in layout.nodes)
     layout.orphans = sorted(
         node.id for node in layout.nodes.values()
         if node.id not in reachable and node.kind in (DECISION, TERMINAL))
@@ -372,6 +424,23 @@ def _label_position(edge: Edge, source: Node, target: Node) -> tuple:
     return mid_x, mid_y
 
 
+def _corner(kind: str) -> float:
+    """How round a box is, which is what says what kind of thing it stands for.
+
+    The picture has always had two kinds of box in it -- a decision, and a way the interaction
+    ends -- drawn identically, so a reader could not tell a branch point from a terminus without
+    hovering over it. That is the "boxes are sometimes decisions and sometimes states" complaint,
+    and it is a drawing problem rather than a modelling one: the intake is unambiguous, the SVG
+    was not.
+
+    So the flowchart convention people already know does the work. A terminus is a stadium -- fully
+    rounded ends, nothing leaves it. A decision is square, because something is being chosen there
+    and the branches leave from its corners. Shape rather than colour, so it survives being
+    printed, and so it does not spend the one colour idea the interface has.
+    """
+    return BOX_HEIGHT / 2 if kind in (START, TERMINAL, ORPHAN) else 3
+
+
 def _edge_label(edge: Edge) -> str:
     """What the arrow says: the state it leads to, and the outcome that took it there."""
     state = edge.state_label if len(edge.state_label) <= 26 else edge.state_label[:25] + "…"
@@ -403,7 +472,9 @@ def render_svg(intake: IntakeData, pending_decisions: Sequence[str] = (),
             (" graph__edge--loop" if edge.is_back else "") + \
             (" graph__edge--out-of-scope" if edge.out_of_scope else "")
         parts.append(
-            f'<g class="{classes}"><title>{html.escape(edge.detail)}</title>'
+            f'<g class="{classes}" data-source="{html.escape(edge.source)}" '
+            f'data-target="{html.escape(edge.target)}">'
+            f'<title>{html.escape(edge.detail)}</title>'
             f'<path d="{_edge_path(edge, source, target)}" marker-end="url(#arrow)"/></g>')
 
     # Labels are drawn after every edge so no path crosses over the text. A loop's label is
@@ -419,7 +490,9 @@ def render_svg(intake: IntakeData, pending_decisions: Sequence[str] = (),
         classes = "graph__label" + (" graph__label--loop" if edge.is_back else "")
         rotate = f' transform="rotate(-90 {mid_x:.1f} {mid_y:.1f})"' if edge.is_back else ""
         parts.append(
-            f'<g class="{classes}"{rotate}><title>{html.escape(edge.detail)}</title>'
+            f'<g class="{classes}"{rotate} data-source="{html.escape(edge.source)}" '
+            f'data-target="{html.escape(edge.target)}">'
+            f'<title>{html.escape(edge.detail)}</title>'
             f'<rect x="{mid_x - width / 2:.1f}" y="{mid_y - 9:.1f}" width="{width:.1f}" '
             f'height="17" rx="8.5"/>'
             f'<text x="{mid_x:.1f}" y="{mid_y + 3.5:.1f}" text-anchor="middle">'
@@ -451,7 +524,7 @@ def render_svg(intake: IntakeData, pending_decisions: Sequence[str] = (),
             f'<g class="{" ".join(classes)}" data-node="{html.escape(node.id)}">'
             f'<title>{html.escape(detail)}</title>'
             f'<rect x="{node.x:.1f}" y="{node.y:.1f}" width="{BOX_WIDTH}" height="{BOX_HEIGHT}" '
-            f'rx="6"/>'
+            f'rx="{_corner(node.kind)}"/>'
             f'<text class="graph__id" x="{node.x + 10:.1f}" y="{node.y + 15:.1f}">'
             f'{html.escape(node.title)}</text>'
             f'<text class="graph__caption" y="{text_y:.1f}">{spans}</text></g>')
@@ -476,5 +549,6 @@ def graph_summary(intake: IntakeData, pending_decisions: Sequence[str] = (),
         "out_of_scope": sum(1 for d in intake.decisions if d.out_of_scope),
         "unreachable": layout.unreachable,
         "orphans": layout.orphans,
+        "duplicate_endings": layout.duplicate_endings,
         "depth": max((n.depth for n in layout.nodes.values()), default=0) + 1,
     }

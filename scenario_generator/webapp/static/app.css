@@ -961,6 +961,34 @@ ol, ul { list-style: none; padding: 0; }
 .graph__label--loop rect { stroke: var(--graph-loop); }
 .graph__label--loop text { fill: var(--graph-fallback); }
 
+/* --------------------------------------------------------------- following one thread
+ *
+ * A declared graph of any size is a picture in which every line crosses every other, and the
+ * question a reader actually has is never "what is the whole shape" -- it is "where does *this*
+ * come from and where does it go". So hovering anything holds that one thread at full strength
+ * and drops everything else back, which turns a wall of arrows into a single legible route
+ * without moving anything on the page.
+ *
+ * Faded rather than hidden, and deliberately: the rest of the graph staying faintly visible is
+ * what makes the highlighted path read as a path *through* something. Hidden, it would read as a
+ * different picture appearing.
+ *
+ * Nothing here is required for the graph to work. With scripting off no class is ever added, the
+ * whole picture renders as it always did, and every box and arrow still carries its native SVG
+ * tooltip. */
+.graph__node, .graph__edge, .graph__label { transition: opacity var(--quick); }
+.graph--focused .graph__node,
+.graph--focused .graph__edge,
+.graph--focused .graph__label { opacity: .12; }
+.graph--focused .is-lit { opacity: 1; }
+
+/* The thing under the pointer, as opposed to what it connects to. Only ever one of these, so it
+   answers "which of these did I ask about" on a path several boxes long. */
+.graph--focused .is-lit--source rect { stroke: var(--blue); stroke-width: 2px; }
+.graph--focused .graph__node.is-lit--source rect { fill: var(--blue-tint); }
+.graph--focused .graph__edge.is-lit path { stroke: var(--blue); }
+.graph--focused .graph__edge.is-lit--source path { stroke-width: 2.4px; }
+
 .graph__facts { margin-top: var(--s3); font-size: var(--t-meta); color: var(--ink-dim); }
 
 /* =================================================================== folds
