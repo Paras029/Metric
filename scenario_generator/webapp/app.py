@@ -60,7 +60,10 @@ GRAPH_STAGES = ("intake", "workflow")
 # Groups redaction can actually do something to: the two that carry text ingestion reads. A
 # diagram has no text to redact, and the model owner's conversations never reach
 # build_corpus at all -- they are read separately, only to measure coverage, at a later stage.
-REDACTABLE_GROUPS = (MODEL_DOC, SUPPORTING)
+# Every group whose files are text a model will read. The transcripts belong here most of
+# all: the documentation describes an agent, where these are real conversations with real
+# customers in them.
+REDACTABLE_GROUPS = (MODEL_DOC, SUPPORTING, OWNER_SCENARIOS)
 
 # The group name the "upload a completed intake" drop sends. Not one of the submission headings:
 # an intake workbook is the declaration itself rather than evidence for one, so it goes to the

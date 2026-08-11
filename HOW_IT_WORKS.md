@@ -322,10 +322,46 @@ grouping would put the measurement out of reach of exactly the submissions that 
 grouping that is supplied is carried through and assessed against where the conversations actually
 landed — a group that splits across several scenarios is a disagreement worth someone's attention.
 
-Three layouts are read, and which one was used is reported back to you: one row per turn with a
-conversation id repeated down the sheet; one row per conversation with the whole transcript in a
-cell; or a document with no table at all, conversations separated by headings with `User:` /
-`Agent:` prefixes on each line. Spreadsheets, CSV, Word, PDF and plain text all work.
+**The submission this stage asks for is `data_template.xlsx`, returned filled in.** That is the
+same workbook stage 8 issues: the team completes the `Variation_Log` sheet, one row per scenario,
+variation and turn, and sends it back. It is recognised outright, and because every row already
+names the scenario it was run against, a submission returned whole is mapped with **no model calls
+at all** — the id is the answer to the question the mapping pass exists to ask, so asking again
+would be paying to rediscover something already written down. An id the current space does not
+have still goes to the call: a template issued off an older space is a finding rather than
+something to trust silently.
+
+**Anything else gets one call to work out its shape.** Real submissions come out of a logging
+system in whatever columns that system produces, and matching column headings against a word list
+fails in the way that hurts most — silently. A column headed `Utterance` is found; one headed
+`cust_msg_body_txt` is not, and the fallback rule ("the widest column carries the words") happily
+picks the agent's reasoning trace and files it under the user. Nothing about that result looks
+wrong; the coverage figure is simply built on the wrong column.
+
+So the layout is asked about instead: one call, shown the header and a handful of rows, naming
+which column holds the conversation id, which holds the words, which says who was speaking, and
+how that column spells each side — `C` and `A` are as common as `User` and `Agent`. Every row is
+then read in code from that answer, so it is one call for a file of any size. If the call cannot
+be made, or names a column the file does not have, the heading-matched reader takes over and says
+so. Which reading was used is always reported back to you, because a misread column halves a
+coverage figure quietly.
+
+Three layouts are read either way: one row per turn with a conversation id repeated down the
+sheet; one row per conversation with the whole transcript in a cell; or a document with no table
+at all, conversations separated by headings with `User:` / `Agent:` prefixes on each line.
+Spreadsheets, CSV, Word, PDF and plain text all work.
+
+**Probes count as evidence when the team ran them.** They go out in the same template as the
+routes, so a team can run a probe and report it. That is no longer filed as "matched no scenario"
+— which described a hole in their testing where the hole was in the reader. What coverage
+*measures* is still the functional space only: a probe is a property of the agent rather than a
+route through it, and putting probes in the denominator would move the figure without changing
+the evidence.
+
+**Transcripts can be redacted before anything reads them.** Tick *Redact* against the file on the
+upload panel. This matters more here than anywhere else in the tool: the documentation describes
+an agent, where these are real conversations with real customers in them. Redaction runs over the
+whole submission in one pass, so one customer keeps one placeholder across every exchange they had.
 
 **One conversation maps to exactly one scenario, and the match is decided by where the conversation
 ends.** A scenario space scenario is a complete route to a specific ending, and some routes are prefixes

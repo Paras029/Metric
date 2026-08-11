@@ -27,7 +27,9 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
+
+from . import conversation_migration
 
 logger = logging.getLogger(__name__)
 
@@ -213,7 +215,7 @@ def _from_returned_template(rows: List[List[str]], origin: str) -> Tuple[List[Co
     # which has already stringified, and straight off the workbook, where Variation and Turn are
     # still integers.
     rows = [[str(cell if cell is not None else "").strip() for cell in row] for row in rows]
-    header, lowered = rows[0], [cell.lower() for cell in rows[0]]
+    lowered = [cell.lower() for cell in rows[0]]
 
     def column(name: str) -> int:
         return lowered.index(name.lower()) if name.lower() in lowered else -1
@@ -340,7 +342,7 @@ def _conversation_per_row(body: List[List[str]], origin: str, id_col: int, text_
     return conversations, f"{origin}, one row per conversation"
 
 
-def _from_workbook(path: Path) -> Tuple[List[Conversation], str]:
+def _from_workbook(path: Path, complete=None) -> Tuple[List[Conversation], str]:
     from openpyxl import load_workbook
 
     try:
@@ -371,7 +373,10 @@ def _from_workbook(path: Path) -> Tuple[List[Conversation], str]:
             if rows and _is_returned_template([str(c or "") for c in rows[0]]):
                 return _from_returned_template(rows, f"sheet '{name}'")
 
-        best, best_error = None, None
+        # Which sheet, before which columns. Asking about every sheet in a workbook would spend a
+        # call on the covering note and the summary tab as readily as on the transcripts, so the
+        # sheet is chosen by headings first and only the winner is asked about.
+        best, best_error, best_rows = None, None, None
         for name in book.sheetnames:
             rows = [list(r) for r in book[name].iter_rows(values_only=True)]
             try:
@@ -380,26 +385,56 @@ def _from_workbook(path: Path) -> Tuple[List[Conversation], str]:
                 best_error = best_error or exc
                 continue
             if best is None or len(conversations) > len(best[0]):
-                best = (conversations, how)
+                best, best_rows = (conversations, how), (rows, f"sheet '{name}'")
     finally:
         book.close()
 
     if best is None:
         raise UnreadableConversations(
             str(best_error) if best_error else "no sheet held anything readable as conversations.")
+    if complete is not None and best_rows is not None:
+        return _read_table(best_rows[0], best_rows[1], complete)
     return best
 
 
-def _from_csv(path: Path) -> Tuple[List[Conversation], str]:
+def _from_csv(path: Path, complete=None) -> Tuple[List[Conversation], str]:
     with path.open(newline="", encoding="utf-8", errors="replace") as handle:
-        sample = handle.read(8192)
+        head = handle.read(8192)
         handle.seek(0)
         try:
-            dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+            dialect = csv.Sniffer().sniff(head, delimiters=",;\t|")
         except csv.Error:
             dialect = csv.excel
         rows = [list(row) for row in csv.reader(handle, dialect)]
-    return _from_rows(rows, path.name)
+    return _read_table(rows, path.name, complete)
+
+
+def _read_table(rows: List[List[str]], origin: str, complete=None
+                ) -> Tuple[List[Conversation], str]:
+    """One sheet or one CSV: our template, then an asked-for mapping, then headings.
+
+    The fallback is unconditional on purpose. Every way the migration call can fail -- no gateway,
+    a reply that will not parse, a column named that the file does not have -- ends with a reading
+    rather than with an error, because a heading-matched figure a person can see the provenance of
+    beats no figure at all.
+    """
+    normalised = [[str(cell if cell is not None else "").strip() for cell in row] for row in rows]
+    normalised = [row for row in normalised if any(row)]
+    if normalised and _is_returned_template(normalised[_header_index(normalised)]):
+        head = _header_index(normalised)
+        return _from_returned_template(normalised[head:], origin)
+
+    if complete is not None and normalised:
+        head = _header_index(normalised)
+        mapping = conversation_migration.migrate(normalised[head:], origin, complete)
+        if mapping is not None:
+            try:
+                return _from_mapping(normalised[head:], origin, mapping)
+            except UnreadableConversations as exc:
+                logger.warning("The columns worked out for %s did not yield conversations (%s); "
+                               "reading it by its headings instead.", origin, exc)
+
+    return _from_rows(rows, origin)
 
 
 def _from_text(text: str, origin: str) -> Tuple[List[Conversation], str]:
@@ -470,19 +505,125 @@ def _from_pdf(path: Path) -> Tuple[List[Conversation], str]:
     return _from_text("\n".join((page.extract_text() or "") for page in pages), path.name)
 
 
-def read_conversations(path: Path) -> Tuple[List[Conversation], str]:
+def redact_conversations(conversations: List[Conversation], force: bool = False) -> List[Conversation]:
+    """Every utterance through the redactor, in one pass over the whole submission.
+
+    This is the group that most needs it and was the only one not getting it. A model owner's
+    transcripts are real conversations with real customers -- names, card numbers, addresses,
+    whatever the customer typed -- where the documentation is a description of an agent. The
+    documents were redactable from the upload page and these were not, and nothing on the coverage
+    path redacted anything at all, so the one submission certain to carry live customer data was
+    the one that reached a model untouched.
+
+    One call for the whole submission rather than one per conversation: the redactor's own
+    consistency mapping is what keeps the same person the same placeholder across a file, and
+    calling it per conversation would give the same customer a different name in every exchange
+    they had.
+
+    A no-op wherever redaction is off globally and ``force`` is not set -- see
+    :func:`ingest.redaction.redact_segments`.
+    """
+    from .readers import Segment
+    from .redaction import redact_segments
+
+    index = [(c, position) for c in conversations for position, _ in enumerate(c.turns)]
+    segments = [Segment(text=c.turns[position].text, locator=f"{c.id}:{position}")
+                for c, position in index]
+    if not segments:
+        return conversations
+
+    cleaned, _ = redact_segments(segments, force=force)
+    for (conversation, position), segment in zip(index, cleaned):
+        conversation.turns[position] = Turn(conversation.turns[position].speaker, segment.text)
+    return conversations
+
+
+def _from_mapping(rows: List[List[str]], origin: str, mapping: dict
+                  ) -> Tuple[List[Conversation], str]:
+    """Read every row using the column mapping a migration call settled.
+
+    Deterministic from here on: the call named the columns once, and this walks the whole file
+    with them, which is why one call reads a submission of any size.
+    """
+    columns = mapping["columns"]
+    # The file's own spelling of each side, where the migration named it. Checked before the word
+    # list, because a one-letter code is exactly what the word list cannot know.
+    spellings = mapping.get("speakers") or {}
+    body = [[str(cell if cell is not None else "").strip() for cell in row] for row in rows[1:]]
+    body = [row for row in body if any(row)]
+    if not body:
+        raise UnreadableConversations(f"{origin} has a header but no data rows.")
+
+    found: Dict[str, Conversation] = {}
+    order: List[str] = []
+
+    def conversation_for(row: List[str], fallback: int) -> Conversation:
+        identifier = _cell(row, columns["conversation_id"]) or f"C-{fallback:03d}"
+        if identifier not in found:
+            found[identifier] = Conversation(
+                id=identifier,
+                group=_cell(row, columns["group"]),
+                scenario_id=_cell(row, columns["scenario_id"]))
+            order.append(identifier)
+        return found[identifier]
+
+    for index, row in enumerate(body, start=1):
+        if mapping["layout"] == conversation_migration.CONVERSATION_PER_ROW:
+            text = _cell(row, columns["text"])
+            if not text:
+                continue
+            conversation = conversation_for(row, index)
+            conversation.turns.extend(_split_prefixed(text))
+            continue
+
+        # One row per turn, in either of its two forms: a speaker column, or the two sides in
+        # two columns of the same row -- which is the shape our own template uses.
+        conversation = conversation_for(row, index)
+        if columns["speaker"] >= 0 and columns["text"] >= 0:
+            text = _cell(row, columns["text"])
+            if text:
+                raw = _cell(row, columns["speaker"])
+                conversation.turns.append(
+                    Turn(spellings.get(raw.strip().lower()) or _speaker(raw), text))
+        for column, speaker in ((columns["user_text"], USER), (columns["agent_text"], AGENT)):
+            text = _cell(row, column) if column >= 0 else ""
+            if text:
+                conversation.turns.append(Turn(speaker, text))
+
+    kept = [found[identifier] for identifier in order if found[identifier]]
+    if not kept:
+        raise UnreadableConversations(
+            f"{origin} was read with the columns worked out for it, but no conversation reached "
+            f"{MIN_TRANSCRIPT_CHARS} characters.")
+    note = f" {mapping['note']}" if mapping.get("note") else ""
+    return kept, (f"{origin}, {mapping['layout'].replace('_', ' ')}, with its columns worked out "
+                  f"by a first pass over the file.{note}")
+
+
+def read_conversations(path: Path, complete: Optional[Callable[..., str]] = None,
+                       migrate: bool = True) -> Tuple[List[Conversation], str]:
     """Read submitted conversations. Returns them and a note of how the file was read.
 
     The note is not decoration: a misread column quietly halves a coverage figure, and the person
     reading the result needs to be able to see what the reader thought it was looking at.
+
+    Three readings are tried, in order of how much they know. Our own data template, returned
+    filled in, is recognised outright and is the only one that can say which scenario each
+    conversation was run against. Anything else tabular gets one call asking which column is
+    which -- see :mod:`ingest.conversation_migration` for why that beats matching headings.
+    Heading matching is what happens when that call cannot be made or does not describe the file,
+    and prose with no table at all never needed either.
+
+    ``migrate=False`` turns the call off and reads by headings alone, for a caller with no
+    gateway or one that has decided not to spend a call on a file it already trusts.
     """
     path = Path(path)
     suffix = path.suffix.lower()
 
     if suffix in (".xlsx", ".xlsm"):
-        conversations, how = _from_workbook(path)
+        conversations, how = _from_workbook(path, complete if migrate else None)
     elif suffix == ".csv":
-        conversations, how = _from_csv(path)
+        conversations, how = _from_csv(path, complete if migrate else None)
     elif suffix == ".docx":
         conversations, how = _from_docx(path)
     elif suffix == ".pdf":

@@ -85,7 +85,6 @@ class TestTheSheetIsRecognised(unittest.TestCase):
         conversations, _ = read_conversations(self.filled)
         book = load_workbook(self.template)
         log = book["Variation_Log"]
-        header = [c.value for c in log[1]]
         pairs = {(r[0], r[1]) for r in log.iter_rows(min_row=2, values_only=True) if r[0]}
         self.assertEqual(len(conversations), len(pairs))
 

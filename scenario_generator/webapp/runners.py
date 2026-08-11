@@ -25,10 +25,11 @@ from ..core.intake import (attach_decision_to_state, merge_decisions, read_intak
                            set_state_reached_via)
 from ..core.models import MATERIALITY, IntakeData
 from ..ingest import build_model_context, record_from_json
-from ..ingest.groups import evidence_files, owner_scenario_file
+from ..ingest.groups import OWNER_SCENARIOS, evidence_files, owner_scenario_file
 from ..ingest.conversations import UnreadableConversations
 from ..io import read_space_metadata, read_scenarios, write_data_template, write_space_metadata
 from ..llm import MaterialityAssessor, ScenarioReviewer, ScenarioWriter
+from ..llm.gateway import ask_llm
 from ..llm import cancellation
 from ..pipeline import (build_scenario_space, draft_intake_workbook, ingest_documents,
                         map_conversation_coverage, revise_intake_workbook, structural_problems)
@@ -480,7 +481,8 @@ def _run_coverage(workspace: Workspace, progress=None, cancel=None) -> Dict[str,
         result = map_conversation_coverage(
             str(intake_path), str(workspace.root / METADATA), str(submitted),
             str(workspace.root / OVERLAP), threshold=workspace.coverage_threshold,
-            progress=progress, cancel=cancel)
+            redact=workspace.is_marked_for_redaction(OWNER_SCENARIOS, Path(submitted).name),
+            complete=ask_llm, progress=progress, cancel=cancel)
     except UnreadableConversations as exc:
         # A submitted file, not a pipeline fault. Say which file and what was wrong with it,
         # because the fix is to ask the model owner for a clearer one rather than to change

@@ -127,6 +127,9 @@ stages:
   reviewer_propose:               # what enumeration could not reach
     # model: a-smaller-model
     max_attempts: 4
+  coverage_migrate:               # working out which column of a submission is which
+    # model: a-smaller-model
+    max_attempts: 2
   coverage_map:                   # submitted conversations, onto the scenario space
     # model: a-smaller-model
     batch_size: 5

@@ -19,7 +19,8 @@ from .io import (read_space_metadata, read_scenarios, write_data_template, write
                  write_space_metadata, write_scenario_graph)
 from .ingest import (DocumentExtractor, DraftedIntake, build_context_document, carry_forward,
                      draft_intake, open_questions, read_conversations, record_from_json,
-                     rejection_summary, repair_intake, revise_intake, write_drafted_intake)
+                     redact_conversations, rejection_summary, repair_intake, revise_intake,
+                     write_drafted_intake)
 from .llm import (MaterialityAssessor, ScenarioReviewer, ScenarioWriter, describe_enumeration,
                   describe_graph, describe_use_case)
 from .llm.conversation_mapping import ConversationMapper
@@ -520,6 +521,7 @@ class ConversationCoverageResult:
 def map_conversation_coverage(intake_path: str, metadata_path: str, conversations_path: str,
                               report_path: str, mapper: Optional[ConversationMapper] = None,
                               threshold: int = DEFAULT_THRESHOLD, annotate_registry: bool = True,
+                              redact: bool = False, complete=None,
                               progress=None, cancel=None) -> ConversationCoverageResult:
     """Stage: map submitted conversations onto the scenario space and count what they cover.
 
@@ -530,12 +532,22 @@ def map_conversation_coverage(intake_path: str, metadata_path: str, conversation
 
     ``threshold`` is the line between represented and under-represented. It is a caller's
     judgement rather than a property of the data -- see :mod:`.core.representation`.
+
+    ``complete`` is handed to the reader so it can spend one call working out which column of a
+    submission is which -- see :mod:`ingest.conversation_migration`. Passing ``None`` reads by
+    headings alone, which is what every test that does not care about the layout wants.
+
+    ``redact`` runs the transcripts through the redactor even where ``PII_REDACTION`` is off
+    globally, for the submission somebody has marked on the upload page. Redaction happens here,
+    before the mapper, because this is the last point at which every utterance is in one place --
+    the consistency mapping that keeps one customer to one placeholder needs the whole file.
     """
     intake = read_intake(intake_path)
     space = read_space_metadata(metadata_path)
     texts = {s.id: s.description for s in read_scenarios(metadata_path, intake)}
 
-    conversations, how = read_conversations(Path(conversations_path))
+    conversations, how = read_conversations(Path(conversations_path), complete=complete)
+    redact_conversations(conversations, force=redact)
     mapper = mapper or ConversationMapper(progress=progress, cancel=cancel)
     # Mapped against everything that was *issued*, reported against the functional space. The
     # data template carries the probes as well, so a team that ran one and said so on the row they
