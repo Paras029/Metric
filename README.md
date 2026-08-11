@@ -220,6 +220,29 @@ sending any further calls — whichever one is already in flight is left to fini
 off — and nothing that run would have produced is written, so the stage lands back exactly where
 it was before you ran it, ready to run again rather than stuck looking failed.
 
+**Reading the declared graph.** Boxes are decisions, arrows are the states between them, rounded
+boxes are the ways an interaction can end. Hovering anything holds that one thread at full strength
+and drops the rest back, which answers "where does this come from and where does it go" without
+tracing it with a finger. Clicking keeps the highlight — click again, click the background, press
+Escape, or use *Clear selection* to release it. **Whole branch** widens a held selection from one
+hop to the entire route through it: everything that can reach it and everything it can reach, which
+is the shape a scenario walks.
+
+The graph also leaves the tool. *Open the graph on its own* and *Download it as a page that still
+zooms* both produce the same self-contained file — same drawing, same zoom, same highlighting, with
+the stylesheet and the script inlined, so it still reads from a mail attachment or a share with
+nothing running. A graph big enough to need a zoom is a graph a screenshot cannot carry.
+
+**What the declaration still needs.** The intake stage lists what would stop part of the graph
+being built, addressed to the row that needs it: a decision that names no outcomes, a state nothing
+reaches, a capability with no type. Nothing else is asked. What the documents left open about
+policy, testing or vocabulary is in the context document, where it is a remark on how complete the
+pack is rather than a task with your name on it.
+
+Answers are saved together, blanks stay open, and each is recorded against its question — so a
+re-run of the stage reads it as an answer rather than as a loose remark, and folds it into the
+declaration without anything being re-typed into the workbook.
+
 Any stage accepts free-text notes and extra files. Both are passed to every stage that follows.
 On the command line this is `--note`, which is repeatable:
 
