@@ -107,7 +107,7 @@ class CoverageReport:
         return [s for s in self.scenarios if s.represented(self.threshold)]
 
     def under_represented(self) -> List[ScenarioCoverage]:
-        """Everything at or below the line -- what the challenge pack should concentrate on."""
+        """Everything at or below the line -- what the data template should concentrate on."""
         return [s for s in self.scenarios if not s.represented(self.threshold)]
 
     def untouched(self) -> List[ScenarioCoverage]:

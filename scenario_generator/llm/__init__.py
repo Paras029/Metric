@@ -2,7 +2,7 @@
 
     ScenarioWriter       owner-facing description and turn plan.
     MaterialityAssessor  a separate sweep assigning materiality with cross-scenario context.
-    ScenarioReviewer     final whole-registry sweep: revises materiality, proposes additions.
+    ScenarioReviewer     final whole-space sweep: revises materiality, proposes additions.
     review_structure     one intake-stage call proposing reconnections and consolidations.
 
 Prompt wording lives in ``scenario_generator/prompts`` and is reached through

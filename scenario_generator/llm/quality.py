@@ -9,7 +9,7 @@ act on where "read it again, more carefully" is not.
 This module is that audit for the scenario writer, which did not have one. It matters more here
 than anywhere else in the pipeline, because this is the pass whose output is **issued to the model
 owner**. Everything else the tool gets wrong is a quality problem a validator will notice. Text
-that states how the interaction ends is an answer key, and it fails silently: the pack looks
+that states how the interaction ends is an answer key, and it fails silently: the template looks
 complete, the model owner runs it, and the exercise measured nothing.
 
 The checks are deliberately cheap and deliberately conservative. Every one of them is a fact

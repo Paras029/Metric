@@ -49,7 +49,7 @@ class TestWhereTheWalkStarts(unittest.TestCase):
 
 
 class TestWhichStartAScenarioOpenedFrom(unittest.TestCase):
-    """An agent with two ways in has two seeded states, and the registry has to say which."""
+    """An agent with two ways in has two seeded states, and the scenario space metadata has to say which."""
 
     def setUp(self):
         self.intake = _intake(

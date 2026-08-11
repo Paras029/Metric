@@ -62,7 +62,7 @@ class TestTheLayersOnlyPointOneWay(unittest.TestCase):
     def test_core_reaches_for_no_model_and_no_interface(self):
         """core says of itself: "No file I/O beyond the intake workbook itself, and no model
         calls." The intake reader is that exception, and it reaches for the low-level sheet
-        helper -- not for the registry and pack writers, which are built on top of core."""
+        helper -- not for the scenario space metadata and pack writers, which are built on top of core."""
         allowed = ("scenario_generator.core", "scenario_generator.utils",
                    "scenario_generator.io.sheets")
         for path in (_PACKAGE / "core").rglob("*.py"):
@@ -106,13 +106,13 @@ class TestTheAnswerNeverReachesThePack(unittest.TestCase):
 
     def test_the_pack_writer_never_reads_a_ground_truth_field(self):
         source = (_PACKAGE / "io" / "workbooks.py").read_text(encoding="utf-8")
-        pack = source[source.index("def write_challenge_pack("):]
+        pack = source[source.index("def write_data_template("):]
         pack = pack[:pack.index("\ndef ", 1)] if "\ndef " in pack[1:] else pack
         # Where a run starts is the question and is issued; how it ends is the answer and is not.
         for field in ("termination", "expected_variant", "outcome_type", "owner_coverage",
                       "review_rationale", "materiality_rationale", "review_flag"):
             self.assertNotIn(f".{field}", pack,
-                             f"the challenge pack must not carry {field}")
+                             f"the data template must not carry {field}")
 
     def test_the_writer_is_never_shown_the_expected_outcome(self):
         """Its output is issued to the model owner, so text written from the answer would
@@ -153,7 +153,7 @@ class TestOneVocabularyPerThing(unittest.TestCase):
         for old, new in LEGACY_ORIGINS.items():
             self.assertEqual(canonical_origin(old), new)
         self.assertIn(canonical_origin("coverage-gap"), FUNCTIONAL_ORIGINS,
-                      "a scenario written before the rename must still reach the challenge pack")
+                      "a scenario written before the rename must still reach the data template")
 
     def test_every_origin_the_interface_can_show_has_a_label(self):
         from scenario_generator.core.models import ORIGINS
@@ -171,7 +171,7 @@ class TestAWorkbookIsNeverWrittenStale(unittest.TestCase):
         the untouched default, superseded by the next command in the sequence."""
         source = (_PACKAGE / "pipeline.py").read_text(encoding="utf-8")
         body = source[source.index("def refine("):source.index("def assess_materiality(")]
-        self.assertNotIn("write_challenge_pack", body)
+        self.assertNotIn("write_data_template", body)
 
     def test_the_pack_is_built_from_a_registry_by_a_command_of_its_own(self):
         source = (_PACKAGE / "pipeline.py").read_text(encoding="utf-8")

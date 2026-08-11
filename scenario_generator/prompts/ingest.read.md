@@ -90,7 +90,7 @@ a version number, who owns a system, wording the documents merely paraphrase. Wh
 are simply thinner on a question than you would like, say so through `confidence` — that is what
 it is for.
 
-ACCOUNTING FOR THE PACK
+ACCOUNTING FOR THE TEMPLATE
 
 Return `documents_used`: the names, exactly as listed above, of every document any part of your
 answers rests on. Judge it honestly. A document listed there and not actually used is worse than

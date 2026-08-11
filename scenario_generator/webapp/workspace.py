@@ -224,7 +224,7 @@ class Workspace:
         # so changing the threshold re-reports what is already mapped rather than re-running the
         # model over every conversation again.
         self.coverage: dict = dict(coverage or {})
-        # Whether the challenge pack carries only the scenarios their testing under-covers.
+        # Whether the data template carries only the scenarios their testing under-covers.
         # Off by default, and deliberately so: every other stage adds to what the model owner is
         # asked for, and this is the one setting that takes things away. Narrowing the pack is a
         # decision to trust their evidence for everything left out, which is the user's to make.
@@ -623,7 +623,7 @@ class Workspace:
 
         Clearing the status is not the same as clearing the work. Several stages read what they
         need straight off disk rather than through the record, so a reset that only forgets the
-        status leaves the old registry, evidence and questions where they were and they come
+        status leaves the old metadata workbook, evidence and questions where they were and they come
         straight back on the next run. Pass ``delete`` to remove them as well.
 
         Submitted documents are never touched either way. They are input rather than output, and

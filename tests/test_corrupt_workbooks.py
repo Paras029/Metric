@@ -15,7 +15,7 @@ from pathlib import Path
 
 from scenario_generator.core.intake import read_intake, read_owner_scenarios
 from scenario_generator.ingest.conversations import UnreadableConversations, read_conversations
-from scenario_generator.io.workbooks import read_registry, read_scenarios
+from scenario_generator.io.workbooks import read_space_metadata, read_scenarios
 
 
 def _not_really_a_workbook(name: str) -> Path:
@@ -121,10 +121,10 @@ class TestInternallyWrittenWorkbooks(unittest.TestCase):
 
     def test_a_disturbed_registry_is_reported_not_traced(self):
         with self.assertRaises(ValueError) as raised:
-            read_registry(str(_not_really_a_workbook("registry.xlsx")))
+            read_space_metadata(str(_not_really_a_workbook("scenario_space_metadata.xlsx")))
         message = str(raised.exception)
         self.assertNotIn("BadZipFile", message)
-        self.assertIn("registry.xlsx", message)
+        self.assertIn("scenario_space_metadata.xlsx", message)
 
     def test_a_disturbed_graph_file_is_reported_not_traced(self):
         with self.assertRaises(ValueError) as raised:

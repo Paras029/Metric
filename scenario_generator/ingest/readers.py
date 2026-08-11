@@ -5,7 +5,7 @@ Every reader returns segments rather than one block of text, and every segment c
 loses it makes the grounding check unable to say where anything came from.
 
 All readers sit behind :func:`read_document`. Adding a format means adding one function and one
-entry to the registry; nothing else changes. Third-party parsers are imported inside the readers
+entry to the scenario space metadata; nothing else changes. Third-party parsers are imported inside the readers
 that need them, so a missing optional package disables one format rather than the whole tool --
 which matters where packages arrive through an internal mirror one approval at a time.
 """

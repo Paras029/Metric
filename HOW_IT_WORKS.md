@@ -34,9 +34,9 @@ graph is walked. Every distinct route through it becomes one scenario, so covera
 design is provable rather than asserted. Where the walk misses a declared outcome, that outcome
 gets its own focused scenario.
 
-**The answer key never leaves the building.** The challenge pack carries what to test and how to
+**The answer key never leaves the building.** The data template carries what to test and how to
 test it, and nothing about what a correct response looks like. Expected outcomes, decision paths
-and categories stay in the registry, which is yours.
+and categories stay in the scenario space metadata, which is yours.
 
 Everything else in the tool is in service of one of those two.
 
@@ -275,8 +275,8 @@ leaking is logged by id.
 snapshot like every other scenario stage, and says so on its own result card — so the pipeline
 already has the shape it will keep and nothing downstream changes when it is filled in.
 
-**Materiality** assigns Low / Medium / High / Critical per scenario, which drives how many runs
-the challenge pack requests. It judges the set rather than each scenario in isolation: whether a
+**Materiality** assigns Low / Medium / High / Critical per scenario, which drives how many variations
+the data template requests. It judges the set rather than each scenario in isolation: whether a
 scenario is the worst thing here depends partly on what else is in the scenario space, and redundancy
 is a real discount.
 
@@ -297,14 +297,14 @@ scenario as redundant is a recommendation.
 
 From stage 5 onward the page shows the scenario space itself: what each scenario asks the agent to
 do, what it is judged to be worth and why, and anything the review flagged. Materiality can be
-overridden and a flag dismissed from there, straight into the registry.
+overridden and a flag dismissed from there, straight into the scenario space metadata.
 
 Above the list is the same space as a grid — category down, materiality across, the count in each
 cell. It exists for the one question a ranked list cannot answer: which combinations have nothing
 in them. A hole has no row, so no amount of sorting will surface it, and a space with no critical
 termination scenario looks complete right up until somebody asks. Every cell is a link that
 narrows the list to it, so the grid is a control as well as a picture. The side panel carries the
-shape of the whole pack alongside it — how many scenarios sit at each tier, how many test runs that
+shape of the whole pack alongside it — how many scenarios sit at each tier, how many variations that
 adds up to, and how much of it the model owner's testing has already exercised — because the
 list in the middle is always a view of part of the scenario space and the panel answers what is in all
 of it. Routes, expected outcomes and per-turn detail stay in the workbook — the screen carries the
@@ -347,21 +347,21 @@ scenario with five low-confidence mappings and one with five high-confidence map
 five, and which of those is convincing is exactly the sort of thing worth putting in front of a
 person.
 
-Each scenario is also annotated in the registry, under `Owner Coverage`, with the count and the
+Each scenario is also annotated in the scenario space metadata, under `Owner Coverage`, with the count and the
 conversation ids behind it. By default that is an annotation and nothing more — no scenario is
 dropped, because whether running something already tested is duplicated effort or independent
 confirmation is your call rather than the tool's.
 
 ### 8. Summary
 
-Writes the challenge pack to send and the registry to keep.
+Writes the data template to send and the scenario space metadata to keep.
 
 The Issue stage offers a setting that narrows the pack to what the model owner under-covers; it is
 off unless you turn it on, since leaving a scenario out says their evidence for it is accepted.
-The registry keeps every scenario regardless — narrowing what is *issued* must not narrow what is
+The scenario space metadata keeps every scenario regardless — narrowing what is *issued* must not narrow what is
 on record.
 
-The coverage annotation never appears in the challenge pack either way. Telling the model owner
+The coverage annotation never appears in the data template either way. Telling the model owner
 which scenarios you already consider answered would tell them exactly which ones to concentrate on.
 
 ---

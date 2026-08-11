@@ -26,15 +26,15 @@ ORIGINS = (ORIGIN_GRAPH, ORIGIN_VARIANT_GAP, ORIGIN_PROBE, ORIGIN_PROPOSED)
 # which stops a proposal with no declared route from being mistaken for one.
 FUNCTIONAL_ORIGINS = (ORIGIN_GRAPH, ORIGIN_VARIANT_GAP)
 
-# Spellings an older registry may carry for an origin above. A registry is a file on disk that
+# Spellings an older metadata workbook may carry for an origin above. A metadata workbook is a file on disk that
 # outlives any one run, so a value read out of one is translated to its settled name on the way in
 # rather than left to fall outside FUNCTIONAL_ORIGINS and quietly drop those scenarios out of the
-# challenge pack.
+# data template.
 LEGACY_ORIGINS = {"coverage-gap": ORIGIN_VARIANT_GAP}
 
 
 def canonical_origin(raw: str) -> str:
-    """One origin's settled name, translating what an older registry called it."""
+    """One origin's settled name, translating what an older metadata workbook called it."""
     origin = str(raw or "").strip()
     return LEGACY_ORIGINS.get(origin, origin)
 
@@ -44,7 +44,7 @@ INPUT_SOURCES = ["User", "Tool", "Memory-Session", "Memory-CrossSession",
                  "System-Context", "Document"]
 
 # Runs the model owner is asked to execute per scenario. PLACEHOLDER — pending MRMG sign-off.
-RUNS_BY_MATERIALITY = {"Low": 1, "Medium": 3, "High": 5, "Critical": 10}
+VARIATIONS_BY_MATERIALITY = {"Low": 1, "Medium": 3, "High": 5, "Critical": 10}
 
 
 # --------------------------------------------------------------------------- intake
@@ -165,7 +165,7 @@ class Scenario:
     materiality_rationale: str = ""       # first LLM sweep
     materiality_override: str = ""        # human ruling; wins over everything
 
-    # Review layer — a whole-registry sweep run last. Recorded separately rather than
+    # Review layer — a whole-space sweep run last. Recorded separately rather than
     # overwriting, so the first assessment and the revision are both auditable.
     review_materiality: str = ""
     review_rationale: str = ""
@@ -236,7 +236,7 @@ class Scenario:
 
 @dataclass
 class ScenarioRow:
-    """A generated scenario loaded back from the registry — the scenario space coverage maps against.
+    """A generated scenario loaded back from the scenario space metadata — the scenario space coverage maps against.
 
     Carries the category and materiality already assigned, so coverage never recomputes them.
     """

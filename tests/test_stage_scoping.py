@@ -3,7 +3,7 @@
 Two rules, and they solve the same complaint from opposite directions. A stage shows only the
 columns it has actually produced, because most of these fields carry a default -- every scenario
 is born "Medium" -- and a default rendered as a verdict is worse than a blank. And a stage shows
-its own reading rather than the live registry, because every stage from the scenario space onward
+its own reading rather than the live metadata workbook, because every stage from the scenario space onward
 rewrites one file, so going back would otherwise show what later stages have since made of it.
 """
 import json
@@ -151,9 +151,9 @@ class TestSnapshots(unittest.TestCase):
 
     def test_every_scenario_stage_keeps_its_own_copy_of_the_registry(self):
         workspace = next(p for p in self.root.iterdir() if (p / "workspace.json").exists())
-        kept = sorted(p.name for p in workspace.glob("registry.*.xlsx"))
-        self.assertEqual(kept, ["registry.materiality.xlsx", "registry.review.xlsx",
-                                "registry.scenarios.xlsx", "registry.workflow.xlsx"])
+        kept = sorted(p.name for p in workspace.glob("space_metadata.*.xlsx"))
+        self.assertEqual(kept, ["space_metadata.materiality.xlsx", "space_metadata.review.xlsx",
+                                "space_metadata.scenarios.xlsx", "space_metadata.workflow.xlsx"])
 
     def test_going_back_shows_what_that_stage_assessed_not_what_came_after(self):
         """The review downgraded everything to Low. The materiality page must still show the
@@ -175,12 +175,12 @@ class TestSnapshots(unittest.TestCase):
 
     def test_clearing_a_stage_takes_its_snapshot_with_it(self):
         workspace = next(p for p in self.root.iterdir() if (p / "workspace.json").exists())
-        self.assertTrue((workspace / "registry.review.xlsx").exists())
+        self.assertTrue((workspace / "space_metadata.review.xlsx").exists())
 
         self.client.post("/stage/review/reset", data={"purge": "1"})
-        self.assertFalse((workspace / "registry.review.xlsx").exists())
+        self.assertFalse((workspace / "space_metadata.review.xlsx").exists())
         # ...and the stages before it keep theirs.
-        self.assertTrue((workspace / "registry.materiality.xlsx").exists())
+        self.assertTrue((workspace / "space_metadata.materiality.xlsx").exists())
 
 
 if __name__ == "__main__":

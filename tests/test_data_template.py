@@ -1,4 +1,4 @@
-"""The challenge pack is the one artifact that leaves MRMG. These tests lock its shape and,
+"""The data template is the one artifact that leaves MRMG. These tests lock its shape and,
 most importantly, that it carries no ground truth.
 """
 import os
@@ -7,10 +7,10 @@ import unittest
 
 from openpyxl import load_workbook
 
-from scenario_generator.core.generation import recommended_turns, required_runs
+from scenario_generator.core.generation import recommended_turns, required_variations
 from scenario_generator.core.models import (Decision, IntakeData, Persona, State, Tool)
 from scenario_generator.core.probes import build_probes
-from scenario_generator.io import write_challenge_pack
+from scenario_generator.io import write_data_template
 
 _INTAKE = IntakeData(
     use_case={"Use case name": "Test", "Business objective": "Objective"},
@@ -24,7 +24,7 @@ _INTAKE = IntakeData(
 
 def _pack(scenarios):
     path = os.path.join(tempfile.mkdtemp(), "pack.xlsx")
-    write_challenge_pack(path, _INTAKE, scenarios)
+    write_data_template(path, _INTAKE, scenarios)
     return load_workbook(path)
 
 
@@ -35,7 +35,7 @@ class TestChallengePack(unittest.TestCase):
 
     def test_sheet_set_is_the_agreed_contract(self):
         self.assertEqual(self.workbook.sheetnames,
-                         ["Instructions", "Scenarios", "Turn_Plan", "Run_Log", "Run_Summary"])
+                         ["Instructions", "Scenarios", "Turn_Plan", "Variation_Log", "Variation_Summary"])
 
     def test_no_ground_truth_columns_anywhere(self):
         banned = {"decision path", "expected variant", "expected tool call", "category",
@@ -56,20 +56,20 @@ class TestChallengePack(unittest.TestCase):
             self.assertNotIn(scenario.probe_family, blob)
 
     def test_run_log_is_prepopulated_to_runs_times_turns(self):
-        expected = sum(required_runs(s.effective_materiality) * recommended_turns(s)
+        expected = sum(required_variations(s.effective_materiality) * recommended_turns(s)
                        for s in self.scenarios)
-        self.assertEqual(self.workbook["Run_Log"].max_row - 1, expected)
+        self.assertEqual(self.workbook["Variation_Log"].max_row - 1, expected)
 
     def test_run_summary_is_prepopulated_to_one_row_per_run(self):
-        expected = sum(required_runs(s.effective_materiality) for s in self.scenarios)
-        self.assertEqual(self.workbook["Run_Summary"].max_row - 1, expected)
+        expected = sum(required_variations(s.effective_materiality) for s in self.scenarios)
+        self.assertEqual(self.workbook["Variation_Summary"].max_row - 1, expected)
 
     def test_review_verdict_drives_the_run_count(self):
         """The pack must reflect the review, not the tier the first sweep assigned."""
         scenario = build_probes(_INTAKE)[0]
         scenario.materiality, scenario.review_materiality = "Low", "Critical"
-        rows = _pack([scenario])["Run_Summary"].max_row - 1
-        self.assertEqual(rows, required_runs("Critical"))
+        rows = _pack([scenario])["Variation_Summary"].max_row - 1
+        self.assertEqual(rows, required_variations("Critical"))
 
     def test_proposed_scenarios_reach_the_pack_without_their_provenance(self):
         scenario = build_probes(_INTAKE)[0]
@@ -86,8 +86,8 @@ class TestChallengePack(unittest.TestCase):
     def test_materiality_override_drives_the_run_count(self):
         scenario = build_probes(_INTAKE)[0]
         scenario.materiality, scenario.materiality_override = "Low", "Critical"
-        rows = _pack([scenario])["Run_Summary"].max_row - 1
-        self.assertEqual(rows, required_runs("Critical"))
+        rows = _pack([scenario])["Variation_Summary"].max_row - 1
+        self.assertEqual(rows, required_variations("Critical"))
 
 
 if __name__ == "__main__":

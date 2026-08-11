@@ -4,7 +4,7 @@ Every prompt in the package asks for JSON and describes the shape it wants, and 
 oblige. Mostly is the operative word: a field described as "numbered turns, one per line" comes
 back as a JSON array often enough that it has to be handled, and the failure when it is not
 handled is silent. ``str()`` on a list produces its Python repr, so the text that reaches the
-registry -- and from there the pack issued to the model owner -- is
+metadata workbook -- and from there the pack issued to the model owner -- is
 
     ['Open by naming the charge.', 'Answer the verification question.']
 

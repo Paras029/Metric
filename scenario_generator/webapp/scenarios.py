@@ -1,6 +1,6 @@
 """The scenario space as something a person can read on screen.
 
-The registry holds everything: decision paths, per-turn expected outcomes, probe provenance,
+The scenario space metadata holds everything: decision paths, per-turn expected outcomes, probe provenance,
 signatures. Almost none of that belongs on a page. What a reviewer is doing here is deciding
 whether a scenario is worth issuing, and that question is answered by the scenario's own words,
 what it is judged to be worth, and whether anything has been flagged about it -- not by the route
@@ -11,14 +11,14 @@ internal identifiers stay in the workbook, which is where someone auditing the s
 look for them. The screen carries the reading, and the workbook carries the record.
 
 One consequence worth stating: the expected outcome is withheld here as well. It is not secret
-from the validator -- it is in their own registry -- but a page that puts the answer beside
+from the validator -- it is in their own metadata workbook -- but a page that puts the answer beside
 the question is a page somebody eventually screenshots into an email to the model owner.
 """
 from __future__ import annotations
 
 from typing import Dict, List
 
-from ..core.generation import required_runs
+from ..core.generation import required_variations
 from ..core.models import (MATERIALITY, ORIGIN_GRAPH, ORIGIN_PROBE, ORIGIN_PROPOSED,
                            ORIGIN_VARIANT_GAP, Scenario)
 
@@ -34,10 +34,10 @@ VIEWS = (
 # the pipeline. The reason to scope this rather than always show everything is that most of these
 # fields have a *default* -- every scenario carries "Medium" from the moment it is built -- and a
 # tier shown on the scenario-text page reads as a judgement when it is only an unset field. The
-# same goes for a run count derived from it, and for review columns nothing has filled in yet.
+# same goes for a variation count derived from it, and for review columns nothing has filled in yet.
 #
 # Going back to an earlier stage therefore shows that stage's own reading rather than the current
-# state of the registry, which is the other half of the same idea: what you are looking at is what
+# state of the scenario space metadata, which is the other half of the same idea: what you are looking at is what
 # that stage produced, not what later stages have since made of it.
 TEXT, MATERIALITY_COLUMNS, REVIEW, COVERAGE = "text", "materiality", "review", "coverage"
 
@@ -160,7 +160,7 @@ def to_row(scenario: Scenario) -> Dict[str, object]:
         "flag_shares_reason": bool(scenario.review_flag) and not _flag_reason(scenario),
         "coverage": scenario.owner_coverage,
         "coverage_note": scenario.owner_coverage_note,
-        "runs": required_runs(scenario.effective_materiality),
+        "runs": required_variations(scenario.effective_materiality),
         "proposal_reason": scenario.proposed_rationale,
     }
 

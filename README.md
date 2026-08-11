@@ -4,10 +4,10 @@ Builds an independent scenario space for a conversational AI agent.
 
 You give it the documentation a model owner submitted about their agent. It reads that
 documentation, drafts a structured description of the agent, enumerates every distinct route
-through it, adds a library of adversarial probes, and produces two workbooks: a **challenge pack**
-you issue to the model owner, and a **registry** you keep.
+through it, adds a library of adversarial probes, and produces two workbooks: a **data template**
+you issue to the model owner, and the **scenario space metadata** you keep.
 
-The challenge pack contains no expected outcomes. That separation is the point of the exercise.
+The data template contains no expected outcomes. That separation is the point of the exercise.
 
 **[HOW_IT_WORKS.md](HOW_IT_WORKS.md)** is the companion document: what each stage does and why,
 how documents and diagrams are read, how coverage is measured, and every setting in the tuning
@@ -177,9 +177,9 @@ python -m scenario_generator draft-intake acme_context.md acme_intake.xlsx
 python -m scenario_generator generate acme_intake.xlsx acme --with-probes \
     --context acme_context.md
 
-# Review it whole, and rebuild the pack with the result.
-python -m scenario_generator review acme_intake.xlsx acme_registry.xlsx acme_registry.xlsx \
-    --context acme_context.md --pack acme_challenge_pack.xlsx
+# Review it whole, and rebuild the data template with the result.
+python -m scenario_generator review acme_intake.xlsx acme_scenario_space_metadata.xlsx acme_scenario_space_metadata.xlsx \
+    --context acme_context.md --pack acme_data_template.xlsx
 ```
 
 **If you already have a completed intake workbook**, skip the first two commands. Upload it at
@@ -198,10 +198,10 @@ the same files these commands produce. A use case can move between the two freel
 | 2 | Workflow | The intake | Every distinct route through the graph, walked depth-first, plus applicable probes |
 | 3 | Scenario space | The routes | A name, a description and a tester script per scenario |
 | 4 | Variation space | The scenario space | The variants of each scenario worth running separately — **not built yet** |
-| 5 | Materiality | The space | A Low / Medium / High / Critical tier per scenario, driving run counts |
+| 5 | Materiality | The space | A Low / Medium / High / Critical tier per scenario, driving variation counts |
 | 6 | Review | The whole space, against the documentation | Settled materiality, checked endings, flagged weaknesses, proposed additions |
 | 7 | Coverage | The transcripts of the model owner's testing | How many of those conversations land on each scenario, and which none of them reach |
-| 8 | Summary | The registry | The challenge pack to send, and what still has to be asked for |
+| 8 | Summary | The scenario space metadata | The data template to send, and what still has to be asked for |
 
 Reading the documentation and drafting the intake are one stage because they are one job: the
 reading exists in order to be drafted from, and nothing happens between them that you decide.
@@ -224,14 +224,14 @@ Any stage accepts free-text notes and extra files. Both are passed to every stag
 On the command line this is `--note`, which is repeatable:
 
 ```bash
-python -m scenario_generator review intake.xlsx registry.xlsx registry.xlsx \
+python -m scenario_generator review intake.xlsx scenario_space_metadata.xlsx scenario_space_metadata.xlsx \
     --note "Disputes over 500 always go to a person." \
     --note "The vendor document is a version behind."
 ```
 
 **Every scenario carries a short name** — a handle rather than a summary, about the situation
-rather than the expected behaviour. It leads the `Scenarios` sheet of the pack, sits beside the id
-in the registry, and is the title of every row on screen. A scenario space of three hundred rows whose
+rather than the expected behaviour. It leads the `Scenarios` sheet of the data template, sits beside the id
+in the scenario space metadata, and is the title of every row on screen. A scenario space of three hundred rows whose
 only handle was the first sentence of each description was not scannable, because those sentences
 all open the same way.
 
@@ -251,14 +251,14 @@ load-bearing fields do, and how coverage is measured.
 
 ## What you get
 
-**Challenge pack** — issued to the model owner. Five sheets: `Instructions`, `Scenarios`,
-`Turn_Plan`, `Run_Log`, `Run_Summary`. `Run_Log` is pre-populated to the exact number of runs
+**Data template** — issued to the model owner. Five sheets: `Instructions`, `Scenarios`,
+`Turn_Plan`, `Variation_Log`, `Variation_Summary`. `Variation_Log` is pre-populated to the exact number of variations
 required, so the workload is a fixed request rather than something the model owner has to
 construct; read in order it forms the transcript. **It contains no expected outcomes** — no
 decision path, no expected tool call, no category, no materiality. A test asserts this on every
 build.
 
-**Registry** — kept by you. `Scenario_Metadata` (full metadata and expected outcome),
+**Scenario space metadata** — kept by you. `Scenario_Metadata` (full metadata and expected outcome),
 `Turn_Metadata` (expected outcome per turn), `Scenario_Text` (the description and script as
 issued).
 
@@ -294,14 +294,14 @@ init-template       OUTPUT
 build-graph         INTAKE GRAPH_OUTPUT [--with-probes]
 build-probes        INTAKE GRAPH_INPUT GRAPH_OUTPUT
 refine              INTAKE GRAPH_INPUT OUTPUT_PREFIX [--no-llm] [--context FILE] [--note TEXT]
-                                                     (writes the registry; build-pack writes the pack)
+                                                     (writes the metadata; build-data-template writes the template)
 assess-materiality  INTAKE REGISTRY_IN REGISTRY_OUT [--no-llm] [--context FILE] [--note TEXT]
 review              INTAKE REGISTRY_IN REGISTRY_OUT [--no-llm] [--context FILE] [--note TEXT]
                                                     [--max-proposals N] [--pack FILE]
                                                     [--owner-scenarios FILE]
-build-pack          INTAKE REGISTRY PACK_OUTPUT
+build-pack          INTAKE METADATA PACK_OUTPUT
 generate            INTAKE OUTPUT_PREFIX [--no-llm] [--with-probes] [--context FILE] [--note TEXT]
-map-coverage        INTAKE REGISTRY CONVERSATIONS REPORT [--threshold N]
+map-coverage        INTAKE METADATA CONVERSATIONS REPORT [--threshold N]
 serve               [--port N] [--workspaces DIR]
 ```
 
@@ -372,9 +372,9 @@ python -m unittest discover -s tests
 Standard library only. Beyond unit coverage, several tests exist to protect properties that would
 otherwise fail silently:
 
-- The challenge pack contains no expected outcomes or ground-truth columns.
+- The data template contains no expected outcomes or ground-truth columns.
 - The scenario writer is never given a scenario's terminal state, so the expected outcome cannot
-  reach the pack through the text it writes.
+  reach the data template through the text it writes.
 - A quote that was reworded rather than copied from the source is rejected; one mangled by PDF
   extraction is still matched.
 - A quote invented from fragments scattered across the pack is rejected; the match must be local.
@@ -441,6 +441,6 @@ domain-specific object or references an unknown predicate.
 **Adding an applicability predicate.** Add it to `PREDICATES` in `core/probes.py` as a function of
 the intake.
 
-**Adding a document format.** Add a reader to `ingest/readers.py` and one entry to its registry.
+**Adding a document format.** Add a reader to `ingest/readers.py` and one entry to its registry of formats.
 
-**Adjusting run counts.** `RUNS_BY_MATERIALITY` in `core/models.py`.
+**Adjusting variation counts.** `VARIATIONS_BY_MATERIALITY` in `core/models.py`.

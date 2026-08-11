@@ -10,7 +10,7 @@ import re
 from typing import Dict, List, Optional, Tuple
 
 from .graph import DecisionGraph, Path
-from .models import (ORIGIN_GRAPH, ORIGIN_VARIANT_GAP, RUNS_BY_MATERIALITY, Persona,
+from .models import (ORIGIN_GRAPH, ORIGIN_VARIANT_GAP, VARIATIONS_BY_MATERIALITY, Persona,
                      Scenario, Step, Tool, TurnMeta)
 
 _NUMBERED_LINE = re.compile(r"^\s*\d+\s*[\.\)]\s*(.+)$")
@@ -122,9 +122,9 @@ def recommended_turns(scenario: Scenario) -> int:
     return len(turn_plan_lines(scenario))
 
 
-def required_runs(materiality: str, mapping: dict = None) -> int:
-    """Runs requested per scenario for a materiality tier. Placeholder values pending sign-off."""
-    return (mapping or RUNS_BY_MATERIALITY).get(materiality, 1)
+def required_variations(materiality: str, mapping: dict = None) -> int:
+    """Variations requested per scenario for a materiality tier. Placeholder values pending sign-off."""
+    return (mapping or VARIATIONS_BY_MATERIALITY).get(materiality, 1)
 
 
 def _started_at(path: Path, graph: DecisionGraph) -> str:
@@ -133,7 +133,7 @@ def _started_at(path: Path, graph: DecisionGraph) -> str:
     An agent can have more than one way in -- an inbound call and an inbound chat are two start
     states over one graph -- and a path records where it went rather than where it began. Taking
     the first start state regardless would have every scenario claim to be seeded from the same
-    place, and the seeded state is issued in the registry and read by the writer.
+    place, and the seeded state is issued in the scenario space metadata and read by the writer.
 
     The path's first decision is offered by the state it opened from, so that is what identifies
     it. Where more than one start offers it, or the path is empty, the first is as good as any.

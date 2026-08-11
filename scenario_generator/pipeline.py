@@ -15,8 +15,8 @@ from .core import (DecisionGraph, IntakeData, Scenario, build_probes, enumerate_
 from .core.context import load_context as _load_context
 from .core.gaps import find_gaps
 from .core.representation import DEFAULT_THRESHOLD, build_report
-from .io import (read_registry, read_scenarios, write_challenge_pack, write_coverage_report,
-                 write_registry, write_scenario_graph)
+from .io import (read_space_metadata, read_scenarios, write_data_template, write_coverage_report,
+                 write_space_metadata, write_scenario_graph)
 from .ingest import (DocumentExtractor, build_context_document, draft_intake, open_questions,
                      read_conversations, record_from_json, rejection_summary, repair_intake,
                      revise_intake, write_drafted_intake)
@@ -77,16 +77,16 @@ def build_probes_stage(intake_path: str, graph_path: str, output_path: str) -> L
 
 def refine(intake_path: str, graph_path: str, output_prefix: str, writer=None,
            context_path: str = None, notes=None) -> List[Scenario]:
-    """Stage 2: graph file -> LLM description and turn plan -> registry.
+    """Stage 2: graph file -> LLM description and turn plan -> the metadata workbook.
 
     Category and persona are already fixed deterministically by build-graph; materiality is not
     assessed here -- run ``assess_materiality`` next, then ``review``, then ``build_pack``.
 
-    No challenge pack is written here, deliberately. The pack's requested run counts come from
+    No data template is written here, deliberately. The template's requested variation counts come from
     materiality, which at this point is the untouched default on every scenario, so a pack written
     here would say "run each of these three times" and be superseded by the next command in the
     sequence. A workbook that is stale the moment it is written is worse than one that does not
-    exist, because only the second is obviously missing. The pack is built from the registry's
+    exist, because only the second is obviously missing. The pack is built from the scenario space metadata's
     final state -- see :func:`build_pack`, which exists for exactly this.
     """
     intake = read_intake(intake_path)
@@ -94,8 +94,8 @@ def refine(intake_path: str, graph_path: str, output_prefix: str, writer=None,
 
     (writer or ScenarioWriter(context=load_context(context_path, notes))).write(scenarios, intake)
 
-    write_registry(f"{output_prefix}_registry.xlsx", intake, scenarios)
-    logger.info("Wrote %s_registry.xlsx. Assess materiality and review before building the pack.",
+    write_space_metadata(f"{output_prefix}_scenario_space_metadata.xlsx", intake, scenarios)
+    logger.info("Wrote %s_scenario_space_metadata.xlsx. Assess materiality and review before building the pack.",
                 output_prefix)
     return scenarios
 
@@ -104,13 +104,13 @@ def assess_materiality(intake_path: str, registry_in_path: str, registry_out_pat
                        assessor: Optional[MaterialityAssessor] = None,
                        context_path: str = None, notes=None) -> List[Scenario]:
     """Stage: a separate LLM sweep that assigns materiality using cross-scenario signals, then
-    rewrites the registry. Pass the same path twice to update in place."""
+    rewrites the scenario space metadata. Pass the same path twice to update in place."""
     intake = read_intake(intake_path)
     scenarios = read_scenarios(registry_in_path, intake)
 
     (assessor or MaterialityAssessor(context=load_context(context_path, notes))).assess(scenarios, intake)
 
-    write_registry(registry_out_path, intake, scenarios)
+    write_space_metadata(registry_out_path, intake, scenarios)
     logger.info("Assessed materiality for %d scenarios. Wrote %s", len(scenarios), registry_out_path)
     return scenarios
 
@@ -129,9 +129,9 @@ def generate(intake_path: str, output_prefix: str, writer=None,
     (writer or ScenarioWriter(context=context)).write(scenarios, intake)
     (assessor or MaterialityAssessor(context=context)).assess(scenarios, intake)
 
-    write_challenge_pack(f"{output_prefix}_challenge_pack.xlsx", intake, scenarios)
-    write_registry(f"{output_prefix}_registry.xlsx", intake, scenarios)
-    logger.info("Wrote %s_challenge_pack.xlsx and %s_registry.xlsx. The pack reflects a scenario space "
+    write_data_template(f"{output_prefix}_data_template.xlsx", intake, scenarios)
+    write_space_metadata(f"{output_prefix}_scenario_space_metadata.xlsx", intake, scenarios)
+    logger.info("Wrote %s_data_template.xlsx and %s_scenario_space_metadata.xlsx. The pack reflects a scenario space "
                 "that has not been reviewed; run review and rebuild it before issuing.",
                 output_prefix, output_prefix)
     return scenarios
@@ -140,9 +140,9 @@ def generate(intake_path: str, output_prefix: str, writer=None,
 def review(intake_path: str, registry_in_path: str, registry_out_path: str,
            reviewer=None, context_path: str = None, notes=None, proposal_limit: int = None,
            owner_scenarios_path: str = None, pack_path: str = None) -> List[Scenario]:
-    """Final stage: a whole-registry LLM sweep that may revise materiality and propose additions.
+    """Final stage: a whole-space LLM sweep that may revise materiality and propose additions.
 
-    Runs last, once every other pass has populated the registry — it is the only pass that sees
+    Runs last, once every other pass has populated the scenario space metadata — it is the only pass that sees
     the complete picture, so it settles materiality with the whole set and the deterministic
     redundancy evidence in view. Its verdict lands in its own columns rather than overwriting an
     earlier assessment, and proposals arrive with origin "llm-proposed" so they are never mistaken
@@ -166,31 +166,32 @@ def review(intake_path: str, registry_in_path: str, registry_out_path: str,
     flagged = sum(1 for s in reviewed if s.review_flag)
 
     scenarios = reviewed + proposals
-    write_registry(registry_out_path, intake, scenarios)
+    write_space_metadata(registry_out_path, intake, scenarios)
     logger.info("Reviewed %d scenarios: %d materiality revision(s), %d flagged, "
                 "%d new scenario(s) proposed. Wrote %s",
                 len(reviewed), revised, flagged, len(proposals), registry_out_path)
 
     if pack_path:
-        write_challenge_pack(pack_path, intake, scenarios)
-        logger.info("Rebuilt the challenge pack at %s.", pack_path)
+        write_data_template(pack_path, intake, scenarios)
+        logger.info("Rebuilt the data template at %s.", pack_path)
     elif revised or proposals:
         logger.warning(
-            "The review changed the space, so any challenge pack written earlier is now out "
-            "of date. Rebuild it with: build-pack <intake> %s <pack.xlsx>", registry_out_path)
+            "The review changed the space, so any data template written earlier is now out "
+            "of date. Rebuild it with: build-data-template <intake> %s <template.xlsx>",
+            registry_out_path)
     return scenarios
 
 
-def build_pack(intake_path: str, registry_path: str, pack_path: str) -> List[Scenario]:
-    """Write the challenge pack from a registry. No LLM.
+def build_pack(intake_path: str, metadata_path: str, pack_path: str) -> List[Scenario]:
+    """Write the data template from a metadata workbook. No LLM.
 
-    Kept separate because the pack depends on the registry's final state: materiality drives the
-    requested run count, and the review pass can change it or add scenarios. Rebuilding after
-    every registry change is what keeps the issued workbook and the answer key in step.
+    Kept separate because the pack depends on the scenario space metadata's final state: materiality drives the
+    requested variation count, and the review pass can change it or add scenarios. Rebuilding after
+    every change to the metadata workbook is what keeps the issued workbook and the answer key in step.
     """
     intake = read_intake(intake_path)
-    scenarios = read_scenarios(registry_path, intake)
-    write_challenge_pack(pack_path, intake, scenarios)
+    scenarios = read_scenarios(metadata_path, intake)
+    write_data_template(pack_path, intake, scenarios)
     logger.info("Wrote %s from %d scenarios.", pack_path, len(scenarios))
     return scenarios
 
@@ -486,13 +487,13 @@ class ConversationCoverageResult:
         return self.report.summary()
 
 
-def map_conversation_coverage(intake_path: str, registry_path: str, conversations_path: str,
+def map_conversation_coverage(intake_path: str, metadata_path: str, conversations_path: str,
                               report_path: str, mapper: Optional[ConversationMapper] = None,
                               threshold: int = DEFAULT_THRESHOLD, annotate_registry: bool = True,
                               progress=None, cancel=None) -> ConversationCoverageResult:
     """Stage: map submitted conversations onto the scenario space and count what they cover.
 
-    The scenario space is read from the registry, so each scenario's category and materiality are
+    The scenario space is read from the scenario space metadata, so each scenario's category and materiality are
     whatever the earlier stages assigned -- this never recomputes them. What it adds is volume:
     how many of the team's conversations landed on each scenario, which of them landed on nothing,
     and whether any grouping the team applied agrees with where the conversations actually went.
@@ -501,8 +502,8 @@ def map_conversation_coverage(intake_path: str, registry_path: str, conversation
     judgement rather than a property of the data -- see :mod:`.core.representation`.
     """
     intake = read_intake(intake_path)
-    space = read_registry(registry_path)
-    texts = {s.id: s.description for s in read_scenarios(registry_path, intake)}
+    space = read_space_metadata(metadata_path)
+    texts = {s.id: s.description for s in read_scenarios(metadata_path, intake)}
 
     conversations, how = read_conversations(Path(conversations_path))
     mapper = mapper or ConversationMapper(progress=progress, cancel=cancel)
@@ -511,7 +512,7 @@ def map_conversation_coverage(intake_path: str, registry_path: str, conversation
     report = build_report(mappings, space, threshold=threshold)
     write_coverage_report(report_path, report, mappings, texts)
     if annotate_registry:
-        annotate_coverage(registry_path, intake, report)
+        annotate_coverage(metadata_path, intake, report)
 
     counts = report.summary()
     logger.info("%d conversation(s) covered %d of %d scenarios at a threshold of %d; "
@@ -522,20 +523,20 @@ def map_conversation_coverage(intake_path: str, registry_path: str, conversation
                                       report_path=report_path)
 
 
-def annotate_coverage(registry_path: str, intake: IntakeData, report) -> int:
+def annotate_coverage(metadata_path: str, intake: IntakeData, report) -> int:
     """Record against each scenario how much of the model owner's testing landed on it.
 
-    An annotation, not a filter. A well-covered scenario stays in the registry and, unless someone
+    An annotation, not a filter. A well-covered scenario stays in the scenario space metadata and, unless someone
     asks otherwise, in the pack: whether running it again is duplicated effort or independent
     confirmation depends on how far their testing is trusted, and that is a judgement for the
     person issuing the pack rather than for this tool. What the tool can do is put the count in
     front of them.
 
-    The columns never reach the challenge pack -- see :func:`io.write_challenge_pack`. Telling the
+    The columns never reach the data template -- see :func:`io.write_data_template`. Telling the
     model owner which scenarios the validator already considers answered would tell them
     exactly which ones to concentrate on.
     """
-    scenarios = read_scenarios(registry_path, intake)
+    scenarios = read_scenarios(metadata_path, intake)
     counts = {entry.scenario.id: entry for entry in report.scenarios}
 
     annotated = 0
@@ -549,7 +550,7 @@ def annotate_coverage(registry_path: str, intake: IntakeData, report) -> int:
             filter(None, [entry.confidence_summary, ", ".join(entry.conversation_ids)]))
         annotated += 1
 
-    write_registry(registry_path, intake, scenarios)
+    write_space_metadata(metadata_path, intake, scenarios)
     logger.info("Annotated %d scenario(s) with what their conversations cover. Nothing was "
                 "removed -- whether to drop a covered scenario is your call.", annotated)
     return annotated

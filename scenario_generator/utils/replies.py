@@ -32,7 +32,7 @@ def prose(entry: dict, key: str) -> str:
 
     Use this for anything a person reads -- a description, a turn plan, a rationale -- rather than
     :func:`text`. A prompt that asks for numbered turns on separate lines is answered with a JSON
-    array often enough to matter, and ``str()`` on a list yields its Python repr: the registry and
+    array often enough to matter, and ``str()`` on a list yields its Python repr: the scenario space metadata and
     the page end up carrying ``['Open by naming the charge.', 'Answer the question.']``, brackets
     and quotes and all, which nobody notices until a tester is handed it. Joining on newlines is
     what the prompt asked for in the first place.

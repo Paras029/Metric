@@ -138,16 +138,16 @@ class TestCoverageReportsWhatItMapped(unittest.TestCase):
     def _run(self, scratch, reply):
         from scenario_generator.pipeline import build_scenario_space, map_conversation_coverage
         from scenario_generator.core.intake import read_intake
-        from scenario_generator.io import write_registry
+        from scenario_generator.io import write_space_metadata
 
         intake_path = _intake_workbook(scratch)
         intake = read_intake(str(intake_path))
-        write_registry(str(scratch / "registry.xlsx"), intake, build_scenario_space(intake))
+        write_space_metadata(str(scratch / "scenario_space_metadata.xlsx"), intake, build_scenario_space(intake))
 
         with mock.patch("scenario_generator.llm.conversation_mapping.ask_llm",
                         lambda s, u, **k: reply):
             return map_conversation_coverage(
-                str(intake_path), str(scratch / "registry.xlsx"),
+                str(intake_path), str(scratch / "scenario_space_metadata.xlsx"),
                 str(_conversation_workbook(scratch)), str(scratch / "coverage.xlsx"))
 
     def test_a_matched_conversation_lands_in_its_scenarios_bucket(self):

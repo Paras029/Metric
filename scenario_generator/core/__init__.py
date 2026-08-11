@@ -5,7 +5,7 @@ No file I/O beyond the intake workbook itself, and no model calls.
 """
 from .context import load_context
 from .generation import (bind_persona, build_turn_meta, categorise, instantiate_all, peer_signals,
-                         recommended_turns, required_runs, turn_plan_lines)
+                         recommended_turns, required_variations, turn_plan_lines)
 from .graph import DecisionGraph, enumerate_paths
 from .probes import applicable, build_probes, load_library
 from .proposals import instantiate_proposal, instantiate_proposals
@@ -20,7 +20,7 @@ __all__ = [
     "read_intake", "read_owner_scenarios", "write_template",
     "DecisionGraph", "enumerate_paths",
     "instantiate_all", "bind_persona", "build_turn_meta", "categorise",
-    "fallback_name", "recommended_turns", "required_runs", "turn_plan_lines",
+    "fallback_name", "recommended_turns", "required_variations", "turn_plan_lines",
     "build_probes", "load_library", "applicable", "load_context", "peer_signals",
     "instantiate_proposal", "instantiate_proposals",
     "CAPABILITY_TYPES", "FUNCTIONAL_ORIGINS", "ORIGINS", "canonical_origin",

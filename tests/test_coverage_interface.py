@@ -11,7 +11,7 @@ The counts and the confidences stay separate all the way to the page. Folding a 
 the figure would decide, behind the reader, something they are far better placed to decide.
 
 The pack filter subtracts, which nothing else in this pipeline does. It must be off by default,
-must never narrow the registry, and must not empty the pack when coverage has not run.
+must never narrow the metadata, and must not empty the pack when coverage has not run.
 """
 import json
 import tempfile
@@ -70,8 +70,8 @@ class TestTheCoveragePage(unittest.TestCase):
         return Workspace.load(self.root / "coverage-check")
 
     def _first_scenario(self):
-        from scenario_generator.io import read_registry
-        return read_registry(str(self._workspace().root / "registry.xlsx"))[0].id
+        from scenario_generator.io import read_space_metadata
+        return read_space_metadata(str(self._workspace().root / "scenario_space_metadata.xlsx"))[0].id
 
     def _map(self, calls=None):
         """Run coverage with both conversations landing on the first scenario."""
@@ -123,12 +123,12 @@ class TestTheCoveragePage(unittest.TestCase):
 
     def _under_represented_after(self, threshold):
         """Set the threshold through the route, then count what the page would now show."""
-        from scenario_generator.io import read_registry
+        from scenario_generator.io import read_space_metadata
         from scenario_generator.webapp.coverageview import stored_report
 
         self.client.post("/stage/coverage/threshold", data={"threshold": str(threshold)})
         workspace = self._workspace()
-        report = stored_report(workspace, read_registry(str(workspace.root / "registry.xlsx")))
+        report = stored_report(workspace, read_space_metadata(str(workspace.root / "scenario_space_metadata.xlsx")))
         return len(report.under_represented())
 
     def test_the_workbook_is_rewritten_at_the_new_threshold(self):
@@ -143,7 +143,7 @@ class TestTheCoveragePage(unittest.TestCase):
 
     def test_the_registry_records_the_count_against_the_scenario(self):
         target = self._map()
-        book = load_workbook(self._workspace().root / "registry.xlsx")
+        book = load_workbook(self._workspace().root / "scenario_space_metadata.xlsx")
         sheet = book["Scenario_Metadata"]
         headers = [c.value for c in sheet[1]]
         column = headers.index("Owner Coverage")
@@ -181,7 +181,7 @@ class TestWhatGoesInThePack(unittest.TestCase):
     def _issue(self):
         self.client.post("/stage/summary/run")
         self._settle("summary")
-        book = load_workbook(self._workspace().root / "challenge_pack.xlsx")
+        book = load_workbook(self._workspace().root / "data_template.xlsx")
         return book["Scenarios"].max_row - 1
 
     def test_the_whole_space_is_issued_by_default(self):
@@ -197,19 +197,19 @@ class TestWhatGoesInThePack(unittest.TestCase):
         self.assertEqual(self._issue(), everything)
 
     def test_a_covered_scenario_is_held_back_but_stays_in_the_registry(self):
-        from scenario_generator.io import read_registry
+        from scenario_generator.io import read_space_metadata
         workspace = self._workspace()
-        registry = read_registry(str(workspace.root / "registry.xlsx"))
-        covered = registry[0].id
+        metadata = read_space_metadata(str(workspace.root / "scenario_space_metadata.xlsx"))
+        covered = metadata[0].id
 
         workspace.save_coverage([_mapping("C1", covered), _mapping("C2", covered)], "test")
         workspace.pack_gaps_only = True
         workspace.save()
 
         issued = self._issue()
-        self.assertEqual(issued, len(registry) - 1)
-        self.assertEqual(len(read_registry(str(self._workspace().root / "registry.xlsx"))),
-                         len(registry))
+        self.assertEqual(issued, len(metadata) - 1)
+        self.assertEqual(len(read_space_metadata(str(self._workspace().root / "scenario_space_metadata.xlsx"))),
+                         len(metadata))
 
 
 def _mapping(conversation_id: str, scenario_id: str):

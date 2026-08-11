@@ -59,7 +59,7 @@ class TestClearingWork(unittest.TestCase):
         self.workspace = self.root / "test-agent"
 
         # Stand in for what the stages would have produced.
-        for name in ("registry.xlsx", "challenge_pack.xlsx", "coverage.xlsx"):
+        for name in ("scenario_space_metadata.xlsx", "data_template.xlsx", "coverage.xlsx"):
             (self.workspace / name).write_bytes(b"stand-in")
         source = self.workspace / "sources" / "model_doc"
         source.mkdir(parents=True, exist_ok=True)
@@ -77,13 +77,13 @@ class TestClearingWork(unittest.TestCase):
 
     def test_clearing_the_status_leaves_the_files_readable(self):
         self.client.post("/stage/workflow/reset")
-        self.assertTrue((self.workspace / "registry.xlsx").exists())
+        self.assertTrue((self.workspace / "scenario_space_metadata.xlsx").exists())
         self.assertNotEqual(self._status("workflow"), "complete")
 
     def test_starting_again_deletes_what_those_stages_produced(self):
         self.client.post("/stage/workflow/reset", data={"purge": "1"})
-        self.assertFalse((self.workspace / "registry.xlsx").exists())
-        self.assertFalse((self.workspace / "challenge_pack.xlsx").exists())
+        self.assertFalse((self.workspace / "scenario_space_metadata.xlsx").exists())
+        self.assertFalse((self.workspace / "data_template.xlsx").exists())
 
     def test_starting_again_keeps_the_submitted_documents(self):
         """They are input, not output. Losing the pack because a stage was rerun would be a rout."""
@@ -96,9 +96,9 @@ class TestClearingWork(unittest.TestCase):
         self.assertEqual(self._status("intake"), "complete")
 
     def test_clearing_a_later_stage_leaves_an_earlier_one_alone(self):
-        """The registry belongs to the workflow stage, not to the stages that rewrite it."""
+        """The scenario space metadata belongs to the workflow stage, not to the stages that rewrite it."""
         self.client.post("/stage/scenarios/reset", data={"purge": "1"})
-        self.assertTrue((self.workspace / "registry.xlsx").exists())
+        self.assertTrue((self.workspace / "scenario_space_metadata.xlsx").exists())
         self.assertEqual(self._status("workflow"), "complete")
 
     def test_deletion_cannot_reach_outside_the_workspace(self):

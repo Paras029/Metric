@@ -4,7 +4,7 @@ Two things are being pinned. The first is that the page narrows to what a review
 scenario space of three hundred scenarios is triaged, not read, so the default view is whatever is
 asking for a decision, and the page always says how much it is not showing.
 
-The second is what must never appear. The registry holds the decision path, the seeded state and
+The second is what must never appear. The scenario space metadata holds the decision path, the seeded state and
 the expected outcome, and those are the answer key for a pack issued to the model owner. They
 are not secret from the validator, but a page that puts them beside the
 scenario text is a page somebody eventually screenshots into an email, and the exercise stops
@@ -119,7 +119,7 @@ class TestWhichTierIsInForce(unittest.TestCase):
 
         The provenance used to be printed in front of every rationale, which put a sentence
         answering nobody's question between the tier and the reason for it. Every pass keeps its
-        own column in the registry, so nothing is lost for anyone auditing how a tier was reached.
+        own column in the scenario space metadata, so nothing is lost for anyone auditing how a tier was reached.
         """
         row = to_row(_scenario("SC-001", materiality="Medium", review_materiality="High",
                                review_rationale="Touches money."))

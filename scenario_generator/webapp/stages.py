@@ -99,10 +99,10 @@ STAGES: Tuple[Stage, ...] = (
 
     Stage("materiality", "Materiality",
           "What it would cost the business if the agent handled each scenario badly, and how many "
-          "runs that justifies.",
+          "variations that justifies.",
           "Assigns each scenario a tier by business consequence rather than abstract severity, "
           "judged across the set — whether a scenario matters depends partly on what else the "
-          "scenario space covers. The tier decides how many runs each scenario is issued with, so it "
+          "scenario space covers. The tier decides how many variations each scenario is issued with, so it "
           "governs the size of the request you make."),
 
     Stage("review", "Review",
@@ -127,9 +127,9 @@ STAGES: Tuple[Stage, ...] = (
           optional=True, requires=("intake", "workflow")),
 
     Stage("summary", "Summary",
-          "What to send the model owner: the challenge pack, and what still has to be asked for.",
-          "Writes the two workbooks and states what is outstanding. The challenge pack goes to the "
-          "model owner and carries no expected outcome, decision path or materiality. The registry "
+          "What to send the model owner: the data template, and what still has to be asked for.",
+          "Writes the two workbooks and states what is outstanding. The data template goes to the "
+          "model owner and carries no expected outcome, decision path or materiality. The scenario space metadata "
           "stays with you and holds the ground truth. Alongside them: what the documentation never "
           "settled, what the review flagged, and where the model owner's evidence is thin — "
           "the request to make of them, in one place."),

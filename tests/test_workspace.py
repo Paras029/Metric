@@ -1,7 +1,7 @@
 """The workspace's job is to stop early changes leaving stale work downstream looking finished.
 
 These tests are about that rule and the states around it, since a scenario space issued from a
-registry that no longer matches its intake is exactly the failure the interface exists to make
+A metadata workbook that no longer matches its intake is exactly the failure the interface exists to make
 impossible to reach by accident.
 """
 import tempfile
@@ -94,10 +94,10 @@ class TestInvalidation(unittest.TestCase):
     def test_out_of_date_output_is_kept_rather_than_deleted(self):
         workspace = _workspace()
         workspace.complete("intake", artifacts={"workbook": "intake.xlsx"})
-        workspace.complete("workflow", artifacts={"registry": "registry.xlsx"})
+        workspace.complete("workflow", artifacts={"space_metadata": "scenario_space_metadata.xlsx"})
         workspace.complete("intake")
         self.assertEqual(workspace.state("workflow").status, STALE)
-        self.assertEqual(workspace.state("workflow").artifacts["registry"], "registry.xlsx")
+        self.assertEqual(workspace.state("workflow").artifacts["space_metadata"], "scenario_space_metadata.xlsx")
 
     def test_an_out_of_date_stage_can_still_be_run_again(self):
         workspace = _workspace()

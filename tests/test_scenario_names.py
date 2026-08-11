@@ -8,7 +8,7 @@ when it was large enough to need scanning.
 The name is a handle rather than a summary: short, about the situation rather than the expected
 behaviour, and different from its neighbours in the way the scenarios themselves differ. What is
 pinned here is that one exists at every point in the pipeline, including before any model has
-run, and that adding the column did not shift what an older registry reads back as.
+run, and that adding the column did not shift what an older metadata workbook reads back as.
 """
 import tempfile
 import unittest
@@ -18,7 +18,7 @@ from scenario_generator.core.generation import fallback_name
 from scenario_generator.core.models import (Capability, Decision, IntakeData, Persona, State,
                                             Tool, TurnMeta)
 from scenario_generator.core.probes import build_probes
-from scenario_generator.io import read_scenarios, write_registry
+from scenario_generator.io import read_scenarios, write_space_metadata
 from scenario_generator.io.sheets import add_sheet, write_rows
 from scenario_generator.llm.writer import MAX_NAME_CHARS, _clean_name
 from scenario_generator.pipeline import build_scenario_space
@@ -91,8 +91,8 @@ class TestEveryScenarioHasOneBeforeAnyModelRuns(unittest.TestCase):
 
 class TestTheNameSurvivesTheWorkbook(unittest.TestCase):
     def _round_trip(self, scenarios):
-        path = Path(tempfile.mkdtemp()) / "registry.xlsx"
-        write_registry(str(path), _INTAKE, scenarios)
+        path = Path(tempfile.mkdtemp()) / "scenario_space_metadata.xlsx"
+        write_space_metadata(str(path), _INTAKE, scenarios)
         return {s.id: s for s in read_scenarios(str(path), _INTAKE)}
 
     def test_a_written_name_comes_back(self):
@@ -109,8 +109,8 @@ class TestTheNameSurvivesTheWorkbook(unittest.TestCase):
         scenarios[0].description = "The cardmember disputes a charge."
         scenarios[0].turn_plan = "1. Open the conversation."
 
-        path = Path(tempfile.mkdtemp()) / "old_registry.xlsx"
-        write_registry(str(path), _INTAKE, scenarios)
+        path = Path(tempfile.mkdtemp()) / "old_scenario_space_metadata.xlsx"
+        write_space_metadata(str(path), _INTAKE, scenarios)
 
         # Rewrite the text sheet in the shape it had before the Name column.
         from openpyxl import load_workbook
@@ -137,29 +137,29 @@ class TestTheNameReachesThePageAndThePack(unittest.TestCase):
         self.assertEqual(to_row(scenario)["title"], "Locked out after two failed checks")
 
     def test_the_challenge_pack_carries_it_beside_the_id(self):
-        from scenario_generator.io import write_challenge_pack
+        from scenario_generator.io import write_data_template
         from scenario_generator.io.sheets import open_for_reading, read_table
 
         scenarios = build_scenario_space(_INTAKE, with_probes=False)
         scenarios[0].name = "Locked out after two failed checks"
         path = Path(tempfile.mkdtemp()) / "pack.xlsx"
-        write_challenge_pack(str(path), _INTAKE, scenarios)
+        write_data_template(str(path), _INTAKE, scenarios)
 
-        with open_for_reading(str(path), "a challenge pack") as book:
+        with open_for_reading(str(path), "a data template") as book:
             header, rows = read_table(book["Scenarios"])
         self.assertEqual(header[:3], ["SC ID", "Name", "Description"])
         self.assertIn("Locked out after two failed checks", [row[1] for row in rows])
 
     def test_the_pack_still_carries_no_expected_outcome(self):
         """Adding a column to the issued pack is exactly where an answer key could slip in."""
-        from scenario_generator.io import write_challenge_pack
+        from scenario_generator.io import write_data_template
         from scenario_generator.io.sheets import open_for_reading, read_table
 
         scenarios = build_scenario_space(_INTAKE, with_probes=False)
         path = Path(tempfile.mkdtemp()) / "pack.xlsx"
-        write_challenge_pack(str(path), _INTAKE, scenarios)
+        write_data_template(str(path), _INTAKE, scenarios)
 
-        with open_for_reading(str(path), "a challenge pack") as book:
+        with open_for_reading(str(path), "a data template") as book:
             text = " ".join(str(cell) for sheet in book.worksheets
                             for row in read_table(sheet)[1] for cell in row)
         for terminal in ("Verified", "Locked out"):

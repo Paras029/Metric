@@ -22,7 +22,7 @@ def open_for_reading(path: str, description: str = "workbook") -> Iterator:
     """A workbook opened to be read and nothing else, and reliably closed afterwards.
 
     ``read_only`` puts openpyxl into its streaming reader rather than building a cell object for
-    every cell in the file up front, which is most of the cost of opening a large registry -- a
+    every cell in the file up front, which is most of the cost of opening a large metadata workbook -- a
     three-hundred-scenario one takes about a fifth as long this way, and that read happens on
     every page load of every scenario stage.
 
@@ -77,7 +77,7 @@ def read_table(sheet: Worksheet) -> "tuple[List[str], List[List[str]]]":
     One pass because a read-only workbook streams: asking for the header and then the rows would
     mean opening the sheet twice. Returning the header at all is what lets a reader address
     columns by the name printed in the file rather than by counting them -- see
-    :mod:`scenario_generator.io.workbooks`, where a registry has twenty-six of them and hand-
+    :mod:`scenario_generator.io.workbooks`, where a metadata workbook has twenty-six of them and hand-
     counted indices had to be kept in step with the writer by eye.
     """
     header: List[str] = []

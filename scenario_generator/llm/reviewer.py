@@ -2,7 +2,7 @@
 
 Every other pass sees one narrow slice — a batch of scenarios, or one owner scenario at a time.
 This pass is given the whole picture: what the validation is for, what the agent is, its full
-declared structure, what each registry field means, the deterministic redundancy evidence, a
+declared structure, what each metadata field means, the deterministic redundancy evidence, a
 digest of every scenario generated, and, where available, the scenarios the model owner
 submitted. It runs with raised reasoning effort and smaller batches because it is asked to weigh
 rather than classify.
@@ -350,7 +350,7 @@ class ScenarioReviewer:
         """Record where the review reads a scenario's ending differently from the intake.
 
         Only a disagreement is stored. Agreement is the expected result for most scenarios, and
-        writing it down anyway would fill the registry's review columns with restatements of the
+        writing it down anyway would fill the scenario space metadata's review columns with restatements of the
         declared value and bury the handful of rows that actually want a second look.
         """
         parsed = parsed_reply(reply, "Review call", ", ".join(s.id for s in chunk))

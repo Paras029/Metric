@@ -20,14 +20,14 @@ from collections import Counter
 from pathlib import Path
 from typing import Callable, Dict, List
 
-from ..core.generation import required_runs
+from ..core.generation import required_variations
 from ..core.intake import (attach_decision_to_state, merge_decisions, read_intake,
                            set_state_reached_via)
 from ..core.models import MATERIALITY, IntakeData
 from ..ingest import build_model_context, record_from_json
 from ..ingest.groups import evidence_files, owner_scenario_file
 from ..ingest.conversations import UnreadableConversations
-from ..io import read_registry, read_scenarios, write_challenge_pack, write_registry
+from ..io import read_space_metadata, read_scenarios, write_data_template, write_space_metadata
 from ..llm import MaterialityAssessor, ScenarioReviewer, ScenarioWriter
 from ..llm import cancellation
 from ..pipeline import (build_scenario_space, draft_intake_workbook, ingest_documents,
@@ -47,50 +47,50 @@ DRAFT_INTAKE = "drafted_intake.xlsx"
 # same functions the command line calls, and write their own output back. Anything they raise is
 # shown in the stage panel rather than swallowed.
 
-REGISTRY = "registry.xlsx"
+METADATA = "scenario_space_metadata.xlsx"
 EVIDENCE = "ingest_evidence.json"
 CONTEXT = "ingest_context.md"
-PACK = "challenge_pack.xlsx"
+TEMPLATE = "data_template.xlsx"
 OVERLAP = "coverage.xlsx"
 
 # What each stage puts on disk, so clearing a stage can actually clear it. Listed against the
 # stage that *creates* the file rather than every stage that rewrites it: clearing the scenario
-# text does not mean throwing away the registry the workflow stage built.
+# text does not mean throwing away the scenario space metadata the workflow stage built.
 #
 # Submitted documents appear nowhere here. They are input rather than output, and each already has
-# its own remove -- deleting the pack because a later stage was re-run would be a rout.
+# its own remove -- deleting the data template because a later stage was re-run would be a rout.
 STAGE_OUTPUTS: Dict[str, tuple] = {
     "intake": (EVIDENCE, CONTEXT, "ingest_questions.md", DRAFT_INTAKE),
-    "workflow": (REGISTRY,),
+    "workflow": (METADATA,),
     "coverage": (OVERLAP,),
-    "summary": (PACK,),
+    "summary": (TEMPLATE,),
 }
 
-# Each scenario stage also keeps a copy of the registry as it left it -- see _save_registry. They
+# Each scenario stage also keeps a copy of the scenario space metadata as it left it -- see _save_metadata. They
 # are listed against their own stage so that clearing one clears its snapshot with it, and a
 # cleared stage stops showing a reading it is no longer claiming to have produced.
 for _key in ("workflow", "scenarios", "variations", "materiality", "review",
              "coverage", "summary"):
-    STAGE_OUTPUTS[_key] = STAGE_OUTPUTS.get(_key, ()) + (f"registry.{_key}.xlsx",)
+    STAGE_OUTPUTS[_key] = STAGE_OUTPUTS.get(_key, ()) + (f"space_metadata.{_key}.xlsx",)
 
 
 def _snapshot(key: str) -> str:
-    """What a stage's own copy of the registry is called."""
-    return f"registry.{key}.xlsx"
+    """What a stage's own copy of the scenario space metadata is called."""
+    return f"space_metadata.{key}.xlsx"
 
 
-def _save_registry(workspace: Workspace, key: str, intake: IntakeData, scenarios) -> None:
-    """Write the live registry, and keep a copy of it as this stage left it.
+def _save_metadata(workspace: Workspace, key: str, intake: IntakeData, scenarios) -> None:
+    """Write the live metadata workbook, and keep a copy of it as this stage left it.
 
-    Every stage from the workflow onward rewrites one registry, which means going back to an
+    Every stage from the workflow onward rewrites one metadata workbook, which means going back to an
     earlier stage's page would otherwise show what *later* stages have since made of it -- a
     scenario-text page listing tiers assigned after it ran, and proposals that did not exist.
     The snapshot is what lets each stage show its own reading. It is a copy of a file already
     being written rather than a second format, so nothing has to stay in step with it.
     """
-    write_registry(str(workspace.root / REGISTRY), intake, scenarios)
-    shutil.copyfile(workspace.root / REGISTRY, workspace.root / _snapshot(key))
-    workspace.state(key).artifacts["registry"] = REGISTRY
+    write_space_metadata(str(workspace.root / METADATA), intake, scenarios)
+    shutil.copyfile(workspace.root / METADATA, workspace.root / _snapshot(key))
+    workspace.state(key).artifacts["space_metadata"] = METADATA
 
 
 def _intake(workspace: Workspace) -> IntakeData:
@@ -102,7 +102,7 @@ def _intake(workspace: Workspace) -> IntakeData:
 
 def _scenarios(workspace: Workspace, intake: IntakeData):
     """The scenario space as the last stage left it."""
-    path = workspace.root / REGISTRY
+    path = workspace.root / METADATA
     if not path.exists():
         raise ValueError("Build the scenario space first.")
     return read_scenarios(str(path), intake)
@@ -307,7 +307,7 @@ def _run_variations(workspace: Workspace, progress=None, cancel=None) -> Dict[st
     intake = _intake(workspace)
     scenarios = _scenarios(workspace, intake)
     report("Passing it through unchanged", 1, 2)
-    _save_registry(workspace, "variations", intake, scenarios)
+    _save_metadata(workspace, "variations", intake, scenarios)
     report("Nothing to vary yet", 2, 2)
     return {"Scenarios carried through": len(scenarios),
             "Variations written": "none — this stage is not built yet"}
@@ -353,8 +353,8 @@ def _run_workflow(workspace: Workspace, progress=None, cancel=None) -> Dict[str,
     intake = _intake(workspace)
     report("Walking the graph", 1, 3)
     scenarios = build_scenario_space(intake, with_probes=True)
-    report("Writing the registry", 2, 3)
-    _save_registry(workspace, "workflow", intake, scenarios)
+    report("Writing the scenario space metadata", 2, 3)
+    _save_metadata(workspace, "workflow", intake, scenarios)
     report("Built the scenario space", 3, 3)
 
     probes = sum(1 for s in scenarios if s.is_probe)
@@ -368,7 +368,7 @@ def _run_scenarios(workspace: Workspace, progress=None, cancel=None) -> Dict[str
     scenarios = _scenarios(workspace, intake)
     ScenarioWriter(context=_context(workspace), progress=progress,
                   cancel=cancel).write(scenarios, intake)
-    _save_registry(workspace, "scenarios", intake, scenarios)
+    _save_metadata(workspace, "scenarios", intake, scenarios)
 
     written = sum(1 for s in scenarios if s.description)
     return {"Scenarios written": written, "Turns scripted": sum(s.turn_count for s in scenarios)}
@@ -380,21 +380,21 @@ def _run_materiality(workspace: Workspace, progress=None, cancel=None) -> Dict[s
     scenarios = _scenarios(workspace, intake)
     MaterialityAssessor(context=_context(workspace), progress=progress,
                         cancel=cancel).assess(scenarios, intake)
-    _save_registry(workspace, "materiality", intake, scenarios)
+    _save_metadata(workspace, "materiality", intake, scenarios)
 
     tiers = Counter(s.effective_materiality for s in scenarios)
     return {tier: tiers.get(tier, 0) for tier in MATERIALITY}
 
 
 def _run_review(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
-    """One pass over the whole scenario space, then rebuild the pack so its verdict actually lands."""
+    """One pass over the whole scenario space, then rebuild the data template so its verdict actually lands."""
     intake = _intake(workspace)
     scenarios = _scenarios(workspace, intake)
     reviewer = ScenarioReviewer(context=_context(workspace), progress=progress, cancel=cancel)
     scenarios, proposals = reviewer.review(scenarios, intake)
     scenarios = list(scenarios) + list(proposals)
 
-    _save_registry(workspace, "review", intake, scenarios)
+    _save_metadata(workspace, "review", intake, scenarios)
 
     flagged = sum(1 for s in scenarios if getattr(s, "review_flag", ""))
     return {"Scenarios reviewed": len(scenarios) - len(proposals),
@@ -402,7 +402,7 @@ def _run_review(workspace: Workspace, progress=None, cancel=None) -> Dict[str, o
 
 
 def _run_summary(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
-    """Write the challenge pack for the model owner and the registry kept internally.
+    """Write the data template for the model owner and the scenario space metadata kept internally.
 
     Where the workspace is set to issue gaps only, the pack carries just the scenarios the model
     owner's conversations under-cover. This is the one place in the pipeline that takes
@@ -415,10 +415,10 @@ def _run_summary(workspace: Workspace, progress=None, cancel=None) -> Dict[str, 
     intake = _intake(workspace)
     scenarios = _scenarios(workspace, intake)
 
-    # The registry keeps every scenario regardless -- narrowing what is *issued* must not narrow
+    # The scenario space metadata keeps every scenario regardless -- narrowing what is *issued* must not narrow
     # what is on record, or the pack becomes the only surviving account of the scenario space.
-    report("Writing the registry", 1, 3)
-    _save_registry(workspace, "summary", intake, scenarios)
+    report("Writing the scenario space metadata", 1, 3)
+    _save_metadata(workspace, "summary", intake, scenarios)
 
     issued, held_back = scenarios, 0
     gaps = _under_represented(workspace)
@@ -426,13 +426,13 @@ def _run_summary(workspace: Workspace, progress=None, cancel=None) -> Dict[str, 
         issued = [s for s in scenarios if s.id in gaps]
         held_back = len(scenarios) - len(issued)
 
-    report("Writing the challenge pack", 2, 3)
-    write_challenge_pack(str(workspace.root / PACK), intake, issued)
-    workspace.state("summary").artifacts["challenge_pack"] = PACK
-    report("Wrote the pack and the registry", 3, 3)
+    report("Writing the data template", 2, 3)
+    write_data_template(str(workspace.root / TEMPLATE), intake, issued)
+    workspace.state("summary").artifacts["challenge_pack"] = TEMPLATE
+    report("Wrote the pack and the scenario space metadata", 3, 3)
 
-    runs = sum(required_runs(s.effective_materiality) for s in issued)
-    summary = {"Scenarios issued": len(issued), "Runs requested": runs,
+    runs = sum(required_variations(s.effective_materiality) for s in issued)
+    summary = {"Scenarios issued": len(issued), "Variations requested": runs,
                "Expected outcomes in the pack": 0}
     if workspace.pack_gaps_only:
         summary["Held back as already covered"] = held_back
@@ -448,7 +448,7 @@ def _under_represented(workspace: Workspace):
     """
     if not workspace.coverage_mappings():
         return None
-    report = stored_report(workspace, read_registry(str(workspace.root / REGISTRY)))
+    report = stored_report(workspace, read_space_metadata(str(workspace.root / METADATA)))
     if report is None:
         return None
     return {entry.scenario.id for entry in report.under_represented()}
@@ -472,13 +472,13 @@ def _run_coverage(workspace: Workspace, progress=None, cancel=None) -> Dict[str,
     intake_path = workspace.artifact_path("intake", "workbook")
     if not intake_path:
         raise ValueError("No intake workbook yet. Provide one at the intake stage.")
-    if not (workspace.root / REGISTRY).exists():
+    if not (workspace.root / METADATA).exists():
         raise ValueError("Build the scenario space first — there is nothing to map the "
                          "conversations against.")
 
     try:
         result = map_conversation_coverage(
-            str(intake_path), str(workspace.root / REGISTRY), str(submitted),
+            str(intake_path), str(workspace.root / METADATA), str(submitted),
             str(workspace.root / OVERLAP), threshold=workspace.coverage_threshold,
             progress=progress, cancel=cancel)
     except UnreadableConversations as exc:
@@ -491,11 +491,11 @@ def _run_coverage(workspace: Workspace, progress=None, cancel=None) -> Dict[str,
             f"transcript per row, or 'User:'/'Agent:' prefixes in a document. Send it back and "
             f"ask for that, or attach a tidied copy here.") from exc
 
-    # The pipeline has already written the counts back into the registry. Snapshot it the same way
+    # The pipeline has already written the counts back into the scenario space metadata. Snapshot it the same way
     # every other scenario stage does, so this stage's page shows its own reading rather than
     # whatever a later stage has since made of the same file.
-    shutil.copyfile(workspace.root / REGISTRY, workspace.root / _snapshot("coverage"))
-    workspace.state("coverage").artifacts.update({"report": OVERLAP, "registry": REGISTRY})
+    shutil.copyfile(workspace.root / METADATA, workspace.root / _snapshot("coverage"))
+    workspace.state("coverage").artifacts.update({"report": OVERLAP, "space_metadata": METADATA})
     workspace.save_coverage(result.mappings, result.how_read)
 
     counts = result.summary

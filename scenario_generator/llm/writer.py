@@ -7,7 +7,7 @@ Both fields are issued to the model owner, so neither may reveal the expected
 outcome. That is enforced here by what the model is given rather than only by what it is told:
 :meth:`ScenarioWriter._payload` withholds the scenario's terminal state entirely. Per-step
 outcomes are supplied, because the tester has to know which condition to induce, but the route's
-destination is never in the prompt and so cannot reach the challenge pack through this call.
+destination is never in the prompt and so cannot reach the data template through this call.
 
 A scenario space of any size is several chunks of scenarios, and every chunk needs its own call. Those
 calls go out together rather than one after another: nothing in one chunk's text depends on
@@ -199,7 +199,7 @@ class ScenarioWriter:
         if remaining:
             logger.warning(
                 "%d scenario(s) still describe how the interaction ends after being rewritten: "
-                "%s. They are in the pack as written -- read them before it goes out.",
+                "%s. They are in the data template as written -- read them before it goes out.",
                 len(remaining), ", ".join(s.id for s in remaining[:10]))
         logger.info("Rewrote %d of %d.", fixed, len(broken))
         return fixed

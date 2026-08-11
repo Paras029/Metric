@@ -3,7 +3,7 @@
 Prompt wording is editable by people who are not changing code, which is the point of keeping it
 in its own files. These tests are what stops an edit on one side of that boundary from quietly
 breaking the other: a renamed placeholder, a prompt a pass expects but nobody wrote, or wording
-that reintroduces the one thing the challenge pack must never contain.
+that reintroduces the one thing the data template must never contain.
 """
 import json
 import unittest

@@ -429,7 +429,7 @@ class TestCoverageAnnotation(unittest.TestCase):
         from openpyxl import load_workbook
         from test_stage_runners import _intake_workbook
         from scenario_generator.core.intake import read_intake
-        from scenario_generator.io import read_scenarios, write_challenge_pack, write_registry
+        from scenario_generator.io import read_scenarios, write_data_template, write_space_metadata
         from scenario_generator.pipeline import build_scenario_space
 
         directory = Path(tempfile.mkdtemp())
@@ -438,14 +438,14 @@ class TestCoverageAnnotation(unittest.TestCase):
         scenarios[0].owner_coverage = "Covered"
         scenarios[0].owner_coverage_note = "Their TC-001"
 
-        write_registry(str(directory / "registry.xlsx"), intake, scenarios)
-        restored = read_scenarios(str(directory / "registry.xlsx"), intake)
+        write_space_metadata(str(directory / "scenario_space_metadata.xlsx"), intake, scenarios)
+        restored = read_scenarios(str(directory / "scenario_space_metadata.xlsx"), intake)
         self.assertEqual(restored[0].owner_coverage, "Covered")
         self.assertEqual(restored[0].owner_coverage_note, "Their TC-001")
 
         # The model owner must not learn which scenarios are already covered -- that would say
         # which ones the validator considers already answered.
-        write_challenge_pack(str(directory / "pack.xlsx"), intake, scenarios)
+        write_data_template(str(directory / "pack.xlsx"), intake, scenarios)
         book = load_workbook(directory / "pack.xlsx")
         values = [str(v) for name in book.sheetnames
                   for row in book[name].iter_rows(values_only=True) for v in row if v]
@@ -457,22 +457,22 @@ class TestCoverageAnnotation(unittest.TestCase):
         from test_stage_runners import _intake_workbook
         from scenario_generator.core.intake import read_intake
         from scenario_generator.core.representation import build_report
-        from scenario_generator.io import read_registry, read_scenarios, write_registry
+        from scenario_generator.io import read_space_metadata, read_scenarios, write_space_metadata
         from scenario_generator.llm.conversation_mapping import Mapping
         from scenario_generator.pipeline import annotate_coverage, build_scenario_space
 
         directory = Path(tempfile.mkdtemp())
-        registry = str(directory / "registry.xlsx")
+        metadata = str(directory / "scenario_space_metadata.xlsx")
         intake = read_intake(str(_intake_workbook(directory)))
         scenarios = build_scenario_space(intake, with_probes=True)
-        write_registry(registry, intake, scenarios)
+        write_space_metadata(metadata, intake, scenarios)
 
-        space = read_registry(registry)
+        space = read_space_metadata(metadata)
         report = build_report([Mapping("C1", space[0].id, "high"),
                                Mapping("C2", space[0].id, "low")], space)
 
-        self.assertEqual(annotate_coverage(registry, intake, report), 1)
-        restored = read_scenarios(registry, intake)
+        self.assertEqual(annotate_coverage(metadata, intake, report), 1)
+        restored = read_scenarios(metadata, intake)
         self.assertEqual(len(restored), len(scenarios))
         annotated = next(s for s in restored if s.id == space[0].id)
         self.assertEqual(annotated.owner_coverage, "2 conversations")

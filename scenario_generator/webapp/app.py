@@ -33,7 +33,7 @@ from ..core.models import MATERIALITY
 from ..ingest.conversations import read_conversations
 from ..ingest.groups import (ALL_EXTENSIONS, DEFAULT_GROUP, GROUP_BY_KEY, GROUPS, MODEL_DOC,
                              OWNER_SCENARIOS, SUPPORTING, folder_for, files_in, remove_file)
-from ..io import read_registry, read_scenarios, write_coverage_report, write_registry
+from ..io import read_space_metadata, read_scenarios, write_coverage_report, write_space_metadata
 from ..llm import metering
 from ..llm.cancellation import Stopped
 from ..llm.structure_review import review_structure
@@ -41,7 +41,7 @@ from ..pipeline import revise_intake_workbook
 from . import stagecancel
 from .coverageview import coverage_view, stored_mappings, stored_report
 from .graphview import graph_summary, render_svg
-from .runners import (CONTEXT, DRAFT_INTAKE, EVIDENCE, OVERLAP, REGISTRY, RUNNERS,
+from .runners import (CONTEXT, DRAFT_INTAKE, EVIDENCE, OVERLAP, METADATA, RUNNERS,
                       STAGE_OUTPUTS,
                       _apply_proposal, _context, _intake, _proposal_dicts,
                       _scenarios, _snapshot)
@@ -256,22 +256,22 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
     def _stage_scenarios(workspace: Workspace, key: str, intake):
         """The scenarios as this stage left them, once there are any.
 
-        A stage reads its own snapshot rather than the live registry, so coming back to the
+        A stage reads its own snapshot rather than the live metadata workbook, so coming back to the
         scenario-text page after materiality has run shows the text as it was written, not the
-        text with tiers assigned afterwards beside it. Falling back to the live registry covers
+        text with tiers assigned afterwards beside it. Falling back to the live metadata workbook covers
         a workspace built before snapshots existed, and the stage that has not run yet.
         """
         if key not in SCENARIO_STAGES or intake is None:
             return None
         path = workspace.root / _snapshot(key)
         if not path.exists():
-            path = workspace.root / REGISTRY
+            path = workspace.root / METADATA
         if not path.exists():
             return None
         try:
             return read_scenarios(str(path), intake)
         except Exception:
-            # Never blank the page over one unreadable registry -- but log the traceback rather
+            # Never blank the page over one unreadable metadata workbook -- but log the traceback rather
             # than the message alone. A malformed workbook and a mistake in this module both
             # arrive here, and only one of them is diagnosable from "could not read".
             logger.exception("Could not read the scenario space for display")
@@ -288,7 +288,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
     def _shape_for(scenarios, key: str):
         """The tally in the side panel, from the same scenarios the list is drawn from.
 
-        Reading both off one snapshot is the point: a panel that counted the live registry while
+        Reading both off one snapshot is the point: a panel that counted the live metadata workbook while
         the list showed a stage's own snapshot would put two different totals on the same screen
         and leave no way to tell which was the scenario space.
         """
@@ -308,11 +308,11 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         Counted from the stored mappings at whatever threshold is set now, the same as the stage's
         own page, so the two never disagree.
         """
-        path = workspace.root / REGISTRY
+        path = workspace.root / METADATA
         if not path.exists() or not workspace.coverage_mappings():
             return None
         try:
-            report = stored_report(workspace, read_registry(str(path)))
+            report = stored_report(workspace, read_space_metadata(str(path)))
         except Exception:
             logger.exception("Could not count coverage for the side panel")
             return None
@@ -339,11 +339,11 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         """
         if key not in ("coverage", "summary") or intake is None:
             return None
-        path = workspace.root / REGISTRY
+        path = workspace.root / METADATA
         if not path.exists() or not workspace.coverage_mappings():
             return None
         try:
-            report = stored_report(workspace, read_registry(str(path)))
+            report = stored_report(workspace, read_space_metadata(str(path)))
             texts = {s.id: s.description for s in read_scenarios(str(path), intake)}
         except Exception:
             logger.exception("Could not rebuild the coverage report for display")
@@ -595,10 +595,10 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             workspace.set_coverage_threshold(int(raw))
 
         mappings = stored_mappings(workspace)
-        path = workspace.root / REGISTRY
+        path = workspace.root / METADATA
         if mappings and path.exists():
             intake = _intake(workspace)
-            space = read_registry(str(path))
+            space = read_space_metadata(str(path))
             texts = {s.id: s.description for s in read_scenarios(str(path), intake)}
             report = stored_report(workspace, space)
             write_coverage_report(str(workspace.root / OVERLAP), report, mappings, texts)
@@ -612,7 +612,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/summary/scope", methods=["POST"])
     def set_pack_scope():
-        """Choose whether the challenge pack carries the whole scenario space or only the gaps.
+        """Choose whether the data template carries the whole scenario space or only the gaps.
 
         Off by default. Every other stage widens what the model owner is asked to run, and this is
         the one control that narrows it: leaving a scenario out says the model owner's
@@ -629,9 +629,9 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/<key>/scenario/<scenario_id>", methods=["POST"])
     def rule_on_scenario(key: str, scenario_id: str):
-        """Record the reviewer's ruling on one scenario, straight into the registry.
+        """Record the reviewer's ruling on one scenario, straight into the scenario space metadata.
 
-        Two rulings, both already columns the registry carries. An override sets materiality and
+        Two rulings, both already columns the scenario space metadata carries. An override sets materiality and
         outranks every model pass, which is what makes the tiers a recommendation rather than a
         verdict. Clearing a flag says the review's concern has been considered and dismissed --
         the concern was never able to remove anything, so dismissing it removes only the marker.
@@ -651,9 +651,9 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         if request.form.get("clear_flag"):
             scenario.review_flag = ""
 
-        write_registry(str(workspace.root / REGISTRY), intake, scenarios)
+        write_space_metadata(str(workspace.root / METADATA), intake, scenarios)
 
-        # The pack's run counts come from materiality, so a pack written before this ruling no
+        # The template's variation counts come from materiality, so a pack written before this ruling no
         # longer reflects it. Saying so beats letting a stale workbook look current.
         workspace.invalidate_after("review")
         workspace.save()

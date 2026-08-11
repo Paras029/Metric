@@ -500,7 +500,7 @@
 
     {% if stage.key == 'summary' %}
       <section class="block">
-        <h2 class="block__title">What goes in the pack</h2>
+        <h2 class="block__title">What goes in the data template</h2>
         <p class="block__body">
           The pack carries the whole scenario space by default. Narrowing it to what their testing
           under-covers is a decision to accept their evidence for the rest.
@@ -522,7 +522,7 @@
           </p>
         {% elif pack_gaps_only %}
           <p class="block__foot">
-            The coverage stage has not mapped anything yet, so nothing can be held back — the pack
+            The coverage stage has not mapped anything yet, so nothing can be held back — the template
             will carry the whole scenario space until it has.
           </p>
         {% endif %}
@@ -537,7 +537,7 @@
         <h2 class="block__title">The scenario space so far</h2>
         <p class="block__body">
           What each scenario asks the agent to do, and what it is judged to be worth. Routes and
-          expected outcomes stay in the registry.
+          expected outcomes stay in the scenario space metadata.
         </p>
 
         <div class="switch" role="group" aria-label="Which scenarios to show">
@@ -716,7 +716,7 @@
                     <span>{{ row.turns }} turn{{ '' if row.turns == 1 else 's' }}</span>
                     {% if row.category %}<span>{{ row.category }}</span>{% endif %}
                     {% if 'materiality' in space.shows %}
-                      <span>{{ row.runs }} run{{ '' if row.runs == 1 else 's' }} requested</span>
+                      <span>{{ row.runs }} variation{{ '' if row.runs == 1 else 's' }} requested</span>
                     {% endif %}
                   </p>
 
@@ -754,7 +754,7 @@
                     {% if 'coverage' in space.shows and row.coverage_note %}
                       <p class="aside">
                         <strong>{{ row.coverage }}</strong> from the model owner's testing
-                        ({{ row.coverage_note }}). Left in the pack — whether to run it again is
+                        ({{ row.coverage_note }}). Left in the template — whether to run it again is
                         yours to decide.
                       </p>
                     {% endif %}
@@ -994,7 +994,7 @@
 
     {# The scenario space as a whole, beside a page that is only ever showing part of it. The tiers are
        the effective ones, so from the review stage onwards a tier the review moved is counted
-       where the review put it, and the shape of the pack changes under you as it should. #}
+       where the review put it, and the shape of the space changes under you as it should. #}
     {% if shape and shape.tiers %}
       <details class="side__part" open>
         <summary class="side__title">
@@ -1017,7 +1017,7 @@
           {% endfor %}
         </ul>
         <dl class="side__facts">
-          <div><dt>Test runs requested</dt><dd class="mono">{{ shape.runs }}</dd></div>
+          <div><dt>Variations requested</dt><dd class="mono">{{ shape.runs }}</dd></div>
           {% if space and 'review' in space.shows %}
             <div><dt>Flagged by the review</dt><dd class="mono">{{ shape.flagged }}</dd></div>
             <div><dt>Proposed by the review</dt><dd class="mono">{{ shape.proposed }}</dd></div>
