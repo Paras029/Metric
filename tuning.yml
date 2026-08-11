@@ -162,6 +162,11 @@ council:
 
   # Per call site, so a council can be paid for where it earns its keep and not elsewhere.
   stages:
+    ingest_read: off              # reading the documents -- the first judgement of the run, and
+    ingest_resolve: off           # the one every later stage inherits without re-checking
+    ingest_diagram_read: off      # each workflow image, read on its own
+    ingest_diagram_synthesize: off
+    ingest_diagram_repair: off
     intake_draft: off             # the declaration the whole scenario space is built from
     intake_repair: off            # filling in what that draft left structurally incomplete
     reviewer_assess: off          # materiality settled and weak scenarios flagged

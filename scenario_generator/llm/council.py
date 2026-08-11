@@ -37,8 +37,18 @@ logger = logging.getLogger(__name__)
 
 # The only passes a council can be turned on for, and the reason is in the module docstring: each
 # is one judgement over a whole body of evidence that every later stage takes as given.
-COUNCIL_STAGES = ("INTAKE_DRAFT", "INTAKE_REPAIR", "REVIEWER_ASSESS", "REVIEWER_PROPOSE",
-                  "COVERAGE_MAP")
+COUNCIL_STAGES = (
+    # Reading the submitted documents. The first judgement of the run and the one everything else
+    # inherits: the intake is drafted from this reading, the scenario space from that intake, and
+    # nothing downstream ever re-reads the documents to check. A council was originally offered
+    # only from the intake draft onwards, which was the wrong boundary -- by then the reading it
+    # would be improving has already happened.
+    "INGEST_READ", "INGEST_RESOLVE",
+    "INGEST_DIAGRAM_READ", "INGEST_DIAGRAM_SYNTHESIZE", "INGEST_DIAGRAM_REPAIR",
+    # Drafting the declaration from that reading, and reviewing what was built from it.
+    "INTAKE_DRAFT", "INTAKE_REPAIR", "REVIEWER_ASSESS", "REVIEWER_PROPOSE",
+    "COVERAGE_MAP",
+)
 
 # Appended to the worker prompt to make the reconciler's. Deliberately not a separate prompt file:
 # the reconciler is doing the *same task*, against the same instructions, and a second set of
@@ -125,7 +135,7 @@ def _truthy(value) -> bool:
 
 
 def deliberate(complete: Callable[..., str], system: str, user: str, *, stage: str, tier,
-               cancel=None) -> str:
+               cancel=None, **extra) -> str:
     """Two workers in parallel, then a reconciler that answers with both in view.
 
     Returns the reconciler's reply, which the caller parses exactly as it parses a single call --
@@ -138,14 +148,14 @@ def deliberate(complete: Callable[..., str], system: str, user: str, *, stage: s
     """
     council = for_stage(stage)
     if council is None:
-        return call(complete, system, user, tier=tier)
+        return call(complete, system, user, tier=tier, **extra)
 
     cancellation.check(cancel)
-    readings = _workers(complete, system, user, council, tier, cancel)
+    readings = _workers(complete, system, user, council, tier, cancel, extra)
     if not readings:
         logger.warning("Neither council worker answered for %s; falling back to a single call.",
                        stage)
-        return call(complete, system, user, tier=tier)
+        return call(complete, system, user, tier=tier, **extra)
 
     cancellation.check(cancel)
     reconciled = user + _RECONCILE_BLOCK.format(
@@ -154,15 +164,20 @@ def deliberate(complete: Callable[..., str], system: str, user: str, *, stage: s
     try:
         return call(complete, system, reconciled,
                     tier=replace(tier, model=council.reconciler,
-                                 name=f"{tier.name}:reconciler"))
+                                 name=f"{tier.name}:reconciler"), **extra)
     except Exception as exc:
         logger.warning("The council's reconciler did not answer for %s (%s); using the first "
                        "reading instead.", stage, exc)
         return readings[0]
 
 
-def _workers(complete, system: str, user: str, council: Council, tier, cancel) -> List[str]:
+def _workers(complete, system: str, user: str, council: Council, tier, cancel,
+             extra: Optional[dict] = None) -> List[str]:
     """Both workers' replies, in the order the models are named, skipping any that failed.
+
+    ``extra`` carries anything the call site adds beyond the prompt -- the images a diagram pass
+    sends, most of all. Without it a council over those passes would ask two models to read a
+    picture and send neither of them the picture.
 
     Concurrent because they are genuinely independent -- neither sees the other, which is the
     whole reason two of them are worth having -- so a council costs one worker's latency plus the
@@ -171,7 +186,8 @@ def _workers(complete, system: str, user: str, council: Council, tier, cancel) -
     def ask(model: str) -> Optional[str]:
         try:
             return call(complete, system, user,
-                        tier=replace(tier, model=model, name=f"{tier.name}:worker"))
+                        tier=replace(tier, model=model, name=f"{tier.name}:worker"),
+                        **(extra or {}))
         except Exception as exc:
             logger.warning("Council worker %s did not answer: %s", model, exc)
             return None

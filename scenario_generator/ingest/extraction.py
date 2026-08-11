@@ -40,8 +40,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
 from ..core.evidence import (FACETS, KIND_IMAGE, Claim, DocumentRef, EvidenceRecord,
                              FacetAnswer, SourceRef)
 from ..core.grounding import Source
-from ..llm import cancellation, config, prompt_loader
-from ..llm.calling import call
+from ..llm import cancellation, config, council, prompt_loader
 from ..llm.gateway import ask_llm, ask_llm_with_images
 from ..utils import parse_json_object
 from ..utils.replies import prose
@@ -437,8 +436,9 @@ class DocumentExtractor:
         user = prompt_loader.render(_DIAGRAM_READ_PROMPT, filename=path.name,
                                     position=f"{index} of {total}")
         try:
-            reply = parse_json_object(call(
+            reply = parse_json_object(council.deliberate(
                 self._describe_images, prompt_loader.load(_SYSTEM_PROMPT), user,
+                stage="INGEST_DIAGRAM_READ",
                 tier=config.stage_tier("INGEST_DIAGRAM_READ", config.JUDGEMENT), images=[image]))
         except Exception as exc:
             self._called(failed=True)
@@ -465,8 +465,9 @@ class DocumentExtractor:
         user = prompt_loader.render(_DIAGRAM_SYNTHESIZE_PROMPT, facets=_facet_guide(),
                                     document=names, readings=blocks)
         try:
-            reply = parse_json_object(call(
+            reply = parse_json_object(council.deliberate(
                 self._complete, prompt_loader.load(_SYSTEM_PROMPT), user,
+                stage="INGEST_DIAGRAM_SYNTHESIZE",
                 tier=config.stage_tier("INGEST_DIAGRAM_SYNTHESIZE", config.JUDGEMENT)))
         except Exception as exc:
             self._called(failed=True)
@@ -504,8 +505,9 @@ class DocumentExtractor:
             problems="\n".join(f"- {problem}" for problem in problems))
 
         try:
-            reply = parse_json_object(call(
+            reply = parse_json_object(council.deliberate(
                 self._describe_images, prompt_loader.load(_SYSTEM_PROMPT), user,
+                stage="INGEST_DIAGRAM_REPAIR",
                 tier=config.stage_tier("INGEST_DIAGRAM_REPAIR", config.JUDGEMENT), images=images))
         except Exception as exc:
             self._called(failed=True)
@@ -708,8 +710,9 @@ class DocumentExtractor:
         user = prompt_loader.render(prompt, **values)
         system = prompt_loader.load(_SYSTEM_PROMPT)
         try:
-            reply = parse_json_object(
-                call(self._complete, system, user, tier=config.stage_tier(stage, config.JUDGEMENT)))
+            reply = parse_json_object(council.deliberate(
+                self._complete, system, user, stage=stage,
+                tier=config.stage_tier(stage, config.JUDGEMENT)))
         except Exception as exc:
             self._called(failed=True)
             logger.warning("A reading call failed: %s", exc)

@@ -96,6 +96,60 @@ class TestItIsOffUntilItIsConfigured(unittest.TestCase):
             self.assertIsNone(council.for_stage("REVIEWER_ASSESS"))
 
 
+class TestItReachesTheFirstPhase(unittest.TestCase):
+    """Reading the documents is the judgement everything else inherits.
+
+    A council was originally offered from the intake draft onwards, which is the wrong boundary:
+    the intake is drafted *from* the reading, the scenario space from that intake, and nothing
+    downstream ever re-reads the documents to check. By the time a council could be switched on,
+    the reading it would have improved had already happened.
+    """
+
+    def test_every_ingestion_call_site_can_take_one(self):
+        with _with_council():
+            for stage in ("INGEST_READ", "INGEST_RESOLVE", "INGEST_DIAGRAM_READ",
+                          "INGEST_DIAGRAM_SYNTHESIZE", "INGEST_DIAGRAM_REPAIR"):
+                self.assertIsNotNone(council.for_stage(stage), stage)
+
+    def test_the_images_reach_every_member_of_a_council(self):
+        """A diagram pass sends a picture. Without this, a council over one would ask two models
+        to read a diagram and send neither of them the diagram."""
+        seen = []
+
+        def complete(system, user, tier=None, images=None, **kwargs):
+            seen.append((getattr(tier, "model", ""), images))
+            return "reply"
+
+        with _with_council():
+            council.deliberate(complete, "sys", "read this diagram", stage="INGEST_DIAGRAM_READ",
+                               tier=_TIER, images=[("image/png", b"bytes")])
+
+        self.assertEqual(len(seen), 3)
+        for model, images in seen:
+            self.assertEqual(images, [("image/png", b"bytes")], model)
+
+    def test_extra_arguments_survive_the_fallback_to_a_single_call(self):
+        """Switched off, and with both workers down, the images still have to be sent."""
+        seen = []
+
+        def complete(system, user, tier=None, images=None, **kwargs):
+            seen.append(images)
+            return "reply"
+
+        council.deliberate(complete, "sys", "task", stage="INGEST_DIAGRAM_READ", tier=_TIER,
+                           images=[("image/png", b"bytes")])
+        self.assertEqual(seen, [[("image/png", b"bytes")]])
+
+    def test_the_ingestion_code_actually_asks_for_a_council(self):
+        """The switches exist; this is what makes them do anything."""
+        from pathlib import Path
+
+        from scenario_generator.ingest import extraction
+
+        source = Path(extraction.__file__).read_text(encoding="utf-8")
+        self.assertEqual(source.count("council.deliberate"), 4)
+
+
 class TestTheWorkersAreIndependent(unittest.TestCase):
     """The whole value of the thing. Two models shown each other's work converge, and that
     agreement is one reading with a second signature on it."""

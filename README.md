@@ -382,10 +382,13 @@ council:
     reviewer_assess: on
 ```
 
-Off unless you switch it on and name the models. Only five passes can take one — intake drafting,
-intake repair, the review's assessment and proposal sweeps, and coverage mapping — and the reason
-is the same for each: it is one judgement over a whole body of evidence that every later stage
-takes as given, with nothing downstream that would catch it being wrong. Writing scenario text and
+Off unless you switch it on and name the models. Ten passes can take one, and the reason is the
+same for each: it is one judgement over a whole body of evidence that every later stage takes as
+given, with nothing downstream that would catch it being wrong. **Reading the documents comes
+first** — the three diagram passes and the two text ones — because the intake is drafted from that
+reading and the scenario space from that intake, and nothing ever goes back to the documents to
+check. Then intake drafting and repair, the review's assessment and proposal sweeps, and coverage
+mapping. Writing scenario text and
 assigning materiality are deliberately not on the list; those are made per scenario, hundreds of
 times, and a bad one is visible on the page beside its neighbours.
 
