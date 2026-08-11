@@ -13,7 +13,7 @@ THE SCALE
 
 {{materiality}}
 
-THE BENCHMARK AS IT STANDS ({{total}} scenarios)
+THE SCENARIO SPACE AS IT STANDS ({{total}} scenarios)
 
 {{digest}}
 

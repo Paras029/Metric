@@ -1,4 +1,4 @@
-{{owner}}THE BENCHMARK AS IT STANDS ({{total}} scenarios)
+{{owner}}THE SCENARIO SPACE AS IT STANDS ({{total}} scenarios)
 
 Every scenario currently in the scenario space, in compact form, so each can be judged against the
 whole rather than on its own. Use it to see redundancy, imbalance, and coverage that clusters in

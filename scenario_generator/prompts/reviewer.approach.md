@@ -1,4 +1,4 @@
-HOW THIS BENCHMARK WAS BUILT
+HOW THIS SCENARIO SPACE WAS BUILT
 
 1. The model owner completed a structured intake describing the agent as a decision graph --
    capabilities, decision points with named outcomes, states, personas and tools.

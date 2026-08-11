@@ -1,4 +1,4 @@
-{{owner}}THE BENCHMARK AS IT STANDS ({{total}} scenarios)
+{{owner}}THE SCENARIO SPACE AS IT STANDS ({{total}} scenarios)
 
 Every scenario currently in the scenario space, in compact form.
 

@@ -11,7 +11,7 @@ THE AGENT
 
 {{use_case}}
 
-THE BENCHMARK
+THE SCENARIO SPACE
 
 Each of these is one complete route through the agent, from the opening of the conversation to a
 specific ending. **A scenario is identified by where it ends as much as by what it does on the

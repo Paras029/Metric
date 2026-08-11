@@ -82,7 +82,7 @@ class TestWhatDoesNotEarnItsPlace(unittest.TestCase):
         self.assertLessEqual(len(_personas({"personas": drafted})), MAX_PERSONAS)
 
 
-class TestTheBenchmarkStaysASensibleSize(unittest.TestCase):
+class TestTheScenarioSpaceStaysASensibleSize(unittest.TestCase):
     def test_two_personas_is_an_acceptable_answer(self):
         """The floor and the common case; nothing forces a third."""
         personas = _personas({"personas": [

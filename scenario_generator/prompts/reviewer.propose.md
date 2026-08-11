@@ -1,4 +1,4 @@
-{{owner}}THE BENCHMARK AS IT STANDS ({{total}} scenarios)
+{{owner}}THE SCENARIO SPACE AS IT STANDS ({{total}} scenarios)
 
 {{digest}}
 

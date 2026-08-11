@@ -1451,7 +1451,7 @@ ol, ul { list-style: none; padding: 0; }
 .side__graph svg { width: 100%; height: auto; display: block; pointer-events: none; }
 
 /* The materiality distribution. A bar rather than a number beside a label, because the question
-   it answers is proportional -- whether this benchmark is top-heavy -- and that is read off a
+   it answers is proportional -- whether this space is top-heavy -- and that is read off a
    shape faster than off four counts. Each row links to the list filtered to its own tier. */
 .side__bars { display: grid; gap: var(--s1); margin-bottom: var(--s3); }
 .side__bar-link {
@@ -1472,7 +1472,7 @@ ol, ul { list-style: none; padding: 0; }
   background: var(--rule-soft);
   overflow: hidden;
 }
-/* A tier with one scenario in a benchmark of three hundred is still a tier somebody has to see,
+/* A tier with one scenario in a space of three hundred is still a tier somebody has to see,
    so every fill keeps a floor rather than rounding away to an empty track. */
 .side__bar-fill { display: block; height: 100%; min-width: 3px; background: var(--rule-strong); }
 .side__bar-fill--critical { background: var(--bad); }
