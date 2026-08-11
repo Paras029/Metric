@@ -11,6 +11,8 @@ lives in ``scenario_generator/prompts`` where it can be edited without touching 
 """
 from __future__ import annotations
 
+from collections import Counter
+
 from typing import List
 
 from ..core.models import IntakeData, Scenario
@@ -53,7 +55,16 @@ def describe_use_case(intake: IntakeData) -> str:
 
 
 def describe_graph(intake: IntakeData) -> str:
-    """The agent's declared structure: capabilities, decisions, states, personas and tools."""
+    """The agent's declared structure: capabilities, decisions, states, personas and tools.
+
+    **The edges are part of the structure.** This used to render states as descriptions and a
+    terminal flag and nothing else, which meant the two calls whose entire job is the wiring --
+    the intake repair and the structure review -- were shown a bag of states with no wiring in it.
+    Asked "where does DEC-02's 'Too old' outcome lead?", the model had to reconstruct every edge
+    in the agent from the state descriptions, and a reconstruction that came back one branch short
+    was indistinguishable from the declaration it replaced. That is the intermittent failure this
+    line fixes: not a model that is bad at graphs, a prompt that withheld the graph.
+    """
     capabilities = "\n".join(
         f"- {c.id} ({c.name}){f' — type: {c.type}' if c.type else ''}"
         for c in intake.capabilities) or "- none declared"
@@ -67,6 +78,8 @@ def describe_graph(intake: IntakeData) -> str:
 
     states = "\n".join(
         f"- {s.id}: {s.description}"
+        f" | reached via: {s.reached_via or 'NOTHING DECLARED'}"
+        f"{' | next: ' + ', '.join(s.next_decisions) if s.next_decisions else ''}"
         f"{' [terminal]' if s.is_terminal else ''}"
         f"{f' [outcome type: {s.outcome_type}]' if s.outcome_type else ''}"
         for s in intake.states) or "- none declared"
@@ -86,6 +99,48 @@ def describe_graph(intake: IntakeData) -> str:
             f"category):\n{states}\n\n"
             f"Personas:\n{personas}\n\n"
             f"Tools:\n{tools}")
+
+
+def describe_enumeration(intake: IntakeData) -> str:
+    """What the declared graph actually walks to, as arithmetic rather than as a verdict.
+
+    The repair call is asked to fix the wiring, and until now the only thing it could see about
+    the wiring was the wiring itself. This is the consequence: how many distinct routes the
+    declaration produces, where they end, and which declared outcomes stop the walk because
+    nothing says where they lead.
+
+    Deliberately not a judgement. An agent that genuinely does one thing enumerates to one route,
+    and a check that called that a fault would be wrong about a real agent and would teach anyone
+    reading it to ignore the next one. What is offered is the count and the endings; whether that
+    is the right shape for this agent is something only the documentation can settle, and the
+    model has the documentation.
+    """
+    from ..core.graph import DecisionGraph, enumerate_paths
+
+    graph = DecisionGraph(intake.decisions, intake.states)
+    walked, augmented = enumerate_paths(graph)
+    routes = list(walked) + list(augmented)
+
+    endings = []
+    for route in routes:
+        target = graph.successor(route[-1].decision_id, route[-1].variant) if route else ""
+        state = graph.state(target)
+        endings.append(f"{target} ({state.description})" if state else target or "nowhere")
+
+    dangling = [f"{d.id}={v}" for d in intake.decisions for v in d.variants
+                if graph.successor(d.id, v).startswith("OUT:")]
+
+    lines = [f"Distinct routes from start to finish: {len(routes)}",
+             f"Endings those routes reach: {len(set(endings))} of "
+             f"{sum(1 for s in intake.states if s.is_terminal)} declared terminal state(s)"]
+    if dangling:
+        lines.append(f"Declared outcomes that stop the walk because nothing says where they lead: "
+                     f"{', '.join(dangling)}")
+    counted = Counter(endings)
+    lines.append("")
+    lines.append("Routes by where they end:")
+    lines += [f"- {ending}: {count} route(s)" for ending, count in counted.most_common()]
+    return "\n".join(lines)
 
 
 def supplementary_context(text: str) -> str:

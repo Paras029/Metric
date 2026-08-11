@@ -29,6 +29,16 @@ WHAT THE DIAGRAMS SHOWED
 
 {{structure}}
 
+WHAT THIS DECLARATION CURRENTLY ENUMERATES TO
+
+The arithmetic of the graph exactly as declared above, walked from every start state. This is not
+a judgement about the agent — an agent that really does one thing should enumerate to one route,
+and that is a correct answer. It is here so you can see the consequence of the wiring you are
+looking at, because the routes are what the whole exercise tests and nothing else in this prompt
+shows them.
+
+{{enumeration}}
+
 HOW TO FIX IT
 
 Work through the listed points one at a time.
@@ -44,9 +54,16 @@ requires**, and say in a review note that you inferred it. A branch declared wit
 untestable; the same branch with a named failure outcome is testable and can be corrected by a
 person in ten seconds. Leaving it blank is the only option that helps nobody.
 
+Outcomes are allowed to converge. Two outcomes of different decisions can both lead to the same
+state, and a state can name several of them in its `reached_via`, comma-separated: `DEC-02=Too
+old, DEC-05=Withdrawn`. A branch that rejoins the main flow is a normal shape and declaring it
+that way is better than inventing a separate state that describes the same position twice.
+
 Two things you must not do. Do not remove a row because it is the easier way to make a point go
-away -- a decision deleted is a part of the agent nobody tests. And do not change anything the
-list above does not concern: every other row is carried forward exactly as it is.
+away -- a decision deleted is a part of the agent nobody tests, and anything you drop is put back
+before this is written, so removing a row only costs you the chance to correct it. And do not
+change anything the list above does not concern: every other row is carried forward exactly as
+it is.
 
 WHAT TO RETURN
 

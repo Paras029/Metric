@@ -114,9 +114,53 @@ def draft_intake(context: str, complete: Optional[Callable[..., str]] = None,
     return DraftedIntake(_validate(parse_json_object(reply)))
 
 
+# How each part of a declaration is identified, for matching a repair's rows against the draft's.
+_ROW_KEY = {"personas": "id", "capabilities": "id", "decisions": "id", "states": "id",
+            "tools": "name"}
+
+
+def carry_forward(first: dict, repaired: dict) -> dict:
+    """The repair, with anything it silently dropped put back. Returns a new declaration.
+
+    The repair prompt asks for the named gaps to be filled in and *nothing else changed*, and a
+    model mostly does that. What it occasionally does instead is answer the gap and lose something
+    on the way past -- an outcome it decided was redundant, a state it merged, a branch it did not
+    re-derive from the description it was given. Every one of those is a part of the agent that
+    stops being tested, and none of them is visible in the reply: a shorter declaration parses
+    exactly as well as a longer one.
+
+    So the instruction is enforced rather than requested. Every row the first draft declared and
+    the repair does not is carried forward, and so is every outcome of a decision the repair kept.
+    A repair may still *correct* a row -- where both declare the same id, the repair's version
+    wins, which is the whole point of asking. It simply cannot delete one.
+
+    Deliberately not a merge of field values: a repair that rewrites a description is doing its
+    job, and second-guessing that would leave a declaration neither call actually wrote.
+    """
+    merged = dict(repaired)
+    for part, key in _ROW_KEY.items():
+        kept = list(repaired.get(part) or [])
+        seen = {str(row.get(key, "")).strip() for row in kept}
+        for row in (first.get(part) or []):
+            if str(row.get(key, "")).strip() not in seen:
+                kept.append(row)
+        merged[part] = kept
+
+    # Outcomes are the branch labels, so losing one loses a route even when the decision survives.
+    was = {str(d.get("id", "")): [str(o) for o in (d.get("outcomes") or [])]
+           for d in (first.get("decisions") or [])}
+    for decision in merged["decisions"]:
+        outcomes = [str(o) for o in (decision.get("outcomes") or [])]
+        dropped = [o for o in was.get(str(decision.get("id", "")), []) if o not in outcomes]
+        if dropped:
+            decision["outcomes"] = outcomes + dropped
+    return merged
+
+
 def repair_intake(context: str, current: str, problems: List[str],
                   complete: Optional[Callable[..., str]] = None,
-                  structure: Optional[dict] = None) -> Optional[DraftedIntake]:
+                  structure: Optional[dict] = None,
+                  enumeration: str = "") -> Optional[DraftedIntake]:
     """Put the draft's own structural failures back to the model, with the documents still in hand.
 
     The first draft is one call over a long context, and the things it most often leaves out are
@@ -129,6 +173,11 @@ def repair_intake(context: str, current: str, problems: List[str],
     :func:`core.gaps.find_gaps`, which reads the *declaration* rather than the documents, so the
     model is told exactly what is wrong rather than asked to look again in general.
 
+    ``enumeration`` is what the declaration currently walks to -- the route count and where those
+    routes end. It is supplied rather than judged: the model is asked to fix named gaps in a graph
+    and is otherwise shown only the graph, never the consequence of it, and the consequence is the
+    thing the whole exercise is about.
+
     Returns ``None`` where nothing usable came back. A second look may improve the declaration and
     must never damage it, so the caller keeps the first draft in that case -- the same rule the
     diagram reading follows when its own repair pass finds nothing.
@@ -139,6 +188,7 @@ def repair_intake(context: str, current: str, problems: List[str],
     complete = complete or ask_llm
     user = prompt_loader.render(_REPAIR_PROMPT, context=context, current=current,
                                 structure=_structure_block(structure),
+                                enumeration=enumeration or "Not available.",
                                 problems="\n".join(f"- {problem}" for problem in problems))
     system = prompt_loader.load(_SYSTEM_PROMPT)
 

@@ -17,11 +17,11 @@ from .core.gaps import find_gaps
 from .core.representation import DEFAULT_THRESHOLD, build_report
 from .io import (read_space_metadata, read_scenarios, write_data_template, write_coverage_report,
                  write_space_metadata, write_scenario_graph)
-from .ingest import (DocumentExtractor, build_context_document, draft_intake, open_questions,
-                     read_conversations, record_from_json, rejection_summary, repair_intake,
-                     revise_intake, write_drafted_intake)
-from .llm import (MaterialityAssessor, ScenarioReviewer, ScenarioWriter, describe_graph,
-                  describe_use_case)
+from .ingest import (DocumentExtractor, DraftedIntake, build_context_document, carry_forward,
+                     draft_intake, open_questions, read_conversations, record_from_json,
+                     rejection_summary, repair_intake, revise_intake, write_drafted_intake)
+from .llm import (MaterialityAssessor, ScenarioReviewer, ScenarioWriter, describe_enumeration,
+                  describe_graph, describe_use_case)
 from .llm.conversation_mapping import ConversationMapper
 from .llm.reviewer import DEFAULT_PROPOSAL_LIMIT
 
@@ -336,8 +336,12 @@ def _repair_draft(output_path: str, context: str, structure, complete, draft, re
     on disk can be walked, and the reader is the thing that decides that. A draft that survives
     the reader and fails the audit is the case this exists for.
 
-    Never destructive. A repair that does not come back, or comes back empty, leaves the first
-    draft exactly where it was -- a second look can improve a declaration and must not damage one.
+    Never destructive, and that is enforced twice over rather than asked for. Anything the repair
+    dropped is carried forward -- see :func:`ingest.drafting.carry_forward` -- and the result is
+    then audited against the draft it would replace and thrown away if it is worse. A repair used
+    to be written to disk before anything checked whether it had helped, so a second look that
+    answered its gap and lost a branch on the way past was kept, and the only trace was a log line
+    reporting a negative number of gaps filled.
     """
     try:
         current = read_intake(output_path)
@@ -354,15 +358,41 @@ def _repair_draft(output_path: str, context: str, structure, complete, draft, re
                 len(problems))
 
     rendered = f"{describe_use_case(current)}\n\n{describe_graph(current)}"
-    repaired = repair_intake(context, rendered, problems, complete=complete, structure=structure)
+    repaired = repair_intake(context, rendered, problems, complete=complete, structure=structure,
+                             enumeration=describe_enumeration(current))
     if repaired is None:
         return draft
 
-    write_drafted_intake(Path(output_path), repaired)
-    remaining = structural_problems(read_intake(output_path))
-    logger.info("After looking again: %d of %d gap(s) filled in.",
-                len(problems) - len(remaining), len(problems))
-    return repaired
+    merged = DraftedIntake(carry_forward(draft.data, repaired.data))
+    settled = _accept_if_better(output_path, draft, merged, len(problems))
+    return settled
+
+
+def _accept_if_better(output_path: str, draft, candidate, before: int):
+    """Write ``candidate`` only if it audits better than the draft already on disk.
+
+    Written to a scratch path first, because the audit that decides this reads a workbook: what
+    matters is whether the *file* can be walked, and putting the candidate at the real path to
+    find that out is what made a bad repair unrecoverable.
+    """
+    scratch = Path(output_path).with_suffix(".candidate.xlsx")
+    try:
+        write_drafted_intake(scratch, candidate)
+        after = len(structural_problems(read_intake(str(scratch))))
+    except Exception as exc:
+        logger.warning("The second look could not be read back, so the draft stands: %s", exc)
+        return draft
+    finally:
+        scratch.unlink(missing_ok=True)
+
+    if after > before:
+        logger.warning("The second look left %d gap(s) where the draft had %d, so the draft "
+                       "stands.", after, before)
+        return draft
+
+    write_drafted_intake(Path(output_path), candidate)
+    logger.info("After looking again: %d of %d gap(s) filled in.", before - after, before)
+    return candidate
 
 
 def revise_intake_workbook(current_path: str, output_path: str, context_path: str = None,

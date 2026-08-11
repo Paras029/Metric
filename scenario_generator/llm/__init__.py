@@ -10,14 +10,14 @@ Prompt wording lives in ``scenario_generator/prompts`` and is reached through
 case description, the declared graph, the scenario space digest -- lives in
 :mod:`~scenario_generator.llm.context`.
 """
-from .context import describe_graph, describe_use_case
+from .context import describe_enumeration, describe_graph, describe_use_case
 from .gateway import ask_llm
 from .materiality import MaterialityAssessor, NullMaterialityAssessor
 from .reviewer import NullReviewer, ScenarioReviewer
 from .structure_review import Consolidation, Reconnection, StructureReview, review_structure
 from .writer import NullWriter, ScenarioWriter
 
-__all__ = ["ask_llm", "describe_use_case", "describe_graph", "ScenarioWriter", "NullWriter",
+__all__ = ["ask_llm", "describe_use_case", "describe_graph", "describe_enumeration", "ScenarioWriter", "NullWriter",
           "MaterialityAssessor", "NullMaterialityAssessor",
           "ScenarioReviewer", "NullReviewer", "review_structure", "StructureReview",
           "Reconnection", "Consolidation"]

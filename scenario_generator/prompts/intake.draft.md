@@ -106,6 +106,13 @@ first should be reached by an outcome. Where you cannot see what an outcome lead
 declare the outcome and note the gap — a declared branch with an unknown destination is far more
 useful than a branch nobody recorded.
 
+**Branches may rejoin.** Two outcomes can lead to the same state, and a state can name several of
+them in its `reached_via`, comma-separated: `DEC-02=Too old, DEC-05=Withdrawn`. Use that where the
+flow genuinely converges. Nothing here asks for a tree — a real agent loops back, hands several
+failures to the same person, and finishes several ways in the same place, and declaring that
+honestly is better than either inventing a separate state per outcome or flattening the branch
+away because it rejoins.
+
 Use the documentation's own words for outcomes, capabilities and states. The testers will be
 writing conversations in this domain's language.
 
