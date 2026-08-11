@@ -36,8 +36,7 @@ logger = logging.getLogger(__name__)
 _CONVERSATION_ID = ("conversation id", "conversation_id", "conv id", "convo id", "session id",
                     "session_id", "chat id", "transcript id", "dialogue id", "call id",
                     "interaction id", "conversation", "session", "id")
-_TURN_NUMBER = ("turn number", "turn_number", "turn index", "turn", "seq", "sequence", "order",
-                "index", "step")
+# No turn-number headings, deliberately: rows are taken in file order -- see _turn_per_row.
 _SPEAKER = ("speaker", "role", "actor", "author", "participant", "from", "direction", "sender",
             "side")
 _TEXT = ("message text", "utterance", "message", "text", "content", "transcript", "dialogue",

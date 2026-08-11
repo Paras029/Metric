@@ -29,6 +29,31 @@ def _ids(user):
     return _IDS.findall(user)
 
 
+class TestEveryStageATemplateNamesStillExists(unittest.TestCase):
+    """A control keyed off a renamed stage disappears silently.
+
+    The pack-scope checkbox was written when the last stage was called "issue" and kept its
+    `stage.key == 'issue'` guard through the rename to "summary". The route behind it stayed
+    reachable and its tests kept passing, because they post to the URL; the checkbox itself simply
+    stopped rendering on any page, and nothing said so. A stage key is the one string in a template
+    that can go stale without ever raising.
+    """
+
+    _KEY_IN_TEMPLATE = re.compile(r"stage\.key\s*==\s*'([a-z_]+)'")
+
+    def _templates(self):
+        from scenario_generator.webapp import app as webapp
+        return (Path(webapp.__file__).parent / "templates").rglob("*.html")
+
+    def test_no_template_tests_for_a_stage_key_nothing_goes_by(self):
+        from scenario_generator.webapp.stages import STAGE_BY_KEY
+
+        for template in self._templates():
+            for key in self._KEY_IN_TEMPLATE.findall(template.read_text(encoding="utf-8")):
+                self.assertIn(key, STAGE_BY_KEY,
+                              f"{template.name} branches on stage key {key!r}, which no stage has")
+
+
 class TestColumnScoping(unittest.TestCase):
     """build_rows on its own, without a workspace behind it."""
 
