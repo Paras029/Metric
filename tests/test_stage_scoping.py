@@ -69,7 +69,7 @@ class TestColumnScoping(unittest.TestCase):
     def test_the_text_stage_shows_no_tier(self):
         """Every scenario carries "Medium" from the moment it is built. Showing that on the page
         that writes the text would read as an assessment nothing has made yet."""
-        rows = build_rows(self.scenarios, view="all", stage="scenarios")
+        rows = build_rows(self.scenarios, stage="scenarios")
         self.assertNotIn("materiality", rows["shows"])
         self.assertIn("text", rows["shows"])
 
@@ -78,22 +78,21 @@ class TestColumnScoping(unittest.TestCase):
                                 ("materiality", {"text", "materiality"}),
                                 ("review", {"text", "materiality", "review"}),
                                 ("coverage", {"text", "materiality", "review", "coverage"})):
-            self.assertEqual(build_rows(self.scenarios, view="all", stage=stage)["shows"],
+            self.assertEqual(build_rows(self.scenarios, stage=stage)["shows"],
                              expected, stage)
 
-    def test_the_tier_views_are_offered_only_once_there_are_tiers(self):
-        text = build_rows(self.scenarios, stage="scenarios")
-        later = build_rows(self.scenarios, stage="materiality")
-        self.assertEqual([key for key, _ in text["views"]], ["all"])
-        self.assertIn("high", [key for key, _ in later["views"]])
+    def test_the_grid_is_offered_only_once_there_are_tiers(self):
+        """It selects on materiality, so before the materiality pass it would be a grid of one
+        column holding the default every scenario was born with."""
+        self.assertEqual(build_rows(self.scenarios, stage="scenarios")["matrix"], {})
+        self.assertTrue(build_rows(self.scenarios, stage="materiality")["matrix"])
 
-    def test_a_view_the_stage_cannot_offer_falls_back_rather_than_emptying_the_page(self):
-        rows = build_rows(self.scenarios, view="high", stage="scenarios")
-        self.assertEqual(rows["view"], "all")
-        self.assertEqual(len(rows["rows"]), len(self.scenarios))
+    def test_a_cell_the_stage_cannot_offer_is_ignored_rather_than_emptying_the_page(self):
+        rows = build_rows(self.scenarios, stage="scenarios", cells=[("Happy Path", "High")])
+        self.assertTrue(rows["rows"])
 
     def test_scenarios_keep_their_own_order_until_a_tier_can_rank_them(self):
-        rows = build_rows(self.scenarios, view="all", stage="scenarios")["rows"]
+        rows = build_rows(self.scenarios, stage="scenarios")["rows"]
         self.assertEqual([r["id"] for r in rows], sorted(r["id"] for r in rows))
 
 
@@ -118,7 +117,7 @@ class TestSnapshots(unittest.TestCase):
                      for i in _ids(u)}),
             "scenario_generator.llm.materiality.ask_llm":
                 lambda s, u, **k: json.dumps(
-                    {i: {"materiality": "Critical", "confidence": "High", "rationale": "costly"}
+                    {i: {"materiality": "High", "confidence": "High", "rationale": "costly"}
                      for i in _ids(u)}),
             "scenario_generator.llm.reviewer.ask_llm":
                 lambda s, u, **k: (json.dumps({"proposals": []}) if '{"proposals"' in u
@@ -159,7 +158,7 @@ class TestSnapshots(unittest.TestCase):
         """The review downgraded everything to Low. The materiality page must still show the
         Critical it assigned, or the page is reporting someone else's verdict as its own."""
         materiality = self._page("materiality")
-        self.assertIn("mark--tier-critical", materiality)
+        self.assertIn("mark--tier-high", materiality)
         self.assertNotIn("mark--tier-low", materiality)
 
     def test_the_later_stage_shows_its_own_revision(self):

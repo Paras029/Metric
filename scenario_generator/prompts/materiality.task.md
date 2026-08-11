@@ -13,7 +13,7 @@ to each scenario and how much weight it carries. No single signal decides a tier
 
 - touches_state_changing_action: the route performs an action that changes account or financial
   state -- moving money, filing something, altering account details. This sets a floor of Medium,
-  and pushes towards High or Critical where a failure would be silent, hard for the customer to
+  and pushes towards High where a failure would be silent, hard for the customer to
   notice, or hard to reverse.
 
 - num_steps: depth. A long multi-decision route accumulates more places to go wrong and is harder
@@ -45,7 +45,7 @@ to each scenario and how much weight it carries. No single signal decides a tier
 
 WHAT TO RETURN FOR EACH SCENARIO
 
-- materiality: one of Low / Medium / High / Critical.
+- materiality: one of Low / Medium / High. There is no fourth tier.
 - confidence: Low / Medium / High -- your confidence in this call, not the severity.
 - rationale: one or two sentences naming the business consequence of failure in concrete terms
   and the signal that most drove the tier. Do not restate the tier definition back; a rationale

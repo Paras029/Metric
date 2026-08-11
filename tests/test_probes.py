@@ -124,8 +124,8 @@ class TestInstantiation(unittest.TestCase):
         probe = self.probes[0]
         probe.materiality = "Low"
         self.assertEqual(probe.effective_materiality, "Low")
-        probe.materiality_override = "Critical"
-        self.assertEqual(probe.effective_materiality, "Critical")
+        probe.materiality_override = "High"
+        self.assertEqual(probe.effective_materiality, "High")
 
 
 if __name__ == "__main__":

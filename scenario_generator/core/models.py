@@ -5,7 +5,12 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 CATEGORIES = ["Happy path", "Retry", "Fallback", "Escalation", "Termination"]
-MATERIALITY = ["Low", "Medium", "High", "Critical"]
+# Three tiers, not four. A four-point scale invites the top two to be used
+# interchangeably -- "very bad" and "extremely bad" are not a distinction anybody applies
+# consistently across three hundred scenarios, and the run count that hangs off the tier made the
+# inconsistency expensive. What the scale has to separate is what the agent is *for* from what
+# supports it, and that is three buckets: the act, the approach to the act, and the rest.
+MATERIALITY = ["Low", "Medium", "High"]
 CONFIDENCE = ["Low", "Medium", "High"]
 
 # What a capability does. Drives probe applicability, so it is a closed vocabulary rather than
@@ -44,7 +49,7 @@ INPUT_SOURCES = ["User", "Tool", "Memory-Session", "Memory-CrossSession",
                  "System-Context", "Document"]
 
 # Runs the model owner is asked to execute per scenario. PLACEHOLDER — pending MRMG sign-off.
-VARIATIONS_BY_MATERIALITY = {"Low": 1, "Medium": 3, "High": 5, "Critical": 10}
+VARIATIONS_BY_MATERIALITY = {"Low": 1, "Medium": 3, "High": 8}
 
 
 # --------------------------------------------------------------------------- intake

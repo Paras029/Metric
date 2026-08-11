@@ -271,16 +271,23 @@ many of the model owner's conversations landed on it, least covered first. `Conv
 working, one row per transcript. `The model owner's grouping` appears only where one was supplied.
 
 **The scenario space on screen.** Every scenario-bearing stage shows the scenario space as cards
-rather than a spreadsheet. Three view tabs narrow to a starting point (**Needs attention**,
-**Critical and high**, **All**), and dropdown filters narrow further within whichever tab is
-active. 50 rows render at a time; the **Show** control raises that to 100, 250 or all of them, and
-the page always states how many matched versus how many are rendered.
+rather than a spreadsheet, and from the materiality stage onward **the grid above the list is the
+only thing that selects them**: category down, materiality across, the count in each cell, shaded
+by how much sits there.
 
-From the materiality stage onward the same page carries the space as a grid: category down,
-materiality across, the count in each cell, shaded by how much sits there. Picking a cell, a row
-or a column narrows the list to it. The grid is the only view here that shows what is *not* in the
-space — a combination nothing landed in has no row in a ranked list, and an empty
-Critical × Termination cell is usually the finding.
+Click as many cells as you like — they union, so two cells show the scenarios in both. A row or
+column header takes the whole row or column. Everything picked is listed as chips underneath, each
+of which removes itself. Picking nothing shows the whole space. Every cell is an ordinary link, so
+it works with scripting off and the back button walks back through your selections.
+
+That replaced three fixed view tabs and five dropdown filters, none of which could express "these
+two cells" — which is the thing somebody triaging three hundred scenarios actually wants. The one
+control left beside it sets how many rows render: 50 by default, raised to 100, 250 or all, and
+the page always states how many matched versus how many are shown.
+
+The grid is also the only view that shows what is *not* in the space — a combination nothing
+landed in has no row in a ranked list, and an empty High × Termination cell is usually the
+finding.
 
 ---
 

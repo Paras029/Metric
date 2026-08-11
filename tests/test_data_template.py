@@ -67,9 +67,9 @@ class TestChallengePack(unittest.TestCase):
     def test_review_verdict_drives_the_run_count(self):
         """The pack must reflect the review, not the tier the first sweep assigned."""
         scenario = build_probes(_INTAKE)[0]
-        scenario.materiality, scenario.review_materiality = "Low", "Critical"
+        scenario.materiality, scenario.review_materiality = "Low", "High"
         rows = _pack([scenario])["Variation_Summary"].max_row - 1
-        self.assertEqual(rows, required_variations("Critical"))
+        self.assertEqual(rows, required_variations("High"))
 
     def test_proposed_scenarios_reach_the_pack_without_their_provenance(self):
         scenario = build_probes(_INTAKE)[0]
@@ -85,9 +85,9 @@ class TestChallengePack(unittest.TestCase):
 
     def test_materiality_override_drives_the_run_count(self):
         scenario = build_probes(_INTAKE)[0]
-        scenario.materiality, scenario.materiality_override = "Low", "Critical"
+        scenario.materiality, scenario.materiality_override = "Low", "High"
         rows = _pack([scenario])["Variation_Summary"].max_row - 1
-        self.assertEqual(rows, required_variations("Critical"))
+        self.assertEqual(rows, required_variations("High"))
 
 
 if __name__ == "__main__":

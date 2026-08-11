@@ -16,19 +16,11 @@ the question is a page somebody eventually screenshots into an email to the mode
 """
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, Sequence, Tuple
 
 from ..core.generation import required_variations
 from ..core.models import (MATERIALITY, ORIGIN_GRAPH, ORIGIN_PROBE, ORIGIN_PROPOSED,
                            ORIGIN_VARIANT_GAP, Scenario)
-
-# What each view narrows to. "Needs attention" is first because it is the reason to open this
-# panel at all: a space of three hundred scenarios is not read end to end, it is triaged.
-VIEWS = (
-    ("attention", "Needs attention"),
-    ("high", "Critical and high"),
-    ("all", "All scenarios"),
-)
 
 # Which columns a stage has actually produced by the time you are reading it, cumulative down
 # the pipeline. The reason to scope this rather than always show everything is that most of these
@@ -66,21 +58,36 @@ ORIGIN_LABELS = {
 PAGE_SIZE = 50
 PAGE_SIZE_OPTIONS = (50, 100, 250, "all")
 
-# Columns a person can narrow the list to, each mapped to the row field it reads and, where the
-# vocabulary is closed, the values worth offering even before any scenario has one -- so the
-# dropdown does not visibly change shape as a scenario space moves through materiality and review.
-# Persona and flag are left off this map (open-ended or scenario space-specific) and are populated
-# from whatever the rows actually contain instead.
-FILTER_FIELDS: Dict[str, str] = {
-    "category": "category", "materiality": "materiality", "origin": "origin",
-    "persona": "persona", "flag": "flag", "coverage": "coverage",
-}
-_CLOSED_FILTER_VALUES = {
-    "materiality": tuple(reversed(MATERIALITY)),
-    "origin": tuple(ORIGIN_LABELS.values()),
-}
-# Only offered once a stage has actually produced the column -- see STAGE_COLUMNS above.
-_FILTER_REQUIRES = {"materiality": MATERIALITY_COLUMNS, "flag": REVIEW, "coverage": COVERAGE}
+ANY = "*"
+"""What a row or column header selects: every tier of one category, or every category of one tier."""
+
+
+def parse_cells(raw: Sequence[str]) -> List[Tuple[str, str]]:
+    """``["Happy Path|High", "*|Low"]`` as (category, tier) pairs, deduplicated, in order given.
+
+    Order is kept because the chips that show what is selected read better in the order they were
+    clicked than in any sort this could impose.
+    """
+    out: List[Tuple[str, str]] = []
+    for item in raw or ():
+        category, _, tier = str(item).partition("|")
+        pair = (category.strip(), tier.strip())
+        if any(pair) and pair not in out:
+            out.append(pair)
+    return out
+
+
+def as_cell(category: str, tier: str) -> str:
+    return f"{category}|{tier}"
+
+
+def _matches(row: Dict[str, object], cells: Sequence[Tuple[str, str]]) -> bool:
+    """Whether a scenario falls in any selected cell. No selection means the whole space."""
+    if not cells:
+        return True
+    return any((category in (ANY, str(row["category"])))
+               and (tier in (ANY, str(row["materiality"])))
+               for category, tier in cells)
 
 
 def _title(scenario: Scenario) -> str:
@@ -208,29 +215,6 @@ def shape(scenarios: List[Scenario], stage: str = "summary") -> Dict[str, object
     }
 
 
-def _filter_options(rows: List[Dict[str, object]], shows: set) -> Dict[str, List[str]]:
-    """Distinct values worth offering per filterable column.
-
-    Scoped twice over: to the columns this stage has actually produced (the same reasoning as
-    :data:`STAGE_COLUMNS` -- a coverage filter on the scenario-text page would offer to filter a
-    column that does not exist yet), and to values with more than one option, since a dropdown
-    that can only ever narrow to everything is not a filter.
-    """
-    options: Dict[str, List[str]] = {}
-    for field, row_key in FILTER_FIELDS.items():
-        requires = _FILTER_REQUIRES.get(field)
-        if requires and requires not in shows:
-            continue
-        present = {str(r[row_key]) for r in rows if r.get(row_key)}
-        if field in _CLOSED_FILTER_VALUES:
-            values = [v for v in _CLOSED_FILTER_VALUES[field] if v in present]
-        else:
-            values = sorted(present)
-        if len(values) > 1:
-            options[field] = values
-    return options
-
-
 # How dark a cell in the matrix gets, as five steps rather than a continuous ramp. Discrete steps
 # are what makes an unequal distribution legible: a reader comparing two continuously-shaded cells
 # is guessing, where five steps can be told apart at a glance and counted off against each other.
@@ -238,7 +222,8 @@ _DENSITY_STEPS = 4
 _FLAT_DENSITY = 2
 
 
-def matrix(rows: List[Dict[str, object]], active: Dict[str, str] = None) -> Dict[str, object]:
+def matrix(rows: List[Dict[str, object]],
+           cells: Sequence[Tuple[str, str]] = ()) -> Dict[str, object]:
     """The scenario space as a grid: what kind of situation, against what it is worth.
 
     A list of three hundred scenarios sorted by tier answers "what is most material" and nothing
@@ -247,10 +232,16 @@ def matrix(rows: List[Dict[str, object]], active: Dict[str, str] = None) -> Dict
     sharply, *which cells are empty*. An empty Critical/Termination cell is a hole in the exercise,
     and no ranked list will ever show it, because a hole has no row.
 
-    Counted over the rows handed in, which is the current view before its filters are applied, so
-    every cell's count is exactly what clicking that cell will show.
+    Counted over the whole space rather than over what is currently selected. The grid is the
+    only selector on the page now, so it has to keep showing the cells that are *not* chosen -- a
+    grid that narrowed to the selection would leave nothing to click next, and would answer "what
+    did I pick" rather than "what is here".
+
+    ``cells`` is what is selected, as (category, tier) pairs where either may be ``*`` for a whole
+    row or column. Each cell carries the selection that clicking it would produce, so a click adds
+    a cell and a second click on the same one takes it away.
     """
-    active = active or {}
+    chosen = list(cells or ())
     tiers = [t for t in reversed(MATERIALITY) if any(r["materiality"] == t for r in rows)]
     categories = sorted({str(r["category"]) for r in rows if r.get("category")})
     if not tiers or not categories:
@@ -283,36 +274,66 @@ def matrix(rows: List[Dict[str, object]], active: Dict[str, str] = None) -> Dict
                 # empty, which is the one distinction this grid exists to make.
                 "density": (0 if not count else _FLAT_DENSITY if flat
                             else -(-count * _DENSITY_STEPS // highest)),
-                "active": (active.get("category") == category
-                           and active.get("materiality") == tier),
+                "active": (category, tier) in chosen,
+                "toggle": _toggled(chosen, (category, tier)),
             })
         grid.append({"category": category, "cells": cells,
                      "total": sum(cell["count"] for cell in cells),
-                     "active": active.get("category") == category
-                     and not active.get("materiality")})
+                     "active": (category, ANY) in chosen,
+                     "toggle": _toggled(chosen, (category, ANY))})
     return {
         "tiers": [{"tier": tier,
                    "count": sum(counts.get((c, tier), 0) for c in categories),
-                   "active": active.get("materiality") == tier and not active.get("category")}
+                   "active": (ANY, tier) in chosen,
+                   "toggle": _toggled(chosen, (ANY, tier))}
                   for tier in tiers],
         "rows": grid,
         "total": len(rows),
         "empty": empty,
+        "chosen": [{"category": c, "tier": t, "label": _cell_label(c, t),
+                    "toggle": _toggled(chosen, (c, t))} for c, t in chosen],
     }
 
 
-def build_rows(scenarios: List[Scenario], view: str = "attention", stage: str = "summary",
-               filters: Dict[str, str] = None, limit: int = PAGE_SIZE) -> Dict[str, object]:
-    """The rows to show, the view and filters that produced them, and what was left out.
+def _toggled(chosen: Sequence[Tuple[str, str]], cell: Tuple[str, str]) -> List[str]:
+    """The selection that clicking ``cell`` would produce: added if absent, removed if present.
 
-    Returns the counts as well as the rows, because a filtered list that does not say what it
-    filtered is a list that quietly loses scenarios, and the set of columns this stage has
-    produced -- see :data:`STAGE_COLUMNS` for why that is scoped rather than always complete.
+    Returned as the encoded strings a link carries, so every cell in the grid stays an ordinary
+    href and the whole thing works with scripting off. It also means the browser's back button
+    walks back through the selections, which no click handler would have given for free.
+    """
+    kept = [c for c in chosen if c != cell]
+    if len(kept) == len(chosen):
+        kept = list(chosen) + [cell]
+    return [as_cell(category, tier) for category, tier in kept]
 
-    ``filters`` narrows within the view rather than replacing it -- picking "Critical and high"
-    and then a persona shows critical-and-high scenarios for that persona, not one or the other.
-    ``limit`` caps how many of the narrowed set are actually rendered; ``None`` renders all of
-    them, for the person who has decided fifty is not enough for this scenario space.
+
+def _cell_label(category: str, tier: str) -> str:
+    if category == ANY:
+        return f"{tier}, every category"
+    if tier == ANY:
+        return f"{category}, every tier"
+    return f"{category} · {tier}"
+
+
+
+def build_rows(scenarios: List[Scenario], stage: str = "summary",
+               cells: Sequence[Tuple[str, str]] = (), limit: int = PAGE_SIZE
+               ) -> Dict[str, object]:
+    """The rows to show, the grid that selects them, and what was left out.
+
+    **The grid is the only selector.** It replaced three view tabs and five dropdowns, and it does
+    more than all of them did: the tabs offered three fixed slices of the space, the dropdowns
+    narrowed one column at a time, and neither could express "the two cells I actually care
+    about". Picking cells can, and picking none shows everything -- which is what the "all" tab
+    was for.
+
+    ``cells`` is (category, tier) pairs, either of which may be ``*`` for a whole row or column.
+    Several are a union rather than an intersection: two cells show the scenarios in both, which
+    is the only reading of "I clicked two things" that anybody means.
+
+    Returns the counts as well as the rows, because a narrowed list that does not say what it
+    narrowed is a list that quietly loses scenarios.
     """
     shows = set(STAGE_COLUMNS.get(stage, STAGE_COLUMNS["summary"]))
     rows = [to_row(s) for s in scenarios]
@@ -326,50 +347,20 @@ def build_rows(scenarios: List[Scenario], view: str = "attention", stage: str = 
     else:
         rows.sort(key=lambda r: r["id"])
 
-    views = [v for v in VIEWS if v[0] == "all" or MATERIALITY_COLUMNS in shows]
-    if view not in {key for key, _ in views}:
-        view = views[0][0]
-
-    attention = [r for r in rows if needs_attention(r)]
-    if view == "attention" and attention:
-        selected = attention
-    elif view == "high":
-        selected = [r for r in rows if r["materiality"] in ("Critical", "High")]
-    elif view == "attention":
-        selected = rows                                    # nothing flagged; show the scenario space
-        view = "all"
-    else:
-        selected = rows
-
-    # Options are read off the view, before the filters narrow it further -- a person choosing
-    # between personas should see every persona the current view has, not only the one they
-    # already picked, which is what reading the options after filtering would leave them with.
-    filter_options = _filter_options(selected, shows)
-
-    active = {field: value for field, value in (filters or {}).items()
-             if value and field in FILTER_FIELDS}
-    # Built from the view before the filters run, for the same reason as the options above: a grid
-    # rebuilt after filtering shows one cell holding everything, which is a picture of the filter
-    # rather than of the scenario space.
-    grid = matrix(selected, active) if MATERIALITY_COLUMNS in shows else {}
-    for field, value in active.items():
-        row_key = FILTER_FIELDS[field]
-        selected = [r for r in selected if str(r.get(row_key)) == value]
-
+    chosen = list(cells or ()) if MATERIALITY_COLUMNS in shows else []
+    grid = matrix(rows, chosen) if MATERIALITY_COLUMNS in shows else {}
+    selected = [r for r in rows if _matches(r, chosen)]
     shown_rows = selected if limit is None else selected[:limit]
 
     return {
         "rows": shown_rows,
-        "view": view,
-        "views": tuple(views),
         "shows": shows,
-        "filter_options": filter_options,
         "matrix": grid,
-        "active_filters": active,
+        "cells": [as_cell(category, tier) for category, tier in chosen],
         "limit": limit,
         "limit_options": PAGE_SIZE_OPTIONS,
         "shown": len(shown_rows),
         "selected": len(selected),
         "total": len(rows),
-        "attention": len(attention),
+        "attention": sum(1 for r in rows if needs_attention(r)),
     }

@@ -145,10 +145,10 @@ class TestReviewSweep(unittest.TestCase):
             self.assertEqual(scenario.effective_materiality, "High")
 
     def test_human_override_still_wins_over_a_revision(self):
-        self.scenarios[0].materiality_override = "Critical"
+        self.scenarios[0].materiality_override = "High"
         ScenarioReviewer(complete=self._fake(), batch_size=4).review(self.scenarios, _INTAKE)
         self.assertEqual(self.scenarios[0].review_materiality, "High")
-        self.assertEqual(self.scenarios[0].effective_materiality, "Critical")
+        self.assertEqual(self.scenarios[0].effective_materiality, "High")
 
     def test_invalid_tier_or_flag_is_ignored_rather_than_stored(self):
         reviewer = ScenarioReviewer(

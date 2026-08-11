@@ -196,16 +196,16 @@ class TestSettlingADisagreement(unittest.TestCase):
         self.assertEqual(sorted(seen["adjudicated"]), sorted(s.id for s in self.scenarios))
 
     def test_the_verdict_lands_in_the_reviews_own_column(self):
-        self._review("High", verdict="Critical")
+        self._review("High", verdict="High")
         for scenario in self.scenarios:
-            self.assertEqual(scenario.review_materiality, "Critical")
+            self.assertEqual(scenario.review_materiality, "High")
             self.assertEqual(scenario.materiality, "Low", "the first reading was overwritten")
             self.assertIn("missed the money", scenario.review_rationale)
 
     def test_the_gap_is_measured_in_tiers_not_in_names(self):
         scenario = self.scenarios[0]
-        scenario.materiality, scenario.review_materiality = "Low", "Critical"
-        self.assertEqual(_tiers_apart(scenario), 3)
+        scenario.materiality, scenario.review_materiality = "Low", "High"
+        self.assertEqual(_tiers_apart(scenario), 2)
         self.assertGreaterEqual(_tiers_apart(scenario), ADJUDICATE_GAP)
 
     def test_a_review_that_said_nothing_is_not_a_disagreement(self):

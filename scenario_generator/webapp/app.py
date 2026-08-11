@@ -45,7 +45,7 @@ from .runners import (CONTEXT, DRAFT_INTAKE, EVIDENCE, OVERLAP, METADATA, RUNNER
                       STAGE_OUTPUTS,
                       _apply_proposal, _context, _intake, _proposal_dicts,
                       _scenarios, _snapshot)
-from .scenarios import FILTER_FIELDS, PAGE_SIZE, build_rows, shape
+from .scenarios import PAGE_SIZE, build_rows, parse_cells, shape
 from .stages import RUNNING, STAGE_BY_KEY, STAGES, STATUS_LABELS, downstream_of, index_of
 from .workspace import Workspace, stage_view
 
@@ -281,12 +281,12 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             return None
 
     def _space_for(scenarios, key: str):
-        """The list in the middle of the page: this stage's scenarios, viewed and filtered."""
+        """The list in the middle of the page: this stage's scenarios, narrowed to the cells
+        picked in the grid above it. ``?cell=`` repeats, one per selected cell."""
         if scenarios is None:
             return None
-        filters = {field: request.args.get(f"filter_{field}", "") for field in FILTER_FIELDS}
-        return build_rows(scenarios, request.args.get("view", "attention"), stage=key,
-                          filters=filters, limit=_page_limit())
+        return build_rows(scenarios, stage=key, cells=parse_cells(request.args.getlist("cell")),
+                          limit=_page_limit())
 
     def _shape_for(scenarios, key: str):
         """The tally in the side panel, from the same scenarios the list is drawn from.
@@ -660,7 +660,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         # longer reflects it. Saying so beats letting a stale workbook look current.
         workspace.invalidate_after("review")
         workspace.save()
-        return redirect(url_for("stage", key=key, view=request.form.get("view", "attention"),
+        return redirect(url_for("stage", key=key, cell=request.form.getlist("cell"),
                                 _anchor=scenario_id))
 
     @app.route("/stage/<key>/run", methods=["POST"])

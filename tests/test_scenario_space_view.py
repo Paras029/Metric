@@ -88,8 +88,8 @@ class TestWhichTierIsInForce(unittest.TestCase):
 
     def test_a_human_override_outranks_both(self):
         row = to_row(_scenario("SC-001", materiality="Medium", review_materiality="High",
-                               materiality_override="Critical"))
-        self.assertEqual(row["materiality"], "Critical")
+                               materiality_override="High"))
+        self.assertEqual(row["materiality"], "High")
         self.assertTrue(row["overridden"])
 
     def test_a_flag_does_not_repeat_the_reason_already_given_for_the_tier(self):
@@ -128,86 +128,73 @@ class TestWhichTierIsInForce(unittest.TestCase):
 
 
 class TestWhichScenariosAreShown(unittest.TestCase):
+    """The grid is the only selector. It replaced three fixed view tabs and five dropdowns, and
+    the reason is that neither could express "these two cells", which is the thing somebody
+    triaging a space actually wants."""
+
     def _mixed(self):
         return [
             _scenario("SC-001", materiality="Low"),
-            _scenario("SC-002", materiality="Critical"),
+            _scenario("SC-002", materiality="High"),
             _scenario("SC-003", materiality="Medium", review_flag="Redundant"),
             _scenario("SC-004", materiality="Medium", origin="llm-proposed"),
             _scenario("SC-005", materiality="Medium", owner_coverage="Covered"),
         ]
 
-    def test_the_default_view_is_what_needs_a_decision(self):
-        result = build_rows(self._mixed(), "attention")
-        self.assertEqual({r["id"] for r in result["rows"]}, {"SC-003", "SC-004", "SC-005"})
+    def test_picking_nothing_shows_the_whole_space(self):
+        """What the "all" tab was for, without a tab."""
+        result = build_rows(self._mixed())
+        self.assertEqual(len(result["rows"]), 5)
 
-    def test_it_falls_back_to_the_whole_space_when_nothing_is_flagged(self):
-        """An empty list would read as 'no scenarios', which is the opposite of the truth."""
-        result = build_rows([_scenario("SC-001"), _scenario("SC-002")], "attention")
-        self.assertEqual(result["view"], "all")
-        self.assertEqual(len(result["rows"]), 2)
-
-    def test_the_high_view_takes_the_top_two_tiers(self):
-        result = build_rows(self._mixed(), "high")
+    def test_one_cell_narrows_to_it(self):
+        result = build_rows(self._mixed(), cells=[("Happy Path", "High")])
         self.assertEqual({r["id"] for r in result["rows"]}, {"SC-002"})
 
+    def test_two_cells_are_a_union_rather_than_an_intersection(self):
+        """The only reading of "I clicked two things" that anybody means."""
+        result = build_rows(self._mixed(),
+                            cells=[("Happy Path", "High"), ("Happy Path", "Low")])
+        self.assertEqual({r["id"] for r in result["rows"]}, {"SC-001", "SC-002"})
+
+    def test_a_column_header_takes_every_category_at_that_tier(self):
+        result = build_rows(self._mixed(), cells=[("*", "Medium")])
+        self.assertEqual({r["id"] for r in result["rows"]}, {"SC-003", "SC-004", "SC-005"})
+
+    def test_a_row_header_takes_every_tier_of_that_category(self):
+        result = build_rows(self._mixed(), cells=[("Happy Path", "*")])
+        self.assertEqual(len(result["rows"]), 5)
+
+    def test_a_cell_nothing_falls_in_shows_nothing_rather_than_erroring(self):
+        result = build_rows(self._mixed(), cells=[("Termination", "High")])
+        self.assertEqual(result["rows"], [])
+
     def test_the_most_material_scenarios_come_first(self):
-        result = build_rows(self._mixed(), "all")
-        self.assertEqual(result["rows"][0]["id"], "SC-002")
+        self.assertEqual(build_rows(self._mixed())["rows"][0]["id"], "SC-002")
 
     def test_the_page_says_what_it_is_not_showing(self):
         scenarios = [_scenario(f"SC-{n:03d}") for n in range(PAGE_SIZE + 20)]
-        result = build_rows(scenarios, "all")
+        result = build_rows(scenarios)
         self.assertEqual(result["shown"], PAGE_SIZE)
         self.assertEqual(result["total"], PAGE_SIZE + 20)
         self.assertGreater(result["selected"], result["shown"])
 
-    def test_the_counts_are_of_the_whole_space_not_the_page(self):
-        result = build_rows(self._mixed(), "high")
+    def test_the_counts_are_of_the_whole_space_not_the_selection(self):
+        result = build_rows(self._mixed(), cells=[("Happy Path", "High")])
         self.assertEqual(result["total"], 5)
-        self.assertEqual(result["attention"], 3)
+        self.assertEqual(result["selected"], 1)
+
+    def test_a_stage_with_no_tiers_yet_ignores_a_selection_rather_than_emptying_the_page(self):
+        """Every scenario carries Medium before the materiality pass, so a cell picked at a later
+        stage and carried back here would narrow on a default nobody chose."""
+        result = build_rows(self._mixed(), stage="scenarios", cells=[("Happy Path", "High")])
+        self.assertEqual(len(result["rows"]), 5)
+        self.assertEqual(result["matrix"], {})
 
 
-class TestFilteringAndPageSize(unittest.TestCase):
-    def _mixed(self):
-        return [
-            _scenario("SC-001", materiality="Low"),
-            _scenario("SC-002", materiality="Critical"),
-            _scenario("SC-003", materiality="Medium", review_flag="Redundant"),
-            _scenario("SC-004", materiality="Medium", origin="llm-proposed"),
-            _scenario("SC-005", materiality="Medium", owner_coverage="Covered"),
-        ]
-
-    def test_a_filter_narrows_within_the_view_rather_than_replacing_it(self):
-        result = build_rows(self._mixed(), "all", filters={"materiality": "Medium"})
-        self.assertEqual({r["id"] for r in result["rows"]}, {"SC-003", "SC-004", "SC-005"})
-        self.assertEqual(result["active_filters"], {"materiality": "Medium"})
-
-    def test_an_unknown_filter_value_matches_nothing_rather_than_erroring(self):
-        result = build_rows(self._mixed(), "all", filters={"materiality": "Nonexistent"})
-        self.assertEqual(result["rows"], [])
-
-    def test_filter_options_reflect_the_view_not_the_whole_space(self):
-        """Choosing between personas should offer what the current view actually has."""
-        result = build_rows(self._mixed(), "high")
-        self.assertEqual(result["rows"][0]["id"], "SC-002")
-        # Only one materiality value survives the "high" view, so it is not offered as a choice.
-        self.assertNotIn("materiality", result["filter_options"])
-
-    def test_a_column_the_stage_has_not_produced_is_never_offered(self):
-        result = build_rows(self._mixed(), "all", stage="scenarios")
-        self.assertNotIn("materiality", result["filter_options"])
-        self.assertNotIn("coverage", result["filter_options"])
-
-    def test_a_single_valued_column_is_not_offered_as_a_filter(self):
-        """A dropdown that can only narrow to everything is not a filter."""
-        same_origin = [_scenario(f"SC-{n:03d}") for n in range(3)]
-        result = build_rows(same_origin, "all")
-        self.assertNotIn("origin", result["filter_options"])
-
+class TestHowManyRowsAreRendered(unittest.TestCase):
     def test_limit_caps_the_rendered_rows_without_changing_the_counts(self):
         scenarios = [_scenario(f"SC-{n:03d}") for n in range(10)]
-        result = build_rows(scenarios, "all", limit=3)
+        result = build_rows(scenarios, limit=3)
         self.assertEqual(len(result["rows"]), 3)
         self.assertEqual(result["shown"], 3)
         self.assertEqual(result["selected"], 10)
@@ -215,9 +202,8 @@ class TestFilteringAndPageSize(unittest.TestCase):
 
     def test_limit_none_shows_everything_selected(self):
         scenarios = [_scenario(f"SC-{n:03d}") for n in range(PAGE_SIZE + 5)]
-        result = build_rows(scenarios, "all", limit=None)
+        result = build_rows(scenarios, limit=None)
         self.assertEqual(len(result["rows"]), PAGE_SIZE + 5)
-        self.assertEqual(result["shown"], PAGE_SIZE + 5)
 
     def test_the_default_page_size_is_fifty(self):
         self.assertEqual(PAGE_SIZE, 50)

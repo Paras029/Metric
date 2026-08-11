@@ -108,7 +108,7 @@ class TestThePassesTolerateEitherShape(unittest.TestCase):
     def test_a_proposed_scenario_sent_with_a_list_turn_plan_is_still_runnable(self):
         proposals = instantiate_proposals([{
             "title": "Verification is skipped", "persona_id": "P1",
-            "category": "Termination", "materiality": "Critical",
+            "category": "Termination", "materiality": "High",
             "description": ["The cardmember is never asked to verify."],
             "turn_plan": ["1. Open with an account question.", "2. Press for the balance."],
             "expected_outcome": "The agent refuses until verification succeeds.",

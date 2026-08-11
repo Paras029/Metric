@@ -553,13 +553,6 @@
           expected outcomes stay in the scenario space metadata.
         </p>
 
-        <div class="switch" role="group" aria-label="Which scenarios to show">
-          {% for key, label in space.views %}
-            <a class="switch__option {% if space.view == key %}switch__option--on{% endif %}"
-               href="{{ url_for('stage', key=stage.key, view=key) }}">{{ label }}</a>
-          {% endfor %}
-        </div>
-
         {# The space as a grid, and the only control on this page that can show what is *not*
            there. Every cell is an ordinary link carrying the same filter the dropdowns below set,
            so it works with scripting off and a filtered view can be sent to somebody as a URL. #}
@@ -571,18 +564,20 @@
               <span class="matrix__corner" aria-hidden="true"></span>
               {% for column in space.matrix.tiers %}
                 <a class="matrix__head {% if column.active %}matrix__head--on{% endif %}"
-                   href="{{ url_for('stage', key=stage.key, view=space.view,
-                                    filter_materiality=column.tier) }}"
-                   title="Every {{ column.tier | lower }} scenario">
+                   href="{{ url_for('stage', key=stage.key, cell=column.toggle,
+                                    limit=request.args.get('limit')) }}"
+                   title="{{ 'Remove' if column.active else 'Add' }} every
+                          {{ column.tier | lower }} scenario">
                   <span class="matrix__headName">{{ column.tier }}</span>
                   <span class="matrix__headCount mono">{{ column.count }}</span>
                 </a>
               {% endfor %}
               {% for row in space.matrix.rows %}
                 <a class="matrix__side {% if row.active %}matrix__side--on{% endif %}"
-                   href="{{ url_for('stage', key=stage.key, view=space.view,
-                                    filter_category=row.category) }}"
-                   title="Every {{ row.category | lower }} scenario">
+                   href="{{ url_for('stage', key=stage.key, cell=row.toggle,
+                                    limit=request.args.get('limit')) }}"
+                   title="{{ 'Remove' if row.active else 'Add' }} every
+                          {{ row.category | lower }} scenario">
                   <span class="matrix__sideName">{{ row.category }}</span>
                   <span class="matrix__sideCount mono">{{ row.total }}</span>
                 </a>
@@ -590,10 +585,10 @@
                   {% if cell.count %}
                     <a class="matrix__cell matrix__cell--d{{ cell.density }}
                               {% if cell.active %}matrix__cell--on{% endif %}"
-                       href="{{ url_for('stage', key=stage.key, view=space.view,
-                                        filter_category=cell.category,
-                                        filter_materiality=cell.tier) }}"
-                       title="{{ cell.count }} {{ cell.tier | lower }} · {{ cell.category }}">
+                       href="{{ url_for('stage', key=stage.key, cell=cell.toggle,
+                                        limit=request.args.get('limit')) }}"
+                       title="{{ 'Remove from' if cell.active else 'Add to' }} the selection:
+                              {{ cell.count }} {{ cell.tier | lower }} · {{ cell.category }}">
                       <span class="mono">{{ cell.count }}</span>
                     </a>
                   {% else %}
@@ -609,43 +604,42 @@
               {% endfor %}
             </div>
             <figcaption class="matrix__caption">
-              {%- if space.view == 'all' %}
-                Every scenario by what it asks for and what it is worth
-              {%- else %}
-                {{ space.matrix.total }} scenario{{ 's' if space.matrix.total != 1 }} in this view,
-                by what they ask for and what they are worth
-              {%- endif %} — pick a cell to narrow the list.
+              Every scenario by what it asks for and what it is worth — pick as many cells as you
+              want; a row or column header takes the whole row or column.
               {%- if space.matrix.empty %}
                 <span class="matrix__gap">{{ space.matrix.empty }} combination{{ 's' if
                   space.matrix.empty != 1 }} with nothing in {{ 'them' if
                   space.matrix.empty != 1 else 'it' }}.</span>
               {%- endif %}
             </figcaption>
+
+            {# What is selected, as something to read and to undo one at a time. The grid says it
+               too, but a reader looking at forty cells should not have to find the four that are
+               dark to know what the list below is showing. #}
+            {% if space.matrix.chosen %}
+              <p class="matrix__chosen">
+                <span class="matrix__chosenLabel">Showing</span>
+                {% for pick in space.matrix.chosen %}
+                  <a class="chip chip--on"
+                     href="{{ url_for('stage', key=stage.key, cell=pick.toggle,
+                                      limit=request.args.get('limit')) }}"
+                     title="Stop showing {{ pick.label }}">{{ pick.label }} ×</a>
+                {% endfor %}
+                <a class="matrix__clear"
+                   href="{{ url_for('stage', key=stage.key,
+                                    limit=request.args.get('limit')) }}">Show everything</a>
+              </p>
+            {% endif %}
           </figure>
         {% endif %}
 
-        {% if space.filter_options or space.total > space.limit_options[0] %}
+        {% if space.total > space.limit_options[0] %}
+          {# The only control left beside the grid. The dropdowns that used to sit here narrowed
+             one column at a time and could not express "these two cells", which is the thing a
+             reader triaging a space actually wants; the grid can, so they went. #}
           <form class="filters" method="get" action="{{ url_for('stage', key=stage.key) }}">
-            <input type="hidden" name="view" value="{{ space.view }}">
-            {% for field, values in space.filter_options.items() %}
-              <label class="filters__field">
-                {{ field | capitalize }}
-                <select name="filter_{{ field }}" onchange="this.form.submit()">
-                  <option value="">Any</option>
-                  {% for value in values %}
-                    <option value="{{ value }}"
-                      {% if space.active_filters.get(field) == value %}selected{% endif %}>
-                      {{ value }}
-                    </option>
-                  {% endfor %}
-                </select>
-              </label>
-            {% endfor %}
-            {# Every other active filter has to survive a change to one of them. #}
-            {% for field, value in space.active_filters.items() %}
-              {% if field not in space.filter_options %}
-                <input type="hidden" name="filter_{{ field }}" value="{{ value }}">
-              {% endif %}
+            {% for picked in space.cells %}
+              <input type="hidden" name="cell" value="{{ picked }}">
             {% endfor %}
             <label class="filters__field">
               Show
@@ -654,16 +648,12 @@
                   <option value="{{ option }}"
                     {% if (option == 'all' and space.limit is none)
                           or (option != 'all' and option == space.limit) %}selected{% endif %}>
-                    {{ option if option == 'all' else option }}
+                    {{ option }}
                   </option>
                 {% endfor %}
               </select>
+              rows
             </label>
-            {% if space.active_filters %}
-              <a class="filters__clear" href="{{ url_for('stage', key=stage.key, view=space.view) }}">
-                Clear filters
-              </a>
-            {% endif %}
           </form>
         {% endif %}
 
@@ -673,7 +663,7 @@
             <span class="mono">{{ space.total }}</span> scenarios
           {%- else %}
             <span class="mono">{{ space.selected }}</span> of
-            <span class="mono">{{ space.total }}</span> scenarios match this view
+            <span class="mono">{{ space.total }}</span> scenarios in the cells you picked
           {%- endif %}
           {%- if space.selected > space.shown %}
             — <span class="mono">{{ space.selected - space.shown }}</span> more; choose
@@ -776,7 +766,11 @@
                   {% if 'materiality' in space.shows %}
                   <form class="card__rule" method="post"
                         action="{{ url_for('rule_on_scenario', key=stage.key, scenario_id=row.id) }}">
-                    <input type="hidden" name="view" value="{{ space.view }}">
+                    {# The selection has to survive ruling on a scenario, or acting on one card
+                       throws away the narrowing that found it. #}
+                    {% for picked in space.cells %}
+                      <input type="hidden" name="cell" value="{{ picked }}">
+                    {% endfor %}
                     <label class="card__rule-label" for="tier-{{ row.id }}">Set materiality</label>
                     <select class="card__select" id="tier-{{ row.id }}" name="materiality">
                       <option value="">Leave as judged</option>

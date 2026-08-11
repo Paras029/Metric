@@ -824,8 +824,9 @@ ol, ul { list-style: none; padding: 0; }
 .mark--flag { background: var(--warn-tint); color: var(--warn); }
 .mark--new { background: var(--blue-tint); color: var(--blue-dark); }
 .mark--covered { background: var(--ok-tint); color: var(--ok); }
-.mark--tier-critical { background: var(--bad-tint); color: var(--bad); }
-.mark--tier-high { background: var(--warn-tint); color: var(--warn); }
+/* Three tiers, so High is the top of the scale and carries the strongest colour. */
+.mark--tier-high { background: var(--bad-tint); color: var(--bad); }
+.mark--tier-medium { background: var(--warn-tint); color: var(--warn); }
 
 /* =================================================================== a running stage */
 .running {
@@ -1249,6 +1250,39 @@ ol, ul { list-style: none; padding: 0; }
 /* Stated, not alarmed. A small space with ten categories has empty cells honestly,
    and an amber warning on every one of them is a warning nobody reads by Tuesday. */
 .matrix__gap { color: var(--ink); font-weight: 600; }
+
+/* What is currently picked, as something to read and to undo one at a time. The grid says it too,
+   but a reader looking at forty cells should not have to find the four that are dark to know what
+   the list below is showing. */
+.matrix__chosen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  margin-top: var(--s3);
+}
+.matrix__chosenLabel {
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.chip {
+  font-size: var(--t-small);
+  padding: .2rem .5rem;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--rule);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.chip--on {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: #fff;
+}
+.chip--on:hover { background: var(--blue); border-color: var(--blue); }
+.matrix__clear { font-size: var(--t-small); color: var(--blue-dark); }
 
 /* Read aloud, never drawn: for a cell whose meaning is a shade rather than a word. */
 .visually-hidden {
