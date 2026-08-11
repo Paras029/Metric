@@ -267,8 +267,19 @@
     {% endif %}
 
     {% if graph_svg %}
+      {# One section, two postures. Where reading the graph *is* the work it stands open; on a
+         stage whose job is the scenario list it folds away, because a full graph above three
+         hundred cards pushes every one of them off the screen. Folded, it still opens itself the
+         moment a scenario card is opened -- that is the whole point of the route lighting up. #}
       <section class="block">
-        <h2 class="block__title">The declared graph</h2>
+        <details class="graph__section" id="declared-graph"
+                 {% if graph_open %}open{% endif %} data-graph-section>
+          <summary class="graph__section-head">
+            <h2 class="block__title">The declared graph</h2>
+            <span class="graph__section-note" data-graph-selection>
+              {% if routes %}Open a scenario below to light its route{% endif %}
+            </span>
+          </summary>
         <p class="block__body">
           <strong>Boxes are decisions</strong>, <strong>arrows the states between them</strong>,
           rounded boxes the ways an interaction can end. A branch missing here is a branch that
@@ -301,18 +312,9 @@
           <button class="graph__zoom" type="button" data-zoom="in" title="Zoom in">+</button>
           <button class="graph__zoom" type="button" data-zoom="fit" title="Fit to width">Fit</button>
           <span class="graph__level mono" data-zoom-level>100%</span>
-          {# Hovering answers a question while the pointer is there. Reading the box's text,
-             comparing it against the intake, or pointing at it while talking to somebody else all
-             need the highlight to stay put, which is what clicking is for. #}
-          <label class="graph__mode" title="A selection follows the whole route through it rather
-                                            than only what it touches">
-            <input type="checkbox" data-graph-branch> Whole branch
-          </label>
-          <span class="graph__hint" data-graph-selection>
-            Hover to follow one thread · click to keep it · drag to pan
-          </span>
+          <span class="graph__hint">Hover to follow one thread · drag to pan</span>
           <button class="graph__zoom graph__zoom--clear" type="button" data-graph-clear hidden>
-            Clear selection
+            Clear routes
           </button>
         </div>
         <div class="graph__frame" data-graph>
@@ -338,6 +340,7 @@
             Download it as a page that still zooms
           </a>
         </p>
+        </details>
       </section>
     {% endif %}
 
@@ -882,7 +885,13 @@
         <ul class="cards">
           {% for row in space.rows %}
             <li class="card" id="{{ row.id }}">
-              <details class="card__body">
+              {# The route this scenario walks, so opening the card lights it in the graph above.
+                 Carried on the element rather than fetched, because the answer is already known
+                 when the page is built and a request per card would make comparing three
+                 scenarios three round trips. #}
+              <details class="card__body"
+                       {%- if routes.get(row.id) %} data-route='{{ routes[row.id] | tojson }}'
+                       data-route-label="{{ row.id }}"{% endif %}>
                 <summary class="card__head">
                   {# A row that opens has to look like one. Without a marker the list reads as a
                      table and the detail underneath is never found. #}

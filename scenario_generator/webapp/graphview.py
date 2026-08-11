@@ -495,7 +495,8 @@ def render_svg(intake: IntakeData, pending_decisions: Sequence[str] = (),
             (" graph__edge--out-of-scope" if edge.out_of_scope else "")
         parts.append(
             f'<g class="{classes}" data-source="{html.escape(edge.source)}" '
-            f'data-target="{html.escape(edge.target)}">'
+            f'data-target="{html.escape(edge.target)}" '
+            f'data-outcome="{html.escape(edge.outcome)}">'
             f'<title>{html.escape(edge.detail)}</title>'
             f'<path d="{_edge_path(edge, source, target)}" marker-end="url(#arrow)"/></g>')
 
@@ -513,7 +514,8 @@ def render_svg(intake: IntakeData, pending_decisions: Sequence[str] = (),
         rotate = f' transform="rotate(-90 {mid_x:.1f} {mid_y:.1f})"' if edge.is_back else ""
         parts.append(
             f'<g class="{classes}"{rotate} data-source="{html.escape(edge.source)}" '
-            f'data-target="{html.escape(edge.target)}">'
+            f'data-target="{html.escape(edge.target)}" '
+            f'data-outcome="{html.escape(edge.outcome)}">'
             f'<title>{html.escape(edge.detail)}</title>'
             f'<rect x="{mid_x - width / 2:.1f}" y="{mid_y - 9:.1f}" width="{width:.1f}" '
             f'height="17" rx="8.5"/>'
@@ -574,6 +576,55 @@ def graph_summary(intake: IntakeData, pending_decisions: Sequence[str] = (),
         "duplicate_endings": layout.duplicate_endings,
         "depth": max((n.depth for n in layout.nodes.values()), default=0) + 1,
     }
+
+
+def routes(intake: IntakeData, scenarios: Sequence) -> Dict[str, dict]:
+    """Where each scenario runs in the drawing: the boxes it passes through and the arrows it takes.
+
+    A scenario *is* a route through the declared graph -- that is the whole premise -- but on
+    screen the two were separate things: a card with words on it, and a picture beside it with no
+    way to ask which of its arrows that card was talking about. Reading "escalates after the second
+    failed attempt" and finding that path in a graph of forty boxes is work nobody should be doing
+    by eye.
+
+    The arrow is identified by all three of source, target and outcome rather than by the two
+    boxes it joins, because two outcomes of one decision routinely land on the same next decision.
+    Lighting both would say the scenario took a branch it did not take, which is exactly the kind
+    of quiet wrongness a picture is trusted not to have.
+
+    Every arrow returned is one the layout actually drew: a route that walks an edge the picture
+    does not contain is a disagreement between the walk and the drawing, and this is not the place
+    to paper over it. Scenarios with nothing drawable -- a proposal with no path yet -- are left
+    out entirely rather than returned empty, so the page can tell "no route" from "no highlight".
+    """
+    layout = build_layout(intake)
+    # Endings declared several times are drawn as one box, so a route ending at S-19 has to light
+    # the box that stands for it rather than an id that was never drawn.
+    stands_for = {state_id: node.id for node in layout.nodes.values()
+                  for state_id in (node.merged_ids or (node.id,))}
+    drawn = {(edge.source, edge.target, edge.outcome) for edge in layout.edges}
+
+    found: Dict[str, dict] = {}
+    for scenario in scenarios:
+        steps = list(getattr(scenario, "path", ()) or ())
+        if not steps:
+            continue
+
+        walked = [(_START_ID, steps[0].decision_id, "")]
+        for index, step in enumerate(steps):
+            if index + 1 < len(steps):
+                walked.append((step.decision_id, steps[index + 1].decision_id, step.variant))
+            else:
+                ending = stands_for.get(step.next_state)
+                if ending:
+                    walked.append((step.decision_id, ending, step.variant))
+
+        edges = [edge for edge in walked if edge in drawn]
+        if not edges:
+            continue
+        nodes = list(dict.fromkeys([end for edge in edges for end in edge[:2]]))
+        found[scenario.id] = {"nodes": nodes, "edges": [list(edge) for edge in edges]}
+    return found
 
 
 def declaration(intake: IntakeData) -> Tuple[List[dict], List[dict], List[dict]]:

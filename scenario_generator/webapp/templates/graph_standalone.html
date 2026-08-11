@@ -25,15 +25,7 @@
       <button class="graph__zoom" type="button" data-zoom="in" title="Zoom in">+</button>
       <button class="graph__zoom" type="button" data-zoom="fit" title="Fit to width">Fit</button>
       <span class="graph__level mono" data-zoom-level>100%</span>
-      <label class="graph__mode">
-        <input type="checkbox" data-graph-branch> Whole branch
-      </label>
-      <span class="graph__hint" data-graph-selection>
-        Hover to follow one thread · click to keep it · drag to pan
-      </span>
-      <button class="graph__zoom graph__zoom--clear" type="button" data-graph-clear hidden>
-        Clear selection
-      </button>
+      <span class="graph__hint">Hover to follow one thread · drag to pan</span>
     </div>
     <div class="graph__frame" data-graph>
       <div class="graph__canvas" data-graph-canvas>{{ graph_svg | safe }}</div>

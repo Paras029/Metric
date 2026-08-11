@@ -223,10 +223,15 @@ it was before you ran it, ready to run again rather than stuck looking failed.
 **Reading the declared graph.** Boxes are decisions, arrows are the states between them, rounded
 boxes are the ways an interaction can end. Hovering anything holds that one thread at full strength
 and drops the rest back, which answers "where does this come from and where does it go" without
-tracing it with a finger. Clicking keeps the highlight — click again, click the background, press
-Escape, or use *Clear selection* to release it. **Whole branch** widens a held selection from one
-hop to the entire route through it: everything that can reach it and everything it can reach, which
-is the shape a scenario walks.
+tracing it with a finger.
+
+**Opening a scenario lights the route it walks.** A scenario *is* a route through this graph, and
+the graph is drawn on every stage that lists scenarios for exactly that reason. Open a card and its
+path lights up from the start box to the ending; open several and all of them stay lit, which is
+how two scenarios are compared — not by reading both descriptions and holding the difference in
+your head, but by seeing where the two paths part. Collapse a card and its route goes back down.
+*Clear routes*, or Escape, closes them all. The graph starts folded away on those stages and
+unfolds itself the first time you open a card.
 
 The graph also leaves the tool. *Open the graph on its own* and *Download it as a page that still
 zooms* both produce the same self-contained file — same drawing, same zoom, same highlighting, with

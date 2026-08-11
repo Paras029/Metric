@@ -19,6 +19,7 @@ What is pinned here is the data behind all three. The hover itself is browser be
 checked by driving one; what these tests hold is that the SVG carries what a hover needs -- every
 arrow saying which two boxes it joins -- because that is the part that silently stops being true.
 """
+import json
 import re
 import tempfile
 import unittest
@@ -28,10 +29,12 @@ from openpyxl import load_workbook
 
 from scenario_generator.core.models import Capability, Decision, IntakeData, Persona, State, Tool
 from scenario_generator import webapp
-from scenario_generator.core.intake import write_template
+from scenario_generator.core import DecisionGraph, enumerate_paths, instantiate_all
+from scenario_generator.core.intake import read_intake, write_template
+from scenario_generator.io import write_space_metadata
 from scenario_generator.webapp.app import create_app
 from scenario_generator.webapp.graphview import (BOX_HEIGHT, DECISION, TERMINAL, build_layout,
-                                                 graph_summary, render_svg)
+                                                 graph_summary, render_svg, routes)
 
 _PERSONA = Persona("P1", "Cardmember", [], True)
 
@@ -263,7 +266,7 @@ class TestTheSvgCarriesWhatAHoverNeeds(unittest.TestCase):
         the script is how they drift."""
         from pathlib import Path as _Path
         script = (_Path(webapp.__file__).parent / "static" / "graph.js").read_text()
-        for behaviour in ("data-graph-branch", "data-graph-clear", "data-zoom", "graph--focused"):
+        for behaviour in ("data-route", "data-graph-clear", "data-zoom", "graph--focused"):
             self.assertIn(behaviour, script)
 
         page = (_Path(webapp.__file__).parent / "templates"
@@ -281,6 +284,156 @@ class TestTheSvgCarriesWhatAHoverNeeds(unittest.TestCase):
         self.assertNotIn("graph--focused", svg)
         self.assertNotIn("is-lit", svg)
         self.assertIn("<title>", svg)
+
+
+class TestWhereAScenarioRunsInThePicture(unittest.TestCase):
+    """A scenario is a route through this graph, and until now the page never said which one.
+
+    The card had the words and the picture beside it had forty boxes, with nothing joining the
+    two -- so "escalates after the second failed attempt" was matched to a path by eye, or not at
+    all. What is pinned here is the mapping that lets a card light its own route: that it names
+    arrows the drawing actually contains, that it names the *right* arrow where a decision has two
+    outcomes reaching the same place, and that an ending drawn as one box is pointed at by the box
+    that was drawn rather than by an id that was not.
+    """
+
+    def _scenarios(self, intake):
+        graph = DecisionGraph(intake.decisions, intake.states)
+        walked, augmented = enumerate_paths(graph)
+        return graph, instantiate_all(walked, augmented, graph, intake.personas, intake.tools)
+
+    def test_a_route_runs_from_the_start_box_to_an_ending(self):
+        """The whole route, not the middle of it. A highlight that begins at the second decision
+        does not answer "where does this scenario come in", which is half the question."""
+        layout = build_layout(_SPLIT_ENDINGS)
+        _, scenarios = self._scenarios(_SPLIT_ENDINGS)
+        for scenario, route in routes(_SPLIT_ENDINGS, scenarios).items():
+            edges = route["edges"]
+            self.assertEqual(edges[0][0], "__start__", scenario)
+            self.assertEqual(layout.nodes[edges[-1][1]].kind, TERMINAL, scenario)
+            # Each arrow leaves where the one before it landed, so the lit path is continuous.
+            for before, after in zip(edges, edges[1:]):
+                self.assertEqual(before[1], after[0], scenario)
+
+    def test_every_arrow_a_route_names_is_one_the_drawing_contains(self):
+        """A route walking an arrow the picture does not have is the walk and the drawing
+        disagreeing, and lighting nothing is how that disagreement would go unnoticed."""
+        _, scenarios = self._scenarios(_SPLIT_ENDINGS)
+        drawn = {(e.source, e.target, e.outcome) for e in build_layout(_SPLIT_ENDINGS).edges}
+        for route in routes(_SPLIT_ENDINGS, scenarios).values():
+            for edge in route["edges"]:
+                self.assertIn(tuple(edge), drawn)
+
+    def test_an_ending_drawn_as_one_box_is_pointed_at_by_that_box(self):
+        """S-02 and S-04 declare the same ending and are drawn once. A route ending at S-04 has to
+        light the box that stands for it, or it lights nothing at all."""
+        _, scenarios = self._scenarios(_SPLIT_ENDINGS)
+        walked = routes(_SPLIT_ENDINGS, scenarios)
+        drawn = set(build_layout(_SPLIT_ENDINGS).nodes)
+        for route in walked.values():
+            for node_id in route["nodes"]:
+                self.assertIn(node_id, drawn)
+        # And the merged ending is genuinely reached by something, so the case is exercised.
+        self.assertTrue(any("S-02" in route["nodes"] for route in walked.values()))
+
+    def test_two_outcomes_reaching_the_same_place_are_told_apart(self):
+        """DEC-01 resolves two ways and both continue to DEC-02. Identified by the pair of boxes
+        alone, one route would light the other's arrow -- saying the scenario took a branch it did
+        not take, which is the kind of quiet wrongness a picture is trusted not to have."""
+        intake = _intake([
+            State("S-00", "Start", "The chat opens", ["DEC-01"], False),
+            State("S-01", "DEC-01=Pass", "Verified", ["DEC-02"], False),
+            State("S-02", "DEC-01=Fail", "Unverified but continuing", ["DEC-02"], False),
+            State("S-03", "DEC-02=Dispute", "Dispute filed", [], True, "Happy path"),
+            State("S-04", "DEC-02=Unclear", "Handed over", [], True, "Escalation"),
+        ])
+        _, scenarios = self._scenarios(intake)
+        walked = routes(intake, scenarios)
+
+        crossings = {tuple(edge) for route in walked.values() for edge in route["edges"]
+                     if edge[0] == "DEC-01" and edge[1] == "DEC-02"}
+        self.assertEqual(crossings, {("DEC-01", "DEC-02", "Pass"), ("DEC-01", "DEC-02", "Fail")})
+        for route in walked.values():
+            taken = [edge[2] for edge in route["edges"] if edge[0] == "DEC-01"]
+            self.assertEqual(len(taken), 1, "one route cannot take both outcomes of a decision")
+
+    def test_the_drawing_says_which_outcome_each_arrow_is(self):
+        """The route names an arrow by three things, so the SVG has to carry all three."""
+        svg = render_svg(_SPLIT_ENDINGS)
+        arrows = re.findall(r'<g class="graph__edge[^"]*" data-source="[^"]+" '
+                            r'data-target="[^"]+" data-outcome="([^"]*)"', svg)
+        self.assertEqual(len(arrows), len(build_layout(_SPLIT_ENDINGS).edges))
+        self.assertIn("Pass", arrows)
+
+    def test_a_scenario_with_no_path_is_left_out_rather_than_returned_empty(self):
+        """A proposal the review added has no walk behind it yet. Left out, the page can tell
+        "no route" from "a route that lights nothing"."""
+        _, scenarios = self._scenarios(_SPLIT_ENDINGS)
+        scenarios[0].path = []
+        self.assertNotIn(scenarios[0].id, routes(_SPLIT_ENDINGS, scenarios))
+
+
+class TestTheCardCarriesItsRoute(unittest.TestCase):
+    """The list is the control and the graph is the readout, so the wiring between them is a
+    stated attribute on the card rather than a request per click.
+
+    Also pinned: the graph is *on* the stages that list scenarios. It used to be a thumbnail in
+    the side panel there, which is not something a route can be read in — and a highlight nobody
+    can see is the same as no highlight.
+    """
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.client = create_app(self.root).test_client()
+        self.client.post("/workspaces", data={"name": "Routes"})
+
+        scratch = Path(tempfile.mkdtemp())
+        book = scratch / "intake.xlsx"
+        write_template(str(book))
+        sheet = load_workbook(book)
+        sheet["L1 Use Case"]["B2"] = "Card servicing"
+        sheet["Personas"].append(["P1", "Cardmember", "Happy path", "Yes"])
+        sheet["L2 Capabilities"].append(["CAP-01", "Identity", "Gating"])
+        sheet["L3 Decisions"].append(
+            ["DEC-01", "Identity check", "CAP-01", "", "Pass / Fail", "User", 1, "", "No"])
+        sheet["L4 States"].append(["S-00", "Start", "Session begins", "DEC-01", "No", ""])
+        sheet["L4 States"].append(["S-01", "DEC-01=Pass", "Verified", "", "Yes", "Happy path"])
+        sheet["L4 States"].append(["S-02", "DEC-01=Fail", "Locked out", "", "Yes", "Termination"])
+        sheet.save(book)
+        with open(book, "rb") as handle:
+            self.client.post("/stage/intake/upload",
+                             data={"files": (handle, book.name), "group": "intake_workbook"},
+                             content_type="multipart/form-data")
+
+        intake = read_intake(str(book))
+        graph = DecisionGraph(intake.decisions, intake.states)
+        walked, augmented = enumerate_paths(graph)
+        scenarios = instantiate_all(walked, augmented, graph, intake.personas, intake.tools)
+        workspace = next(self.root.iterdir())
+        write_space_metadata(str(workspace / "scenario_space_metadata.xlsx"), intake, scenarios)
+        state = json.loads((workspace / "workspace.json").read_text())
+        state["stages"]["workflow"] = {"status": "complete",
+                                       "artifacts": {"metadata": "scenario_space_metadata.xlsx"}}
+        state["stages"]["scenarios"] = {"status": "complete",
+                                        "artifacts": {"metadata": "scenario_space_metadata.xlsx"}}
+        (workspace / "workspace.json").write_text(json.dumps(state))
+        self.scenarios = scenarios
+
+    def test_the_graph_is_drawn_on_a_stage_that_lists_scenarios(self):
+        page = self.client.get("/stage/scenarios").data.decode()
+        self.assertIn("data-graph-canvas", page)
+
+    def test_every_card_states_the_route_it_walks(self):
+        page = self.client.get("/stage/scenarios").data.decode()
+        carried = re.findall(r"data-route='([^']+)'", page)
+        self.assertEqual(len(carried), len(self.scenarios))
+        route = json.loads(carried[0].replace("\\u0027", "'").replace("&#34;", '"'))
+        self.assertEqual(route["edges"][0][0], "__start__")
+        self.assertTrue(route["nodes"])
+
+    def test_the_card_is_labelled_so_the_readout_can_name_what_is_lit(self):
+        page = self.client.get("/stage/scenarios").data.decode()
+        self.assertIn('data-route-label="%s"' % self.scenarios[0].id, page)
 
 
 class TestTheGraphCanLeaveTheTool(unittest.TestCase):
@@ -316,8 +469,8 @@ class TestTheGraphCanLeaveTheTool(unittest.TestCase):
     def test_the_page_carries_its_own_styling_and_its_own_controls(self):
         page = self.client.get("/graph").data.decode()
         self.assertIn("Card servicing", page)
-        self.assertIn("data-graph-branch", page)          # the reading controls came with it
-        self.assertIn("data-zoom", page)
+        self.assertIn("data-zoom", page)                  # the reading controls came with it
+        self.assertIn("graph__frame", page)
         # Nothing fetched. One <link> or <script src> and the file renders as unstyled markup the
         # moment somebody opens it from a mail attachment rather than from the tool.
         self.assertNotIn("<link", page)

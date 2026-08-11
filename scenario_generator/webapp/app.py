@@ -42,7 +42,8 @@ from ..llm.structure_review import review_structure
 from ..pipeline import revise_intake_workbook
 from . import stagecancel
 from .coverageview import coverage_view, stored_mappings, stored_report
-from .graphview import declaration as _declaration, graph_summary, render_svg
+from .graphview import (declaration as _declaration, graph_summary, render_svg,
+                        routes as _graph_routes)
 from .runners import (CONTEXT, DRAFT_INTAKE, EVIDENCE, OVERLAP, METADATA, RUNNERS,
                       STAGE_OUTPUTS,
                       _apply_proposal, _context, _intake, _proposal_dicts,
@@ -57,7 +58,13 @@ SCENARIO_STAGES = ("scenarios", "variations", "materiality", "review", "coverage
 
 # Stages where reading the decision graph is the work rather than a reference, so it is drawn at
 # full width in the page. Everywhere else it goes in the side panel at thumbnail size.
-GRAPH_STAGES = ("intake", "workflow")
+#
+# Every stage that lists scenarios draws it too, because a scenario *is* a route through it and
+# opening a card lights that route -- which needs a picture big enough to read, not the thumbnail.
+# Those stages start it folded away: the list is what somebody came to the materiality stage for,
+# and a full graph above three hundred cards pushes all of them off the screen.
+GRAPH_STAGES = ("intake", "workflow") + SCENARIO_STAGES
+GRAPH_OPEN_STAGES = ("intake", "workflow")
 
 # Groups redaction can actually do something to: the two that carry text ingestion reads. A
 # diagram has no text to redact, and the model owner's conversations never reach
@@ -203,6 +210,8 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             capabilities=capabilities,
             tools=tools,
             questions=_declaration_questions(workspace, intake) if key == "intake" else [],
+            graph_open=key in GRAPH_OPEN_STAGES,
+            routes=_routes(intake, scenarios) if graph_svg else {},
             structure_proposals=(workspace.structure_proposals
                                  if STRUCTURE_REVIEW_OFFERED and key == "intake" else []),
             structure_review_available=(STRUCTURE_REVIEW_OFFERED and key == "intake"
@@ -377,6 +386,22 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             logger.exception("Could not rebuild the coverage report for display")
             return None
         return coverage_view(workspace, report, texts) if report else None
+
+    def _routes(intake, scenarios) -> dict:
+        """Where each scenario runs in the drawing, for the card that opens it to light it up.
+
+        Never allowed to take the page down with it. A scenario whose route the drawing cannot
+        place is a real disagreement worth knowing about, but the list and the graph are both
+        still worth reading without it, and a stack trace where a page should be is not how to
+        report a mismatch between two views of the same declaration.
+        """
+        if intake is None or not scenarios:
+            return {}
+        try:
+            return _graph_routes(intake, scenarios)
+        except Exception:
+            logger.exception("Could not work out where the scenarios run in the graph")
+            return {}
 
     def _page_limit() -> Optional[int]:
         """How many rows to render, from ``?limit=``: a number, ``all``, or the default."""

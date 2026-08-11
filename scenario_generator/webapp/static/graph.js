@@ -85,20 +85,27 @@
   // the rest back reads the answer straight off the page instead of asking somebody to trace it
   // with a finger.
   //
-  // Two ways in, because they answer different questions. Hovering is for scanning: it lasts as
-  // long as the pointer does and shows one hop, since lighting everything reachable from a box
-  // near the start lights the whole graph and answers nothing. Clicking is for stopping: the
-  // highlight stays put, which is what reading the box's text against the intake, or pointing at
-  // it while talking to somebody else, actually needs. "Whole branch" then widens a *selection*
-  // to the entire route through it -- everything that can reach it and everything it can reach --
-  // which is the shape a scenario walks, and is only ever asked for deliberately.
-  var branchMode = document.querySelector('[data-graph-branch]');
+  // Two ways in, and they answer different questions.
+  //
+  // **Hovering** is for scanning the graph itself: one hop, lasting as long as the pointer does.
+  // Lighting everything reachable from a box near the start lights the whole graph and answers
+  // nothing, so it deliberately stops at the arrows that touch what is under the pointer.
+  //
+  // **Opening a scenario** is the one that matters, and it is why any of this exists. A scenario
+  // *is* a route through this graph -- that is the premise of the whole tool -- but on screen the
+  // two were separate things: a card with words on it, and a picture with no way to ask which of
+  // its arrows that card was describing. Opening a card now lights exactly the route it walks, and
+  // several open cards light several routes at once, which is how two scenarios are compared: not
+  // by reading both descriptions and holding the difference in your head, but by seeing where the
+  // two paths part. Collapsing a card takes its route back down. Nothing else is a selector, so
+  // the list is the control and the graph is the readout.
   var selectionNote = document.querySelector('[data-graph-selection]');
   var clearButton = document.querySelector('[data-graph-clear]');
+  var section = document.querySelector('[data-graph-section]');
   var noteDefault = selectionNote ? selectionNote.textContent : '';
 
   var lit = [];
-  var pinned = null;            // the element a click fixed the highlight on, if any
+  var open = [];                 // the scenario cards currently holding a route lit, in order
 
   function light(el, source) {
     if (!el) { return; }
@@ -122,10 +129,16 @@
     return svg.querySelectorAll('[data-source="' + id + '"], [data-target="' + id + '"]');
   }
 
-  function parts(from, to) {
-    // An arrow and its own label are two elements standing for one thing, and both have to move
-    // together or a lit route is drawn with unlit words on it.
-    return svg.querySelectorAll('[data-source="' + from + '"][data-target="' + to + '"]');
+  function parts(from, to, outcome) {
+    // An arrow and its own label are two elements standing for one thing, and both have to light
+    // together or a lit route is drawn with unlit words on it. The outcome narrows it further
+    // where it is known: two outcomes of one decision routinely land on the same next decision,
+    // and lighting both would say a scenario took a branch it did not take.
+    var selector = '[data-source="' + from + '"][data-target="' + to + '"]';
+    if (outcome !== undefined && outcome !== null) {
+      selector += '[data-outcome="' + outcome + '"]';
+    }
+    return svg.querySelectorAll(selector);
   }
 
   function focusNode(el) {
@@ -148,119 +161,82 @@
     light(node(to), false);
   }
 
-  function walk(seeds, attribute, opposite) {
-    // Breadth-first from the seeds, lighting each hop as it is crossed. Edges are lit during the
-    // walk rather than by "both ends are lit" afterwards, which would also light every crossing
-    // line that happens to join two boxes on the route without being part of it.
-    var seen = {}, queue = seeds.slice();
-    seeds.forEach(function (id) { seen[id] = true; });
-    while (queue.length) {
-      var id = queue.shift();
-      Array.prototype.forEach.call(
-        svg.querySelectorAll('[' + attribute + '="' + id + '"]'), function (line) {
-          var next = line.getAttribute(opposite);
-          var from = line.getAttribute('data-source'), to = line.getAttribute('data-target');
-          Array.prototype.forEach.call(parts(from, to), function (part) { light(part, false); });
-          if (next && !seen[next]) {
-            seen[next] = true;
-            light(node(next), false);
-            queue.push(next);
-          }
-        });
-    }
+  function route(card) {
+    try { return JSON.parse(card.getAttribute('data-route')); } catch (error) { return null; }
   }
 
-  function focusBranch(el) {
-    var seeds;
-    if (el.hasAttribute('data-node')) {
-      seeds = [el.getAttribute('data-node')];
-      light(el, true);
-    } else {
-      var from = el.getAttribute('data-source'), to = el.getAttribute('data-target');
-      seeds = [from, to];
-      Array.prototype.forEach.call(parts(from, to), function (part) { light(part, true); });
-      light(node(from), true);
-      light(node(to), true);
-    }
-    walk(seeds, 'data-source', 'data-target');
-    walk(seeds, 'data-target', 'data-source');
-  }
-
-  function focus(el, branch) {
+  function paint() {
+    // Every open card's route, redrawn from scratch. Adding and removing one card's elements
+    // incrementally would need a count per element, because two routes overlap wherever they
+    // share a prefix -- and they nearly always share a prefix.
     darken();
+    if (!open.length) { return; }
     svg.classList.add('graph--focused');
-    if (branch) { focusBranch(el); }
-    else if (el.hasAttribute('data-node')) { focusNode(el); }
-    else { focusEdge(el); }
-  }
-
-  function describe(el) {
-    if (el.hasAttribute('data-node')) { return el.getAttribute('data-node'); }
-    return el.getAttribute('data-source') + ' → ' + el.getAttribute('data-target');
-  }
-
-  function announce() {
-    if (clearButton) { clearButton.hidden = !pinned; }
-    if (!selectionNote) { return; }
-    selectionNote.textContent = pinned
-      ? ('Holding ' + describe(pinned) +
-         (branchMode && branchMode.checked ? ' and its whole branch' : '') +
-         ' · click it again to release')
-      : noteDefault;
-  }
-
-  function unpin() {
-    pinned = null;
-    darken();
-    announce();
-  }
-
-  function target(event) {
-    return event.target.closest &&
-      event.target.closest('.graph__node, .graph__edge, .graph__label');
-  }
-
-  function same(a, b) {
-    if (!a || !b) { return false; }
-    if (a.hasAttribute('data-node') || b.hasAttribute('data-node')) {
-      return a.getAttribute('data-node') === b.getAttribute('data-node');
-    }
-    return a.getAttribute('data-source') === b.getAttribute('data-source')
-      && a.getAttribute('data-target') === b.getAttribute('data-target');
-  }
-
-  svg.addEventListener('mouseover', function (event) {
-    if (pinned) { return; }                    // a held selection outranks whatever is under the
-    var el = target(event);                    // pointer, or moving to read it would lose it
-    if (!el) { return; }
-    focus(el, false);
-  });
-
-  svg.addEventListener('mouseleave', function () {
-    if (!pinned) { darken(); }
-  });
-
-  svg.addEventListener('click', function (event) {
-    if (travelled > 4) { return; }             // that was a pan, not a click
-    var el = target(event);
-    if (!el) { unpin(); return; }              // clicking the background is the obvious release
-    if (same(el, pinned)) { unpin(); return; }
-    pinned = el;
-    focus(el, branchMode && branchMode.checked);
-    announce();
-  });
-
-  if (branchMode) {
-    branchMode.addEventListener('change', function () {
-      if (pinned) { focus(pinned, branchMode.checked); announce(); }
+    open.forEach(function (card) {
+      var walked = route(card);
+      if (!walked) { return; }
+      walked.edges.forEach(function (edge) {
+        Array.prototype.forEach.call(parts(edge[0], edge[1], edge[2]), function (part) {
+          light(part, true);
+        });
+      });
+      walked.nodes.forEach(function (id) { light(node(id), true); });
     });
   }
 
-  if (clearButton) { clearButton.addEventListener('click', unpin); }
+  function announce() {
+    if (clearButton) { clearButton.hidden = !open.length; }
+    if (!selectionNote) { return; }
+    if (!open.length) { selectionNote.textContent = noteDefault; return; }
+    var named = open.map(function (card) { return card.getAttribute('data-route-label'); });
+    selectionNote.textContent = named.length === 1
+      ? ('Showing the route ' + named[0] + ' walks')
+      : ('Showing ' + named.length + ' routes: ' + named.join(', '));
+  }
 
-  document.addEventListener('keydown', function (event) {
-    if (event.key === 'Escape' && pinned) { unpin(); }
+  function refresh() {
+    open = Array.prototype.filter.call(
+      document.querySelectorAll('[data-route]'), function (card) { return card.open; });
+    paint();
+    announce();
+  }
+
+  // A card opened while the graph is folded away would light a route nobody can see, which reads
+  // as the feature not working. Unfolding on the first one is the direct consequence of what was
+  // clicked rather than a surprise -- and it is not forced open again afterwards, so somebody who
+  // folds it back keeps it folded while they work through the list.
+  document.addEventListener('toggle', function (event) {
+    var card = event.target;
+    if (!card.hasAttribute || !card.hasAttribute('data-route')) { return; }
+    if (card.open && section && !section.open) { section.open = true; fit(); }
+    refresh();
+  }, true);
+
+  svg.addEventListener('mouseover', function (event) {
+    if (open.length) { return; }               // a held route outranks whatever is under the
+    var el = event.target.closest &&           // pointer, or moving to read it would lose it
+      event.target.closest('.graph__node, .graph__edge, .graph__label');
+    if (!el) { return; }
+    darken();
+    svg.classList.add('graph--focused');
+    if (el.hasAttribute('data-node')) { focusNode(el); } else { focusEdge(el); }
   });
 
-  announce();
+  svg.addEventListener('mouseleave', function () {
+    if (!open.length) { darken(); }
+  });
+
+  function closeAll() {
+    // Closing the cards rather than only darkening the graph: the open cards *are* the selection,
+    // and a Clear that left them open would put the control and the readout out of step.
+    open.slice().forEach(function (card) { card.open = false; });
+    refresh();
+  }
+
+  if (clearButton) { clearButton.addEventListener('click', closeAll); }
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && open.length) { closeAll(); }
+  });
+
+  refresh();
 })();
