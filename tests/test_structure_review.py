@@ -18,6 +18,7 @@ from scenario_generator.core.intake import (attach_decision_to_state, merge_deci
                                             read_intake, set_state_reached_via, write_template)
 from scenario_generator.core.models import Decision, IntakeData, Persona, State
 from scenario_generator.llm.structure_review import review_structure
+from scenario_generator.webapp import app as webapp
 from scenario_generator.webapp.app import create_app
 
 
@@ -224,10 +225,51 @@ class TestMergeAndReconnectWriters(unittest.TestCase):
         self.assertTrue(rejected, "an unmapped pair should survive under its old wording")
 
 
-class TestStructureReviewRoutes(unittest.TestCase):
-    """The web routes: run, apply, dismiss -- through the actual Flask app."""
+class TestTheFeatureIsWithheld(unittest.TestCase):
+    """The pass is finished but not offered, and the switch is the only thing holding it back.
+
+    Two claims worth pinning separately, because they fail apart. If the page still offers it, a
+    reviewer applies a proposal whose scope nobody has agreed. If flipping the switch does not
+    bring it back, the machinery has rotted behind the flag and the next person to define the
+    scope finds a feature that no longer works.
+    """
 
     def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.client = create_app(self.root).test_client()
+        self.client.post("/workspaces", data={"name": "Withheld"})
+
+        scratch = Path(tempfile.mkdtemp())
+        workbook = _workbook(scratch)
+        with open(workbook, "rb") as handle:
+            self.client.post("/stage/intake/upload",
+                             data={"files": (handle, workbook.name), "group": "intake_workbook"},
+                             content_type="multipart/form-data")
+
+    def test_the_intake_page_does_not_offer_it(self):
+        page = self.client.get("/stage/intake").data.decode()
+        self.assertNotIn("Tidy the graph", page)
+        self.assertNotIn("structure-review", page)
+
+    def test_the_route_is_not_reachable_either(self):
+        self.assertEqual(self.client.post("/stage/intake/structure-review").status_code, 404)
+
+    def test_the_switch_brings_it_back(self):
+        with mock.patch.object(webapp, "STRUCTURE_REVIEW_OFFERED", True):
+            page = self.client.get("/stage/intake").data.decode()
+        self.assertIn("Tidy the graph", page)
+
+
+class TestStructureReviewRoutes(unittest.TestCase):
+    """The web routes: run, apply, dismiss -- through the actual Flask app.
+
+    Driven with the feature switched on, since the routes are what the switch will re-expose.
+    """
+
+    def setUp(self):
+        self.enabled = mock.patch.object(webapp, "STRUCTURE_REVIEW_OFFERED", True)
+        self.enabled.start()
+        self.addCleanup(self.enabled.stop)
         self.root = Path(tempfile.mkdtemp())
         self.app = create_app(self.root)
         self.client = self.app.test_client()

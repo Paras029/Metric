@@ -65,6 +65,13 @@ GRAPH_STAGES = ("intake", "workflow")
 # customers in them.
 REDACTABLE_GROUPS = (MODEL_DOC, SUPPORTING, OWNER_SCENARIOS)
 
+# Whether the structure review is offered on the intake page. Off: what the review should be
+# allowed to propose, and how far a proposal may reach into a declaration the model owner signed
+# off, is not settled, and a half-defined tidy-up applied to the graph everything downstream is
+# built from is worse than no tidy-up. The machinery behind it is complete and tested; this is the
+# one switch that puts it back on the page once the scope is written down.
+STRUCTURE_REVIEW_OFFERED = False
+
 # The group name the "upload a completed intake" drop sends. Not one of the submission headings:
 # an intake workbook is the declaration itself rather than evidence for one, so it goes to the
 # workspace root and is never read as a document.
@@ -180,8 +187,10 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             decisions=decisions,
             capabilities=capabilities,
             tools=tools,
-            structure_proposals=workspace.structure_proposals if key == "intake" else [],
-            structure_review_available=key == "intake" and intake is not None,
+            structure_proposals=(workspace.structure_proposals
+                                 if STRUCTURE_REVIEW_OFFERED and key == "intake" else []),
+            structure_review_available=(STRUCTURE_REVIEW_OFFERED and key == "intake"
+                                        and intake is not None),
             groups=_group_rows(workspace, key),
             space=_space_for(scenarios, key),
             shape=_shape_for(scenarios, key),
@@ -536,6 +545,8 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         one call, not the dozens a document pack or a whole scenario space can take, so there is
         nothing here for a progress bar to usefully report on.
         """
+        if not STRUCTURE_REVIEW_OFFERED:
+            abort(404)
         workspace = _workspace()
         path = workspace.artifact_path("intake", "workbook")
         if not path:
@@ -560,6 +571,8 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         so accepting it behaves like the scope toggle -- immediate, and invalidating downstream
         the same way a corrected upload would.
         """
+        if not STRUCTURE_REVIEW_OFFERED:
+            abort(404)
         workspace = _workspace()
         path = workspace.artifact_path("intake", "workbook")
         entry = workspace.pop_structure_proposal(proposal_id)
@@ -578,6 +591,8 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/intake/structure-review/<proposal_id>/dismiss", methods=["POST"])
     def dismiss_structure_proposal(proposal_id: str):
+        if not STRUCTURE_REVIEW_OFFERED:
+            abort(404)
         workspace = _workspace()
         workspace.pop_structure_proposal(proposal_id)
         workspace.save()
