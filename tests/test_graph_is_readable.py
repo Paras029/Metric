@@ -144,6 +144,79 @@ class TestOneEndingIsOneBox(unittest.TestCase):
         self.assertEqual(graph_summary(_SPLIT_ENDINGS)["unreachable"], [])
 
 
+class TestThePictureAndTheWalkerAgree(unittest.TestCase):
+    """The one wiring bug in here that was not about readability at all.
+
+    The picture used to parse `Reached Via` itself, comparing the whole cell for exact equality
+    after stripping spaces, while the walk parses it with a regex that finds every `DEC-nn=Outcome`
+    pair in the cell and normalises the outcome. Two perfectly ordinary declarations were therefore
+    walked and not drawn, and a route that is enumerated, written up and issued but invisible on
+    the one screen anybody checks the declaration on is the worst direction for a drawing to be
+    wrong in: nobody questions a branch they cannot see.
+
+    These compare the two directly rather than asserting on either alone, because what matters is
+    not what either does -- it is that they cannot drift apart again.
+    """
+
+    def _both(self, states):
+        from scenario_generator.core.graph import DecisionGraph
+
+        intake = _intake(states)
+        graph = DecisionGraph(intake.decisions, intake.states)
+        walked = {(d.id, v) for d in intake.decisions for v in d.variants
+                  if not graph.successor(d.id, v).startswith("OUT:")}
+        drawn = {(e.source, e.outcome) for e in build_layout(intake).edges if e.outcome}
+        return walked, drawn
+
+    def test_a_state_two_outcomes_converge_on_is_drawn_from_both(self):
+        """The shape the drafting prompt now explicitly asks for: `DEC-01=Fail, DEC-02=Unclear`."""
+        walked, drawn = self._both([
+            State("S-00", "Start", "The chat opens", ["DEC-01"], False),
+            State("S-01", "DEC-01=Pass", "Verified", ["DEC-02"], False),
+            State("S-99", "DEC-01=Fail, DEC-02=Unclear", "Handed to a person", [], True,
+                  "Escalation"),
+            State("S-02", "DEC-02=Dispute", "Dispute filed", [], True, "Happy path"),
+        ])
+        self.assertEqual(walked - drawn, set())
+        self.assertIn(("DEC-01", "Fail"), drawn)
+        self.assertIn(("DEC-02", "Unclear"), drawn)
+
+    def test_an_outcome_carrying_its_retry_bound_is_drawn(self):
+        walked, drawn = self._both([
+            State("S-00", "Start", "The chat opens", ["DEC-01"], False),
+            State("S-01", "DEC-01=Pass", "Verified", ["DEC-02"], False),
+            State("S-03", "DEC-01=Fail (attempt<3)", "Locked out", [], True, "Termination"),
+            State("S-02", "DEC-02=Dispute", "Dispute filed", [], True, "Happy path"),
+        ])
+        self.assertEqual(walked - drawn, set())
+
+    def test_a_start_state_worded_any_way_the_walk_accepts_opens_the_picture(self):
+        """The walk takes "Inbound call" as an opening; the picture took only the word "Start"."""
+        intake = _intake([
+            State("S-00", "Inbound call", "The call connects", ["DEC-01"], False),
+            State("S-01", "DEC-01=Pass", "Verified", [], True, "Happy path"),
+            State("S-02", "DEC-01=Fail", "Locked out", [], True, "Termination"),
+        ])
+        layout = build_layout(intake)
+        opening = [e for e in layout.edges if e.source == "__start__"]
+        self.assertEqual([e.target for e in opening], ["DEC-01"])
+
+    def test_the_ordinary_case_still_agrees(self):
+        walked, drawn = self._both(_SPLIT_ENDINGS.states)
+        self.assertEqual(walked - drawn, set())
+
+    def test_the_picture_does_not_parse_reached_via_itself_any_more(self):
+        """One authority on what leads where. A second reader of the same cell is what produced
+        the disagreement, and re-adding one would produce it again."""
+        from pathlib import Path
+
+        from scenario_generator.webapp import graphview
+
+        source = Path(graphview.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("reached_via.strip().lower()", source)
+        self.assertIn("DecisionGraph", source)
+
+
 class TestTheSvgCarriesWhatAHoverNeeds(unittest.TestCase):
     """The highlighting is browser behaviour; these hold the data it reads."""
 

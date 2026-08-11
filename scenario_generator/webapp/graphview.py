@@ -25,6 +25,7 @@ import html
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from ..core.graph import DecisionGraph
 from ..core.models import Decision, IntakeData, State
 
 BOX_WIDTH = 190
@@ -117,18 +118,38 @@ class Layout:
     thing three times is a declaration somebody should tidy rather than a fact about the agent."""
 
 
-def _start_states(intake: IntakeData) -> List[State]:
-    starts = [s for s in intake.states if s.reached_via.strip().lower() == "start"]
-    return starts or (intake.states[:1] if intake.states else [])
+class _Wiring:
+    """The declared graph, wired by the same code that walks it.
 
+    This used to be two implementations of one idea, and they disagreed. The walk parses a
+    `Reached Via` cell with a regex that finds *every* `DEC-nn=Outcome` pair in it and normalises
+    the outcome; the picture compared the whole cell for exact equality after stripping spaces. So
+    two perfectly ordinary declarations were walked and not drawn:
 
-def _target_of(intake: IntakeData, decision_id: str, variant: str) -> Optional[State]:
-    """The state a decision outcome leads to, matched on the intake's own 'DEC-xx=Variant' form."""
-    wanted = f"{decision_id}={variant}".strip().lower().replace(" ", "")
-    for state in intake.states:
-        if state.reached_via.strip().lower().replace(" ", "") == wanted:
-            return state
-    return None
+        S-99  reached via  DEC-01=Fail, DEC-02=No      a state two outcomes converge on
+        S-03  reached via  DEC-01=Fail (attempt<3)     an outcome carrying its retry bound
+
+    Both are routes the scenario space enumerates and issues. Neither appeared in the picture, so
+    the branch looked missing on the one screen anybody checks the declaration on -- which is the
+    worst direction for a drawing to be wrong in, because a route nobody can see is a route nobody
+    questions.
+
+    Fixed by deleting the second implementation rather than by making it agree: there is one
+    authority on what leads where, and the picture asks it.
+    """
+
+    def __init__(self, intake: IntakeData) -> None:
+        self._graph = DecisionGraph(intake.decisions, intake.states)
+        self._by_id = {state.id: state for state in intake.states}
+
+    @property
+    def starts(self) -> List[State]:
+        found = [self._by_id[i] for i in self._graph.start_states if i in self._by_id]
+        return found or ([next(iter(self._by_id.values()))] if self._by_id else [])
+
+    def target_of(self, decision_id: str, variant: str) -> Optional[State]:
+        """The state a decision outcome leads to, or ``None`` where nothing declares one."""
+        return self._by_id.get(self._graph.successor(decision_id, variant))
 
 
 def _panel(heading: str, rows: Sequence[Tuple[str, str]], footer: str = "") -> str:
@@ -221,7 +242,8 @@ def build_layout(intake: IntakeData, pending_decisions: Sequence[str] = (),
         return layout
 
     pending_decisions, pending_states = set(pending_decisions), set(pending_states)
-    starts = _start_states(intake)
+    wiring = _Wiring(intake)
+    starts = wiring.starts
 
     layout.nodes[_START_ID] = Node(
         id=_START_ID, kind=START, title="Start",
@@ -272,7 +294,7 @@ def build_layout(intake: IntakeData, pending_decisions: Sequence[str] = (),
 
     for decision in intake.decisions:
         for variant in decision.variants:
-            state = _target_of(intake, decision.id, variant)
+            state = wiring.target_of(decision.id, variant)
             if state is None:
                 continue
             pending = decision.id in pending_decisions or state.id in pending_states

@@ -215,6 +215,14 @@ every route arriving at it, the ids it stands for are named in its hover, and th
 reported above the picture as something to tidy in the intake. Endings that differ by a word are
 left alone: two endings that differ may well be two endings, and merging them would hide a route.
 
+**The picture and the walk read the declaration the same way.** They used not to: the walk parses
+a `Reached Via` cell with a regex finding every `DEC-nn=Outcome` pair in it, while the picture
+compared the whole cell for exact equality. So a state two outcomes converge on
+(`DEC-01=Fail, DEC-02=Unclear`) and an outcome carrying its retry bound (`DEC-01=Fail
+(attempt<3)`) were both enumerated, written up and issued — and drawn nowhere. A route that is
+invisible on the one screen anybody checks the declaration on is a route nobody questions, so
+there is now one authority on what leads where and the picture asks it.
+
 Below the picture, what the declaration leaves out — a branch with one outcome, an outcome leading
 nowhere, a state nothing reaches — each said as something you can go and fix.
 
