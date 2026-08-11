@@ -421,11 +421,6 @@ def _tier(name: str, prefix: str, max_tokens: int, effort: str,
 # from the same budget as the reply, so a high effort against a small cap truncates the JSON
 # instead of shortening the answer -- which is why the cap and the effort are set together and
 # why the cap is generous.
-#
-# 65,536 is 2^16, which is why it reads as oddly precise beside the round decimals below. It is
-# not a tuned figure: it is the ceiling the gateway actually enforces. Asking for more comes back
-# as "supported range is from 1 (inclusive) to 65537 (exclusive)", so there is nothing above this
-# to raise it to. Lower it only if a model you point a tier at accepts less.
 def judgement() -> Tier:
     return _tier("judgement", "LLM_JUDGEMENT", 65_536, "high")
 

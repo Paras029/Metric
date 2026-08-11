@@ -24,10 +24,6 @@ defaults:
 tiers:
   # Reading documents, drafting and revising the intake, the final review. These read a lot,
   # reason at length, and have to justify what they conclude.
-  #
-  # 65536 is 2^16, and it is the most the gateway accepts -- ask for more and every call in the
-  # run comes back 400 with "supported range is from 1 (inclusive) to 65537 (exclusive)". There is
-  # nothing above this to raise it to. Lower it only if you point this tier at a smaller model.
   judgement:
     max_tokens: 65536
     reasoning_effort: high
