@@ -868,6 +868,20 @@ ol, ul { list-style: none; padding: 0; }
 .graph__zoom:hover { border-color: var(--blue); color: var(--blue); }
 .graph__level { font-size: var(--t-meta); color: var(--ink-mid); margin-left: var(--s1); }
 .graph__hint { margin-left: auto; font-size: var(--t-meta); color: var(--ink-dim); }
+.graph__mode {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  font-size: var(--t-meta);
+  color: var(--ink-mid);
+  cursor: pointer;
+}
+.graph__mode input { accent-color: var(--blue); }
+.graph__take { margin-top: var(--s2); font-size: var(--t-meta); color: var(--ink-dim); }
+/* The release control sits after the readout rather than beside the zoom buttons: it only exists
+   while something is held, and a button that appears in the middle of a row shifts everything
+   after it. */
+.graph__zoom--clear { min-width: 0; color: var(--blue); border-color: var(--blue); }
 
 /* A drawing surface, so the ruled ground is measurement rather than decoration: it is what makes
    the spacing between boxes readable while panning and zooming. */

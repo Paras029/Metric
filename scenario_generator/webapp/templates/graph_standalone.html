@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }} — declared graph</title>
+{# Everything inlined, nothing fetched. The file has to survive being emailed to a model owner,
+   attached to a validation report, or opened from a network share months later, and any of those
+   breaks the moment the page asks a server for a stylesheet. #}
+<style>{{ stylesheet }}</style>
+</head>
+<body>
+<main class="canvas">
+  <section class="block">
+    <h1 class="block__title">{{ title }} — the declared graph</h1>
+    <p class="block__body">
+      <strong>Boxes are decisions</strong>, <strong>arrows the states between them</strong>,
+      rounded boxes the ways an interaction can end. A branch missing here is a branch that will
+      never be tested.
+    </p>
+    <p class="graph__facts">Drawn {{ drawn }} from the declaration in METRIC.</p>
+
+    <div class="graph__tools">
+      <button class="graph__zoom" type="button" data-zoom="out" title="Zoom out">−</button>
+      <button class="graph__zoom" type="button" data-zoom="in" title="Zoom in">+</button>
+      <button class="graph__zoom" type="button" data-zoom="fit" title="Fit to width">Fit</button>
+      <span class="graph__level mono" data-zoom-level>100%</span>
+      <label class="graph__mode">
+        <input type="checkbox" data-graph-branch> Whole branch
+      </label>
+      <span class="graph__hint" data-graph-selection>
+        Hover to follow one thread · click to keep it · drag to pan
+      </span>
+      <button class="graph__zoom graph__zoom--clear" type="button" data-graph-clear hidden>
+        Clear selection
+      </button>
+    </div>
+    <div class="graph__frame" data-graph>
+      <div class="graph__canvas" data-graph-canvas>{{ graph_svg | safe }}</div>
+    </div>
+    <p class="graph__facts">
+      <span class="mono">{{ graph_facts.decisions }}</span> decisions with
+      <span class="mono">{{ graph_facts.outcomes }}</span> outcomes ·
+      <span class="mono">{{ graph_facts.states }}</span> states
+      (<span class="mono">{{ graph_facts.terminal }}</span> ending) ·
+      longest run <span class="mono">{{ graph_facts.depth }}</span> deep
+    </p>
+
+    {% if graph_facts.unreachable %}
+      <p class="aside aside--bad">
+        Not reachable from the start:
+        <span class="mono">{{ graph_facts.unreachable | join(', ') }}</span>.
+        A state nothing leads to is usually a gap in the declaration rather than in the agent.
+      </p>
+    {% endif %}
+  </section>
+</main>
+<script>{{ script | safe }}</script>
+</body>
+</html>

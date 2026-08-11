@@ -20,9 +20,16 @@ checked by driving one; what these tests hold is that the SVG carries what a hov
 arrow saying which two boxes it joins -- because that is the part that silently stops being true.
 """
 import re
+import tempfile
 import unittest
+from pathlib import Path
+
+from openpyxl import load_workbook
 
 from scenario_generator.core.models import Capability, Decision, IntakeData, Persona, State, Tool
+from scenario_generator import webapp
+from scenario_generator.core.intake import write_template
+from scenario_generator.webapp.app import create_app
 from scenario_generator.webapp.graphview import (BOX_HEIGHT, DECISION, TERMINAL, build_layout,
                                                  graph_summary, render_svg)
 
@@ -249,6 +256,24 @@ class TestTheSvgCarriesWhatAHoverNeeds(unittest.TestCase):
             self.assertIn(edge.source, layout.nodes)
             self.assertIn(edge.target, layout.nodes)
 
+    def test_the_reading_controls_are_one_file_shared_with_the_downloadable_copy(self):
+        """The drawing leaves the tool -- into a validation report, into a mail to the model owner
+        -- and a copy that has lost its zoom and its highlighting is a screenshot with extra steps.
+        Inlining the same file in both places is what keeps the two from drifting; a second copy of
+        the script is how they drift."""
+        from pathlib import Path as _Path
+        script = (_Path(webapp.__file__).parent / "static" / "graph.js").read_text()
+        for behaviour in ("data-graph-branch", "data-graph-clear", "data-zoom", "graph--focused"):
+            self.assertIn(behaviour, script)
+
+        page = (_Path(webapp.__file__).parent / "templates"
+                / "graph_standalone.html").read_text()
+        self.assertIn("{{ script | safe }}", page)
+        self.assertIn("{{ stylesheet }}", page)
+        # Nothing fetched: a page that asks a server for its stylesheet is a page that renders as
+        # unstyled markup the moment it is opened from a mail attachment.
+        self.assertNotIn("url_for(", page)
+
     def test_the_graph_still_draws_with_no_scripting_at_all(self):
         """Nothing here is required for the picture to work: the classes the hover adds are added
         by a browser, and the SVG carries its own tooltips."""
@@ -256,6 +281,57 @@ class TestTheSvgCarriesWhatAHoverNeeds(unittest.TestCase):
         self.assertNotIn("graph--focused", svg)
         self.assertNotIn("is-lit", svg)
         self.assertIn("<title>", svg)
+
+
+class TestTheGraphCanLeaveTheTool(unittest.TestCase):
+    """The drawing on its own, as one file that still reads once it is out of the browser.
+
+    A graph gets quoted in a validation report and mailed to a model owner, and both of those are
+    done today with a screenshot -- which loses the zoom at exactly the size that needs one. What
+    is pinned is that the served page carries everything it needs and asks for nothing.
+    """
+
+    def setUp(self):
+        root = Path(tempfile.mkdtemp())
+        self.client = create_app(root).test_client()
+        self.client.post("/workspaces", data={"name": "Portable graph"})
+
+        book = Path(tempfile.mkdtemp()) / "intake.xlsx"
+        write_template(str(book))
+        sheet = load_workbook(book)
+        sheet["L1 Use Case"]["B2"] = "Card servicing"
+        sheet["Personas"].append(["P1", "Cardmember", "Happy path", "Yes"])
+        sheet["L2 Capabilities"].append(["CAP-01", "Identity", "Gating"])
+        sheet["L3 Decisions"].append(
+            ["DEC-01", "Identity check", "CAP-01", "", "Pass / Fail", "User", 1, "", "No"])
+        sheet["L4 States"].append(["S-00", "Start", "Session begins", "DEC-01", "No", ""])
+        sheet["L4 States"].append(["S-01", "DEC-01=Pass", "Verified", "", "Yes", "Happy path"])
+        sheet["L4 States"].append(["S-02", "DEC-01=Fail", "Locked out", "", "Yes", "Termination"])
+        sheet.save(book)
+        with open(book, "rb") as handle:
+            self.client.post("/stage/intake/upload",
+                             data={"files": (handle, book.name), "group": "intake_workbook"},
+                             content_type="multipart/form-data")
+
+    def test_the_page_carries_its_own_styling_and_its_own_controls(self):
+        page = self.client.get("/graph").data.decode()
+        self.assertIn("Card servicing", page)
+        self.assertIn("data-graph-branch", page)          # the reading controls came with it
+        self.assertIn("data-zoom", page)
+        # Nothing fetched. One <link> or <script src> and the file renders as unstyled markup the
+        # moment somebody opens it from a mail attachment rather than from the tool.
+        self.assertNotIn("<link", page)
+        self.assertNotIn("<script src", page)
+
+    def test_asking_for_it_as_a_download_sends_a_file_rather_than_a_page(self):
+        response = self.client.get("/graph?download=1")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("attachment", response.headers.get("Content-Disposition", ""))
+
+    def test_without_a_declaration_there_is_nothing_to_draw(self):
+        client = create_app(Path(tempfile.mkdtemp())).test_client()
+        client.post("/workspaces", data={"name": "Empty"})
+        self.assertEqual(client.get("/graph").status_code, 404)
 
 
 if __name__ == "__main__":

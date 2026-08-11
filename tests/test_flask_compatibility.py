@@ -74,6 +74,7 @@ class TestEveryRouteIsReachable(unittest.TestCase):
             "/stage/summary/scope": ["POST"],
             "/stage/<key>/reset": ["POST"],
             "/stage/<key>/download/<name>": ["GET"],
+            "/graph": ["GET"],
             "/template": ["GET"],
         }
         self.assertEqual(actual, expected)

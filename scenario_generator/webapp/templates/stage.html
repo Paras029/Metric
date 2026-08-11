@@ -272,7 +272,19 @@
           <button class="graph__zoom" type="button" data-zoom="in" title="Zoom in">+</button>
           <button class="graph__zoom" type="button" data-zoom="fit" title="Fit to width">Fit</button>
           <span class="graph__level mono" data-zoom-level>100%</span>
-          <span class="graph__hint">Hover to follow one thread · drag to pan</span>
+          {# Hovering answers a question while the pointer is there. Reading the box's text,
+             comparing it against the intake, or pointing at it while talking to somebody else all
+             need the highlight to stay put, which is what clicking is for. #}
+          <label class="graph__mode" title="A selection follows the whole route through it rather
+                                            than only what it touches">
+            <input type="checkbox" data-graph-branch> Whole branch
+          </label>
+          <span class="graph__hint" data-graph-selection>
+            Hover to follow one thread · click to keep it · drag to pan
+          </span>
+          <button class="graph__zoom graph__zoom--clear" type="button" data-graph-clear hidden>
+            Clear selection
+          </button>
         </div>
         <div class="graph__frame" data-graph>
           <div class="graph__canvas" data-graph-canvas>{{ graph_svg | safe }}</div>
@@ -283,6 +295,19 @@
           <span class="mono">{{ graph_facts.states }}</span> states
           (<span class="mono">{{ graph_facts.terminal }}</span> ending) ·
           longest run <span class="mono">{{ graph_facts.depth }}</span> deep
+        </p>
+        {# The drawing has to leave the tool. It goes into a validation report, and into any
+           conversation with the model owner about a branch nobody declared -- and a screenshot
+           loses the zoom exactly when the graph is big enough to need it. Both links are the same
+           self-contained file: stylesheet and script inlined, so it reads with nothing running. #}
+        <p class="graph__take">
+          <a class="link" href="{{ url_for('graph_page') }}" target="_blank" rel="noopener">
+            Open the graph on its own
+          </a>
+          ·
+          <a class="link" href="{{ url_for('graph_page', download=1) }}">
+            Download it as a page that still zooms
+          </a>
         </p>
       </section>
     {% endif %}
@@ -1252,144 +1277,7 @@
 </div>
 
 {% if graph_svg %}
-<script>
-  // Zoom and pan over the graph. These get large enough that a fixed-width picture of one is
-  // unreadable, and the SVG carries its own dimensions, so scaling it is a transform rather than
-  // a redraw. Without scripting the graph still renders at its natural size inside a scrolling
-  // frame, which is what it did before.
-  (function () {
-    var frame = document.querySelector('[data-graph]');
-    var canvas = document.querySelector('[data-graph-canvas]');
-    var readout = document.querySelector('[data-zoom-level]');
-    if (!frame || !canvas) { return; }
-
-    var svg = canvas.querySelector('svg');
-    var natural = svg ? svg.getAttribute('width') : 0;
-    var scale = 1;
-
-    function apply() {
-      canvas.style.transform = 'scale(' + scale + ')';
-      canvas.style.transformOrigin = '0 0';
-      if (svg) {
-        // The wrapper has to grow with the drawing or the frame scrolls over empty space.
-        canvas.style.width = (natural * scale) + 'px';
-        canvas.style.height = (svg.getAttribute('height') * scale) + 'px';
-      }
-      if (readout) { readout.textContent = Math.round(scale * 100) + '%'; }
-    }
-
-    function fit() {
-      scale = natural ? Math.min(1, (frame.clientWidth - 24) / natural) : 1;
-      apply();
-    }
-
-    Array.prototype.forEach.call(document.querySelectorAll('[data-zoom]'), function (button) {
-      button.addEventListener('click', function () {
-        var how = button.dataset.zoom;
-        if (how === 'fit') { fit(); return; }
-        scale = Math.min(3, Math.max(0.2, scale * (how === 'in' ? 1.25 : 0.8)));
-        apply();
-      });
-    });
-
-    var dragging = false, startX = 0, startY = 0, fromLeft = 0, fromTop = 0;
-    frame.addEventListener('mousedown', function (event) {
-      dragging = true;
-      startX = event.clientX; startY = event.clientY;
-      fromLeft = frame.scrollLeft; fromTop = frame.scrollTop;
-      frame.classList.add('graph__frame--dragging');
-      event.preventDefault();
-    });
-    window.addEventListener('mousemove', function (event) {
-      if (!dragging) { return; }
-      frame.scrollLeft = fromLeft - (event.clientX - startX);
-      frame.scrollTop = fromTop - (event.clientY - startY);
-    });
-    window.addEventListener('mouseup', function () {
-      dragging = false;
-      frame.classList.remove('graph__frame--dragging');
-    });
-
-    fit();
-
-    // Paint order in SVG is document order, and a crowded row can leave a box or an edge label
-    // sitting underneath a neighbour with nothing to click to fix it. Moving the hovered element
-    // to the end of its parent's children is enough to bring it to the front for as long as the
-    // pointer is over it -- no state to track, and the next thing hovered does the same.
-    if (svg) {
-      svg.addEventListener('mouseover', function (event) {
-        var el = event.target.closest &&
-          event.target.closest('.graph__node, .graph__edge, .graph__label');
-        if (el && el.parentNode) { el.parentNode.appendChild(el); }
-      });
-    }
-
-    // Following one thread. A declared graph of any size is a picture where every line crosses
-    // every other, and the question a reader has is never "what is the whole shape" -- it is
-    // "where does *this* one come from and where does it go". Hovering anything holds that
-    // thread at full strength and drops the rest back, which reads the answer straight off the
-    // page instead of asking somebody to trace it with a finger.
-    //
-    // One hop, not the whole downstream tree: highlighting everything reachable from a box near
-    // the start lights the entire graph and answers nothing.
-    if (svg) {
-      var lit = [];
-
-      function light(el, source) {
-        if (!el) { return; }
-        el.classList.add('is-lit');
-        if (source) { el.classList.add('is-lit--source'); }
-        lit.push(el);
-      }
-
-      function clear() {
-        svg.classList.remove('graph--focused');
-        lit.forEach(function (el) {
-          el.classList.remove('is-lit');
-          el.classList.remove('is-lit--source');
-        });
-        lit = [];
-      }
-
-      function joining(id) {
-        return svg.querySelectorAll('[data-source="' + id + '"], [data-target="' + id + '"]');
-      }
-
-      function focusNode(el) {
-        var id = el.getAttribute('data-node');
-        light(el, true);
-        Array.prototype.forEach.call(joining(id), function (line) {
-          light(line, false);
-          // The box at the far end of each arrow, so a hover answers "from where, to where"
-          // rather than only "which arrows touch this".
-          var other = line.getAttribute('data-source') === id
-            ? line.getAttribute('data-target') : line.getAttribute('data-source');
-          light(svg.querySelector('[data-node="' + other + '"]'), false);
-        });
-      }
-
-      function focusEdge(el) {
-        var from = el.getAttribute('data-source'), to = el.getAttribute('data-target');
-        // Both the arrow and its own label, which are two elements standing for one thing.
-        Array.prototype.forEach.call(
-          svg.querySelectorAll('[data-source="' + from + '"][data-target="' + to + '"]'),
-          function (part) { light(part, part === el); });
-        light(svg.querySelector('[data-node="' + from + '"]'), false);
-        light(svg.querySelector('[data-node="' + to + '"]'), false);
-      }
-
-      svg.addEventListener('mouseover', function (event) {
-        var el = event.target.closest &&
-          event.target.closest('.graph__node, .graph__edge, .graph__label');
-        if (!el) { return; }
-        clear();
-        svg.classList.add('graph--focused');
-        if (el.hasAttribute('data-node')) { focusNode(el); } else { focusEdge(el); }
-      });
-      svg.addEventListener('mouseleave', clear);
-    }
-  })();
-</script>
+<script src="{{ url_for('static', filename='graph.js') }}" defer></script>
 {% endif %}
 
 {% if groups %}

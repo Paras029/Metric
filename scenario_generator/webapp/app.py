@@ -758,6 +758,40 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             abort(404)
         return send_file(str(path), as_attachment=True)
 
+    @app.route("/graph", methods=["GET"])
+    def graph_page():
+        """The declared graph on its own, as one self-contained file.
+
+        A validation report has to carry the graph, and so does any conversation with the model
+        owner about a branch nobody declared -- and neither of those can be had over a screenshot,
+        which loses the zoom the moment a graph is large enough to need one. This is the same
+        drawing with the same reading controls, in a file that works with nothing running: the
+        stylesheet and the script are inlined rather than fetched, so it survives being emailed,
+        attached, or opened from a share months later.
+
+        ``?download=1`` sends it as an attachment. Without it the page opens in the browser, which
+        is what somebody who only wants a bigger view of it is asking for.
+        """
+        workspace = _workspace()
+        if not workspace.artifact_path("intake", "workbook"):
+            abort(404)
+        intake = _intake(workspace)
+        static = Path(__file__).parent / "static"
+        page = render_template(
+            "graph_standalone.html",
+            title=intake.name,
+            graph_svg=render_svg(intake),
+            graph_facts=graph_summary(intake),
+            drawn=datetime.now().strftime("%d %b %Y"),
+            stylesheet=(static / "app.css").read_text(encoding="utf-8"),
+            script=(static / "graph.js").read_text(encoding="utf-8"))
+
+        if not request.args.get("download"):
+            return page
+        path = workspace.root / "declared_graph.html"
+        path.write_text(page, encoding="utf-8")
+        return send_file(str(path), as_attachment=True)
+
     @app.route("/template", methods=["GET"])
     def blank_template():
         """A blank intake workbook, for a use case being described by hand."""
