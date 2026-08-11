@@ -4,7 +4,8 @@ and the separation of internal steps from conversational turns.
 import unittest
 
 from scenario_generator.core.generation import categorise, instantiate_path
-from scenario_generator.core.graph import DecisionGraph, enumerate_paths
+from scenario_generator.core.graph import (DecisionGraph, enumerate_paths,
+                                           routes_that_stop_short)
 from scenario_generator.core.models import Decision, Persona, State, Step
 
 _PERSONAS = [Persona("P1", "Default", [], True)]
@@ -41,12 +42,44 @@ class TestMaxAttemptsBoundsLoops(unittest.TestCase):
         three, _ = enumerate_paths(self._graph(3))
         self.assertGreater(max(len(p) for p in three), max(len(p) for p in one))
 
-    def test_exhausting_the_retry_limit_is_itself_a_path(self):
-        """Running out of attempts is a real outcome and must not be silently dropped."""
-        walked, _ = enumerate_paths(self._graph(2))
+    def _graph_that_says_what_the_last_failure_does(self):
+        """The same agent, declared properly: a second state also reached by DEC-01=Fail, which is
+        where the interaction lands once the attempts are gone."""
+        decisions = [Decision("DEC-01", "Auth", "CAP-01", "", ["Pass", "Fail"], max_attempts=2)]
+        states = [State("S-00", "Start", "Start", ["DEC-01"], False),
+                  State("S-01", "DEC-01=Fail", "Retry", ["DEC-01"], False),
+                  State("S-03", "DEC-01=Fail", "Locked out", [], True, "Termination"),
+                  State("S-02", "DEC-01=Pass", "Done", [], True, "Happy path")]
+        return DecisionGraph(decisions, states)
+
+    def test_exhausting_the_retry_limit_is_a_scenario_where_the_intake_says_where_it_lands(self):
+        """Running out of attempts is a real outcome, and testable exactly when somebody has
+        written down what it is."""
+        walked, _ = enumerate_paths(self._graph_that_says_what_the_last_failure_does())
         exhausted = [p for p in walked if all(step.variant == "Fail" for step in p)]
-        self.assertTrue(exhausted, "the all-failures path was discarded")
+        self.assertTrue(exhausted, "the all-failures route was discarded")
         self.assertEqual(max(len(p) for p in exhausted), 2)
+        self.assertEqual(exhausted[0][-1].next_state, "S-03")
+
+    def test_where_it_does_not_say_the_route_is_reported_rather_than_issued(self):
+        """The same walk, against a declaration that stops at "Retry" and never says what the
+        second failure does. There is no expected outcome to hold the model owner to, so issuing it
+        would ask them to run a conversation nobody can mark. It is reported instead."""
+        graph = self._graph(2)
+        walked, _ = enumerate_paths(graph)
+        self.assertEqual([p for p in walked if all(s.variant == "Fail" for s in p)], [])
+
+        stopped = routes_that_stop_short(graph)
+        self.assertTrue(any(all(step.variant == "Fail" for step in p) for p in stopped),
+                        "the route was dropped instead of being reported")
+
+    def test_every_issued_route_ends_where_the_intake_says_the_interaction_ends(self):
+        graph = self._graph(2)
+        walked, augmented = enumerate_paths(graph)
+        for path in walked + augmented:
+            landing = graph.state(path[-1].next_state)
+            self.assertIsNotNone(landing, path)
+            self.assertTrue(landing.is_terminal, path)
 
     def test_no_path_exceeds_the_declared_limit(self):
         walked, _ = enumerate_paths(self._graph(2))

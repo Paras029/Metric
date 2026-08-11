@@ -38,7 +38,13 @@ _INTAKE = IntakeData(
               Decision("DEC-02", "Memory", "CAP-02", "", ["Found"],
                        input_source="Memory-CrossSession"),
               Decision("DEC-03", "Doc", "CAP-02", "", ["Read"], input_source="Document")],
-    states=[State("S-00", "Start", "Start", ["DEC-01"], False)],
+    # Every outcome lands somewhere declared, so every route reaches an ending. A route the intake
+    # never finishes is no longer issued as a scenario, and a fixture without these produces none.
+    states=[State("S-00", "Start", "Start", ["DEC-01"], False),
+            State("S-01", "DEC-01=Pass", "Verified", ["DEC-02"], False),
+            State("S-02", "DEC-01=Fail", "Locked out", [], True, "Termination"),
+            State("S-03", "DEC-02=Found", "Recalled the earlier chat", ["DEC-03"], False),
+            State("S-04", "DEC-03=Read", "Read the statement", [], True, "Happy path")],
     tools=[Tool("Verifier", "CAP-01", True)],
 )
 

@@ -32,7 +32,8 @@ from ..llm import MaterialityAssessor, ScenarioReviewer, ScenarioWriter
 from ..llm.gateway import ask_llm
 from ..llm import cancellation
 from ..pipeline import (build_scenario_space, draft_intake_workbook, ingest_documents,
-                        map_conversation_coverage, revise_intake_workbook, structural_problems)
+                        map_conversation_coverage, revise_intake_workbook,
+                        routes_without_a_declared_ending, structural_problems)
 from .coverageview import stored_report
 from .workspace import Workspace
 
@@ -359,8 +360,19 @@ def _run_workflow(workspace: Workspace, progress=None, cancel=None) -> Dict[str,
     report("Built the scenario space", 3, 3)
 
     probes = sum(1 for s in scenarios if s.is_probe)
-    return {"Scenarios": len(scenarios), "Routes through the graph": len(scenarios) - probes,
-            "Probes": probes}
+    summary: Dict[str, object] = {
+        "Scenarios": len(scenarios), "Routes through the graph": len(scenarios) - probes,
+        "Probes": probes}
+
+    # Routes the walk had to abandon, said out loud. Every scenario issued runs from the start to
+    # a declared ending, which means anything the declaration stops short of is now absent from the
+    # space rather than in it with no expected outcome -- and a branch that quietly stops being
+    # tested is the one thing worth saying on the stage that decides what gets tested.
+    abandoned = routes_without_a_declared_ending(intake)
+    if abandoned:
+        summary["Routes with no declared ending"] = (
+            f"{len(abandoned)} — not issued; the intake does not say how they finish")
+    return summary
 
 
 def _run_scenarios(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:

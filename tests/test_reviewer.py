@@ -16,7 +16,11 @@ _INTAKE = IntakeData(
     personas=[Persona("P1", "Default", [], True)],
     capabilities=[Capability("CAP-01", "Auth", "Gating")],
     decisions=[Decision("DEC-01", "Auth", "CAP-01", "", ["Pass", "Fail"])],
-    states=[State("S-00", "Start", "Start", ["DEC-01"], False)],
+    # Both outcomes land somewhere declared. A route whose ending the intake never states is not
+    # issued as a scenario at all now, so a fixture without these produces an empty space.
+    states=[State("S-00", "Start", "Start", ["DEC-01"], False),
+            State("S-01", "DEC-01=Pass", "Verified", [], True, "Happy path"),
+            State("S-02", "DEC-01=Fail", "Locked out", [], True, "Termination")],
     tools=[Tool("Verifier", "CAP-01", False)],
 )
 

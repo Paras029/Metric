@@ -29,8 +29,8 @@ _INTAKE = IntakeData(
     capabilities=[Capability("CAP-01", "Auth", "Gating")],
     decisions=[Decision("DEC-01", "Identity check", "CAP-01", "", ["Pass", "Fail"])],
     states=[State("S-00", "Start", "Start", ["DEC-01"], False),
-            State("S-01", "Verified", "Happy path", [], True),
-            State("S-02", "Locked out", "Termination", [], True)],
+            State("S-01", "DEC-01=Pass", "Verified", [], True, "Happy path"),
+            State("S-02", "DEC-01=Fail", "Locked out", [], True, "Termination")],
     tools=[Tool("Identity service", "CAP-01", True)],
 )
 

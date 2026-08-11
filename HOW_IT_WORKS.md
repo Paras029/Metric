@@ -267,7 +267,29 @@ link. Dismissing a proposal discards it without touching anything.
 Deterministic, and no model is called. The graph is walked exhaustively: every distinct route
 becomes one scenario, with its route recorded as the expected outcome. Routes are deduplicated by
 their sequence of (decision, outcome) pairs, and any declared outcome the walk missed gets its own
-focused scenario.
+focused scenario, carried on to an ending like any other.
+
+**A route runs from a start state to a state the intake marks as ending the interaction, and
+nothing shorter.** That is what makes a scenario issuable: it is a conversation handed to the model
+owner with an expected outcome behind it, and a route the declaration stops short of has no
+expected outcome to have. There are three ways a walk stops short, and all three are the
+declaration running out rather than the agent finishing:
+
+- the outcome taken names a destination no state declares itself reached by;
+- the state reached leads nowhere and is not marked as ending the interaction;
+- every decision that state offers has used up its `Max Attempts`, or is out of scope.
+
+These are reported on the stage — *"Routes with no declared ending: 4 — not issued; the intake does
+not say how they finish"* — rather than issued. Each one is a real hole: a branch a user can take
+today whose ending nobody has written down. The first two also appear as questions against the row
+that owns them on the intake stage; the third is the case only the walk can see, since it depends
+on how the route arrived rather than on any single row.
+
+The retry case is the one worth being concrete about. If identity verification allows two attempts
+and the second failure lands nowhere declared, that route is reported, not tested. Declare a second
+state also reached by `DEC-01=Fail` — "locked out after the second attempt" — and the same route
+becomes an ordinary scenario ending there. The rule is not that retry exhaustion is untestable; it
+is that it is testable exactly when somebody has written down what it does.
 
 A library of adversarial and non-functional probes is applied separately. Probes test properties of
 the agent rather than routes through it — whether its instructions can be extracted, whether it

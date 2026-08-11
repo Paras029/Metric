@@ -68,13 +68,28 @@ class DecisionGraph:
 
 
 # --------------------------------------------------------------------------- enumeration
-def walk_paths(graph: DecisionGraph) -> List[Path]:
-    """DFS from every start state to every terminal (or undeclared) state."""
-    paths: List[Path] = []
+def _walk(graph: DecisionGraph) -> Tuple[List[Path], List[Path]]:
+    """DFS from every start state, separating the routes that finish from the ones that stop.
+
+    A route finishes when it arrives at a state the intake marks as ending the interaction. Every
+    other way a walk can come to a halt is the declaration running out, not the agent finishing:
+
+    * the outcome taken names a destination no state declares (``OUT:DEC-02=Odd``);
+    * the state reached leads nowhere but is not marked as an ending;
+    * every decision the state offers has used up its ``Max Attempts``, or is out of scope.
+
+    All three used to be issued as scenarios. None of them can be: a scenario is a conversation
+    with an expected outcome, and these are routes whose outcome the intake never states -- so the
+    metadata workbook carried an expected ending of nothing at all, and the model owner was asked
+    to run a conversation nobody could mark. They are returned separately instead, to be reported
+    as what they are: places the declaration stops short.
+    """
+    finished: List[Path] = []
+    stopped: List[Path] = []
     truncated = {"paths": False, "depth": False}
 
     def visit(state_id: str, path: Path, fired: Dict[str, int]) -> None:
-        if len(paths) >= MAX_PATHS:
+        if len(finished) + len(stopped) >= MAX_PATHS:
             truncated["paths"] = True
             return
         if len(path) > MAX_DEPTH:
@@ -83,7 +98,8 @@ def walk_paths(graph: DecisionGraph) -> List[Path]:
         state = graph.state(state_id)
         if state is None or state.is_terminal or not state.next_decisions:
             if path:
-                paths.append(list(path))
+                (finished if state is not None and state.is_terminal else stopped).append(
+                    list(path))
             return
 
         advanced = False
@@ -101,13 +117,12 @@ def walk_paths(graph: DecisionGraph) -> List[Path]:
                       path + [Step(decision_id, variant, next_state)],
                       {**fired, decision_id: occurrence + 1})
 
-        # Every decision this state offers is either out of scope or has used up its attempts.
-        # The interaction stops here, which is a real outcome either way -- exhausting a retry
-        # limit is usually exactly what the owner declared Max Attempts to bound, and a decision
-        # marked out of scope is one this review is deliberately not walking into -- so the path
-        # is recorded rather than discarded.
+        # Every decision this state offers is either out of scope or has used up its attempts, so
+        # the interaction has nowhere declared to go. Exhausting a retry limit is a real thing that
+        # happens -- but what the agent does at that point is exactly what the intake has failed to
+        # say, so this is a route to report rather than one to test.
         if not advanced and path:
-            paths.append(list(path))
+            stopped.append(list(path))
 
     for start in graph.start_states:
         visit(start, [], {})
@@ -118,7 +133,22 @@ def walk_paths(graph: DecisionGraph) -> List[Path]:
     if truncated["depth"]:
         logger.warning("One or more paths were cut at the MAX_DEPTH limit of %d steps — those "
                        "branches are not represented.", MAX_DEPTH)
-    return paths
+    return finished, stopped
+
+
+def walk_paths(graph: DecisionGraph) -> List[Path]:
+    """Every route from a start state to a declared ending."""
+    return _walk(graph)[0]
+
+
+def routes_that_stop_short(graph: DecisionGraph) -> List[Path]:
+    """Routes the walk had to abandon because the declaration ran out -- see :func:`_walk`.
+
+    Reported rather than issued. Each one is a real hole: a branch a user can take today whose
+    ending nobody has written down, which is worth a validator's attention precisely because it
+    cannot be tested until somebody answers it.
+    """
+    return _walk(graph)[1]
 
 
 def covered_variants(paths: List[Path]) -> Set[Tuple[str, str]]:
@@ -152,8 +182,54 @@ def _shortest_prefix_to(graph: DecisionGraph, decision_id: str) -> Path:
     return []
 
 
+def _shortest_suffix_to_ending(graph: DecisionGraph, state_id: str,
+                               fired: Dict[str, int], taken: int) -> Optional[Path]:
+    """BFS onward from `state_id` to any declared ending, or ``None`` if none can be reached.
+
+    Attempt counts are carried in rather than restarted, because they are what makes the rest of
+    the route legal: a suffix that fires a decision a fourth time is not a route the agent has.
+    """
+    if graph.state(state_id) is not None and graph.state(state_id).is_terminal:
+        return []
+
+    queue = deque([(state_id, [], fired)])
+    seen = {(state_id, tuple(sorted(fired.items())))}
+    while queue:
+        current, suffix, used = queue.popleft()
+        state = graph.state(current)
+        if state is None or taken + len(suffix) >= MAX_DEPTH:
+            continue
+        for decision_id in state.next_decisions:
+            decision = graph.decision(decision_id)
+            if decision is None or decision.out_of_scope:
+                continue
+            occurrence = used.get(decision_id, 0)
+            if occurrence >= decision.max_attempts:
+                continue
+            for variant in decision.variants:
+                next_state = graph.successor(decision_id, variant, occurrence)
+                step = Step(decision_id, variant, next_state)
+                landed = graph.state(next_state)
+                if landed is not None and landed.is_terminal:
+                    return suffix + [step]
+                after = {**used, decision_id: occurrence + 1}
+                mark = (next_state, tuple(sorted(after.items())))
+                if landed is None or mark in seen:
+                    continue
+                seen.add(mark)
+                queue.append((next_state, suffix + [step], after))
+    return None
+
+
 def augment_variants(graph: DecisionGraph, paths: List[Path]) -> List[Path]:
-    """A focused path for every declared (decision, variant) the DFS missed."""
+    """A focused route for every declared (decision, variant) the DFS missed.
+
+    Carried on to an ending rather than stopped at the outcome being reached for. These exist to
+    exercise an outcome the exhaustive walk could not get to -- usually one behind a retry limit --
+    and stopping the moment it fires made every one of them a route with no declared ending, which
+    is the one thing a scenario cannot be. An outcome whose continuation dead-ends is dropped: it
+    is unreachable in a complete route, and :func:`routes_that_stop_short` is where that is said.
+    """
     already = covered_variants(paths)
     extra: List[Path] = []
     for decision in graph.decisions.values():
@@ -165,9 +241,18 @@ def augment_variants(graph: DecisionGraph, paths: List[Path]) -> List[Path]:
         # One search per decision, not per outcome: the route *to* a decision is the same
         # whichever of its outcomes is being reached for.
         prefix = _shortest_prefix_to(graph, decision.id)
+        fired: Dict[str, int] = {}
+        for step in prefix:
+            fired[step.decision_id] = fired.get(step.decision_id, 0) + 1
         for variant in missing:
-            extra.append(prefix + [Step(decision.id, variant,
-                                        graph.successor(decision.id, variant))])
+            occurrence = fired.get(decision.id, 0)
+            landing = graph.successor(decision.id, variant, occurrence)
+            reached = prefix + [Step(decision.id, variant, landing)]
+            suffix = _shortest_suffix_to_ending(
+                graph, landing, {**fired, decision.id: occurrence + 1}, len(reached))
+            if suffix is None:
+                continue
+            extra.append(reached + suffix)
             already.add((decision.id, variant))
     return extra
 
