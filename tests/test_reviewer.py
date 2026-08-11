@@ -208,12 +208,39 @@ class TestReviewSweep(unittest.TestCase):
         ScenarioReviewer(complete=complete, batch_size=4).review(self.scenarios, _INTAKE)
         self.assertEqual(seen, [])
 
-    def test_a_failed_call_leaves_the_registry_untouched(self):
+    def test_a_review_where_every_call_failed_says_so_rather_than_finishing(self):
+        """A dropped chunk is reported and the scenarios in it are left as they were -- that is
+        right, and the rest of this class depends on it. Every chunk failing is a different thing:
+        "leave it as it was" then applies to the whole pass, so the stage would write its workbook
+        and report success having reviewed nothing. A gateway that is down for one call is worth
+        absorbing; one that is down for all of them is worth stopping for."""
         def broken(system, user, max_tokens=None, reasoning_effort=None):
             raise RuntimeError("gateway down")
-        reviewed, proposals = ScenarioReviewer(complete=broken).review(self.scenarios, _INTAKE)
-        self.assertEqual(proposals, [])
-        self.assertTrue(all(s.review_materiality == "" for s in reviewed))
+
+        with self.assertRaises(RuntimeError):
+            ScenarioReviewer(complete=broken).review(self.scenarios, _INTAKE)
+
+        # And nothing was half-applied on the way out.
+        self.assertTrue(all(s.review_materiality == "" for s in self.scenarios))
+
+    def test_one_failed_chunk_among_several_is_still_absorbed(self):
+        """The property the test above used to hold, kept where it actually belongs."""
+        # Matched on the chunk's own payload rather than on an id, because the proposal prompt
+        # carries an example id of its own and every chunk carries the whole-set digest.
+        first = self.scenarios[0].id
+        answer = self._fake()
+
+        def flaky(system, user, max_tokens=None, reasoning_effort=None, **kwargs):
+            if f'"id": "{first}"' in user:
+                raise RuntimeError("gateway down")
+            return answer(system, user, max_tokens=max_tokens,
+                          reasoning_effort=reasoning_effort, **kwargs)
+
+        reviewed, _ = ScenarioReviewer(complete=flaky, batch_size=1).review(
+            self.scenarios, _INTAKE)
+        settled = [s for s in reviewed if s.review_materiality]
+        self.assertTrue(settled, "a single failed chunk cost the whole pass")
+        self.assertTrue(any(not s.review_materiality for s in reviewed))
 
 
 class TestTheCategorySweep(unittest.TestCase):

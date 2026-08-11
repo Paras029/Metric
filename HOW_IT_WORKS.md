@@ -493,6 +493,25 @@ startup a broken file is a refusal to start, naming the line. If a file that was
 by an edit *while a run is under way*, the settings from before the edit stay in force and the
 problem is logged as an error; nothing reverts to a default mid-run.
 
+**A setting the model refuses is said in one line, not in a body.** Ask for an output cap above
+what the model accepts and the gateway answers with a 400 carrying a nested JSON body, whose outer
+wrapper says "Could not contact endpoint" and "All retries exhausted" — which reads as a gateway
+that was briefly down, so the natural next move is to run it again, and it fails identically on
+every call. The tool now leads with the two things worth saying about a configuration fault: which
+setting to change, the ceiling the provider named, and that retrying will not help. The gateway's
+own words are kept underneath.
+
+**A pass where *every* call failed is a failed pass.** A batched pass reports a dropped chunk as an
+entry in its results rather than raising it, so one chunk the gateway lost does not cost the other
+nine — every caller leaves such a chunk as the passes before it set it. That reasoning stops
+holding when nothing came back at all: "leave it as it was" then applies to the whole pass, so the
+stage would complete, write its workbook and report success with every scenario still carrying the
+deterministic placeholder text it was born with. This is exactly how an out-of-range output cap
+could look like a setting the writer accepted while the intake refused it — the intake makes one
+call, so its 400 was raised; the writer makes several, so its 400s became a wall of warnings and a
+green stage. A pass that got nothing usable now raises. A pass somebody *stopped* does not: that
+is the run doing what it was told.
+
 ### Per-stage overrides
 
 A tier is shared by every call doing the same *kind* of work, which is coarser than every call

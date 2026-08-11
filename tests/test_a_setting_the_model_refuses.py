@@ -130,5 +130,142 @@ class TestOtherWordingsForTheSameFault(unittest.TestCase):
         self.assertNotIn("ceiling is", message)
 
 
+class TestAPassThatGotNothingDoesNotReportSuccess(unittest.TestCase):
+    """The wiring issue behind "I can set a higher cap on the writer and it works".
+
+    It does not work -- it fails on every call and says nothing. A batched pass reports a failure
+    as an entry in its results rather than raising it, which is right for one dropped chunk and
+    exactly wrong when every chunk failed: "leave it as the passes before it set it" then applies
+    to the whole pass, so the stage completes, writes its workbook, and reports success with every
+    scenario still carrying the deterministic placeholder text it was born with.
+
+    That is how an output cap above the model's ceiling looked like a setting the writer accepted
+    while the intake refused it. The intake makes one call, so its 400 was raised; the writer makes
+    several, so its 400s became a wall of warnings and a green stage.
+    """
+
+    def _writer_against(self, complete):
+        from scenario_generator.core.models import (Capability, Decision, IntakeData, Persona,
+                                                    State, Tool)
+        from scenario_generator.llm.writer import ScenarioWriter
+        from scenario_generator.pipeline import build_scenario_space
+
+        intake = IntakeData(
+            use_case={"Use case name": "Disputes", "Business objective": "Resolve"},
+            personas=[Persona("P1", "Cardmember", [], True)],
+            capabilities=[Capability("CAP-01", "Identity", "Gating")],
+            decisions=[Decision("DEC-01", "Identity", "CAP-01", "", ["Pass", "Fail"])],
+            states=[State("S-00", "Start", "Start", ["DEC-01"], False),
+                    State("S-01", "DEC-01=Pass", "Verified", [], True, "Happy path"),
+                    State("S-02", "DEC-01=Fail", "Locked out", [], True, "Termination")],
+            tools=[Tool("Identity service", "CAP-01", True)])
+        scenarios = build_scenario_space(intake, with_probes=False)
+        return ScenarioWriter(complete=complete), scenarios, intake
+
+    def test_a_writer_refused_on_every_call_fails_instead_of_finishing(self):
+        class Refusing:
+            def __call__(self, system, user, **kwargs):
+                raise RuntimeError(_REAL)
+
+            def batch(self, system, user_messages, **kwargs):
+                return [RuntimeError(_REAL) for _ in user_messages]
+
+        writer, scenarios, intake = self._writer_against(Refusing())
+        with self.assertRaises(Exception) as caught:
+            writer.write(scenarios, intake)
+        self.assertIn("maxOutputTokens", str(caught.exception))
+
+    def test_the_scenarios_are_left_as_they_were_rather_than_half_written(self):
+        class Refusing:
+            def __call__(self, system, user, **kwargs):
+                raise RuntimeError(_REAL)
+
+            def batch(self, system, user_messages, **kwargs):
+                return [RuntimeError(_REAL) for _ in user_messages]
+
+        writer, scenarios, intake = self._writer_against(Refusing())
+        before = [s.description for s in scenarios]
+        with self.assertRaises(Exception):
+            writer.write(scenarios, intake)
+        self.assertEqual([s.description for s in scenarios], before)
+
+    def test_one_failed_call_among_several_is_still_absorbed(self):
+        """The property this must not break: a gateway that drops one chunk should not cost the
+        other nine, and every caller already handles a chunk arriving unanswered."""
+        import json
+
+        good = json.dumps({"SC-001": {"name": "A handle", "description": "The cardmember "
+                                      "disputes a charge they do not recognise at all.",
+                                      "turn_plan": "1. Open."}})
+
+        class Flaky:
+            def __call__(self, system, user, **kwargs):
+                raise RuntimeError("gateway down")
+
+            def batch(self, system, user_messages, **kwargs):
+                return [RuntimeError("gateway down") if index else good
+                        for index, _ in enumerate(user_messages)]
+
+        writer, scenarios, intake = self._writer_against(Flaky())
+        writer.write(scenarios, intake)          # must not raise
+        self.assertTrue(any("do not recognise" in s.description for s in scenarios))
+
+
+class TestTheBatchPathExplainsItToo(unittest.TestCase):
+    """Most of a run is batched, and a batch reports a failure as an entry rather than raising it.
+
+    Explaining only the single-call path is what made this asymmetric in the first place: the
+    intake makes one call and got a raised 400, the writer makes several and got the provider's
+    raw nested body once per chunk. Same fault, two different readings of it.
+    """
+
+    def _batched(self, tier):
+        from unittest import mock
+
+        from scenario_generator.llm import gateway
+
+        class Chain:
+            def batch(self, inputs, config=None, return_exceptions=False):
+                return [RuntimeError(_REAL) for _ in inputs]
+
+            def __or__(self, other):
+                return self
+
+            def __ror__(self, other):
+                return self
+
+        with mock.patch.object(gateway, "chat_model", return_value=Chain()), \
+             mock.patch.object(gateway, "_batch_prompt", return_value=Chain()):
+            return gateway.ask_llm_batch("sys", ["a", "b"], tier=tier)
+
+    def test_every_failed_entry_is_explained(self):
+        replies = self._batched(_JUDGEMENT)
+        self.assertEqual(len(replies), 2)
+        for reply in replies:
+            self.assertIsInstance(reply, SettingRejected)
+            self.assertIn("The model refused the output cap", str(reply))
+
+    def test_it_names_the_tier_that_batch_was_running_on(self):
+        standard = config.Tier(name="standard", model="m", max_tokens=256_000,
+                               reasoning_effort="minimal", max_attempts=4)
+        self.assertIn("LLM_STANDARD_MAX_TOKENS", str(self._batched(standard)[0]))
+
+
+class TestAStoppedPassIsNotAFailedOne(unittest.TestCase):
+    """Every entry being an exception is also what a person pressing Stop produces, and a run
+    doing what it was told is not a fault to raise."""
+
+    def test_a_batch_of_stopped_entries_comes_back_rather_than_raising(self):
+        import threading
+
+        from scenario_generator.llm.calling import call_batch
+
+        stop = threading.Event()
+        stop.set()
+        replies = call_batch(lambda s, u, **k: "never sent", "sys", ["a", "b"], cancel=stop)
+        self.assertEqual(len(replies), 2)
+        self.assertTrue(all(isinstance(r, BaseException) for r in replies))
+
+
 if __name__ == "__main__":
     unittest.main()

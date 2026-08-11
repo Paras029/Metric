@@ -430,8 +430,15 @@ def ask_llm_batch(system_prompt: str, user_messages: List[str],
         wave = user_messages[start:start + concurrency]
         record_call(len(wave))
         inputs = [{"system": system_prompt, "content": message} for message in wave]
-        results.extend(chain.batch(inputs, config={"max_concurrency": concurrency},
-                                   return_exceptions=True))
+        # Explained on the way out, the same as a single call. A batch reports a failure as an
+        # entry rather than raising it, so without this the one class of error that is worth
+        # naming -- a setting the model refuses, which will refuse every other call too -- reaches
+        # the log as the provider's raw nested body, once per chunk.
+        results.extend(_explain(reply, tier, max_tokens) if isinstance(reply, BaseException)
+                       else reply
+                       for reply in chain.batch(inputs,
+                                                config={"max_concurrency": concurrency},
+                                                return_exceptions=True))
         if on_progress is not None:
             on_progress(len(results), len(user_messages))
     return results

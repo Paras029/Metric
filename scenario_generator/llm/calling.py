@@ -149,7 +149,7 @@ def call_batch(complete: Callable[..., str], system_prompt: str, user_messages: 
         # progress only ever moves forward.
         if on_progress is not None:
             on_progress(len(replies), len(user_messages))
-        return replies
+        return _refuse_if_nothing_landed(replies)
 
     results: List[Union[str, BaseException]] = []
     for message in user_messages:
@@ -162,4 +162,34 @@ def call_batch(complete: Callable[..., str], system_prompt: str, user_messages: 
             results.append(exc)
         if on_progress is not None:
             on_progress(len(results), len(user_messages))
-    return results
+    return _refuse_if_nothing_landed(results)
+
+
+def _refuse_if_nothing_landed(replies: List[Union[str, BaseException]]
+                              ) -> List[Union[str, BaseException]]:
+    """Pass the replies back, unless *every* one of them failed -- then raise the first.
+
+    Reporting a failed chunk rather than raising is right, and it is what the rest of this module
+    is built on: one chunk the gateway dropped should not cost the other nine, and every caller
+    already handles a chunk arriving unanswered by leaving it as the passes before it set it.
+
+    That reasoning stops holding when *nothing* came back. The same "leave it as it was" then
+    applies to the whole pass, so the stage completes, writes its workbook and reports success
+    while every scenario still carries the deterministic placeholder text it was born with. A
+    configuration the model refuses -- an output cap above its ceiling, say -- fails exactly this
+    way: a wall of warnings nobody reads, and a green stage.
+
+    So a pass that got nothing usable is a failed pass, and says so. A stopped one is not: every
+    entry is a :class:`~.cancellation.Stopped` because a person pressed the button, which is the
+    run doing what it was told.
+    """
+    if not replies or any(not isinstance(r, BaseException) for r in replies):
+        return replies
+    if any(isinstance(r, Stopped) for r in replies):
+        return replies
+
+    first = replies[0]
+    logger.error("Every one of the %d call(s) in this pass failed, so nothing it produces would "
+                 "be the model's work. Raising the first rather than reporting a stage that "
+                 "wrote placeholder text and called itself finished.", len(replies))
+    raise first
