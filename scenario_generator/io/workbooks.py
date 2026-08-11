@@ -6,7 +6,7 @@
                      expected outcomes of any kind — no decision path, expected variant,
                      expected tool call, category or materiality. Two reference sheets state
                      what to run; two response sheets are pre-populated with one row per
-                     scenario, run and turn.
+                     scenario, variation and turn.
     Scenario space metadata         Internal. Full metadata, per-turn expected outcomes, and the text as
                      issued. The canonical index coverage matches against.
     Coverage Report  Internal. How many of the model owner's conversations landed on each
@@ -45,13 +45,13 @@ _TEMPLATE_INSTRUCTIONS = [
                               "one the requested number of times and record what happened in the "
                               "Variation_Log and Variation_Summary sheets. Return this same file."),
     ("Sheets you read", "Scenarios and Turn_Plan describe what to run. Do not edit them."),
-    ("Sheets you fill", "Variation_Log (one row per scenario, run and turn) and Variation_Summary (one row "
-                        "per scenario and run). Both are already pre-populated with the SC ID, "
+    ("Sheets you fill", "Variation_Log (one row per scenario, variation and turn) and Variation_Summary (one row "
+                        "per scenario and variation). Both are already pre-populated with the SC ID, "
                         "Run and Turn numbers — fill the blank columns beside them."),
     ("Variations", "Required Variations on the Scenarios sheet is how many independent executions are "
-             "required of that scenario. Start each run from a fresh session."),
-    ("Turns", "Recommended Turns is a guide, not a limit. If a run takes more turns, insert extra "
-              "rows in Variation_Log for that SC ID and Run, numbered on from the last turn. If it takes "
+             "required of that scenario. Start each variation from a fresh session."),
+    ("Turns", "Recommended Turns is a guide, not a limit. If a variation takes more turns, insert extra "
+              "rows in Variation_Log for that SC ID and Variation, numbered on from the last turn. If it takes "
               "fewer, leave the surplus rows blank."),
     ("Tool Metadata", "Whatever your framework records for tool activity on that turn — a JSON "
                       "blob, a trace fragment, or plain text. Paste it as-is; no fixed schema."),
@@ -206,7 +206,7 @@ def write_data_template(path: str, intake: IntakeData, scenarios: List[Scenario]
     """Modeling-team-facing workbook, issued blank and returned filled. Returns scenario count.
 
     Two reference sheets (what to run) and two response sheets (what to fill in). Variation_Log and
-    Variation_Summary are pre-populated down to one row per scenario/run/turn so the requested number
+    Variation_Summary are pre-populated down to one row per scenario/variation/turn so the requested number
     of variations is a fixed contract rather than something the team has to construct.
     """
     workbook = Workbook()
@@ -229,20 +229,20 @@ def write_data_template(path: str, intake: IntakeData, scenarios: List[Scenario]
                              for turn, line in enumerate(turn_plan_lines(s), start=1)])
 
     log = sheets.add_sheet(workbook, "Variation_Log",
-                           ["SC ID", "Run", "Turn", "User Input (Actual)", "Agent Response",
+                           ["SC ID", "Variation", "Turn", "User Input (Actual)", "Agent Response",
                             "Tool Metadata", "Agent Reasoning / Trace", "Additional Metadata"],
                            [10, 7, 7, 46, 52, 40, 46, 30])
-    sheets.write_rows(log, [[s.id, run, turn, "", "", "", "", ""]
+    sheets.write_rows(log, [[s.id, variation, turn, "", "", "", "", ""]
                             for s in scenarios
-                            for run in range(1, required_variations(s.effective_materiality, variations_mapping) + 1)
+                            for variation in range(1, required_variations(s.effective_materiality, variations_mapping) + 1)
                             for turn in range(1, recommended_turns(s) + 1)])
 
     summary = sheets.add_sheet(workbook, "Variation_Summary",
-                               ["SC ID", "Run", "Actual Turns", "Outcome Reached", "How It Ended",
+                               ["SC ID", "Variation", "Actual Turns", "Outcome Reached", "How It Ended",
                                 "Anomalies / Notes"], [10, 7, 14, 40, 34, 46])
-    sheets.write_rows(summary, [[s.id, run, "", "", "", ""]
+    sheets.write_rows(summary, [[s.id, variation, "", "", "", ""]
                                 for s in scenarios
-                                for run in range(1, required_variations(s.effective_materiality, variations_mapping) + 1)])
+                                for variation in range(1, required_variations(s.effective_materiality, variations_mapping) + 1)])
 
     workbook.save(path)
     return len(scenarios)

@@ -90,6 +90,16 @@ class Conversation:
     kept so their grouping can be compared against ours, which is a finding in its own right.
     """
 
+    scenario_id: str = ""
+    """Which of *our* scenarios this conversation was run against, where the file says so.
+
+    Distinct from ``group`` in the only way that matters: a group is what the team called their
+    own test and is evidence to be weighed, where this is an id from the data template we issued,
+    filled in on the row the team was asked to fill in. That is not a claim to assess -- it is the
+    answer to the question the mapping call exists to ask, so a conversation carrying one skips
+    that call entirely.
+    """
+
     @property
     def transcript(self) -> str:
         return "\n".join(str(turn) for turn in self.turns)
@@ -161,6 +171,84 @@ def _cell(row: List[str], index: int) -> str:
     return row[index].strip() if 0 <= index < len(row) else ""
 
 
+# --------------------------------------------------------------------------- the template back
+#
+# The workbook this tool issues is a template: two reference sheets saying what to run, and a
+# Variation_Log the team fills in one row per scenario, variation and turn. When it comes back
+# filled in, it is the best submission there is -- every conversation already carries the id of
+# the scenario it was run against, which is the exact thing the mapping call exists to work out.
+#
+# It also happens to be the shape the generic reader handles worst. There is no speaker column,
+# because a turn is a *pair* of columns rather than a row per utterance, so the reader fell
+# through to one-conversation-per-row and turned a forty-row log into forty single-utterance
+# "conversations" whose text was whichever column happened to be widest. Recognising the sheet is
+# what stops the tool's own template being the format it reads least well.
+_LOG_SHEET = "Variation_Log"
+_LOG_COLUMNS = ("SC ID", "Variation", "Turn", "User Input (Actual)", "Agent Response")
+
+# Sheet names an older issued template used, so a pack that went out before the rename still reads.
+_LOG_SHEET_NAMES = (_LOG_SHEET, "Run_Log")
+
+
+def _is_returned_template(header: List[str]) -> bool:
+    """Whether this sheet's header is the log we issued, however the team reordered it."""
+    present = {str(cell or "").strip().lower() for cell in header}
+    required = {"sc id", "user input (actual)", "agent response"}
+    return required <= present
+
+
+def _from_returned_template(rows: List[List[str]], origin: str) -> Tuple[List[Conversation], str]:
+    """The issued log, filled in: one conversation per (scenario, variation), turns in file order.
+
+    A turn is one row and carries both sides of it, so the two columns are read as two utterances
+    rather than one -- a row with only the agent's half is still a turn, and a row with neither is
+    one the team did not get to.
+
+    The scenario id is carried through as ``scenario_id`` rather than as a group. It is not a
+    claim about what the conversation resembles; it is the row the team was asked to fill in, and
+    treating it as evidence to be re-derived by a model would be paying to rediscover something
+    already written down.
+    """
+    # Normalised here rather than relying on the caller: this is reached both from _from_rows,
+    # which has already stringified, and straight off the workbook, where Variation and Turn are
+    # still integers.
+    rows = [[str(cell if cell is not None else "").strip() for cell in row] for row in rows]
+    header, lowered = rows[0], [cell.lower() for cell in rows[0]]
+
+    def column(name: str) -> int:
+        return lowered.index(name.lower()) if name.lower() in lowered else -1
+
+    id_col = column("SC ID")
+    variation_col = column("Variation")
+    if variation_col < 0:
+        variation_col = column("Run")                      # an older issued template
+    user_col = column("User Input (Actual)")
+    agent_col = column("Agent Response")
+
+    found: Dict[str, Conversation] = {}
+    for row in rows[1:]:
+        scenario_id = _cell(row, id_col)
+        if not scenario_id:
+            continue
+        variation = _cell(row, variation_col) or "1"
+        key = f"{scenario_id}#{variation}"
+        conversation = found.setdefault(
+            key, Conversation(id=key, scenario_id=scenario_id))
+        for column_index, speaker in ((user_col, USER), (agent_col, AGENT)):
+            text = _cell(row, column_index)
+            if text:
+                conversation.turns.append(Turn(speaker, text))
+
+    kept = [c for c in found.values() if c]
+    if not kept:
+        raise UnreadableConversations(
+            f"{origin} is the data template we issued, but its {_LOG_SHEET} sheet has no filled-in "
+            f"turns. Ask for the same file back with the User Input and Agent Response columns "
+            f"completed.")
+    return kept, (f"{origin}, the data template returned filled in — {len(kept)} conversation(s) "
+                  f"already labelled with the scenario each was run against")
+
+
 def _from_rows(rows: List[List[str]], origin: str) -> Tuple[List[Conversation], str]:
     """Turn a table into conversations, working out which of the two shapes it is."""
     rows = [[str(cell or "").strip() for cell in row] for row in rows]
@@ -172,6 +260,12 @@ def _from_rows(rows: List[List[str]], origin: str) -> Tuple[List[Conversation], 
     header, body = rows[head], rows[head + 1:]
     if not body:
         raise UnreadableConversations(f"{origin} has a header but no data rows.")
+
+    # Our own template first. Every heuristic below is about recognising somebody else's format;
+    # this one is about recognising the format we asked for, and it is the only one that can say
+    # what a conversation was run against rather than infer it.
+    if _is_returned_template(header):
+        return _from_returned_template([header] + body, origin)
 
     id_col = _find(header, _CONVERSATION_ID)
     speaker_col = _find(header, _SPEAKER)
@@ -265,6 +359,18 @@ def _from_workbook(path: Path) -> Tuple[List[Conversation], str]:
             f"which this reads just as well.") from exc
 
     try:
+        # Our own log first, by name and by header. Picking the sheet with the most rows is the
+        # right rule among somebody else's sheets and the wrong one here: the template ships an
+        # Instructions sheet of prose that reads perfectly well as conversations, and on a returned
+        # template that sheet won -- so the file the tool asked for was read as its own covering
+        # note.
+        for name in book.sheetnames:
+            if name not in _LOG_SHEET_NAMES:
+                continue
+            rows = [list(r) for r in book[name].iter_rows(values_only=True)]
+            if rows and _is_returned_template([str(c or "") for c in rows[0]]):
+                return _from_returned_template(rows, f"sheet '{name}'")
+
         best, best_error = None, None
         for name in book.sheetnames:
             rows = [list(r) for r in book[name].iter_rows(values_only=True)]

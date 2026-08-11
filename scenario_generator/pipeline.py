@@ -537,7 +537,14 @@ def map_conversation_coverage(intake_path: str, metadata_path: str, conversation
 
     conversations, how = read_conversations(Path(conversations_path))
     mapper = mapper or ConversationMapper(progress=progress, cancel=cancel)
-    mappings = mapper.map(conversations, space, intake, texts)
+    # Mapped against everything that was *issued*, reported against the functional space. The
+    # data template carries the probes as well, so a team that ran one and said so on the row they
+    # were given must not be told it matched nothing -- that reads as a hole in their testing when
+    # it is a hole in this reader. What coverage then *measures* is still the functional space
+    # only, deliberately: a probe is a property of the agent rather than a route through it, and
+    # counting probes in the denominator would move the figure without changing the evidence.
+    mappings = mapper.map(conversations, space, intake, texts,
+                          issued=read_space_metadata(metadata_path, functional_only=False))
 
     report = build_report(mappings, space, threshold=threshold)
     write_coverage_report(report_path, report, mappings, texts)

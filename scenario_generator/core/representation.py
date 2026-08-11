@@ -97,11 +97,22 @@ class CoverageReport:
     scenarios: List[ScenarioCoverage] = field(default_factory=list)
     groups: List[GroupAssessment] = field(default_factory=list)
     unmatched: List[str] = field(default_factory=list)
+    outside: List[str] = field(default_factory=list)
+    """Conversations that matched something coverage does not measure -- a probe.
+
+    Probes go out in the data template alongside the routes, so a team can run one, say so on the
+    row they were given, and be perfectly well-evidenced for it. Counting those as matching
+    nothing would report a hole in their testing where the hole is in this reader, and
+    understating coverage is the one error this stage must not make quietly. They are kept out of
+    the per-scenario counts because a probe is a property of the agent rather than a route through
+    it, and putting probes in the denominator would move the figure without changing the evidence.
+    """
+
     threshold: int = DEFAULT_THRESHOLD
 
     @property
     def conversations(self) -> int:
-        return sum(s.count for s in self.scenarios) + len(self.unmatched)
+        return sum(s.count for s in self.scenarios) + len(self.unmatched) + len(self.outside)
 
     def represented(self) -> List[ScenarioCoverage]:
         return [s for s in self.scenarios if s.represented(self.threshold)]
@@ -115,15 +126,18 @@ class CoverageReport:
 
     def summary(self) -> Dict[str, object]:
         under = self.under_represented()
-        return {
+        counts = {
             "Conversations read": self.conversations,
-            "Mapped to a scenario": self.conversations - len(self.unmatched),
+            "Mapped to a scenario": self.conversations - len(self.unmatched) - len(self.outside),
             "Matched no scenario": len(self.unmatched),
             "Scenarios in the space": len(self.scenarios),
             "Represented": len(self.represented()),
             "Under-represented": len(under),
             "Never exercised": len(self.untouched()),
         }
+        if self.outside:
+            counts["Ran a probe rather than a route"] = len(self.outside)
+        return counts
 
 
 def build_report(mappings, scenarios: List[ScenarioRow],
@@ -133,10 +147,14 @@ def build_report(mappings, scenarios: List[ScenarioRow],
     Every scenario appears, including the ones nothing landed on -- those are the point. A report
     that listed only what was covered would answer the easy half of the question and leave the
     half that decides what gets sent back.
+
+    A mapping onto an id this space does not measure is a probe run, not a miss -- see
+    :attr:`CoverageReport.outside`.
     """
     buckets = {s.id: ScenarioCoverage(scenario=s, by_confidence={}) for s in scenarios}
     groups: Dict[str, GroupAssessment] = {}
     unmatched: List[str] = []
+    outside: List[str] = []
 
     for mapping in mappings:
         group = None
@@ -146,6 +164,9 @@ def build_report(mappings, scenarios: List[ScenarioRow],
 
         bucket = buckets.get(mapping.scenario_id) if mapping.scenario_id else None
         if bucket is None:
+            if mapping.scenario_id:
+                outside.append(mapping.conversation_id)
+                continue
             unmatched.append(mapping.conversation_id)
             if group is not None:
                 group.unmatched += 1
@@ -160,4 +181,4 @@ def build_report(mappings, scenarios: List[ScenarioRow],
 
     ordered = sorted(buckets.values(), key=lambda b: (b.count, b.scenario.id))
     return CoverageReport(scenarios=ordered, groups=list(groups.values()),
-                          unmatched=unmatched, threshold=threshold)
+                          unmatched=unmatched, outside=outside, threshold=threshold)

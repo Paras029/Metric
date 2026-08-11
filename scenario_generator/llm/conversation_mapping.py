@@ -124,17 +124,47 @@ class ConversationMapper:
         self._cancel = cancel
 
     def map(self, conversations: List[Conversation], scenarios: List[ScenarioRow],
-            intake: IntakeData, texts: Dict[str, str] = None) -> List[Mapping]:
-        """One mapping per conversation, in the order they were submitted."""
+            intake: IntakeData, texts: Dict[str, str] = None,
+            issued: Optional[List[ScenarioRow]] = None) -> List[Mapping]:
+        """One mapping per conversation, in the order they were submitted.
+
+        ``scenarios`` is what coverage measures against; ``issued`` is everything that went out in
+        the data template, which also carries the probes. They differ only in that a stated id is
+        honoured against the wider set -- see :func:`pipeline.map_conversation_coverage`.
+        """
         cancellation.check(self._cancel)
         if not conversations:
             return []
 
         known = {s.id for s in scenarios}
+        was_issued = known | {s.id for s in (issued or [])}
+
+        # Anything the submission already labelled with one of our scenario ids is settled. That
+        # only happens when the team filled in and returned the data template this tool issued, so
+        # the id is not a claim to weigh -- it is the row they were asked to fill in, and asking a
+        # model to rediscover it would be paying for an answer that is already written down. A
+        # submission returned whole therefore costs no calls at all.
+        stated = [c for c in conversations if c.scenario_id in was_issued]
+        if stated:
+            logger.info("%d of %d conversation(s) name the scenario they were run against; only "
+                        "the other %d need a call.",
+                        len(stated), len(conversations), len(conversations) - len(stated))
+        settled = {c.id: Mapping(conversation_id=c.id, scenario_id=c.scenario_id,
+                                 confidence="high", declared_group=c.group,
+                                 reason="Stated on the returned data template.")
+                   for c in stated}
+
+        # An id the file names that this scenario space does not have is a real finding -- the
+        # template was issued from an older space, or the row was hand-edited -- so it goes to the
+        # call rather than being silently dropped or silently trusted.
+        unlabelled = [c for c in conversations if c.id not in settled]
+        if not unlabelled:
+            return [settled[c.id] for c in conversations]
+
         space = describe_scenario_space(scenarios, texts)
         use_case = describe_use_case(intake)
 
-        pending = list(chunks(conversations, self._batch))
+        pending = list(chunks(unlabelled, self._batch))
         # Reported as replies land, not as they are applied: every chunk is in flight at once, so
         # the applying loop below runs in a fraction of a second after a wait of minutes.
         sizes = [len(chunk) for chunk in pending]
@@ -144,11 +174,11 @@ class ConversationMapper:
             tier=config.stage_tier("COVERAGE_MAP", config.JUDGEMENT),
             max_concurrency=config.stage_concurrency("COVERAGE_MAP"), cancel=self._cancel,
             on_progress=lambda done, _total: self._progress(
-                f"Mapped {sum(sizes[:done])} of {len(conversations)} conversations",
-                sum(sizes[:done]), len(conversations)))
+                f"Mapped {len(settled) + sum(sizes[:done])} of {len(conversations)} conversations",
+                len(settled) + sum(sizes[:done]), len(conversations)))
 
-        mapped: List[Mapping] = []
-        done = 0
+        mapped: List[Mapping] = dict(settled)
+        done = len(settled)
         for chunk, reply in zip(pending, replies):
             cancellation.check(self._cancel)
             for mapping, conversation in zip(self._apply(chunk, reply, known), chunk):
@@ -160,15 +190,19 @@ class ConversationMapper:
                 if not mapping.answered:
                     cancellation.check(self._cancel)
                     mapping = self._map_one(conversation, space, use_case, known)
-                mapped.append(mapping)
+                mapped[conversation.id] = mapping
             done += len(chunk)
             self._progress(f"Mapped {done} of {len(conversations)} conversations",
                            done, len(conversations))
 
-        unmatched = sum(1 for m in mapped if not m.matched)
+        # Back into submission order. The mappings are written beside the conversations in the
+        # coverage report, so a list that came back grouped by how it was worked out would read
+        # as a reordering of the model owner's file.
+        ordered = [mapped[c.id] for c in conversations if c.id in mapped]
+        unmatched = sum(1 for m in ordered if not m.matched)
         logger.info("Mapped %d conversation(s) onto %d scenario(s); %d matched nothing.",
-                    len(mapped), len({m.scenario_id for m in mapped if m.matched}), unmatched)
-        return mapped
+                    len(ordered), len({m.scenario_id for m in ordered if m.matched}), unmatched)
+        return ordered
 
     def _render(self, chunk: List[Conversation], space: str, use_case: str) -> str:
         """The prompt for one chunk. The declared label is shown but marked as not evidence."""
