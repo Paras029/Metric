@@ -61,6 +61,7 @@ class TestEveryRouteIsReachable(unittest.TestCase):
             "/stage/<key>/stop": ["POST"],
             "/stage/<key>/progress": ["GET"],
             "/stage/<key>/note": ["POST"],
+            "/stage/<key>/answers": ["POST"],
             "/stage/<key>/upload": ["POST"],
             "/stage/<key>/remove": ["POST"],
             "/stage/<key>/redact": ["POST"],

@@ -19,6 +19,7 @@ approved -- writing to the older interface costs nothing and removes a dependenc
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,7 +29,8 @@ from flask import (Flask, abort, jsonify, redirect, render_template, request, se
                    session, url_for)
 from werkzeug.utils import secure_filename
 
-from ..core.intake import set_decision_scope, write_template
+from ..core.gaps import CAPABILITY, DECISION, STATE, find_gaps
+from ..core.intake import read_review_notes, set_decision_scope, write_template
 from ..core.models import MATERIALITY
 from ..ingest.conversations import read_conversations
 from ..ingest.groups import (ALL_EXTENSIONS, DEFAULT_GROUP, GROUP_BY_KEY, GROUPS, MODEL_DOC,
@@ -64,6 +66,19 @@ GRAPH_STAGES = ("intake", "workflow")
 # all: the documentation describes an agent, where these are real conversations with real
 # customers in them.
 REDACTABLE_GROUPS = (MODEL_DOC, SUPPORTING, OWNER_SCENARIOS)
+
+# The three kinds of row the declared graph is made of, in the order they are worth reading: a
+# decision naming no outcomes enumerates nothing at all, which is more urgent than a capability
+# that will merely be probed less thoroughly than its neighbours. Questions about anything else --
+# what the pack never said about policy, testing or vocabulary -- are not asked of a person here;
+# they are in the context document, as a remark on the pack rather than a task with a name on it.
+_GRAPH_ROW_KINDS = {DECISION: "Decisions", STATE: "States", CAPABILITY: "Capabilities"}
+
+# A review note's own "field" text is free-form -- whatever the model wrote, not a schema this can
+# rely on -- so only an unambiguous row id is trusted to place it. Ids loose enough to false-match
+# ordinary words (a persona's "P1" against any word starting with a "p") are not looked for.
+_ROW_ID_IN_TEXT = re.compile(r"\b(DEC-\d+|S-\d+|CAP-\d+)\b", re.I)
+_KIND_BY_PREFIX = {"DEC": DECISION, "S": STATE, "CAP": CAPABILITY}
 
 # Whether the structure review is offered on the intake page. Off: what the review should be
 # allowed to propose, and how far a proposal may reach into a declaration the model owner signed
@@ -187,6 +202,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             decisions=decisions,
             capabilities=capabilities,
             tools=tools,
+            questions=_declaration_questions(workspace, intake) if key == "intake" else [],
             structure_proposals=(workspace.structure_proposals
                                  if STRUCTURE_REVIEW_OFFERED and key == "intake" else []),
             structure_review_available=(STRUCTURE_REVIEW_OFFERED and key == "intake"
@@ -371,6 +387,66 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             return int(raw)
         return PAGE_SIZE
 
+    def _declaration_questions(workspace: Workspace, intake) -> list:
+        """What the declared graph still needs, asked of the row that needs it.
+
+        Deliberately only the three kinds of row the graph is made of: a capability, a decision,
+        a state. Everything the reading left open used to be here too -- what the documents never
+        said about policy, about how the model owner tested, about domain vocabulary -- and it
+        buried the handful of questions that actually stop a branch being walked under a much
+        longer list nobody could finish. Those readings are not lost: they are in the context
+        document and the evidence file, where they are a remark on how complete the pack is rather
+        than a task with somebody's name on it.
+
+        The questions here all share one property, and it is the reason they are the ones worth a
+        person's time: unanswered, a part of the graph cannot be built, so a branch goes untested
+        and nothing downstream says so. A decision naming no outcomes enumerates nothing. A state
+        nothing reaches is a route that stops. An untyped capability drops its probes silently.
+
+        Answers become notes carrying their question -- see :meth:`Workspace.add_notes` -- so a
+        re-run reads them as answers rather than as loose remarks, and nothing has to be re-typed
+        into the workbook by hand.
+        """
+        if intake is None:
+            return []
+
+        answered = workspace.answered_questions()
+
+        def row(question: str, why: str, heading: str = "", example: str = "") -> dict:
+            return {"heading": heading, "question": question, "why": why, "example": example,
+                    "answer": answered.get(question, "")}
+
+        # Narrowed in exactly one place -- the loop that builds the groups, below -- so gaps of
+        # every kind are collected here and the three that get asked about are chosen once. Two
+        # filters for one decision is how the second one comes to disagree with the first.
+        grouped: Dict[str, list] = {}
+        for gap in find_gaps(intake):
+            grouped.setdefault(gap.kind, []).append(
+                row(gap.question, gap.why, gap.heading, gap.example))
+
+        # The drafter's own hedges, read back from the workbook it wrote. A softer signal than a
+        # structural gap -- the row is filled in, but not with confidence, and only the model that
+        # wrote it knows why -- and it is placed by row id, so one that names no row is dropped
+        # rather than guessed at.
+        path = workspace.artifact_path("intake", "workbook")
+        if path:
+            for note in read_review_notes(str(path)):
+                field, text = str(note.get("field", "")), str(note.get("note", ""))
+                match = _ROW_ID_IN_TEXT.search(field) or _ROW_ID_IN_TEXT.search(text)
+                if not text or not match:
+                    continue
+                kind = _KIND_BY_PREFIX[match.group(1).upper().split("-")[0]]
+                # The note *is* the question: it says what the draft was unsure of, which is more
+                # use than a manufactured "is this right?" that names nothing to check.
+                grouped.setdefault(kind, []).append(
+                    row(f"Confirm or correct {field}" if field
+                        else "Confirm or correct what the draft was unsure of",
+                        text, match.group(1).upper(),
+                        example="Yes, that is right — or the correction"))
+
+        return [{"label": label, "rows": grouped[kind]}
+                for kind, label in _GRAPH_ROW_KINDS.items() if grouped.get(kind)]
+
     @app.route("/stage/<key>/note", methods=["POST"])
     def add_note(key: str):
         """Record something the user knows that the documents did not say.
@@ -381,6 +457,27 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         workspace = _workspace()
         workspace.add_note(key, request.form.get("note", ""))
         return redirect(url_for("stage", key=key))
+
+    @app.route("/stage/<key>/answers", methods=["POST"])
+    def save_answers(key: str):
+        """Save several answers at once, and accept a partial pass.
+
+        The questions are a list, and a list answered one item at a time is a page reload per
+        item. Everything filled in is saved together; everything left blank is left open, so a
+        person can settle what they know now and come back for the rest. What has been answered
+        stays editable -- a second thought about an answer is worth more than the first one.
+        """
+        workspace = _workspace()
+        entries = []
+        for field in request.form:
+            if not field.startswith("answer-"):
+                continue
+            entries.append((request.form.get(f"question-{field[len('answer-'):]}", ""),
+                            request.form.get(field, "")))
+
+        saved = workspace.add_notes(entries, key)
+        logger.info("Recorded %d answer(s) at the %s stage.", saved, key)
+        return redirect(url_for("stage", key=key, _anchor="questions"))
 
     @app.route("/stage/<key>/upload", methods=["POST"])
     def upload(key: str):

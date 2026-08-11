@@ -232,7 +232,7 @@ class Workspace:
         self._reconciled = self._settle()
 
     # ----------------------------------------------------------------- added context
-    def add_note(self, stage_key: str, text: str) -> bool:
+    def add_note(self, stage_key: str, text: str, question: str = "") -> bool:
         """Record something the user knows that the documents did not say.
 
         Notes accumulate rather than replace, and each carries the stage it was added at. Every
@@ -240,14 +240,43 @@ class Workspace:
         evidence is just as relevant to the final review, and asking the user to repeat it there
         would be a good way to lose it.
 
+        A note answering a question carries the question with it, so a later stage reads "the
+        outcomes of DEC-04 are Approved and Referred" as the answer it is rather than as a remark
+        that happens to mention DEC-04.
+
         A blank submission is not a note. Returns whether one was actually recorded.
         """
-        text = (text or "").strip()
-        if not text:
-            return False
-        self.notes.append({"stage": stage_key, "text": text, "added_at": _now()})
-        self.save()
-        return True
+        return bool(self.add_notes([(question, text)], stage_key))
+
+    def add_notes(self, entries: List[tuple], stage_key: str) -> int:
+        """Record several answers at once, as (question, text) pairs. Returns how many landed.
+
+        Answering questions one at a time meant a page reload between each, which turns a list of
+        six into six round trips. Nothing here requires the whole list: blanks are skipped, so a
+        person can settle what they know now, come back, and settle the rest later, and each pass
+        registers what it carried.
+        """
+        added = 0
+        for question, text in entries:
+            text = (text or "").strip()
+            if not text:
+                continue
+            self.notes.append({"stage": stage_key, "text": text, "added_at": _now(),
+                               "question": (question or "").strip()})
+            added += 1
+        if added:
+            self.save()
+        return added
+
+    def answered_questions(self) -> Dict[str, str]:
+        """Every question a person has answered, newest answer winning.
+
+        Keyed by the question rather than by the row it concerns: the questions are regenerated
+        from the declaration on every page load, so a row id is only stable until somebody
+        renumbers the workbook, and the question text is what a person recognises anyway.
+        """
+        return {note["question"]: note["text"]
+                for note in self.notes if note.get("question")}
 
     def notes_for(self, stage_key: str) -> List[dict]:
         return [note for note in self.notes if current_key(note["stage"]) == stage_key]
@@ -263,7 +292,10 @@ class Workspace:
         for note in self.notes:
             stage_key = current_key(note["stage"])
             title = STAGE_BY_KEY[stage_key].title if stage_key in STAGE_BY_KEY else "General"
-            lines.append(f"({title}) {note['text']}")
+            if note.get("question"):
+                lines.append(f"({title}) Q: {note['question']} — A: {note['text']}")
+            else:
+                lines.append(f"({title}) {note['text']}")
         return lines
 
     def context_text(self) -> str:

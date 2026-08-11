@@ -38,6 +38,35 @@
 </details>
 {% endmacro %}
 
+{# One thing the declared graph still needs, addressed to the row that needs it.
+
+   Three lines, in the order they are needed: what is being asked, a box carrying an example of
+   what an answer looks like, and only then why it matters. The example is the placeholder rather
+   than a caption because the uncertainty it settles -- a word, a list, or a sentence? -- is felt
+   at the moment of typing, and that is where it has to be answered. #}
+{% macro gap_row(row, index) %}
+<li class="questions__row {% if row.answer %}questions__row--done{% endif %}">
+  <span class="questions__kind">{% if row.answer %}Answered{% else %}To answer{% endif %}</span>
+  <span class="questions__body">
+    <span class="questions__text">
+      {# The id is dropped wherever the question already names the row -- anywhere in it, not only
+         at the start, since "Which capability does DEC-02 belong to?" says it in the middle and
+         printing it twice reads as a rendering fault. #}
+      {%- if row.heading and row.heading not in row.question -%}
+        <span class="mono">{{ row.heading }}</span> —
+      {% endif %}{{ row.question }}
+    </span>
+    <input type="hidden" name="question-{{ index }}" value="{{ row.question }}">
+    <input class="field__input field__input--inline" type="text" name="answer-{{ index }}"
+           value="{{ row.answer or '' }}" aria-label="{{ row.question }}"
+           placeholder="{% if row.example %}For example: {{ row.example }}{% else %}Type your answer{% endif %}">
+    <span class="questions__detail">
+      {% if not row.answer %}Leave it blank if you do not know. {% endif %}{{ row.why }}
+    </span>
+  </span>
+</li>
+{% endmacro %}
+
 {% block body %}
 <div class="shell">
 
@@ -309,6 +338,43 @@
             Download it as a page that still zooms
           </a>
         </p>
+      </section>
+    {% endif %}
+
+    {% if questions %}
+      {% set asked = questions | map(attribute='rows') | sum(start=[]) %}
+      {% set settled = asked | selectattr('answer') | list | length %}
+      <section class="block" id="questions">
+        <h2 class="block__title">What the declaration still needs</h2>
+        <p class="block__body">
+          Only what stops part of the graph from being built: a decision that names no outcomes
+          enumerates nothing, a state nothing reaches is a route that stops, an untyped capability
+          quietly loses its probes. Everything else the documents left open is in the context
+          document, where it is a remark on the pack rather than a task for anybody.
+        </p>
+        <p class="block__body">
+          An answer is recorded against its question and handed to every stage that follows. Run
+          this stage again to fold them into the declaration — nothing an answer does not touch is
+          changed.
+        </p>
+        <form method="post" action="{{ url_for('save_answers', key=stage.key) }}">
+          {% set counter = namespace(index=0) %}
+          {% for group in questions %}
+            <h3 class="questions__group-title">{{ group.label }}</h3>
+            <ul class="questions">
+              {% for row in group.rows %}
+                {% set counter.index = counter.index + 1 %}
+                {{ gap_row(row, counter.index) }}
+              {% endfor %}
+            </ul>
+          {% endfor %}
+          <div class="questions__foot">
+            <button class="button" type="submit">Save answers</button>
+            <span class="questions__progress">
+              {{ settled }} of {{ asked | length }} answered · anything left blank stays open
+            </span>
+          </div>
+        </form>
       </section>
     {% endif %}
 

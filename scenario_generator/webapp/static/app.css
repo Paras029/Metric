@@ -1006,6 +1006,53 @@ ol, ul { list-style: none; padding: 0; }
 
 .graph__facts { margin-top: var(--s3); font-size: var(--t-meta); color: var(--ink-dim); }
 
+/* =================================================================== questions and answers
+ *
+ * A grid rather than a list, so the state of each question -- answered or not -- is a column the
+ * eye can run down without reading a word of the question itself. That is the whole reason a
+ * person opens this panel a second time.
+ */
+.questions { margin-top: var(--s3); }
+.questions__row {
+  display: grid;
+  grid-template-columns: 6rem 1fr;
+  gap: var(--s3);
+  padding: var(--s3) 0;
+  border-bottom: 1px solid var(--rule-soft);
+  align-items: start;
+}
+.questions__kind {
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  padding-top: .15rem;
+}
+.questions__row--done .questions__kind { color: var(--ok); }
+.questions__body { min-width: 0; }
+.questions__text { display: block; font-size: var(--t-ui); }
+.questions__detail {
+  display: block;
+  font-size: var(--t-small);
+  color: var(--ink-dim);
+  margin-top: var(--s1);
+  white-space: pre-line;
+}
+.questions__group-title { margin: var(--s5) 0 var(--s1); }
+.questions__group-title:first-of-type { margin-top: var(--s3); }
+.questions__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+  margin-top: var(--s4);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--rule-soft);
+}
+.questions__progress { font-size: var(--t-small); color: var(--ink-dim); }
+.field__input--inline { margin-top: var(--s2); max-width: 34rem; }
+
 /* =================================================================== folds
  *
  * A section body that collapses. Used wherever a list can run long enough that the reader wants
