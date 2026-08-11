@@ -40,7 +40,7 @@ from ..llm.structure_review import review_structure
 from ..pipeline import revise_intake_workbook
 from . import stagecancel
 from .coverageview import coverage_view, stored_mappings, stored_report
-from .graphview import graph_summary, render_svg
+from .graphview import declaration as _declaration, graph_summary, render_svg
 from .runners import (CONTEXT, DRAFT_INTAKE, EVIDENCE, OVERLAP, METADATA, RUNNERS,
                       STAGE_OUTPUTS,
                       _apply_proposal, _context, _intake, _proposal_dicts,
@@ -155,11 +155,9 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         # Every already-declared decision, with whether it is walked -- shown only on the intake
         # stage, and only for what the workbook already has. A sketched decision is not here yet
         # to have a scope one way or the other.
-        decisions = []
+        decisions, capabilities, tools = [], [], []
         if key == "intake" and intake is not None:
-            decisions = [{"id": d.id, "name": d.name or d.id,
-                         "outcomes": " / ".join(d.variants) or "none declared",
-                         "out_of_scope": d.out_of_scope} for d in intake.decisions]
+            decisions, capabilities, tools = _declaration(intake)
 
         return render_template(
             "stage.html",
@@ -180,6 +178,8 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             aside_graph=aside_graph,
             aside_files=_submitted_files(workspace),
             decisions=decisions,
+            capabilities=capabilities,
+            tools=tools,
             structure_proposals=workspace.structure_proposals if key == "intake" else [],
             structure_review_available=key == "intake" and intake is not None,
             groups=_group_rows(workspace, key),

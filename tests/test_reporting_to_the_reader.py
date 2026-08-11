@@ -276,13 +276,16 @@ class TestTimestampsAreReadable(unittest.TestCase):
 
         root = Path(self.app.config["WORKSPACE_ROOT"])
         workspace = Workspace.create(root, "Timestamps")
-        workspace.complete("intake", summary={"Documents read": "1 of 1"})
-        stamp = workspace.state("intake").updated_at
+        # A stage that still shows a Result block. The intake stage's was removed: what that
+        # stage produces is the declaration, and the declaration is shown in full underneath it.
+        workspace.complete("intake")
+        workspace.complete("workflow", summary={"Routes walked": 12})
+        stamp = workspace.state("workflow").updated_at
 
         with self.app.test_client() as client:
             with client.session_transaction() as session:
                 session["workspace"] = workspace.root.name
-            page = client.get("/stage/intake").get_data(as_text=True)
+            page = client.get("/stage/workflow").get_data(as_text=True)
 
         self.assertIn(f'datetime="{stamp}"', page)
         self.assertIn('class="when"', page)

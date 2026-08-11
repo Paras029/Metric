@@ -181,7 +181,11 @@
     {# The coverage stage reports its own figures further down, recounted at whatever threshold is
        currently set. Showing these as well would put two sets of numbers on one page that disagree
        the moment the threshold moves. #}
-    {% if view.has_output and state.summary and stage.key != 'coverage' %}
+    {# Not on the intake stage either: what that stage produced is the declaration, and the
+   declaration is shown in full underneath as the graph, the decisions and states, the
+   capabilities and the tools. A row of counts above all of that is the same facts a
+   second time, in the weakest form they take. #}
+    {% if view.has_output and state.summary and stage.key not in ('coverage', 'intake') %}
       <section class="block">
         <h2 class="block__title">
           Result
@@ -286,33 +290,146 @@
     {% if decisions %}
       {% set out_of_scope = decisions | selectattr('out_of_scope') | list | length %}
       <section class="block">
-        <h2 class="block__title">Decisions</h2>
+        <h2 class="block__title">Decisions and states</h2>
+        <p class="block__body">
+          Every point the agent branches, and where each outcome leads. An outcome with no
+          destination stops the route there, whether or not that was intended.
+        </p>
         <p class="block__body">
           Mark a decision out of scope where it has already been reviewed elsewhere and is being
-          reused as-is -- a plug-and-play sub-system covered by a separate engagement is the usual
-          case. It stays in the graph, drawn muted, but the scenario space generates no scenario through
-          it. Takes effect immediately; nothing here needs the intake re-uploaded.
+          reused as-is — a plug-and-play sub-system covered by a separate engagement is the usual
+          case. It stays in the graph, drawn muted, but the scenario space generates no scenario
+          through it. Takes effect immediately; nothing here needs the intake re-uploaded.
         </p>
         {% call fold("Every declared decision", decisions | length,
                      out_of_scope ~ " out of scope" if out_of_scope else "",
                      open=decisions | length <= 6) %}
-        <ul class="rows">
+        <ul class="declared">
           {% for decision in decisions %}
-            <li class="rows__row">
-              <span class="rows__what">
-                <span class="mono">{{ decision.id }}</span> {{ decision.name }}
-              </span>
-              <span class="rows__why">{{ decision.outcomes }}</span>
-              <form method="post"
-                    action="{{ url_for('toggle_scope', decision_id=decision.id) }}">
-                <label class="check"
-                       title="Exclude this decision from the graph walk -- declared, but not tested">
-                  <input type="checkbox" name="on" value="1"
-                         {% if decision.out_of_scope %}checked{% endif %}
-                         onchange="this.form.submit()">
-                  Out of scope
-                </label>
-              </form>
+            <li class="declared__row {% if decision.out_of_scope %}declared__row--muted{% endif %}">
+              <div class="declared__head">
+                <span class="declared__what">
+                  <span class="mono">{{ decision.id }}</span> {{ decision.name }}
+                </span>
+                <span class="declared__meta">
+                  {%- if decision.capability_id %}<span class="mono">{{ decision.capability_id }}</span>{% endif %}
+                  {%- if decision.input_source %} · from {{ decision.input_source | lower }}{% endif %}
+                  {%- if decision.attempts > 1 %} · up to {{ decision.attempts }} attempts{% endif %}
+                </span>
+                <form method="post"
+                      action="{{ url_for('toggle_scope', decision_id=decision.id) }}">
+                  <label class="check"
+                         title="Exclude this decision from the graph walk — declared, but not tested">
+                    <input type="checkbox" name="on" value="1"
+                           {% if decision.out_of_scope %}checked{% endif %}
+                           onchange="this.form.submit()">
+                    Out of scope
+                  </label>
+                </form>
+              </div>
+              {# The states are the other half of what a decision is, and the half the whole graph
+                 hangs off. Listing the outcome labels alone said which branches exist and nothing
+                 about where any of them go. #}
+              <ul class="declared__outcomes">
+                {% for outcome in decision.outcomes %}
+                  <li class="declared__outcome
+                             {% if outcome.dangling %}declared__outcome--dangling{% endif %}">
+                    <span class="declared__variant">{{ outcome.variant }}</span>
+                    <span class="declared__arrow" aria-hidden="true">→</span>
+                    <span class="declared__state">
+                      {%- if outcome.state_id %}<span class="mono">{{ outcome.state_id }}</span>
+                      {% endif %}{{ outcome.state }}
+                      {%- if outcome.terminal %}
+                        <span class="mark">ends{{ ' · ' ~ outcome.outcome_type
+                                                   if outcome.outcome_type }}</span>
+                      {%- endif %}
+                    </span>
+                  </li>
+                {% endfor %}
+                {% if not decision.outcomes %}
+                  <li class="declared__outcome declared__outcome--dangling">
+                    No outcomes declared, so nothing branches here.
+                  </li>
+                {% endif %}
+              </ul>
+              {% if decision.condition %}
+                <p class="declared__note">Selected when: {{ decision.condition }}</p>
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+        {% endcall %}
+      </section>
+    {% endif %}
+
+    {# Capabilities and tools carry the two fields that silently change what gets tested: a
+       capability's type decides which probes apply, and a tool's state-changing flag feeds
+       materiality. Neither was on the page at all, so both were only visible by opening the
+       workbook -- which is where a blank one goes unnoticed. #}
+    {% if capabilities %}
+      <section class="block">
+        <h2 class="block__title">Capabilities</h2>
+        <p class="block__body">
+          What the agent can do, and the type that decides which adversarial probes are applied to
+          it. A capability left untyped drops those probes silently.
+        </p>
+        {% call fold("Every declared capability", capabilities | length, "",
+                     open=capabilities | length <= 6) %}
+        <ul class="declared">
+          {% for capability in capabilities %}
+            <li class="declared__row">
+              <div class="declared__head">
+                <span class="declared__what">
+                  <span class="mono">{{ capability.id }}</span> {{ capability.name }}
+                </span>
+                <span class="declared__meta">
+                  {%- if capability.type %}{{ capability.type }}
+                  {%- else %}<span class="declared__missing">no type declared</span>{% endif %}
+                </span>
+              </div>
+              <p class="declared__note">
+                {% if capability.decisions -%}
+                  Branched on at
+                  {% for id in capability.decisions %}<span class="mono">{{ id }}</span>{{ ", "
+                    if not loop.last }}{% endfor %}
+                {%- else -%}
+                  <span class="declared__missing">No decision exercises this, so it contributes no
+                  scenarios.</span>
+                {%- endif %}
+                {%- if capability.tools %} · calls
+                  {% for name in capability.tools %}{{ name }}{{ ", " if not loop.last }}{% endfor %}
+                {%- endif %}
+              </p>
+            </li>
+          {% endfor %}
+        </ul>
+        {% endcall %}
+      </section>
+    {% endif %}
+
+    {% if tools %}
+      <section class="block">
+        <h2 class="block__title">Tools</h2>
+        <p class="block__body">
+          The systems the agent calls. One that changes stored data is what makes a scenario
+          through it consequential, so it weighs on materiality.
+        </p>
+        {% call fold("Every declared tool", tools | length, "", open=tools | length <= 6) %}
+        <ul class="declared">
+          {% for tool in tools %}
+            <li class="declared__row">
+              <div class="declared__head">
+                <span class="declared__what">{{ tool.name }}</span>
+                <span class="declared__meta">
+                  {%- if tool.capability_id %}<span class="mono">{{ tool.capability_id }}</span>
+                    {%- if tool.unlinked %}
+                      <span class="declared__missing">— no such capability</span>
+                    {%- endif %}
+                  {%- else %}<span class="declared__missing">not linked to a capability</span>
+                  {%- endif %}
+                  {%- if tool.state_changing %} · changes stored data{% endif %}
+                </span>
+              </div>
             </li>
           {% endfor %}
         </ul>

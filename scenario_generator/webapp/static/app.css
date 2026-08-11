@@ -1157,6 +1157,51 @@ ol, ul { list-style: none; padding: 0; }
 }
 .upload__input::file-selector-button:hover { background: var(--surface-sunk); }
 
+/* =================================================================== the declaration
+ *
+ * Decisions with the states each outcome leads to, then capabilities, then tools. One row shape
+ * for all three: what it is on the left, the fields that change what gets tested on the right,
+ * and anything missing said in words rather than left blank. A blank cell in a workbook is how a
+ * capability with no type -- which silently drops every probe that would have tested it -- stayed
+ * invisible for as long as it did.
+ */
+.declared { display: grid; gap: var(--s3); }
+.declared__row {
+  padding: var(--s3) 0;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.declared__row:last-child { border-bottom: 0; }
+.declared__row--muted { opacity: .55; }
+.declared__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s2) var(--s3);
+}
+.declared__what { font-size: var(--t-ui); font-weight: 600; color: var(--navy); }
+.declared__meta { font-size: var(--t-meta); color: var(--ink-dim); }
+.declared__head form { margin-left: auto; }
+.declared__missing { color: var(--warn); font-weight: 600; }
+
+/* One line per branch. Indented under the decision it belongs to, because an outcome read on its
+   own says nothing -- it is the pair that carries the meaning. */
+.declared__outcomes { margin-top: var(--s2); display: grid; gap: .15rem; }
+.declared__outcome {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s2);
+  font-size: var(--t-small);
+  color: var(--ink-mid);
+  padding-left: var(--s3);
+  border-left: 2px solid var(--rule);
+}
+.declared__outcome--dangling { border-left-color: var(--warn); color: var(--warn); }
+.declared__variant { font-weight: 600; color: var(--ink); }
+.declared__arrow { color: var(--rule-strong); }
+.declared__state { min-width: 0; }
+.declared__note { margin-top: var(--s2); font-size: var(--t-meta); color: var(--ink-dim); }
+
 /* =================================================================== the space matrix
  *
  * Category down, materiality across, the count in the cell. This is the one figure on the page

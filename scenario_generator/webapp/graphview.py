@@ -574,3 +574,62 @@ def graph_summary(intake: IntakeData, pending_decisions: Sequence[str] = (),
         "duplicate_endings": layout.duplicate_endings,
         "depth": max((n.depth for n in layout.nodes.values()), default=0) + 1,
     }
+
+
+def declaration(intake: IntakeData) -> Tuple[List[dict], List[dict], List[dict]]:
+    """The intake as three readable lists: decisions with their states, capabilities, and tools.
+
+    The page used to show the decisions alone, with their outcome labels and nothing about where
+    those outcomes lead -- which is half of what a decision *is*, and the half the whole graph
+    hangs off. Capabilities and tools were not shown at all, so the two fields that silently
+    change what gets tested (a capability's type decides which probes apply; a tool's
+    state-changing flag feeds materiality) were only visible by opening the workbook.
+
+    Everything here is read off the same :class:`DecisionGraph` the walk uses, so what the list
+    says an outcome leads to is what the scenario space will actually walk.
+    """
+    graph = DecisionGraph(intake.decisions, intake.states)
+    states = {s.id: s for s in intake.states}
+    by_capability: Dict[str, List[str]] = {}
+
+    rows = []
+    for decision in intake.decisions:
+        by_capability.setdefault(decision.trigger_capability, []).append(decision.id)
+        outcomes = []
+        for variant in decision.variants:
+            target = graph.successor(decision.id, variant)
+            state = states.get(target)
+            outcomes.append({
+                "variant": variant,
+                "state_id": state.id if state else "",
+                "state": (state.description or state.id) if state else "nothing declared",
+                "terminal": bool(state and state.is_terminal),
+                "outcome_type": state.outcome_type if state else "",
+                "dangling": state is None,
+            })
+        rows.append({"id": decision.id, "name": decision.name or decision.id,
+                     "capability_id": decision.trigger_capability,
+                     "input_source": decision.input_source,
+                     "attempts": decision.max_attempts,
+                     "condition": decision.outcome_condition,
+                     "outcomes": outcomes,
+                     "out_of_scope": decision.out_of_scope})
+
+    capabilities = [{
+        "id": capability.id,
+        "name": capability.name or capability.id,
+        "type": capability.type,
+        # A capability nothing branches on contributes no scenarios, and one with no type silently
+        # drops the probes that would have tested it. Both are worth seeing without opening a file.
+        "decisions": by_capability.get(capability.id, []),
+        "tools": [t.name for t in intake.tools if t.capability_id == capability.id],
+    } for capability in intake.capabilities]
+
+    known = {c.id for c in intake.capabilities}
+    tool_rows = [{
+        "name": tool.name,
+        "capability_id": tool.capability_id,
+        "state_changing": tool.state_changing,
+        "unlinked": bool(tool.capability_id) and tool.capability_id not in known,
+    } for tool in intake.tools]
+    return rows, capabilities, tool_rows
