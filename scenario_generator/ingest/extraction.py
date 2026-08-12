@@ -668,18 +668,57 @@ class DocumentExtractor:
                 answer.must_ask = list(answer.unknowns)
                 answer.triaged = True
 
-    def _outstanding(self, record: EvidenceRecord) -> List[Tuple[str, str]]:
-        """What is still open: every unsettled point, plus every question with no answer at all."""
+    def _outstanding(self, record: EvidenceRecord) -> List[Tuple[Tuple[str, ...], str]]:
+        """What is still open: every unsettled point, plus every question with no answer at all.
+
+        Asked once each, but carrying *every* question it belongs to. Two questions can arrive at
+        the same wording -- what a state is and what a decision leads to are asked in similar words
+        -- and asking the same thing twice in one prompt wastes the call and invites two different
+        answers. Keeping only the first question's facet was the other half of that, though: the
+        answer was written back to one of them and the rest carried the point as open into the next
+        pass, so it was asked again having already been settled.
+        """
         outstanding = list(record.open_unknowns())
         for facet in record.empty_facets():
             outstanding.append((facet, FACET_QUESTIONS.get(facet, "")))
-        seen, unique = set(), []
+
+        grouped: Dict[str, List[str]] = {}
+        wording: Dict[str, str] = {}
         for facet, question in outstanding:
             key = question.strip().lower()
-            if key and key not in seen:
-                seen.add(key)
-                unique.append((facet, question))
-        return unique
+            if not key:
+                continue
+            wording.setdefault(key, question)
+            if facet not in grouped.setdefault(key, []):
+                grouped[key].append(facet)
+        return [(tuple(facets), wording[key]) for key, facets in grouped.items()]
+
+    @staticmethod
+    def _match_replies(resolved, tagged: Dict[str, Tuple[str, str]]) -> Dict[str, dict]:
+        """Each reply put back against the question it answers, by tag first and wording second.
+
+        The tag is what makes this reliable, and the wording is what keeps it working when a reply
+        omits the tag: an answer matched to nothing is discarded in silence, and the question it
+        settled is then put to the model owner as though the documents had never addressed it.
+
+        Wording is compared with punctuation, case and spacing removed, because those are exactly
+        what a model changes when it retypes a question -- a straight quote for a curly one, a
+        dropped question mark -- and none of them change which question is being answered.
+        """
+        def normalised(text: str) -> str:
+            return "".join(c for c in str(text).lower() if c.isalnum())
+
+        by_wording = {normalised(question): tag for tag, (_, question) in tagged.items()}
+        matched: Dict[str, dict] = {}
+        for entry in (resolved or []):
+            if not isinstance(entry, dict):
+                continue
+            tag = str(entry.get("id", "")).strip().upper()
+            if tag not in tagged:
+                tag = by_wording.get(normalised(entry.get("question", "")), "")
+            if tag and tag not in matched:
+                matched[tag] = entry
+        return matched
 
     def _settle_pass(self, record: EvidenceRecord, corpus: str,
                      outstanding: List[Tuple[str, str]], number: int, last: bool) -> None:
@@ -690,47 +729,72 @@ class DocumentExtractor:
             f"## {FACET_HEADINGS.get(a.facet, a.facet)}\n{a.answer}"
             for a in record.answers if a.is_answered and a.answer)
 
+        # Each question is tagged, and the reply is matched back on the tag. Matching on the
+        # question text was matching on a string the model retypes: drop the question mark,
+        # normalise a dash, put "Q: " in front, and the answer no longer belongs to anything. It
+        # was then treated as unanswered and put to the model owner -- so a sweep that settled
+        # every question could still hand the whole list over, which is the opposite of what this
+        # pass is for.
+        tagged = {f"Q{index}": (facets, question)
+                  for index, (facets, question) in enumerate(outstanding, start=1)}
+
         reply = self._ask(_RESOLVE_PROMPT, "INGEST_RESOLVE",
                           established=established or "Nothing yet.",
-                          questions="\n".join(f"- {q}" for _, q in outstanding),
+                          questions="\n".join(f"- [{tag}] {question}"
+                                              for tag, (_, question) in tagged.items()),
                           corpus=corpus)
         self._step(f"Looked again at what is unanswered{pass_of}")
         if reply is None:
             return
 
-        by_question = {str(r.get("question", "")).strip().lower(): r
-                       for r in (reply.get("resolved") or []) if isinstance(r, dict)}
-        settled, to_ask = 0, 0
+        found_for = self._match_replies(reply.get("resolved"), tagged)
+        settled, narrowed, to_ask = 0, 0, 0
 
-        for facet, question in outstanding:
-            target = record.answer_for(facet)
-            if target is None:
+        for tag, (facets, question) in tagged.items():
+            targets = [t for t in (record.answer_for(f) for f in facets) if t is not None]
+            if not targets:
                 continue
-            found = by_question.get(question.strip().lower())
-            status = str(found.get("status", "")).strip() if found else ""
+            found = found_for.get(tag)
+            status = str(found.get("status", "")).strip().lower() if found else ""
+            answer_text = str(found.get("answer", "")).strip() if found else ""
+            asked = question.strip().lower()
 
-            if status == "answered" and str(found.get("answer", "")).strip():
-                answer_text = str(found["answer"]).strip()
-                target.points = list(target.points) + [answer_text]
-                target.unknowns = [u for u in target.unknowns
-                                   if u.strip().lower() != question.strip().lower()]
-                if not target.answer:
-                    target.answer = answer_text
+            if status == "answered" and answer_text:
+                for target in targets:
+                    target.points = list(target.points) + [answer_text]
+                    target.unknowns = [u for u in target.unknowns if u.strip().lower() != asked]
+                    if not target.answer:
+                        target.answer = answer_text
                 settled += 1
-            elif last:
-                # Nothing in the documents settled it, so it goes to a person. What it costs
-                # them to see is one line; what it costs to drop something that mattered is a
-                # part of the agent nobody tests. The intake stage decides what is actually
-                # blocking, structurally, from the declaration itself -- see core.gaps.
-                target.must_ask = list(target.must_ask) + [question]
+                continue
+
+            # A narrowed question is a real result, and dropping it back to its original wording
+            # throws away the work: what reaches the model owner should be the part still missing,
+            # not the whole question again. What was established is kept either way.
+            remaining = str(found.get("still_open", "")).strip() if found else ""
+            if status == "partial" and answer_text:
+                for target in targets:
+                    target.points = list(target.points) + [answer_text]
+                    if remaining:
+                        target.unknowns = [remaining if u.strip().lower() == asked else u
+                                           for u in target.unknowns]
+                narrowed += 1
+
+            if last:
+                # Nothing in the documents settled it, so it goes to a person -- once, against the
+                # question it most belongs to. What it costs them to see is one line; what it costs
+                # to drop something that mattered is a part of the agent nobody tests. The intake
+                # stage decides what is actually blocking, from the declaration itself. See
+                # core.gaps.
+                targets[0].must_ask = list(targets[0].must_ask) + [remaining or question]
                 to_ask += 1
 
         if last:
             for answer in record.answers:
                 answer.triaged = True
 
-        logger.info("Pass %d of %d settled %d of %d outstanding point(s) from the documents.",
-                    number, self._passes, settled, len(outstanding))
+        logger.info("Pass %d of %d settled %d and narrowed %d of %d outstanding point(s) from "
+                    "the documents.", number, self._passes, settled, narrowed, len(outstanding))
         if last and to_ask:
             logger.info("%d point(s) the documents did not settle are carried to the intake "
                         "stage.", to_ask)

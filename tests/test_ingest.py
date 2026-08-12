@@ -154,6 +154,96 @@ class TestResolutionSweep(unittest.TestCase):
         self.assertIn("An account number and a postcode.", answer.points)
         self.assertNotIn("Which identifiers are accepted for confirmation?", answer.unknowns)
 
+    def test_an_answer_is_paired_with_its_question_by_tag_not_by_wording(self):
+        """The reply is a question the model retyped, and it retypes them: a dropped question
+        mark, "Q: " in front, a straight quote for a curly one. Matched on the wording, every one
+        of those discarded a correct answer in silence and put the question to the model owner as
+        though the documents had never addressed it -- which is the exact opposite of what this
+        pass exists to do."""
+        for rewritten in (lambda q: q.rstrip("?"), lambda q: "Q: " + q, lambda q: q.upper(),
+                          lambda q: "something else entirely"):
+            def complete(system, user, **kwargs):
+                if "THE OUTSTANDING QUESTIONS" in user:
+                    asked = [line[2:] for line in user.splitlines() if line.startswith("- [")]
+                    return json.dumps({"resolved": [
+                        {"id": q.split("]")[0][1:], "question": rewritten(q.split("] ", 1)[1]),
+                         "status": "answered", "answer": "An account number and a postcode.",
+                         "evidence": [], "still_open": ""} for q in asked]})
+                return _stub()(system, user, **kwargs)
+
+            record = extract_documents([_write("notes.md", _SCATTERED)], complete=complete)
+            answer = record.answer_for("decisions")
+            self.assertIn("An account number and a postcode.", answer.points)
+            self.assertEqual(answer.must_ask, [])
+
+    def test_an_answer_carrying_no_tag_is_still_matched_on_the_wording(self):
+        """The tag is the reliable half; the wording is what keeps this working when a reply
+        leaves the tag out. Punctuation, case and spacing are all things a model changes when it
+        retypes a question, and none of them change which question it is answering."""
+        def complete(system, user, **kwargs):
+            if "THE OUTSTANDING QUESTIONS" in user:
+                asked = [line[2:] for line in user.splitlines() if line.startswith("- [")]
+                return json.dumps({"resolved": [
+                    {"question": q.split("] ", 1)[1].upper().rstrip("?").replace("'", "\u2019"),
+                     "status": "answered", "answer": "An account number and a postcode.",
+                     "evidence": [], "still_open": ""} for q in asked]})
+            return _stub()(system, user, **kwargs)
+
+        record = extract_documents([_write("notes.md", _SCATTERED)], complete=complete)
+        self.assertIn("An account number and a postcode.",
+                      record.answer_for("decisions").points)
+
+    def test_a_narrowed_question_keeps_what_was_established_and_asks_only_the_rest(self):
+        """The prompt calls a partial answer a real result and asks for both halves. Nothing read
+        either: what it established was dropped, and the model owner was asked the whole original
+        question as though the sweep had found nothing."""
+        def complete(system, user, **kwargs):
+            if "THE OUTSTANDING QUESTIONS" in user:
+                asked = [line[2:] for line in user.splitlines() if line.startswith("- [")]
+                return json.dumps({"resolved": [
+                    {"id": q.split("]")[0][1:], "status": "partial",
+                     "answer": "An account number is one of them.",
+                     "still_open": "Is a postcode also accepted?", "evidence": []}
+                    for q in asked]})
+            return _stub()(system, user, **kwargs)
+
+        # One pass, because that is where it shows: a second pass would re-ask the narrowed
+        # wording and arrive at the same place by accident.
+        record = extract_documents([_write("notes.md", _SCATTERED)], complete=complete,
+                                   resolve_passes=1)
+        asked = [q for _, q in record.questions_for_people()]
+        self.assertIn("An account number is one of them.",
+                      record.answer_for("decisions").points)
+        self.assertIn("Is a postcode also accepted?", asked)
+        self.assertNotIn("Which identifiers are accepted for confirmation?", asked)
+
+    def test_a_reply_matching_nothing_leaves_the_question_to_be_asked(self):
+        """The fallback has to stay a fallback. An answer that cannot be paired with anything is
+        not evidence that the question was settled."""
+        def complete(system, user, **kwargs):
+            if "THE OUTSTANDING QUESTIONS" in user:
+                return json.dumps({"resolved": [
+                    {"question": "a question nobody asked", "status": "answered",
+                     "answer": "an answer to it", "evidence": [], "still_open": ""}]})
+            return _stub()(system, user, **kwargs)
+
+        asked_of_the_documents = []
+
+        def watch(system, user, **kwargs):
+            if "THE OUTSTANDING QUESTIONS" in user:
+                asked_of_the_documents.extend(
+                    line.split("] ", 1)[1] for line in user.splitlines()
+                    if line.startswith("- ["))
+            return complete(system, user, **kwargs)
+
+        record = extract_documents([_write("notes.md", _SCATTERED)], complete=watch,
+                                   resolve_passes=1)
+        # Every one of them, not merely the one this test happens to name: an unmatchable reply
+        # attached to whichever question came first would settle that one and nothing would say so.
+        still_asked = [q for _, q in record.questions_for_people()]
+        for question in asked_of_the_documents:
+            self.assertIn(question, still_asked)
+
     def test_a_question_the_documents_do_not_settle_stays_open(self):
         resolved = [{"question": "Which identifiers are accepted for confirmation?",
                      "status": "unanswered", "answer": "", "evidence": [], "still_open": ""}]
