@@ -172,47 +172,6 @@ class TestNothingUploadedIsLost(unittest.TestCase):
         for key in ("intake", "workflow", "materiality"):
             self.assertEqual(statuses[key], "complete", f"{key} was marked stale")
 
-    def _image(self, name):
-        import base64
-        path = _scratch() / name
-        path.write_bytes(base64.b64decode(
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAE"
-            "hQGAhKmMIQAAAABJRU5ErkJggg=="))
-        return path
-
-    def test_how_the_pictures_relate_is_asked_only_once_there_are_several(self):
-        """With one picture there is nothing to relate, and a control asking how it relates to
-        itself is one that makes a reader wonder what they have missed."""
-        self._upload("intake", self._image("one.png"), "diagrams")
-        self.assertNotIn("How these pictures relate",
-                         self.client.get("/stage/intake").data.decode())
-
-        self._upload("intake", self._image("two.png"), "diagrams")
-        self.assertIn("How these pictures relate",
-                      self.client.get("/stage/intake").data.decode())
-
-    def test_the_steer_is_kept_and_makes_a_finished_reading_out_of_date(self):
-        """It is an input to the reading, so a completed reading has not seen it."""
-        self._finish("intake")
-        self.client.post("/stage/intake/images", data={"relationship": "separate"})
-
-        from scenario_generator.webapp.workspace import Workspace
-        self.assertEqual(Workspace.load(self.workspace).image_relationship, "separate")
-        self.assertEqual(self._statuses()["intake"], "stale")
-
-    def test_choosing_what_was_already_chosen_changes_nothing(self):
-        """Re-running a reading that would be given the same instruction is a few hundred model
-        calls to reproduce what is already on disk."""
-        self.client.post("/stage/intake/images", data={"relationship": "one_flow"})
-        self._finish("intake")
-        self.client.post("/stage/intake/images", data={"relationship": "one_flow"})
-        self.assertEqual(self._statuses()["intake"], "complete")
-
-    def test_a_value_nobody_offered_is_not_stored(self):
-        self.client.post("/stage/intake/images", data={"relationship": "../../etc"})
-        from scenario_generator.webapp.workspace import Workspace
-        self.assertEqual(Workspace.load(self.workspace).image_relationship, "")
-
     def test_an_unsupported_file_says_what_is_supported(self):
         path = _scratch() / "old.doc"
         path.write_bytes(b"not really a word document")

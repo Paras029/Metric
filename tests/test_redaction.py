@@ -266,8 +266,7 @@ class TestThePerFileToggleReachesIngestion(unittest.TestCase):
 
         captured = {}
 
-        def fake_ingest_documents(paths, prefix, progress=None, cancel=None, should_redact=None,
-                                  **rest):
+        def fake_ingest_documents(paths, prefix, progress=None, cancel=None, should_redact=None):
             captured["should_redact"] = should_redact
             return _StubIngestResult()
 

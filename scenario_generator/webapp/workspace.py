@@ -199,8 +199,7 @@ class Workspace:
                  structure_proposals: Optional[List[dict]] = None,
                  coverage_threshold: int = None,
                  coverage: Optional[dict] = None,
-                 pack_gaps_only: bool = False,
-                 image_relationship: str = "") -> None:
+                 pack_gaps_only: bool = False) -> None:
         self.root = Path(root)
         self.name = name or self.root.name
         self.created_at = created_at or _now()
@@ -230,11 +229,6 @@ class Workspace:
         # asked for, and this is the one setting that takes things away. Narrowing the pack is a
         # decision to trust their evidence for everything left out, which is the user's to make.
         self.pack_gaps_only: bool = bool(pack_gaps_only)
-        # What somebody has said about how the submitted images relate: one flow across several
-        # pictures, pictures that do not continue one another, or nothing said at all. Only the
-        # pass that joins them reads it, and empty -- the default -- leaves that pass to work it
-        # out, which is the honest position when nobody has looked.
-        self.image_relationship: str = str(image_relationship or "")
         self._reconciled = self._settle()
 
     # ----------------------------------------------------------------- added context
@@ -415,7 +409,6 @@ class Workspace:
                 "coverage_threshold": self.coverage_threshold,
                 "coverage": dict(self.coverage),
                 "pack_gaps_only": self.pack_gaps_only,
-                "image_relationship": self.image_relationship,
                 "stages": {k: v.to_dict() for k, v in self.stages.items()}}
 
     def _write(self) -> None:
@@ -477,8 +470,7 @@ class Workspace:
                         structure_proposals=data.get("structure_proposals", []),
                         coverage_threshold=data.get("coverage_threshold"),
                         coverage=data.get("coverage", {}),
-                        pack_gaps_only=data.get("pack_gaps_only", False),
-                        image_relationship=data.get("image_relationship", ""))
+                        pack_gaps_only=data.get("pack_gaps_only", False))
         # An interrupted run was reconciled during construction -- see _settle. Written back once,
         # here, so the record on disk stops claiming something is running: after this save the
         # reconciliation finds nothing, so a page polling every second does not write every second.

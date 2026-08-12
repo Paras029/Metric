@@ -167,8 +167,7 @@ def _read_documents(workspace: Workspace, progress=None, cancel=None) -> Dict[st
 
     result = ingest_documents([str(p) for p in paths], str(workspace.root / "ingest"),
                               progress=progress, cancel=cancel,
-                              should_redact=lambda path: Path(path) in forced,
-                              image_relationship=workspace.image_relationship)
+                              should_redact=lambda path: Path(path) in forced)
     workspace.state("intake").artifacts.update({
         "evidence": Path(result.evidence_path).name,
         "context": Path(result.context_path).name,

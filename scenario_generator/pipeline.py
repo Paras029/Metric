@@ -221,8 +221,7 @@ def ingest_documents(source_paths: Sequence[str], output_prefix: str,
                      extractor: Optional[DocumentExtractor] = None,
                      progress: Optional[Callable[[str], None]] = None,
                      resolve_passes: Optional[int] = None, cancel=None,
-                     should_redact: Optional[Callable[[str], bool]] = None,
-                     image_relationship: str = "") -> IngestResult:
+                     should_redact: Optional[Callable[[str], bool]] = None) -> IngestResult:
     """Stage 0: read submitted documents into verified evidence, context and open questions.
 
     Writes three files under ``output_prefix``: the evidence record, the cited context document
@@ -234,15 +233,9 @@ def ingest_documents(source_paths: Sequence[str], output_prefix: str,
     ``should_redact`` names which submitted files must be redacted regardless of the global
     ``PII_REDACTION`` setting -- the interface's per-file toggle, threaded down to where the
     documents are actually read. See :mod:`scenario_generator.ingest.redaction`.
-
-    ``image_relationship`` is what somebody has said about how the submitted images relate to one
-    another -- one flow across several pictures, or pictures that do not continue one another. It
-    is a steer for the pass that joins them and is empty by default, which leaves the reading to
-    work it out.
     """
     extractor = extractor or DocumentExtractor(progress=progress, resolve_passes=resolve_passes,
-                                               cancel=cancel, should_redact=should_redact,
-                                               image_relationship=image_relationship)
+                                               cancel=cancel, should_redact=should_redact)
     record = extractor.run([Path(p) for p in source_paths])
 
     evidence_path = f"{output_prefix}_evidence.json"
