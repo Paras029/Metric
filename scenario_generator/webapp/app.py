@@ -74,6 +74,18 @@ GRAPH_OPEN_STAGES = ("intake", "workflow")
 # customers in them.
 REDACTABLE_GROUPS = (MODEL_DOC, SUPPORTING, OWNER_SCENARIOS)
 
+# Which stage actually reads each kind of submission, and therefore which one a file arriving in
+# it makes stale.
+#
+# Only the model owner's conversations differ from the default, and they differ for a reason that
+# is load-bearing: they are deliberately kept out of the evidence corpus -- see
+# ``ingest.groups.EVIDENCE_GROUPS`` -- because reading the model owner's testing as evidence about
+# the agent would let their blind spots into the scenario space by the back door. Nothing before
+# coverage reads them, so nothing before coverage can be out of date because one arrived. Treating
+# every upload as intake evidence meant dropping in a transcript at the coverage stage marked six
+# finished stages stale, to re-derive a byte-identical result.
+STAGE_THAT_READS: Dict[str, str] = {OWNER_SCENARIOS: "coverage"}
+
 # The three kinds of row the declared graph is made of, in the order they are worth reading: a
 # decision naming no outcomes enumerates nothing at all, which is more urgent than a capability
 # that will merely be probed less thoroughly than its neighbours. Questions about anything else --
@@ -551,6 +563,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             workspace.mark_failed(key, _refusal(refused))
             return redirect(url_for("stage", key=key))
 
+        reader = "intake" if as_intake else STAGE_THAT_READS.get(group, "intake")
         if as_intake:
             # An upload that happens to carry the drafter's own filename would be taken for the
             # tool's file and revised over. Stored under another name so "never overwrite what
@@ -562,11 +575,12 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             workspace.state("intake").artifacts["workbook"] = stored[0]
         else:
             for name in stored:
-                workspace.state("intake").artifacts[name] = f"sources/{group}/{name}"
+                workspace.state(reader).artifacts[name] = f"sources/{group}/{name}"
 
-        # A new file invalidates the stage that reads it as well as everything built on top:
-        # the reading itself has not seen this file, so its own reported result is out of date.
-        invalidated = workspace.invalidate_from("intake")
+        # A new file invalidates the stage that reads it as well as everything built on top: that
+        # stage has not seen this file, so its own reported result is out of date. Only that stage
+        # onward, though -- a file no earlier stage reads cannot have made any of them wrong.
+        invalidated = workspace.invalidate_from(reader)
         workspace.save()
         return redirect(url_for("stage", key=key,
                                 invalidated=", ".join(s.title for s in invalidated)))
@@ -581,9 +595,10 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         workspace = _workspace()
         group, name = request.form.get("group", ""), request.form.get("name", "")
         if group in GROUP_BY_KEY and remove_file(workspace.root, group, name):
-            workspace.state("intake").artifacts.pop(Path(name).name, None)
+            reader = STAGE_THAT_READS.get(group, "intake")
+            workspace.state(reader).artifacts.pop(Path(name).name, None)
             workspace.set_redact(group, name, False)
-            workspace.invalidate_from("intake")
+            workspace.invalidate_from(reader)
             workspace.save()
         return redirect(url_for("stage", key=key))
 
@@ -591,15 +606,16 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
     def toggle_redact(key: str):
         """Mark or unmark one uploaded file to be redacted ahead of the global setting.
 
-        Takes effect the next time the documents stage runs -- this only records the choice.
-        Changing it invalidates a completed documents stage the same way adding a file does: what
-        the corpus was built from is different now, whether or not the file itself changed.
+        Takes effect the next time the stage that reads the file runs -- this only records the
+        choice. Changing it invalidates that stage the same way adding a file does: what it will be
+        given is different now, whether or not the file itself changed. Only that stage onward,
+        since a file no earlier stage reads cannot have made any of them wrong.
         """
         workspace = _workspace()
         group, name = request.form.get("group", ""), request.form.get("name", "")
         if group in REDACTABLE_GROUPS and name:
             workspace.set_redact(group, name, bool(request.form.get("on")))
-            workspace.invalidate_from("intake")
+            workspace.invalidate_from(STAGE_THAT_READS.get(group, "intake"))
             workspace.save()
         return redirect(url_for("stage", key=key))
 

@@ -109,6 +109,69 @@ class TestNothingUploadedIsLost(unittest.TestCase):
         """Their blind spots must not reach the scenario space through the back door."""
         self.assertNotIn("owner_scenarios", EVIDENCE_GROUPS)
 
+    def _statuses(self):
+        return {key: stage["status"] for key, stage
+                in json.loads((self.workspace / "workspace.json").read_text())["stages"].items()}
+
+    def _finish(self, *keys):
+        """Mark stages complete, so that anything invalidating them is visible."""
+        state = json.loads((self.workspace / "workspace.json").read_text())
+        for key in keys:
+            state["stages"].setdefault(key, {"artifacts": {}})["status"] = "complete"
+        (self.workspace / "workspace.json").write_text(json.dumps(state))
+
+    def test_their_scenarios_arriving_does_not_make_the_declaration_out_of_date(self):
+        """Nothing before coverage reads them -- they are kept out of the evidence corpus on
+        purpose -- so nothing before coverage can be wrong because one arrived. Invalidating from
+        the intake threw away six finished stages to re-derive an identical result, and re-running
+        them costs a few hundred model calls."""
+        self._finish("intake", "workflow", "scenarios", "materiality", "review")
+        self._upload("coverage", _rules_workbook(_scratch()))
+
+        statuses = self._statuses()
+        for key in ("intake", "workflow", "scenarios", "materiality", "review"):
+            self.assertEqual(statuses[key], "complete", f"{key} was marked stale")
+
+    def test_a_finished_coverage_stage_is_out_of_date_though(self):
+        """It is the one stage that reads them, and its verdict was measured against the
+        conversations it had at the time."""
+        self._upload("coverage", _rules_workbook(_scratch()))
+        self._finish("coverage")
+        self._upload("coverage", _rules_workbook(_scratch()))
+        self.assertEqual(self._statuses()["coverage"], "stale")
+
+    def test_a_document_about_the_agent_still_makes_the_declaration_out_of_date(self):
+        """The other half of the same rule: this one the intake does read, so its report of what
+        the pack says is stale the moment the pack changes."""
+        self._finish("intake", "workflow")
+        path = _scratch() / "vendor.md"
+        path.write_text("# Vendor limits\n", encoding="utf-8")
+        self._upload("intake", path, "supporting")
+
+        statuses = self._statuses()
+        self.assertEqual(statuses["intake"], "stale")
+        self.assertEqual(statuses["workflow"], "stale")
+
+    def test_taking_their_scenarios_back_out_leaves_the_declaration_alone(self):
+        self._upload("coverage", _rules_workbook(_scratch()))
+        self._finish("intake", "workflow", "materiality")
+        self.client.post("/stage/coverage/remove",
+                         data={"group": "owner_scenarios", "name": "thresholds.xlsx"})
+
+        statuses = self._statuses()
+        for key in ("intake", "workflow", "materiality"):
+            self.assertEqual(statuses[key], "complete", f"{key} was marked stale")
+
+    def test_marking_their_scenarios_for_redaction_leaves_the_declaration_alone(self):
+        self._upload("coverage", _rules_workbook(_scratch()))
+        self._finish("intake", "workflow", "materiality")
+        self.client.post("/stage/coverage/redact",
+                         data={"group": "owner_scenarios", "name": "thresholds.xlsx", "on": "1"})
+
+        statuses = self._statuses()
+        for key in ("intake", "workflow", "materiality"):
+            self.assertEqual(statuses[key], "complete", f"{key} was marked stale")
+
     def test_an_unsupported_file_says_what_is_supported(self):
         path = _scratch() / "old.doc"
         path.write_bytes(b"not really a word document")
