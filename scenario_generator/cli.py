@@ -151,6 +151,15 @@ def main(argv: Optional[List[str]] = None) -> int:
                           help="an answer to a gap the current declaration left, or anything else "
                                "learned since it was last written -- may be given more than once")
 
+    p_page = sub.add_parser(
+        "graph-page",
+        help="the declared graph as one self-contained HTML file, built from the workbooks")
+    p_page.add_argument("intake")
+    p_page.add_argument("output", help="where to write the .html")
+    p_page.add_argument("--scenarios", metavar="METADATA",
+                        help="a scenario space metadata workbook; adds the scenario list, where "
+                             "opening one lights the route it walks")
+
     p_serve = sub.add_parser("serve", help="run the local web interface")
     p_serve.add_argument("--port", type=int, default=5000)
     p_serve.add_argument("--workspaces", default="workspaces",
@@ -170,6 +179,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"\n{exc}\n\nFix that line and run again. Nothing was started, because a run on "
               f"settings you did not choose is worse than no run at all.\n")
         return 2
+
+    if args.command == "graph-page":
+        # Imported here rather than at the top, like serve: this reaches the interface's renderer
+        # so that the file and the screen cannot show different pictures, and the command line
+        # otherwise works without Flask installed.
+        from .webapp.graphpage import write_graph_page
+        written = write_graph_page(args.intake, args.output, args.scenarios)
+        print(f"Wrote {written}. Open it in a browser; it needs nothing running.")
+        return 0
 
     if args.command == "serve":
         from .webapp.app import create_app          # imported here so the CLI works without Flask

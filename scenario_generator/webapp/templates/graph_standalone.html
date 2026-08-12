@@ -25,8 +25,15 @@
       <button class="graph__zoom" type="button" data-zoom="in" title="Zoom in">+</button>
       <button class="graph__zoom" type="button" data-zoom="fit" title="Fit to width">Fit</button>
       <span class="graph__level mono" data-zoom-level>100%</span>
-      <span class="graph__hint">Hover to follow one thread · drag to pan</span>
+      <span class="graph__hint" data-graph-selection>
+        Hover to follow one thread · drag to pan
+      </span>
+      <button class="graph__zoom graph__zoom--clear" type="button" data-graph-clear hidden>
+        Clear routes
+      </button>
     </div>
+    {# No data-graph-section here: the graph is never folded away on this page, so there
+     is nothing for opening a scenario to unfold. The script guards for its absence. #}
     <div class="graph__frame" data-graph>
       <div class="graph__canvas" data-graph-canvas>{{ graph_svg | safe }}</div>
     </div>
@@ -37,6 +44,47 @@
       (<span class="mono">{{ graph_facts.terminal }}</span> ending) ·
       longest run <span class="mono">{{ graph_facts.depth }}</span> deep
     </p>
+
+    {% if rows %}
+      {# The scenario list, so the page answers "which of these arrows is that scenario" the same
+         way the interface does. Each card carries its own route and opening it lights that route;
+         several open at once light several, which is how two are compared. #}
+      <h2 class="block__title" id="scenarios">The scenarios that walk it</h2>
+      <p class="block__body">
+        Open one to light the route it takes, from the start box to the ending. Open several and
+        they all stay lit. <span class="mono">{{ rows | length }}</span> in all.
+      </p>
+      <ul class="cards">
+        {% for row in rows %}
+          <li class="card" id="{{ row.id }}">
+            <details class="card__body" data-route='{{ row.route | tojson }}'
+                     data-route-label="{{ row.id }}">
+              <summary class="card__head">
+                <svg class="card__chevron" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5"
+                        stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span class="card__id mono">{{ row.id }}</span>
+                <span class="card__title">{{ row.title }}</span>
+                <span class="card__marks">
+                  <span class="mark mark--tier mark--tier-{{ row.materiality | lower }}">
+                    {{ row.materiality }}
+                  </span>
+                </span>
+              </summary>
+              <div class="card__detail">
+                {% if row.description %}<p class="card__text">{{ row.description }}</p>{% endif %}
+                <p class="card__facts">
+                  <span>{{ row.persona }}</span>
+                  <span>{{ row.category }}</span>
+                  <span>{{ row.turns }} turn{{ '' if row.turns == 1 else 's' }}</span>
+                </p>
+              </div>
+            </details>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
 
     {% if graph_facts.unreachable %}
       <p class="aside aside--bad">

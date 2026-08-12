@@ -44,6 +44,7 @@ from ..llm.structure_review import review_structure
 from ..pipeline import revise_intake_workbook
 from . import stagecancel
 from .coverageview import coverage_view, stored_mappings, stored_report
+from .graphpage import render_graph_page
 from .graphview import (declaration as _declaration, graph_summary, render_svg,
                         routes as _graph_routes)
 from .runners import (CONTEXT, DRAFT_INTAKE, EVIDENCE, OVERLAP, METADATA, RUNNERS,
@@ -961,15 +962,16 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         if not workspace.artifact_path("intake", "workbook"):
             abort(404)
         intake = _intake(workspace)
-        static = Path(__file__).parent / "static"
-        page = render_template(
-            "graph_standalone.html",
-            title=intake.name,
-            graph_svg=render_svg(intake),
-            graph_facts=graph_summary(intake),
-            drawn=datetime.now().strftime("%d %b %Y"),
-            stylesheet=(static / "app.css").read_text(encoding="utf-8"),
-            script=(static / "graph.js").read_text(encoding="utf-8"))
+        # Built from the workbooks, by the same function the command line calls -- so correcting a
+        # row and building it again corrects the page, and the two front ends cannot produce
+        # different pictures of the same declaration.
+        scenarios = []
+        if (workspace.root / METADATA).exists():
+            try:
+                scenarios = read_scenarios(str(workspace.root / METADATA), intake)
+            except Exception:
+                logger.exception("Could not read the scenario space for the graph page")
+        page = render_graph_page(intake, scenarios)
 
         if not request.args.get("download"):
             return page

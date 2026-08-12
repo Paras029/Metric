@@ -19,6 +19,7 @@ What is pinned here is the data behind all three. The hover itself is browser be
 checked by driving one; what these tests hold is that the SVG carries what a hover needs -- every
 arrow saying which two boxes it joins -- because that is the part that silently stops being true.
 """
+import copy
 import json
 import re
 import tempfile
@@ -419,6 +420,49 @@ class TestTheCardCarriesItsRoute(unittest.TestCase):
         (workspace / "workspace.json").write_text(json.dumps(state))
         self.scenarios = scenarios
 
+    def test_the_scenarios_come_from_their_own_workbook_and_carry_their_routes(self):
+        """The second half of modular: point it at a scenario space as well and the page gains the
+        list, where opening one lights the route it walks -- the same as the interface."""
+        from scenario_generator.webapp.graphpage import write_graph_page
+
+        workspace = next(self.root.iterdir())
+        page = Path(tempfile.mkdtemp()) / "graph.html"
+        write_graph_page(str(workspace / "intake.xlsx"), str(page),
+                         str(workspace / "scenario_space_metadata.xlsx"))
+        body = page.read_text()
+        self.assertEqual(body.count("data-route='"), len(self.scenarios))
+        self.assertIn("The scenarios that walk it", body)
+
+    def test_a_scenario_the_drawing_cannot_place_is_left_out_of_the_list(self):
+        """A proposal the review added has no walk behind it yet. Listed, it would look selectable
+        and light nothing when opened, which reads as the page being broken rather than as the
+        scenario having no route -- and the card would carry no route for the script to read."""
+        from scenario_generator.core.models import ORIGIN_PROPOSED
+        from scenario_generator.webapp.graphpage import render_graph_page
+        from scenario_generator.core.intake import read_intake as _read
+
+        workspace = next(self.root.iterdir())
+        intake = _read(str(workspace / "intake.xlsx"))
+        proposal = copy.deepcopy(self.scenarios[0])
+        proposal.id, proposal.path, proposal.origin = "SC-999", [], ORIGIN_PROPOSED
+
+        body = render_graph_page(intake, list(self.scenarios) + [proposal])
+        self.assertEqual(body.count("data-route='"), len(self.scenarios))
+        self.assertNotIn("SC-999", body)
+
+    def test_without_a_scenario_workbook_it_is_the_graph_alone(self):
+        """Not a broken list: the drawing on its own is a complete thing, and an empty section
+        headed "the scenarios that walk it" reads as a page that failed to load them."""
+        from scenario_generator.webapp.graphpage import write_graph_page
+
+        workspace = next(self.root.iterdir())
+        page = Path(tempfile.mkdtemp()) / "graph.html"
+        write_graph_page(str(workspace / "intake.xlsx"), str(page))
+        body = page.read_text()
+        self.assertNotIn("data-route='", body)
+        self.assertNotIn("The scenarios that walk it", body)
+        self.assertIn("data-graph-canvas", body)
+
     def test_the_graph_is_drawn_on_a_stage_that_lists_scenarios(self):
         page = self.client.get("/stage/scenarios").data.decode()
         self.assertIn("data-graph-canvas", page)
@@ -465,6 +509,40 @@ class TestTheGraphCanLeaveTheTool(unittest.TestCase):
             self.client.post("/stage/intake/upload",
                              data={"files": (handle, book.name), "group": "intake_workbook"},
                              content_type="multipart/form-data")
+
+    def test_it_is_built_from_the_workbooks_so_correcting_one_corrects_the_page(self):
+        """The point of it being modular. A picture that was true once is a screenshot with extra
+        steps; a page you rebuild from the sheet you just corrected is a thing to keep."""
+        from openpyxl import load_workbook as _open
+        from scenario_generator.webapp.graphpage import write_graph_page
+
+        book = Path(tempfile.mkdtemp()) / "intake.xlsx"
+        write_template(str(book))
+        sheet = _open(book)
+        sheet["L1 Use Case"]["B2"] = "Card servicing"
+        sheet["Personas"].append(["P1", "Cardmember", "Happy path", "Yes"])
+        sheet["L2 Capabilities"].append(["CAP-01", "Identity", "Gating"])
+        sheet["L3 Decisions"].append(
+            ["DEC-01", "Identity check", "CAP-01", "", "Pass / Fail", "User", 1, "", "No"])
+        sheet["L4 States"].append(["S-00", "Start", "Session begins", "DEC-01", "No", ""])
+        sheet["L4 States"].append(["S-01", "DEC-01=Pass", "Verified", "", "Yes", "Happy path"])
+        sheet["L4 States"].append(["S-02", "DEC-01=Fail", "Locked out", "", "Yes", "Termination"])
+        sheet.save(book)
+
+        first = Path(tempfile.mkdtemp()) / "graph.html"
+        write_graph_page(str(book), str(first))
+        self.assertIn("Identity check", first.read_text())
+
+        sheet = _open(book)
+        for row in sheet["L3 Decisions"].iter_rows(min_row=2):
+            if row[0].value == "DEC-01":
+                row[1].value = "Confirm who is calling"
+        sheet.save(book)
+
+        again = Path(tempfile.mkdtemp()) / "graph.html"
+        write_graph_page(str(book), str(again))
+        self.assertIn("Confirm who is calling", again.read_text())
+        self.assertNotIn("Identity check", again.read_text())
 
     def test_the_page_carries_its_own_styling_and_its_own_controls(self):
         page = self.client.get("/graph").data.decode()

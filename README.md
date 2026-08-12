@@ -234,9 +234,23 @@ your head, but by seeing where the two paths part. Collapse a card and its route
 unfolds itself the first time you open a card.
 
 The graph also leaves the tool. *Open the graph on its own* and *Download it as a page that still
-zooms* both produce the same self-contained file — same drawing, same zoom, same highlighting, with
-the stylesheet and the script inlined, so it still reads from a mail attachment or a share with
+zooms* both produce the same self-contained file — same drawing, same zoom, same highlighting, and
+the scenario list with it, so opening a scenario lights its route offline exactly as it does here.
+The stylesheet and the script are inlined, so it reads from a mail attachment or a share with
 nothing running. A graph big enough to need a zoom is a graph a screenshot cannot carry.
+
+**It is built from the workbooks, so a corrected sheet gives a corrected page.** On the command
+line that is one command, which is the point of it being modular rather than a picture that was
+true once:
+
+```bash
+python -m scenario_generator graph-page acme_intake.xlsx acme_graph.html \
+    --scenarios acme_scenario_space_metadata.xlsx
+```
+
+The intake alone gives the graph; adding the scenario space adds the list. Neither needs a
+workspace, and the same function builds the page here and in the interface, so the file and the
+screen cannot show different pictures of one declaration.
 
 **What the declaration still needs.** The intake stage lists what would stop part of the graph
 being built, addressed to the row that needs it: a decision that names no outcomes, a state nothing
