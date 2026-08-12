@@ -147,7 +147,10 @@ class TestItReachesTheFirstPhase(unittest.TestCase):
         from scenario_generator.ingest import extraction
 
         source = Path(extraction.__file__).read_text(encoding="utf-8")
-        self.assertEqual(source.count("council.deliberate"), 4)
+        # Reading the facets, resolving what they left open, and the three ways a diagram is read:
+        # each image on its own, a single image straight into the intake's vocabulary, and the
+        # repair. Every one of them is a judgement nothing downstream would catch being wrong.
+        self.assertEqual(source.count("council.deliberate"), 5)
 
 
 class TestTheWorkersAreIndependent(unittest.TestCase):

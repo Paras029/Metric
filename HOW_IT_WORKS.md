@@ -89,9 +89,8 @@ it to sentences and asking a later pass to rebuild a graph from the sentences. T
    described, because a box missed in a paragraph vanishes silently, where a box missed in a node
    list shows up as an arrow pointing at nothing. Arrows that run off the edge of the image are
    recorded as exactly that — they are where one image joins another.
-2. **All the readings together**, joined into one graph and written in the intake's own
-   vocabulary: decisions with named outcomes, states with `reached_via`, terminal flags and
-   outcome types.
+2. **All the readings together**, put into one graph and written in the intake's own vocabulary:
+   decisions with named outcomes, states with `reached_via`, terminal flags and outcome types.
 3. **Whatever that graph cannot account for, back to the images.** The graph is checked against
    properties it must have to be walkable at all — every outcome leads somewhere, every state is
    reached by an outcome that exists, a branch has more than one branch — and the specific
@@ -101,6 +100,36 @@ it to sentences and asking a later pass to rebuild a graph from the sentences. T
 The resulting graph is carried through to the intake drafter **as structure**, alongside the prose
 context, so drafting becomes confirming and completing a graph rather than rebuilding one from
 sentences about it. It also appears in the context document, so you can read what was extracted.
+
+**One image skips the middle pass.** There is nothing to join it to, so it is read straight into
+the intake's vocabulary in a single call — one call rather than two, and without a prompt whose
+opening paragraphs are about arrows running off the page into other pictures, which for a single
+submitted diagram describes a situation that does not exist. The audit and the repair pass still
+run: a lone diagram read with a hole in it is exactly as unwalkable as several.
+
+**Several images are put together in one of two ways, and you choose which.** A control under the
+workflow-diagrams card, shown once there is more than one image:
+
+- *One workflow, split across these images* — the default. Pieces of one picture: an arrow leaving
+  the edge of one image is followed into whatever picks it up in another.
+- *Each image shows the same workflow* — separate accounts of one flow, not fragments. A detailed
+  version and a summary, the same flow in two notations, an updated copy beside an older one. The
+  same step drawn twice is declared once, the fullest account wins and the others fill it in, and
+  where two images genuinely disagree the disagreement is recorded rather than smoothed over —
+  two versions of the documentation that do not match is a finding.
+
+Applying either reading to the other's input goes wrong quietly. Stitching two drawings of one
+flow welds the end of the first onto the start of the second and enumerates routes the agent does
+not have. Reconciling genuine pieces folds the end of one picture into the start of the next as
+"the same step under a different label". Neither is visible in the result without reading the whole
+graph back against the pictures, which is why it is asked rather than guessed at. Changing it makes
+a completed reading out of date, the same as adding a file.
+
+**The workflow-diagrams card takes images and nothing else.** A PDF or a spreadsheet dropped there
+is refused, naming what the heading takes — it would otherwise be filed under "Workflow diagrams",
+read as the ordinary document it is, and leave nobody able to work out why the diagram they
+submitted is not in the graph. Documents describing the flow in prose belong under model
+documentation or supporting material, where they are read as text.
 
 An image that fails on its own is dropped rather than losing the rest; the diagrams are only
 reported unreadable if every one of them was, or if nothing could be made of them together. A

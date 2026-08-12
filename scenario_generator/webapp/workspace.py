@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 from ..core.representation import DEFAULT_THRESHOLD
+from ..ingest.extraction import DIAGRAM_MODES, SPLIT_ACROSS_IMAGES
 from .stages import (COMPLETE, FAILED, LOCKED, READY, RENAMED, RUNNING, STAGE_BY_KEY,
                      STAGE_KEYS, STALE, STAGES, STOPPED, Stage, current_key, downstream_of,
                      index_of, required_before)
@@ -199,7 +200,8 @@ class Workspace:
                  structure_proposals: Optional[List[dict]] = None,
                  coverage_threshold: int = None,
                  coverage: Optional[dict] = None,
-                 pack_gaps_only: bool = False) -> None:
+                 pack_gaps_only: bool = False,
+                 diagram_mode: str = SPLIT_ACROSS_IMAGES) -> None:
         self.root = Path(root)
         self.name = name or self.root.name
         self.created_at = created_at or _now()
@@ -229,6 +231,11 @@ class Workspace:
         # asked for, and this is the one setting that takes things away. Narrowing the pack is a
         # decision to trust their evidence for everything left out, which is the user's to make.
         self.pack_gaps_only: bool = bool(pack_gaps_only)
+        # How several submitted workflow images relate: pieces of one cut-up picture, or separate
+        # drawings of the same flow. Only the pass that puts them together reads it, and with one
+        # image it is not consulted at all. See ingest.extraction.DIAGRAM_MODES.
+        self.diagram_mode: str = (diagram_mode if diagram_mode in DIAGRAM_MODES
+                                  else SPLIT_ACROSS_IMAGES)
         self._reconciled = self._settle()
 
     # ----------------------------------------------------------------- added context
@@ -409,6 +416,7 @@ class Workspace:
                 "coverage_threshold": self.coverage_threshold,
                 "coverage": dict(self.coverage),
                 "pack_gaps_only": self.pack_gaps_only,
+                "diagram_mode": self.diagram_mode,
                 "stages": {k: v.to_dict() for k, v in self.stages.items()}}
 
     def _write(self) -> None:
@@ -470,7 +478,8 @@ class Workspace:
                         structure_proposals=data.get("structure_proposals", []),
                         coverage_threshold=data.get("coverage_threshold"),
                         coverage=data.get("coverage", {}),
-                        pack_gaps_only=data.get("pack_gaps_only", False))
+                        pack_gaps_only=data.get("pack_gaps_only", False),
+                        diagram_mode=data.get("diagram_mode", SPLIT_ACROSS_IMAGES))
         # An interrupted run was reconciled during construction -- see _settle. Written back once,
         # here, so the record on disk stops claiming something is running: after this save the
         # reconciliation finds nothing, so a page polling every second does not write every second.

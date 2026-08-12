@@ -1218,6 +1218,24 @@ ol, ul { list-style: none; padding: 0; }
 }
 .drop__note--problem { background: var(--bad-tint); color: var(--bad-deep); }
 
+/* Asked under the file list rather than beside the drop target: it is a question about the set of
+   images, which only exists once there is a set. */
+.drop__modes {
+  display: grid;
+  gap: var(--s1);
+  margin-top: var(--s3);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--rule-soft);
+}
+.drop__modes-label {
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.drop__modes .select { width: 100%; }
+
 .upload { margin-top: var(--s3); display: flex; flex-wrap: wrap; gap: var(--s3); align-items: center; }
 .upload__input { font: inherit; font-size: var(--t-small); max-width: 100%; }
 .upload__input::file-selector-button {

@@ -1122,6 +1122,31 @@
                     {% endfor %}
                   </ul>
                 {% endif %}
+                {# Asked once there is more than one picture, because the two answers need
+                   different readings and neither can be inferred from the pictures reliably.
+                   Getting it wrong is quiet: pieces reconciled lose a step, drawings stitched
+                   gain routes the agent does not have. #}
+                {% if row.modes %}
+                  <form class="drop__modes" method="post"
+                        action="{{ url_for('set_diagram_mode', key=stage.key) }}">
+                    <label class="drop__modes-label" for="mode-{{ row.group.key }}">
+                      How these images relate
+                    </label>
+                    <select class="select" id="mode-{{ row.group.key }}" name="mode"
+                            onchange="this.form.submit()">
+                      {% for value, label in row.modes.items() %}
+                        <option value="{{ value }}"
+                                {% if value == row.mode %}selected{% endif %}>{{ label }}</option>
+                      {% endfor %}
+                    </select>
+                    <noscript><button class="button button--quiet" type="submit">Save</button></noscript>
+                    <span class="drop__note">
+                      Pieces of one picture are followed from one image into the next. Separate
+                      drawings of the same flow are reconciled instead — the same step drawn twice
+                      is one step, and they are not chained end to end.
+                    </span>
+                  </form>
+                {% endif %}
                 {% if row.note %}
                   <p class="drop__note {% if row.problem %}drop__note--problem{% endif %}">
                     {{ row.note }}

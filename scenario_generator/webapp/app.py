@@ -33,8 +33,10 @@ from ..core.gaps import CAPABILITY, DECISION, STATE, find_gaps
 from ..core.intake import read_review_notes, set_decision_scope, write_template
 from ..core.models import MATERIALITY
 from ..ingest.conversations import read_conversations
-from ..ingest.groups import (ALL_EXTENSIONS, DEFAULT_GROUP, GROUP_BY_KEY, GROUPS, MODEL_DOC,
-                             OWNER_SCENARIOS, SUPPORTING, folder_for, files_in, remove_file)
+from ..ingest.extraction import SAME_FLOW_EACH, SPLIT_ACROSS_IMAGES
+from ..ingest.groups import (ALL_EXTENSIONS, DEFAULT_GROUP, DIAGRAMS, GROUP_BY_KEY, GROUPS,
+                             MODEL_DOC, OWNER_SCENARIOS, SUPPORTING, folder_for, files_in,
+                             remove_file)
 from ..io import read_space_metadata, read_scenarios, write_coverage_report, write_space_metadata
 from ..llm import metering
 from ..llm.cancellation import Stopped
@@ -85,6 +87,20 @@ REDACTABLE_GROUPS = (MODEL_DOC, SUPPORTING, OWNER_SCENARIOS)
 # every upload as intake evidence meant dropping in a transcript at the coverage stage marked six
 # finished stages stale, to re-derive a byte-identical result.
 STAGE_THAT_READS: Dict[str, str] = {OWNER_SCENARIOS: "coverage"}
+
+# How several submitted workflow images relate, and how each choice reads on the page. Asked only
+# where there is more than one image: with one there is nothing to relate, and the reading takes a
+# shorter path that never consults this.
+#
+# It is asked rather than inferred because getting it wrong is quiet and expensive. Stitching two
+# drawings of one flow welds the end of the first onto the start of the second and enumerates
+# routes the agent does not have; reconciling genuine pieces folds the end of one picture into the
+# start of the next as "the same step under a different label". Neither is visible in the result
+# without reading the whole graph against the pictures, and the person who uploaded them knows.
+DIAGRAM_MODE_LABELS = {
+    SPLIT_ACROSS_IMAGES: "One workflow, split across these images",
+    SAME_FLOW_EACH: "Each image shows the same workflow",
+}
 
 # The three kinds of row the declared graph is made of, in the order they are worth reading: a
 # decision naming no outcomes enumerates nothing at all, which is more urgent than a capability
@@ -287,7 +303,13 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             row = {"group": group, "files": [f.name for f in files], "note": "", "problem": False,
                   "redactable": group.key in REDACTABLE_GROUPS,
                   "redacted": {f.name for f in files
-                              if workspace.is_marked_for_redaction(group.key, f.name)}}
+                              if workspace.is_marked_for_redaction(group.key, f.name)},
+                  # Only with more than one picture: one image is read in a single pass that never
+                  # asks how it relates to anything, and a control asking how it relates to itself
+                  # is one that makes a reader wonder what they have missed.
+                  "modes": (DIAGRAM_MODE_LABELS if group.key == DIAGRAMS and len(files) > 1
+                            else None),
+                  "mode": workspace.diagram_mode}
             if group.key == OWNER_SCENARIOS and files:
                 # Say how it was read now rather than when coverage runs, while there is still
                 # time to ask them for a clearer file. A transcript file that cannot be split into
@@ -550,17 +572,25 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             target = folder_for(workspace.root, group)
         target.mkdir(parents=True, exist_ok=True)
 
+        # What this heading takes, not what the tool takes anywhere. A card that says ".png .jpg
+        # .jpeg" and then quietly accepts a PDF is a card that lies: the file is stored under
+        # "Workflow diagrams", is read as an ordinary document because that is what it is, and
+        # nothing on the page ever says the diagram nobody can find was never a diagram.
+        accepted = (set(UPLOAD_EXTENSIONS) if as_intake
+                    else set(GROUP_BY_KEY[group].accepts))
+
         stored, refused = [], []
         for upload_file in uploads:
             name = secure_filename(upload_file.filename)
-            if Path(name).suffix.lower() not in UPLOAD_EXTENSIONS:
+            if Path(name).suffix.lower() not in accepted:
                 refused.append(upload_file.filename)
                 continue
             upload_file.save(str(target / name))
             stored.append(name)
 
         if not stored:
-            workspace.mark_failed(key, _refusal(refused))
+            workspace.mark_failed(key, _refusal(refused, accepted, "" if as_intake
+                                                else GROUP_BY_KEY[group].title))
             return redirect(url_for("stage", key=key))
 
         reader = "intake" if as_intake else STAGE_THAT_READS.get(group, "intake")
@@ -599,6 +629,23 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             workspace.state(reader).artifacts.pop(Path(name).name, None)
             workspace.set_redact(group, name, False)
             workspace.invalidate_from(reader)
+            workspace.save()
+        return redirect(url_for("stage", key=key))
+
+    @app.route("/stage/<key>/diagrams", methods=["POST"])
+    def set_diagram_mode(key: str):
+        """Say how the submitted workflow images relate to one another.
+
+        Invalidates the intake only when it changes: it is an input to the reading, so it makes a
+        completed reading out of date the same way a new file would, and choosing what was already
+        chosen has changed nothing.
+        """
+        workspace = _workspace()
+        chosen = request.form.get("mode", "")
+        chosen = chosen if chosen in DIAGRAM_MODE_LABELS else SPLIT_ACROSS_IMAGES
+        if chosen != workspace.diagram_mode:
+            workspace.diagram_mode = chosen
+            workspace.invalidate_from("intake")
             workspace.save()
         return redirect(url_for("stage", key=key))
 
@@ -1037,10 +1084,18 @@ def _execute(root: Path, key: str, cancel, run_id: str = None) -> None:
     finished.complete(key, summary=summary, run_id=run_id)
 
 
-def _refusal(names) -> str:
-    """Why nothing was stored, named precisely enough to act on."""
+def _refusal(names, accepted=None, heading: str = "") -> str:
+    """Why nothing was stored, named precisely enough to act on.
+
+    Says what *this heading* takes rather than what the tool takes, since that is the choice in
+    front of the person: a PDF refused by the workflow-diagrams card belongs under a different
+    heading, not in a different format.
+    """
     if not names:
         return "No file was uploaded."
-    supported = ", ".join(sorted(UPLOAD_EXTENSIONS))
-    return (f"Nothing was stored. {', '.join(names)} — this reads {supported}. A .doc or .xls from "
-            f"an older Office version needs saving as .docx or .xlsx first.")
+    supported = ", ".join(sorted(accepted or UPLOAD_EXTENSIONS))
+    where = f'"{heading}" takes' if heading else "this reads"
+    note = (" Anything else describing the agent goes under one of the other headings."
+            if heading else
+            " A .doc or .xls from an older Office version needs saving as .docx or .xlsx first.")
+    return f"Nothing was stored. {', '.join(names)} — {where} {supported}.{note}"

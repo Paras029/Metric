@@ -170,9 +170,9 @@ class TestResolutionSweep(unittest.TestCase):
 
 
 class TestDiagrams(unittest.TestCase):
-    def _png(self):
+    def _png(self, name="flow.png"):
         import base64
-        path = Path(tempfile.mkdtemp()) / "flow.png"
+        path = Path(tempfile.mkdtemp()) / name
         path.write_bytes(base64.b64decode(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmM"
             "IQAAAABJRU5ErkJggg=="))
@@ -195,18 +195,32 @@ class TestDiagrams(unittest.TestCase):
     }
 
     def _boxes(self, system, user, images, **kwargs):
-        """A per-image reading in the shape the read prompt asks for."""
+        """A reading in whichever shape the prompt in front of it asks for.
+
+        One image is read straight into the intake's vocabulary in a single call -- there is
+        nothing to join it to -- so a stub answering only in boxes and arrows would be answering
+        a question that was not asked.
+        """
+        if "THE VOCABULARY TO WRITE IT IN" in user:          # the single-image reading
+            return json.dumps({**self._WHOLE, "observations": self._observations})
         return json.dumps({
             "nodes": [{"ref": "n1", "label": "PIN check", "kind": "decision"}],
             "edges": [{"from": "n1", "to": "n2", "label": "Pass"}],
             "continues_offpage": [], "unreadable": [],
             "counts": {"boxes": 1, "arrows": 1}})
 
+    _observations: list = []
+
     def _synthesizing(self, observations, base=None, structure=None):
         """A completion answering the ordinary reading prompts through ``base`` (defaulting to
-        ``_stub()``), and the diagram-synthesis prompt with a graph plus the given observations."""
+        ``_stub()``), and the diagram prompts with a graph plus the given observations.
+
+        The observations are also handed to :meth:`_boxes`, since with a single image it is the
+        one call that reads the picture and so the only one that can report what it establishes.
+        """
         base = base or _stub()
         graph = self._WHOLE if structure is None else structure
+        self._observations = observations
 
         def complete(system, user, **kwargs):
             if "THE READINGS" in user:
@@ -371,7 +385,10 @@ class TestDiagrams(unittest.TestCase):
         self.assertTrue(record.answer_for("decisions").is_answered)
 
     def test_a_synthesis_failure_still_leaves_the_rest_of_the_pack_readable(self):
-        """Every image was read individually, but the pass that puts them together failed."""
+        """Every image was read individually, but the pass that puts them together failed.
+
+        Two images, because that pass only exists for two: a single diagram is read straight into
+        the intake's vocabulary, with nothing to put it together with."""
         describe_one = self._boxes
 
         def complete(system, user, **kwargs):
@@ -379,8 +396,22 @@ class TestDiagrams(unittest.TestCase):
                 raise RuntimeError("gateway down")
             return _stub()(system, user, **kwargs)
 
+        record = extract_documents(
+            [_write("notes.md", _SCATTERED), self._png(), self._png("flow2.png")],
+            complete=complete, describe_images=describe_one)
+        diagram = next(d for d in record.documents if d.name == "flow.png")
+        self.assertEqual(diagram.kind, "unreadable")
+        self.assertTrue(record.answer_for("decisions").is_answered)
+
+    def test_a_single_diagram_that_fails_leaves_the_rest_of_the_pack_readable(self):
+        """The same guarantee on the shorter path. One image is one call, so that call failing is
+        the whole of the diagram reading failing -- and the documents beside it still have to be
+        read, or a workspace loses its whole pack to one picture."""
+        def describe_one(system, user, images, **kwargs):
+            raise RuntimeError("gateway down")
+
         record = extract_documents([_write("notes.md", _SCATTERED), self._png()],
-                                   complete=complete, describe_images=describe_one)
+                                   complete=_stub(), describe_images=describe_one)
         diagram = next(d for d in record.documents if d.name == "flow.png")
         self.assertEqual(diagram.kind, "unreadable")
         self.assertTrue(record.answer_for("decisions").is_answered)

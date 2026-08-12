@@ -142,20 +142,33 @@ class TestMerging(unittest.TestCase):
 class TestReadingThroughIngestion(unittest.TestCase):
     """The three passes driven end to end, with the model stubbed."""
 
-    def _boxes(self, holes=False):
+    def _boxes(self, holes=False, first=None):
+        """A reading in whichever shape the prompt asks for.
+
+        Three prompts can reach a vision call: the per-image boxes-and-arrows reading, the
+        single-image reading that goes straight to the intake's vocabulary, and the repair. The
+        repair always answers with the complete graph, since that is what a repair is for; ``first``
+        is what the single-image reading returns, which for a test about the repair has to be the
+        broken one.
+        """
+        whole = {
+            "capabilities": [{"id": "CAP-01", "name": "Authentication", "type": "Gating"}],
+            "decisions": [{"id": "DEC-01", "name": "PIN check",
+                           "outcomes": ["Pass", "Fail"], "capability_id": "CAP-01"}],
+            "states": [
+                {"id": "S-00", "reached_via": "Start", "description": "Call opens",
+                 "next_decisions": ["DEC-01"], "is_terminal": False},
+                {"id": "S-01", "reached_via": "DEC-01=Pass", "description": "Verified",
+                 "is_terminal": True, "outcome_type": "Happy path"},
+                {"id": "S-02", "reached_via": "DEC-01=Fail", "description": "Locked",
+                 "is_terminal": True, "outcome_type": "Termination"}]}
+
         def describe(system, user, images, **kwargs):
-            if "WHAT DOES NOT JOIN UP" in user:              # the repair pass
-                return json.dumps({
-                    "capabilities": [{"id": "CAP-01", "name": "Authentication", "type": "Gating"}],
-                    "decisions": [{"id": "DEC-01", "name": "PIN check",
-                                   "outcomes": ["Pass", "Fail"], "capability_id": "CAP-01"}],
-                    "states": [
-                        {"id": "S-00", "reached_via": "Start", "description": "Call opens",
-                         "next_decisions": ["DEC-01"], "is_terminal": False},
-                        {"id": "S-01", "reached_via": "DEC-01=Pass", "description": "Verified",
-                         "is_terminal": True, "outcome_type": "Happy path"},
-                        {"id": "S-02", "reached_via": "DEC-01=Fail", "description": "Locked",
-                         "is_terminal": True, "outcome_type": "Termination"}]})
+            if "WHAT DOES NOT JOIN UP" in user:                 # the repair pass
+                return json.dumps(whole)
+            if "THE VOCABULARY TO WRITE IT IN" in user:         # the single-image reading
+                return json.dumps({**(first if first is not None else whole),
+                                   "observations": []})
             return json.dumps({
                 "nodes": [{"ref": "n1", "label": "PIN check", "kind": "decision"}],
                 "edges": [{"from": "n1", "to": "n2", "label": "Pass"}],
@@ -186,7 +199,8 @@ class TestReadingThroughIngestion(unittest.TestCase):
                  "is_terminal": True, "outcome_type": "Termination"}]}
 
         record = extract_documents([_png()], complete=self._complete(structure),
-                                   describe_images=self._boxes(), resolve_passes=0)
+                                   describe_images=self._boxes(first=structure),
+                                   resolve_passes=0)
 
         self.assertEqual([d["id"] for d in record.structure["decisions"]], ["DEC-01"])
         self.assertEqual(len(record.structure["states"]), 3)
@@ -206,7 +220,7 @@ class TestReadingThroughIngestion(unittest.TestCase):
 
         def describe(system, user, images, **kwargs):
             seen.append(user)
-            return self._boxes()(system, user, images, **kwargs)
+            return self._boxes(first=with_a_hole)(system, user, images, **kwargs)
 
         record = extract_documents([_png()], complete=self._complete(with_a_hole),
                                    describe_images=describe, resolve_passes=0)
@@ -232,7 +246,7 @@ class TestReadingThroughIngestion(unittest.TestCase):
 
         def describe(system, user, images, **kwargs):
             seen.append(user)
-            return self._boxes()(system, user, images, **kwargs)
+            return self._boxes(first=whole)(system, user, images, **kwargs)
 
         extract_documents([_png()], complete=self._complete(whole), describe_images=describe,
                           resolve_passes=0)
@@ -244,11 +258,157 @@ class TestReadingThroughIngestion(unittest.TestCase):
             "states": [{"id": "S-00", "reached_via": "Start", "description": "Call opens",
                         "next_decisions": ["DEC-01"], "is_terminal": False}]}
         record = extract_documents([_png()], complete=self._complete(structure),
-                                   describe_images=self._boxes(), resolve_passes=0)
+                                   describe_images=self._boxes(first=structure),
+                                   resolve_passes=0)
         context = build_context_document(record, "Test agent")
 
         self.assertIn("as read from the submitted diagrams", context)
         self.assertIn("DEC-01: PIN check", context)
+
+
+class TestOneImageIsJustExtraction(unittest.TestCase):
+    """A single diagram has nothing to be joined to, and is read as though that were true.
+
+    It used to go through the same three passes as a pack of them: read into boxes and arrows,
+    then a second call to turn those boxes and arrows into the intake's vocabulary, through a
+    prompt whose opening paragraphs are about arrows running off the page into other pictures.
+    That is a call spent arriving where the first one could have finished, and a prompt describing
+    a situation that does not exist.
+    """
+
+    _WHOLE = {
+        "capabilities": [{"id": "CAP-01", "name": "Authentication", "type": "Gating"}],
+        "decisions": [{"id": "DEC-01", "name": "PIN check", "outcomes": ["Pass", "Fail"],
+                       "capability_id": "CAP-01"}],
+        "states": [
+            {"id": "S-00", "reached_via": "Start", "description": "Call opens",
+             "next_decisions": ["DEC-01"], "is_terminal": False},
+            {"id": "S-01", "reached_via": "DEC-01=Pass", "description": "Verified",
+             "is_terminal": True, "outcome_type": "Happy path"},
+            {"id": "S-02", "reached_via": "DEC-01=Fail", "description": "Locked",
+             "is_terminal": True, "outcome_type": "Termination"}]}
+
+    def _watch(self):
+        vision, text = [], []
+
+        def describe(system, user, images, **kwargs):
+            vision.append(user)
+            return json.dumps({**self._WHOLE, "observations": []})
+
+        def complete(system, user, **kwargs):
+            text.append(user)
+            if "THE OUTSTANDING QUESTIONS" in user:
+                return json.dumps({"resolved": []})
+            return json.dumps({})
+        return vision, text, complete, describe
+
+    def test_the_workflow_comes_off_the_image_in_one_call(self):
+        vision, text, complete, describe = self._watch()
+        record = extract_documents([_png()], complete=complete, describe_images=describe,
+                                   resolve_passes=0)
+        self.assertEqual(len(vision), 1, "one image should take one look")
+        self.assertEqual([d["id"] for d in record.structure["decisions"]], ["DEC-01"])
+
+    def test_nothing_is_asked_to_join_it_to_anything(self):
+        vision, text, complete, describe = self._watch()
+        extract_documents([_png()], complete=complete, describe_images=describe, resolve_passes=0)
+        self.assertEqual([u for u in text if "THE READINGS" in u], [],
+                         "a single image was sent to the pass that puts several together")
+
+    def test_the_prompt_does_not_talk_about_the_other_images(self):
+        """It is the only one. Telling it that an arrow off the edge is picked up elsewhere invites
+        it to leave a route unresolved that the picture in front of it actually resolves."""
+        vision, text, complete, describe = self._watch()
+        extract_documents([_png()], complete=complete, describe_images=describe, resolve_passes=0)
+        self.assertNotIn("continues_offpage", vision[0])
+        self.assertIn("nothing continuing off the page", vision[0])
+
+    def test_it_is_still_checked_against_the_image_where_it_does_not_join_up(self):
+        """The shorter path drops the joining pass, not the audit. A single diagram read with a
+        hole in it is exactly as unwalkable as several."""
+        holed = {"decisions": [{"id": "DEC-01", "name": "PIN check",
+                                "outcomes": ["Pass", "Fail"]}],
+                 "states": [{"id": "S-00", "reached_via": "Start", "description": "Opens",
+                             "next_decisions": ["DEC-01"], "is_terminal": False},
+                            {"id": "S-01", "reached_via": "DEC-01=Pass", "description": "Verified",
+                             "is_terminal": True, "outcome_type": "Happy path"}]}
+        seen = []
+
+        def describe(system, user, images, **kwargs):
+            seen.append(user)
+            if "WHAT DOES NOT JOIN UP" in user:
+                return json.dumps(self._WHOLE)
+            return json.dumps({**holed, "observations": []})
+
+        def complete(system, user, **kwargs):
+            return json.dumps({"resolved": []} if "THE OUTSTANDING QUESTIONS" in user else {})
+
+        record = extract_documents([_png()], complete=complete, describe_images=describe,
+                                   resolve_passes=0)
+        self.assertEqual(len([u for u in seen if "WHAT DOES NOT JOIN UP" in u]), 1)
+        self.assertEqual(ds.audit(record.structure), [])
+
+
+class TestSeveralImagesArePutTogetherAsTold(unittest.TestCase):
+    """Pieces of one picture and separate drawings of one flow need opposite readings.
+
+    Stitching is right for a flow cut into pieces and wrong for two drawings of one flow, where it
+    welds the end of the first onto the start of the second and enumerates routes the agent does
+    not have. Reconciling is right for two drawings and wrong for pieces, where it folds the end of
+    one picture into the start of the next as the same step under a different label. Which one it
+    is is not visible in the result without reading the whole graph back against the pictures.
+    """
+
+    def _capture(self):
+        seen = {}
+
+        def describe(system, user, images, **kwargs):
+            return json.dumps({"nodes": [{"ref": "n1", "label": "PIN check", "kind": "decision"}],
+                               "edges": [], "counts": {"boxes": 1, "arrows": 0}})
+
+        def complete(system, user, **kwargs):
+            if "THE READINGS" in user:
+                seen["prompt"] = user
+                return json.dumps({"capabilities": [], "decisions": [], "states": [],
+                                   "observations": []})
+            return json.dumps({"resolved": []} if "THE OUTSTANDING QUESTIONS" in user else {})
+        return seen, complete, describe
+
+    def test_pieces_of_one_picture_are_followed_from_image_to_image(self):
+        seen, complete, describe = self._capture()
+        extract_documents([_png(), _png("two.png")], complete=complete, describe_images=describe,
+                          resolve_passes=0, diagram_mode="split")
+        self.assertIn("continues_offpage", seen["prompt"])
+        self.assertIn("split across images", seen["prompt"])
+
+    def test_separate_drawings_of_one_flow_are_reconciled_instead(self):
+        seen, complete, describe = self._capture()
+        extract_documents([_png(), _png("two.png")], complete=complete, describe_images=describe,
+                          resolve_passes=0, diagram_mode="same_flow")
+        self.assertIn("each show the same workflow", seen["prompt"])
+        self.assertIn("not to stitch them end to end", seen["prompt"])
+
+    def test_the_reconciling_pass_is_told_not_to_chain_them(self):
+        """The specific failure it exists to prevent, named in the prompt so it is not left to be
+        inferred from "reconcile"."""
+        seen, complete, describe = self._capture()
+        extract_documents([_png(), _png("two.png")], complete=complete, describe_images=describe,
+                          resolve_passes=0, diagram_mode="same_flow")
+        self.assertIn("one step, not two", seen["prompt"])
+        self.assertIn("Do not chain one image onto the end of another", seen["prompt"])
+
+    def test_stitching_is_what_happens_when_nobody_says(self):
+        """The commoner case, and the one the reading was built for."""
+        seen, complete, describe = self._capture()
+        extract_documents([_png(), _png("two.png")], complete=complete, describe_images=describe,
+                          resolve_passes=0)
+        self.assertIn("split across images", seen["prompt"])
+
+    def test_a_mode_nobody_offered_falls_back_to_stitching(self):
+        seen, complete, describe = self._capture()
+        extract_documents([_png(), _png("two.png")], complete=complete, describe_images=describe,
+                          resolve_passes=0, diagram_mode="nonsense")
+        self.assertIn("split across images", seen["prompt"])
 
 
 class TestTheDrafterIsGivenStructure(unittest.TestCase):

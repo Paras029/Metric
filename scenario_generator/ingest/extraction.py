@@ -60,7 +60,22 @@ _READ_PROMPT = "ingest.read"
 _RESOLVE_PROMPT = "ingest.resolve"
 _DIAGRAM_READ_PROMPT = "ingest.diagram_read"
 _DIAGRAM_SYNTHESIZE_PROMPT = "ingest.diagram_synthesize"
+_DIAGRAM_RECONCILE_PROMPT = "ingest.diagram_reconcile"
+_DIAGRAM_ONLY_PROMPT = "ingest.diagram_only"
 _DIAGRAM_REPAIR_PROMPT = "ingest.diagram_repair"
+
+# How several submitted images relate to one another, which decides how the second pass reads
+# them. One image needs neither, and takes a shorter path -- see :meth:`_read_diagrams`.
+#
+# The distinction is not cosmetic. Stitching is right for a flow that was cut into pieces and
+# wrong for two drawings of the same flow, where it welds the end of one onto the start of the
+# other and invents routes the agent does not have. Reconciling is right for two drawings of one
+# flow and wrong for pieces, where it would fold the end of the first picture into the start of
+# the second as "the same step under a different label". Neither reading can tell which it is
+# looking at from the pictures alone with any reliability, and whoever uploaded them knows.
+SPLIT_ACROSS_IMAGES = "split"
+SAME_FLOW_EACH = "same_flow"
+DIAGRAM_MODES = (SPLIT_ACROSS_IMAGES, SAME_FLOW_EACH)
 
 # The eleven questions asked in three calls rather than eleven. Grouped by what they have in
 # common, so each call answers questions that draw on the same parts of the document, and each
@@ -172,8 +187,13 @@ class DocumentExtractor:
                  describe_images: Optional[Callable[..., str]] = None,
                  resolve_passes: Optional[int] = None, cancel=None,
                  redact: Optional[Callable[..., Tuple[List, Optional[dict]]]] = None,
-                 should_redact: Optional[Callable[[Path], bool]] = None) -> None:
+                 should_redact: Optional[Callable[[Path], bool]] = None,
+                 diagram_mode: str = SPLIT_ACROSS_IMAGES) -> None:
         self._complete = complete or ask_llm
+        # Not validated here. The one place it is read -- picking the second pass -- is already
+        # total: anything that is not SAME_FLOW_EACH stitches, which is the right default for a
+        # value nobody set. A second check would be a second place for the two to disagree.
+        self._diagram_mode = diagram_mode
         self._describe_images = describe_images or ask_llm_with_images
         self._progress = progress or (lambda *args, **kwargs: None)
         self._resolve = resolve
@@ -329,10 +349,22 @@ class DocumentExtractor:
         Each image is read on its own first, into an explicit list of boxes and arrows -- one
         picture at a time, the way a person would, and enumerated rather than described so that a
         box which was missed shows up as an arrow pointing at nothing instead of vanishing
-        silently. A second pass is given every image's reading together and joins them into one
-        graph, following an arrow that ran off the edge of one image into whatever picks it up in
-        another. A third looks again, with the images still attached, at whatever the joined graph
-        cannot account for -- see :meth:`_repair_structure`.
+        silently. A second pass is given every image's reading together and puts them into one
+        graph. A third looks again, with the images still attached, at whatever that graph cannot
+        account for -- see :meth:`_repair_structure`.
+
+        **One image skips the middle pass entirely.** There is nothing to join it to, so it is read
+        straight into the intake's vocabulary in a single call -- one call rather than two, and
+        without a prompt that talks about arrows running off the page into other pictures, which
+        for a single submitted diagram describes a situation that does not exist.
+
+        **Several images are put together in one of two ways, and which one is not guessed at.**
+        Pieces of one cut-up picture are stitched: an arrow leaving the edge of one image is
+        followed into whatever picks it up in another. Separate drawings of the same flow are
+        reconciled instead: the same step drawn twice is one step, and the images are not chained
+        end to end. Applying either to the other's input goes wrong quietly -- stitching two
+        drawings of one flow welds the end of the first onto the start of the second and invents
+        routes the agent does not have. See :data:`DIAGRAM_MODES`.
 
         An image that fails on its own is dropped and the rest still go through.
         """
@@ -348,6 +380,11 @@ class DocumentExtractor:
 
         names = ", ".join(p.name for p in paths)
         cancellation.check(self._cancel)
+
+        if len(loaded) == 1:
+            self._read_only_diagram(loaded[0], record, names)
+            return
+
         # Each image is read alone -- see the docstring above -- so one image's reading has
         # nothing to do with another's, the same reasoning that already runs the three facet
         # groups in parallel below.
@@ -374,6 +411,46 @@ class DocumentExtractor:
                              "it as a note.")
             return
 
+        self._settle(record, reply, loaded, names)
+
+    def _read_only_diagram(self, entry: Tuple[Path, Tuple[str, bytes]],
+                           record: EvidenceRecord, names: str) -> None:
+        """The single-image path: one call, straight into the intake's vocabulary.
+
+        The three-pass reading exists because several pictures have to be reconciled with one
+        another, and none of that applies to one. Reading it into boxes and arrows and then asking
+        a second call to translate those boxes and arrows spends a call to arrive where the first
+        one could have finished, and does it through a prompt that spends its opening paragraphs on
+        images that are not there.
+        """
+        path, image = entry
+        self._say("Reading the workflow diagram")
+        user = prompt_loader.render(_DIAGRAM_ONLY_PROMPT, filename=path.name,
+                                    facets=_facet_guide())
+        try:
+            reply = parse_json_object(council.deliberate(
+                self._describe_images, prompt_loader.load(_SYSTEM_PROMPT), user,
+                stage="INGEST_DIAGRAM_READ",
+                tier=config.stage_tier("INGEST_DIAGRAM_READ", config.JUDGEMENT), images=[image]))
+        except Exception as exc:
+            self._called(failed=True)
+            self._step("Read the workflow diagram")
+            logger.warning("Could not read diagram %s: %s", path.name, exc)
+            self._unreadable(record, [entry],
+                             "the diagram could not be read. Supply a written description of the "
+                             "flow it shows, or add it as a note.")
+            return
+        self._called()
+        self._step("Read the workflow diagram")
+        self._settle(record, reply, [entry], names)
+
+    def _settle(self, record: EvidenceRecord, reply: dict,
+                loaded: List[Tuple[Path, Tuple[str, bytes]]], names: str) -> None:
+        """Clean the workflow, check it against the images once, and record it.
+
+        Shared by both paths so that what happens to a workflow after it is read does not depend on
+        how many pictures it came from.
+        """
         structure = diagram_structure.clean(reply)
         structure = self._repair_structure(structure, [image for _, image in loaded], names)
         record.structure = structure
@@ -391,7 +468,7 @@ class DocumentExtractor:
 
         self._claim_observations(record, reply.get("observations"), names)
         if not diagram_structure.is_empty(structure):
-            logger.info("Read a workflow from %d diagram(s): %s.", len(readings),
+            logger.info("Read a workflow from %d diagram(s): %s.", len(loaded),
                         ", ".join(f"{count} {part}"
                                   for part, count in diagram_structure.counts(structure).items()))
 
@@ -449,7 +526,12 @@ class DocumentExtractor:
 
     def _synthesize_diagrams(self, readings: List[Tuple[str, dict]],
                              names: str) -> Optional[dict]:
-        """Join every image's own reading into one graph, in the intake's own vocabulary.
+        """Put every image's own reading into one graph, in the intake's own vocabulary.
+
+        Two ways of doing that, and which one runs is what somebody said the images are -- pieces
+        of one cut-up picture, or separate drawings of the same flow. The prompts differ in the one
+        thing that matters and would be wrong to guess at: whether a box appearing in two images is
+        two steps to be chained or one step drawn twice.
 
         Text only: everything visual was already pulled out into the node and edge lists this is
         given, so there is nothing left for this call to look at a picture for. Node references
@@ -462,7 +544,9 @@ class DocumentExtractor:
             f"{json.dumps(reading, indent=2)}"
             for index, ((name, _), reading) in enumerate(zip(readings, namespaced), start=1))
 
-        user = prompt_loader.render(_DIAGRAM_SYNTHESIZE_PROMPT, facets=_facet_guide(),
+        prompt = (_DIAGRAM_RECONCILE_PROMPT if self._diagram_mode == SAME_FLOW_EACH
+                  else _DIAGRAM_SYNTHESIZE_PROMPT)
+        user = prompt_loader.render(prompt, facets=_facet_guide(),
                                     document=names, readings=blocks)
         try:
             reply = parse_json_object(council.deliberate(
@@ -663,9 +747,10 @@ class DocumentExtractor:
         """
         images = [p for p in paths if is_image(p)]
         sweeps = self._passes if self._resolve else 0
-        # One call per diagram read on its own, one to join them into a workflow, and one more
-        # where that workflow does not account for itself and is put back to the images.
-        diagram_calls = len(images) + 2 if images else 0
+        # One call per diagram read on its own, one to put them together into a workflow, and one
+        # more where that workflow does not account for itself and is put back to the images. A
+        # single image needs no putting-together, so it costs one call fewer.
+        diagram_calls = (2 if len(images) == 1 else len(images) + 2) if images else 0
         return len(paths) + len(FACET_GROUPS) + diagram_calls + sweeps
 
     def _say(self, message: str) -> None:
@@ -821,11 +906,12 @@ def _merge(existing: Optional[FacetAnswer], addition: FacetAnswer) -> FacetAnswe
 def extract_documents(paths: Sequence[Path], complete: Optional[CompletionFn] = None,
                       progress: Optional[ProgressFn] = None, resolve: bool = True,
                       describe_images: Optional[Callable[..., str]] = None,
-                      resolve_passes: Optional[int] = None, cancel=None) -> EvidenceRecord:
+                      resolve_passes: Optional[int] = None, cancel=None,
+                      diagram_mode: str = SPLIT_ACROSS_IMAGES) -> EvidenceRecord:
     """Read a submitted pack into a verified evidence record."""
     return DocumentExtractor(complete=complete, progress=progress, resolve=resolve,
-                             describe_images=describe_images,
-                             resolve_passes=resolve_passes, cancel=cancel).run(paths)
+                             describe_images=describe_images, resolve_passes=resolve_passes,
+                             cancel=cancel, diagram_mode=diagram_mode).run(paths)
 
 
 def record_to_json(record: EvidenceRecord, path: Path) -> None:

@@ -17,6 +17,7 @@ from .core.gaps import find_gaps
 from .core.representation import DEFAULT_THRESHOLD, build_report
 from .io import (read_space_metadata, read_scenarios, write_data_template, write_coverage_report,
                  write_space_metadata, write_scenario_graph)
+from .ingest.extraction import SPLIT_ACROSS_IMAGES
 from .ingest import (DocumentExtractor, DraftedIntake, build_context_document, carry_forward,
                      draft_intake, open_questions, read_conversations, record_from_json,
                      redact_conversations, rejection_summary, repair_intake, revise_intake,
@@ -221,7 +222,8 @@ def ingest_documents(source_paths: Sequence[str], output_prefix: str,
                      extractor: Optional[DocumentExtractor] = None,
                      progress: Optional[Callable[[str], None]] = None,
                      resolve_passes: Optional[int] = None, cancel=None,
-                     should_redact: Optional[Callable[[str], bool]] = None) -> IngestResult:
+                     should_redact: Optional[Callable[[str], bool]] = None,
+                     diagram_mode: str = SPLIT_ACROSS_IMAGES) -> IngestResult:
     """Stage 0: read submitted documents into verified evidence, context and open questions.
 
     Writes three files under ``output_prefix``: the evidence record, the cited context document
@@ -235,7 +237,8 @@ def ingest_documents(source_paths: Sequence[str], output_prefix: str,
     documents are actually read. See :mod:`scenario_generator.ingest.redaction`.
     """
     extractor = extractor or DocumentExtractor(progress=progress, resolve_passes=resolve_passes,
-                                               cancel=cancel, should_redact=should_redact)
+                                               cancel=cancel, should_redact=should_redact,
+                                               diagram_mode=diagram_mode)
     record = extractor.run([Path(p) for p in source_paths])
 
     evidence_path = f"{output_prefix}_evidence.json"

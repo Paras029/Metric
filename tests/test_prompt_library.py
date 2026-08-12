@@ -39,6 +39,8 @@ _CONTRACT = {
     "ingest.resolve": {"established", "questions", "corpus"},
     "ingest.diagram_read": {"filename", "position"},
     "ingest.diagram_synthesize": {"facets", "document", "readings"},
+    "ingest.diagram_reconcile": {"facets", "document", "readings"},
+    "ingest.diagram_only": {"facets", "filename"},
     "ingest.diagram_repair": {"document", "structure", "problems"},
     "intake.draft": {"context", "structure"},
     "intake.revise": {"context", "current", "structure"},

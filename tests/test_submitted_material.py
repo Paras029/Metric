@@ -172,6 +172,87 @@ class TestNothingUploadedIsLost(unittest.TestCase):
         for key in ("intake", "workflow", "materiality"):
             self.assertEqual(statuses[key], "complete", f"{key} was marked stale")
 
+    def _image(self, name):
+        import base64
+        path = _scratch() / name
+        path.write_bytes(base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAE"
+            "hQGAhKmMIQAAAABJRU5ErkJggg=="))
+        return path
+
+    def test_the_workflow_diagram_card_takes_images_and_nothing_else(self):
+        """It says ".png .jpg .jpeg" on the card. Quietly accepting a PDF files it under
+        "Workflow diagrams", reads it as the ordinary document it is, and leaves nobody able to
+        work out why the diagram they submitted is not in the graph."""
+        self._upload("intake", _rules_workbook(_scratch()), "diagrams")
+        self.assertEqual(files_in(self.workspace, "diagrams"), [])
+
+        state = json.loads((self.workspace / "workspace.json").read_text())["stages"]["intake"]
+        self.assertIn("thresholds.xlsx", state["note"])
+        self.assertIn("Workflow diagrams", state["note"])
+        self.assertIn(".png", state["note"])
+
+    def test_an_image_is_still_accepted_there(self):
+        self._upload("intake", self._image("flow.png"), "diagrams")
+        self.assertEqual([p.name for p in files_in(self.workspace, "diagrams")], ["flow.png"])
+
+    def test_how_the_images_relate_is_asked_only_once_there_are_several(self):
+        """With one image there is nothing to relate, and the reading takes a path that never
+        consults it."""
+        self._upload("intake", self._image("one.png"), "diagrams")
+        self.assertNotIn("How these images relate",
+                         self.client.get("/stage/intake").data.decode())
+
+        self._upload("intake", self._image("two.png"), "diagrams")
+        page = self.client.get("/stage/intake").data.decode()
+        self.assertIn("How these images relate", page)
+        self.assertIn("One workflow, split across these images", page)
+        self.assertIn("Each image shows the same workflow", page)
+
+    def test_the_choice_is_kept_and_makes_a_finished_reading_out_of_date(self):
+        from scenario_generator.webapp.workspace import Workspace
+        self._finish("intake")
+        self.client.post("/stage/intake/diagrams", data={"mode": "same_flow"})
+
+        self.assertEqual(Workspace.load(self.workspace).diagram_mode, "same_flow")
+        self.assertEqual(self._statuses()["intake"], "stale")
+
+    def test_choosing_what_was_already_chosen_changes_nothing(self):
+        """Re-reading a pack that would be read the same way is a few hundred model calls to
+        reproduce what is already on disk."""
+        self.client.post("/stage/intake/diagrams", data={"mode": "same_flow"})
+        self._finish("intake")
+        self.client.post("/stage/intake/diagrams", data={"mode": "same_flow"})
+        self.assertEqual(self._statuses()["intake"], "complete")
+
+    def test_a_mode_nobody_offered_falls_back_to_the_default(self):
+        from scenario_generator.webapp.workspace import Workspace
+        self.client.post("/stage/intake/diagrams", data={"mode": "../../etc"})
+        self.assertEqual(Workspace.load(self.workspace).diagram_mode, "split")
+
+    def test_the_choice_reaches_the_reading_rather_than_stopping_at_the_workspace(self):
+        """Two hops -- the select writes workspace state, and the runner has to hand that state to
+        ingestion. Stored and never passed on looks identical on the page and changes nothing about
+        how the images are actually read."""
+        from unittest import mock
+        from scenario_generator.webapp import runners
+        from scenario_generator.webapp.workspace import Workspace
+
+        self._upload("intake", self._image("one.png"), "diagrams")
+        self._upload("intake", self._image("two.png"), "diagrams")
+        self.client.post("/stage/intake/diagrams", data={"mode": "same_flow"})
+
+        captured = {}
+
+        def fake_ingest(paths, prefix, **kwargs):
+            captured.update(kwargs)
+            raise RuntimeError("far enough")
+
+        with mock.patch.object(runners, "ingest_documents", fake_ingest):
+            with self.assertRaises(RuntimeError):
+                runners._read_documents(Workspace.load(self.workspace))
+        self.assertEqual(captured.get("diagram_mode"), "same_flow")
+
     def test_an_unsupported_file_says_what_is_supported(self):
         path = _scratch() / "old.doc"
         path.write_bytes(b"not really a word document")
