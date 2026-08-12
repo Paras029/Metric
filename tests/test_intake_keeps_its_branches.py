@@ -25,6 +25,7 @@ from pathlib import Path
 
 from scenario_generator.core import read_intake
 from scenario_generator.core.models import Decision, IntakeData, Persona, State, Tool
+from scenario_generator.core.graph import DecisionGraph
 from scenario_generator.ingest.drafting import carry_forward
 from scenario_generator.llm.context import describe_enumeration, describe_graph
 from scenario_generator.pipeline import build_scenario_space, draft_intake_workbook
@@ -144,6 +145,42 @@ class TestNothingDeclaredIsLostInARepair(unittest.TestCase):
         repaired = _copy(states=[s for s in _BRANCHED["states"] if s["id"] != "S-02"])
         merged = carry_forward(_BRANCHED, repaired)
         self.assertIn("S-02", [s["id"] for s in merged["states"]])
+
+    def test_a_state_another_state_now_claims_is_not_put_back(self):
+        """The one thing carrying rows forward must not do.
+
+        A repair that folds two states describing the same position into one rewrites the
+        survivor's `reached_via` to name both outcomes. Putting the folded-away state back then
+        leaves two states claiming the same arrow: the walk takes the first, so the restored one is
+        reached by nothing, and the declaration grows a question asking what leads to a state
+        somebody deliberately merged away. The branch is not lost by leaving it out -- it is
+        already on the survivor.
+        """
+        folded = _copy(states=[
+            s for s in _BRANCHED["states"] if s["id"] not in ("S-02", "S-04")] + [
+            dict(next(s for s in _BRANCHED["states"] if s["id"] == "S-02"),
+                 reached_via="DEC-01=Fail, DEC-02=Too old",
+                 description="Refused, and the session ends")])
+        merged = carry_forward(_BRANCHED, folded)
+
+        ids = [s["id"] for s in merged["states"]]
+        self.assertIn("S-02", ids)
+        self.assertNotIn("S-04", ids, "the folded-away state was put back as an orphan")
+
+        # And every route still lands somewhere: nothing was lost by leaving it out.
+        intake = _intake_of(merged)
+        graph = DecisionGraph(intake.decisions, intake.states)
+        for decision in intake.decisions:
+            for variant in decision.variants:
+                self.assertFalse(graph.successor(decision.id, variant).startswith("OUT:"),
+                                 f"{decision.id}={variant} lost its destination")
+
+    def test_a_state_the_repair_simply_lost_is_still_put_back(self):
+        """The distinction that makes the above safe. A state with a route of its own that nobody
+        else claims was dropped rather than folded, and dropping a branch is what this guards."""
+        lost = _copy(states=[s for s in _BRANCHED["states"] if s["id"] != "S-04"])
+        merged = carry_forward(_BRANCHED, lost)
+        self.assertIn("S-04", [s["id"] for s in merged["states"]])
 
     def test_a_dropped_outcome_is_carried_forward(self):
         """The decision survives and one of its branch labels does not, so a route disappears

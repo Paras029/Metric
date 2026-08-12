@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Set
 
 from openpyxl import load_workbook
 
@@ -27,6 +27,7 @@ from ..core.intake import write_template
 from ..llm import config, council, prompt_loader
 from ..llm.gateway import ask_llm
 from ..utils import parse_json_object
+from ..utils.text import parse_reached_via
 from ..utils.replies import at_least_one, objects as _objects, text as _text
 
 logger = logging.getLogger(__name__)
@@ -134,12 +135,15 @@ def carry_forward(first: dict, repaired: dict) -> dict:
     job, and second-guessing that would leave a declaration neither call actually wrote.
     """
     merged = dict(repaired)
+    superseded = _states_taken_over(first, repaired)
     for part, key in _ROW_KEY.items():
         kept = list(repaired.get(part) or [])
         seen = {str(row.get(key, "")).strip() for row in kept}
         for row in (first.get(part) or []):
-            if str(row.get(key, "")).strip() not in seen:
-                kept.append(row)
+            identifier = str(row.get(key, "")).strip()
+            if identifier in seen or (part == "states" and identifier in superseded):
+                continue
+            kept.append(row)
         merged[part] = kept
 
     # Outcomes are the branch labels, so losing one loses a route even when the decision survives.
@@ -151,6 +155,34 @@ def carry_forward(first: dict, repaired: dict) -> dict:
         if dropped:
             decision["outcomes"] = outcomes + dropped
     return merged
+
+
+def _states_taken_over(first: dict, repaired: dict) -> Set[str]:
+    """States the repair dropped because another state now claims every route into them.
+
+    The one thing that must not be carried forward. A repair that folds two states describing the
+    same position into one rewrites the survivor's `reached_via` to name both outcomes -- and
+    putting the folded-away state back then leaves two states claiming the same arrow. The walk
+    takes the first, so the restored one is reached by nothing: an orphan the declaration cannot
+    account for, which surfaces as a question asking what leads to a state somebody deliberately
+    merged away. Restoring it does not preserve the branch; the branch is already on the survivor.
+
+    Deliberately narrow. Only a state whose routes are *all* claimed elsewhere is left out --
+    anything with a route of its own is a state the repair lost rather than folded, and that is
+    what this function exists to put back.
+    """
+    claimed: Set[str] = set()
+    for state in (repaired.get("states") or []):
+        claimed.update(parse_reached_via(str(state.get("reached_via", ""))))
+
+    kept = {str(state.get("id", "")).strip() for state in (repaired.get("states") or [])}
+    taken_over = set()
+    for state in (first.get("states") or []):
+        identifier = str(state.get("id", "")).strip()
+        edges = set(parse_reached_via(str(state.get("reached_via", ""))))
+        if identifier and identifier not in kept and edges and edges <= claimed:
+            taken_over.add(identifier)
+    return taken_over
 
 
 def repair_intake(context: str, current: str, problems: List[str],
