@@ -38,9 +38,10 @@ _CONTRACT = {
     "ingest.read": {"questions", "corpus", "documents"},
     "ingest.resolve": {"established", "questions", "corpus"},
     "ingest.diagram_read": {"filename", "position"},
-    "ingest.diagram_synthesize": {"facets", "document", "readings"},
-    "ingest.diagram_reconcile": {"facets", "document", "readings"},
-    "ingest.diagram_only": {"facets", "filename"},
+    "ingest.diagram_synthesize": {"facets", "document", "readings", "vocabulary"},
+    "ingest.diagram_reconcile": {"facets", "document", "readings", "vocabulary"},
+    "ingest.diagram_only": {"facets", "filename", "vocabulary"},
+    "shared.diagram_vocabulary": set(),
     "ingest.diagram_repair": {"document", "structure", "problems"},
     "intake.draft": {"context", "structure"},
     "intake.revise": {"context", "current", "structure"},
@@ -112,6 +113,29 @@ class TestWriterWithholdsTheAnswerKey(unittest.TestCase):
         self.assertIn("never state", house_style)
         for name in ("writer.graph_scenario", "writer.probe"):
             self.assertIn("{{house_style}}", prompt_loader.load(name))
+
+
+class TestTheVocabularyIsWrittenOnce(unittest.TestCase):
+    """The intake's schema is what everything downstream hangs on, and three diagram prompts each
+    had their own copy of it. Five places to change together is five chances to leave one behind,
+    and a prompt describing `is_terminal` differently from the one beside it produces two
+    declarations that disagree about what an ending is."""
+
+    USERS = ("ingest.diagram_only", "ingest.diagram_synthesize", "ingest.diagram_reconcile")
+
+    def test_each_prompt_takes_it_rather_than_restating_it(self):
+        for name in self.USERS:
+            self.assertIn("vocabulary", prompt_loader.placeholders(name), name)
+            body = prompt_loader.load(name)
+            self.assertNotIn("**Decisions** — every branch point", body,
+                             f"{name} has its own copy of the vocabulary again")
+
+    def test_the_shared_block_still_defines_every_part_of_the_graph(self):
+        shared = prompt_loader.load("shared.diagram_vocabulary")
+        for part in ("**Capabilities**", "**Decisions**", "**States**",
+                     "reached_via", "is_terminal", "outcome_type", "input_source",
+                     "max_attempts", "outcome_condition"):
+            self.assertIn(part, shared)
 
 
 if __name__ == "__main__":

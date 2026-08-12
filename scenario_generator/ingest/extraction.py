@@ -439,7 +439,7 @@ class DocumentExtractor:
         path, image = entry
         self._say(READING_DIAGRAMS)
         user = prompt_loader.render(_DIAGRAM_ONLY_PROMPT, filename=path.name,
-                                    facets=_facet_guide())
+                                    facets=_facet_guide(), vocabulary=_vocabulary())
         try:
             reply = parse_json_object(council.deliberate(
                 self._describe_images, prompt_loader.load(_SYSTEM_PROMPT), user,
@@ -559,7 +559,7 @@ class DocumentExtractor:
 
         prompt = (_DIAGRAM_RECONCILE_PROMPT if self._diagram_mode == SAME_FLOW_EACH
                   else _DIAGRAM_SYNTHESIZE_PROMPT)
-        user = prompt_loader.render(prompt, facets=_facet_guide(),
+        user = prompt_loader.render(prompt, facets=_facet_guide(), vocabulary=_vocabulary(),
                                     document=names, readings=blocks)
         try:
             reply = parse_json_object(council.deliberate(
@@ -925,6 +925,17 @@ def _fold_diagram_observations(record: EvidenceRecord) -> None:
         generic = FACET_QUESTIONS.get(claim.facet, "").strip()
         if generic:
             answer.unknowns = [u for u in answer.unknowns if u.strip() != generic]
+
+
+def _vocabulary() -> str:
+    """The intake's own vocabulary, as one block shared by every prompt that writes in it.
+
+    Written out in each of them until now. It is the schema everything downstream hangs on, so
+    five copies of it is five places to change together and five chances for one to be left
+    behind -- and a diagram prompt describing `is_terminal` differently from the one beside it
+    produces two declarations that disagree about what an ending is.
+    """
+    return prompt_loader.load("shared.diagram_vocabulary")
 
 
 def _facet_guide() -> str:
