@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional, Sequence
 
-from .core.graph import routes_that_stop_short
 from .core import (DecisionGraph, IntakeData, Scenario, build_probes, enumerate_paths,
                    instantiate_all, read_intake, read_owner_scenarios)
 from .core.context import load_context as _load_context
@@ -50,16 +49,6 @@ def build_scenario_space(intake: IntakeData, with_probes: bool = False) -> List[
     if with_probes:
         scenarios += build_probes(intake)
     return scenarios
-
-
-def routes_without_a_declared_ending(intake: IntakeData) -> List:
-    """Routes the walk found but could not issue, because the intake never says how they finish.
-
-    Worth surfacing beside the scenario count rather than only in the gap list: the gap list says
-    a state has no successor, and this says how many real routes through the agent run into that
-    -- which is the number that decides whether it is worth going back to the model owner.
-    """
-    return routes_that_stop_short(DecisionGraph(intake.decisions, intake.states))
 
 
 def build_graph(intake_path: str, graph_path: str, with_probes: bool = False) -> List[Scenario]:

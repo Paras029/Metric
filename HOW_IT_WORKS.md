@@ -279,11 +279,13 @@ declaration running out rather than the agent finishing:
 - the state reached leads nowhere and is not marked as ending the interaction;
 - every decision that state offers has used up its `Max Attempts`, or is out of scope.
 
-These are reported on the stage — *"Routes with no declared ending: 4 — not issued; the intake does
-not say how they finish"* — rather than issued. Each one is a real hole: a branch a user can take
-today whose ending nobody has written down. The first two also appear as questions against the row
-that owns them on the intake stage; the third is the case only the walk can see, since it depends
-on how the route arrived rather than on any single row.
+None of these produce a scenario. The scenario space metadata holds routes that end at a declared
+ending and nothing else, so a partial route cannot reach the data template, the coverage mapping or
+any later judgement by way of it.
+
+The first two are declaration gaps the intake stage already asks about, against the row that owns
+them: an outcome with no destination, and a state that leads nowhere without being marked as an
+ending. Answer those and the routes through them come back as ordinary scenarios.
 
 The retry case is the one worth being concrete about. If identity verification allows two attempts
 and the second failure lands nowhere declared, that route is reported, not tested. Declare a second

@@ -68,28 +68,28 @@ class DecisionGraph:
 
 
 # --------------------------------------------------------------------------- enumeration
-def _walk(graph: DecisionGraph) -> Tuple[List[Path], List[Path]]:
-    """DFS from every start state, separating the routes that finish from the ones that stop.
+def walk_paths(graph: DecisionGraph) -> List[Path]:
+    """DFS from every start state, keeping only the routes that reach a declared ending.
 
     A route finishes when it arrives at a state the intake marks as ending the interaction. Every
-    other way a walk can come to a halt is the declaration running out, not the agent finishing:
+    other way a walk can come to a halt is the declaration running out rather than the agent
+    finishing:
 
     * the outcome taken names a destination no state declares (``OUT:DEC-02=Odd``);
     * the state reached leads nowhere but is not marked as an ending;
     * every decision the state offers has used up its ``Max Attempts``, or is out of scope.
 
-    All three used to be issued as scenarios. None of them can be: a scenario is a conversation
-    with an expected outcome, and these are routes whose outcome the intake never states -- so the
-    metadata workbook carried an expected ending of nothing at all, and the model owner was asked
-    to run a conversation nobody could mark. They are returned separately instead, to be reported
-    as what they are: places the declaration stops short.
+    All three used to be recorded as paths, and became scenarios. None of them can be one: a
+    scenario is a conversation issued to the model owner with an expected outcome behind it, and a
+    route the declaration stops short of has no expected outcome to have -- so the metadata
+    workbook carried an ending of nothing at all, and the pack asked for a conversation nobody
+    could mark. They are dropped here, which is what keeps that out of everything downstream.
     """
-    finished: List[Path] = []
-    stopped: List[Path] = []
+    paths: List[Path] = []
     truncated = {"paths": False, "depth": False}
 
     def visit(state_id: str, path: Path, fired: Dict[str, int]) -> None:
-        if len(finished) + len(stopped) >= MAX_PATHS:
+        if len(paths) >= MAX_PATHS:
             truncated["paths"] = True
             return
         if len(path) > MAX_DEPTH:
@@ -97,12 +97,10 @@ def _walk(graph: DecisionGraph) -> Tuple[List[Path], List[Path]]:
             return
         state = graph.state(state_id)
         if state is None or state.is_terminal or not state.next_decisions:
-            if path:
-                (finished if state is not None and state.is_terminal else stopped).append(
-                    list(path))
+            if path and state is not None and state.is_terminal:
+                paths.append(list(path))
             return
 
-        advanced = False
         for decision_id in state.next_decisions:
             decision = graph.decision(decision_id)
             if decision is None or decision.out_of_scope:
@@ -110,19 +108,15 @@ def _walk(graph: DecisionGraph) -> Tuple[List[Path], List[Path]]:
             occurrence = fired.get(decision_id, 0)
             if occurrence >= decision.max_attempts:
                 continue
-            advanced = True
             for variant in decision.variants:
                 next_state = graph.successor(decision_id, variant, occurrence)
                 visit(next_state,
                       path + [Step(decision_id, variant, next_state)],
                       {**fired, decision_id: occurrence + 1})
 
-        # Every decision this state offers is either out of scope or has used up its attempts, so
-        # the interaction has nowhere declared to go. Exhausting a retry limit is a real thing that
-        # happens -- but what the agent does at that point is exactly what the intake has failed to
-        # say, so this is a route to report rather than one to test.
-        if not advanced and path:
-            stopped.append(list(path))
+        # Nothing is recorded where every decision on offer is out of scope or out of attempts.
+        # Exhausting a retry limit is a real thing that happens, but what the agent does at that
+        # point is exactly what the intake has not said -- so there is no outcome to test against.
 
     for start in graph.start_states:
         visit(start, [], {})
@@ -133,22 +127,7 @@ def _walk(graph: DecisionGraph) -> Tuple[List[Path], List[Path]]:
     if truncated["depth"]:
         logger.warning("One or more paths were cut at the MAX_DEPTH limit of %d steps — those "
                        "branches are not represented.", MAX_DEPTH)
-    return finished, stopped
-
-
-def walk_paths(graph: DecisionGraph) -> List[Path]:
-    """Every route from a start state to a declared ending."""
-    return _walk(graph)[0]
-
-
-def routes_that_stop_short(graph: DecisionGraph) -> List[Path]:
-    """Routes the walk had to abandon because the declaration ran out -- see :func:`_walk`.
-
-    Reported rather than issued. Each one is a real hole: a branch a user can take today whose
-    ending nobody has written down, which is worth a validator's attention precisely because it
-    cannot be tested until somebody answers it.
-    """
-    return _walk(graph)[1]
+    return paths
 
 
 def covered_variants(paths: List[Path]) -> Set[Tuple[str, str]]:
@@ -228,7 +207,7 @@ def augment_variants(graph: DecisionGraph, paths: List[Path]) -> List[Path]:
     exercise an outcome the exhaustive walk could not get to -- usually one behind a retry limit --
     and stopping the moment it fires made every one of them a route with no declared ending, which
     is the one thing a scenario cannot be. An outcome whose continuation dead-ends is dropped: it
-    is unreachable in a complete route, and :func:`routes_that_stop_short` is where that is said.
+    is unreachable in a complete route, so there is no conversation to ask anybody to run.
     """
     already = covered_variants(paths)
     extra: List[Path] = []

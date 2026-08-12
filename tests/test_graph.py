@@ -9,12 +9,11 @@ asked somebody to run a conversation nobody could mark.
 There are three ways a walk stops short, and all three are the declaration running out rather than
 the agent finishing: an outcome naming a destination no state declares, a state that leads nowhere
 and is not marked as an ending, and every decision on offer having used up its attempts or being
-out of scope. They are reported instead of issued.
+out of scope. None of them produce a scenario.
 """
 import unittest
 
-from scenario_generator.core.graph import (DecisionGraph, enumerate_paths,
-                                           routes_that_stop_short)
+from scenario_generator.core.graph import DecisionGraph, enumerate_paths
 from scenario_generator.core.models import Capability, Decision, IntakeData, Persona, State, Tool
 
 
@@ -61,16 +60,19 @@ class TestOnlyWholeRoutesAreIssued(unittest.TestCase):
         return DecisionGraph(
             [Decision("DEC-01", "Identity check", "CAP-01", "", ["Pass", "Fail"], max_attempts=2),
              Decision("DEC-02", "What is asked", "CAP-01", "", ["Dispute", "Odd"]),
-             Decision("DEC-07", "Vendor sub-flow", "CAP-01", "", ["A"], out_of_scope=True)],
+             Decision("DEC-07", "Vendor sub-flow", "CAP-01", "", ["A"], out_of_scope=True),
+             Decision("DEC-08", "Hand to the vendor", "CAP-01", "", ["Done"])],
             [State("S-00", "Start", "The chat opens", ["DEC-01"], False),
              State("S-01", "DEC-01=Pass", "Verified", ["DEC-02"], False),
              # Fail loops back to DEC-01, and nothing says what the second failure does.
              State("S-02", "DEC-01=Fail", "Retry", ["DEC-01"], False),
              State("S-03", "DEC-02=Dispute", "Dispute filed", [], True, "Happy path"),
              # DEC-02=Odd is declared as an outcome, and no state claims to be reached by it.
-             State("S-05", "Start", "Second entry", ["DEC-07"], False),
-             # Reached, leads nowhere, and not marked as ending the interaction.
-             State("S-06", "DEC-07=A", "Vendor took it", [], False)])
+             State("S-05", "Start", "Second entry", ["DEC-07", "DEC-08"], False),
+             # Reached by an in-scope decision, leads nowhere, and not marked as ending the
+             # interaction. Reachable is the point: behind the out-of-scope DEC-07 the walk would
+             # never arrive here, and the case would go untested.
+             State("S-06", "DEC-08=Done", "Handed to the vendor", [], False)])
 
     def test_every_issued_route_ends_at_a_declared_ending(self):
         graph = self._graph()
@@ -90,17 +92,11 @@ class TestOnlyWholeRoutesAreIssued(unittest.TestCase):
         walked, _ = enumerate_paths(self._graph())
         self.assertEqual([p for p in walked if all(s.variant == "Fail" for s in p)], [])
 
-    def test_what_is_dropped_is_reported_rather_than_lost(self):
-        """Each one is a branch a user can take today whose ending nobody has written down. Absent
-        from the space *and* absent from any report is how a whole branch stops being tested with
-        nothing on screen saying so."""
-        stopped = routes_that_stop_short(self._graph())
-        endings = {p[-1].next_state for p in stopped}
-        self.assertIn("OUT:DEC-02=Odd", endings)          # the outcome with no destination
-        self.assertIn("S-02", endings)                    # the retry loop with no way out
-
-    def test_a_clean_declaration_has_nothing_to_report(self):
-        self.assertEqual(routes_that_stop_short(_build_graph()), [])
+    def test_a_state_that_leads_nowhere_and_is_not_an_ending_is_not_one_either(self):
+        """S-06 is reached, leads nowhere, and nobody marked it as ending the interaction. It is a
+        row somebody has not finished, not a place a conversation can be said to have got to."""
+        walked, augmented = enumerate_paths(self._graph())
+        self.assertNotIn("S-06", {p[-1].next_state for p in walked + augmented})
 
     def test_an_outcome_the_walk_misses_is_carried_on_to_an_ending(self):
         """Augmented routes exist to exercise an outcome the exhaustive walk could not reach.
