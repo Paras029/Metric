@@ -140,6 +140,71 @@ class TestReading(unittest.TestCase):
             extract_documents([_write("empty.md", "  ")], complete=_stub())
 
 
+class TestWhatAPersonWatchingIsTold(unittest.TestCase):
+    """The progress line answers what is being waited on. It is not a tour of the machinery.
+
+    Reading a pack is a sweep over three groups of questions and then a sweep or two putting what
+    is still open back to the documents; reading diagrams is a call per image, one to put them
+    together, and one checking the result against the pictures. Naming each of those on screen
+    described internals to somebody who cannot act on any of them, and "Looking again at what is
+    unanswered (1 of 2)" invites a reader to wonder what went wrong the first time. Nothing did.
+    """
+
+    ALLOWED = {"Opening the submitted files", "Reading the submitted documents",
+               "Reading the workflow diagrams"}
+
+    def _run(self, paths, **kwargs):
+        seen = []
+        extract_documents(paths, progress=lambda message, *a, **k: seen.append(message), **kwargs)
+        return seen
+
+    def test_every_line_is_one_a_reader_can_act_on(self):
+        seen = self._run([_write("notes.md", _SCATTERED)], complete=_stub())
+        self.assertTrue(seen)
+        for message in seen:
+            self.assertIn(message, self.ALLOWED, f"a sub-step reached the page: {message!r}")
+
+    def test_the_passes_over_the_documents_are_not_counted_out_loud(self):
+        """Two sweeps or four is a tuning setting. It is not news."""
+        seen = self._run([_write("notes.md", _SCATTERED)], complete=_stub(), resolve_passes=3)
+        for message in seen:
+            self.assertNotRegex(message, r"\d+ of \d+")
+            self.assertNotIn("unanswered", message.lower())
+
+    def test_reading_diagrams_says_so_without_naming_each_pass(self):
+        """Two images, so the per-image reading runs: it used to count them out on screen, and a
+        single diagram takes a shorter path that never reaches it."""
+        seen = self._run([_write("notes.md", _SCATTERED), _png_file(), _png_file("flow2.png")],
+                         complete=_diagram_stub(), describe_images=_vision_stub())
+        self.assertIn("Reading the workflow diagrams", seen)
+        for message in seen:
+            self.assertIn(message, self.ALLOWED, f"a sub-step reached the page: {message!r}")
+
+
+def _png_file(name="flow.png"):
+    import base64
+    path = Path(tempfile.mkdtemp()) / name
+    path.write_bytes(base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAE"
+        "hQGAhKmMIQAAAABJRU5ErkJggg=="))
+    return path
+
+
+def _vision_stub():
+    def describe(system, user, images, **kwargs):
+        return json.dumps({"nodes": [], "edges": [], "counts": {"boxes": 0, "arrows": 0}})
+    return describe
+
+
+def _diagram_stub():
+    def complete(system, user, **kwargs):
+        if "THE READINGS" in user:
+            return json.dumps({"capabilities": [], "decisions": [], "states": [],
+                               "observations": []})
+        return _stub()(system, user, **kwargs)
+    return complete
+
+
 class TestResolutionSweep(unittest.TestCase):
     """Every question that survives to the model owner costs days, so they are asked twice."""
 

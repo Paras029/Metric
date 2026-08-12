@@ -48,8 +48,32 @@ def _structure_block(structure: Optional[dict]) -> str:
     from . import diagram_structure
 
     if not structure or diagram_structure.is_empty(structure):
-        return ("No workflow diagram was submitted, or none could be read. Build the graph below "
-                "from the prose above.")
+        # No picture, so the graph has to be read out of the prose -- which is the case that used
+        # to get *less* help than the one with a diagram, and a warning against going past the
+        # evidence on top of it. Prose about an agent describes a graph; drawing that graph is
+        # reading, not inventing, and saying so is what stops a documented flow arriving as four
+        # disconnected boxes.
+        return (
+            "No workflow diagram was submitted, so the graph has to be read out of the prose "
+            "above. It is in there: documentation describing what an agent does is describing a "
+            "flow, in sentences rather than in boxes.\n\n"
+            "**Reading it out is not inventing it.** These are readings, and you are expected to "
+            "make them:\n\n"
+            "- A check the documents describe has ways it can turn out. \"The agent verifies the "
+            "cardmember\" is a decision with a pass and a fail, whether or not the failure is "
+            "written down -- a verification that cannot fail is not a verification.\n"
+            "- \"If ... then ... otherwise ...\" is a decision with two named outcomes, and the "
+            "words after *if* are its `outcome_condition`.\n"
+            "- A step described as happening after another step is a state between them, even "
+            "where the prose runs the two together in one sentence.\n"
+            "- Something the documents mention once -- an escalation, a refusal, a hand-off to a "
+            "person -- is a real ending, and belongs as a terminal state with an outcome type.\n"
+            "- A limit stated anywhere (\"three attempts\", \"within sixty days\") belongs on "
+            "the decision it bounds, as `max_attempts` or `outcome_condition`.\n\n"
+            "What you may not do is add a step nothing describes: a fraud check nobody mentions, "
+            "a confirmation screen no document names. The line is between joining up what is "
+            "stated and supplying what is absent. Note in `review_notes` where you joined "
+            "something up, so the reader can check that reading rather than hunt for it.")
     return (
         "A workflow diagram was submitted and read into the structure below, box by box. It is "
         "already in the shape you are being asked for, so **start from it**: carry it through, "

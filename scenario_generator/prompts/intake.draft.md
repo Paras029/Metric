@@ -9,8 +9,8 @@ rather than declining: correcting a draft is an afternoon's work, and writing on
 a week's. Your job is to give them something substantial to correct.
 
 **Fill it in. Do not hand back an empty form.** Where the evidence supports a field, complete it.
-Where the evidence is partial, complete it as best the evidence allows and flag it. Only leave a
-field empty when the evidence says nothing at all about it, and say so in the review notes.
+Where the evidence is partial, complete it as far as the evidence allows and flag it. Leave a field
+empty only where the evidence says nothing about it at all, and say so in the review notes.
 
 WHAT YOU HAVE
 
@@ -116,8 +116,22 @@ away because it rejoins.
 Use the documentation's own words for outcomes, capabilities and states. The testers will be
 writing conversations in this domain's language.
 
-Do not invent a plausible agent. Everything must trace to the evidence above. If the evidence
-describes three decision points, declare three — not the seven a system like this usually has.
+**Where to draw the line on judgement.** You are reading documentation written for people, which
+states some things and leaves others to be understood. Both of these are mistakes, and only one of
+them gets noticed:
+
+- *Supplying an agent nobody described.* A fraud check no document mentions, a confirmation step
+  nothing names, the seven decision points a system like this usually has when the evidence
+  describes three. Every one of those is tested as though it were real, and the model owner is
+  asked to run conversations against behaviour nobody built.
+- *Refusing to read what the documents plainly mean.* A verification with no stated failure. An
+  "if ... otherwise ..." left as one step. A retry limit mentioned in a table and not attached to
+  the decision it bounds. This is the quieter mistake: it produces a declaration that looks
+  cautious and leaves whole branches untested, and nothing about it looks wrong on the page.
+
+The test is whether you could point at the sentence. If somebody asking "where did this come
+from?" can be answered by a line in the evidence and a step of ordinary reading, make the call and
+note it. If the honest answer is "systems like this usually have one", do not.
 
 Where a diagram structure was given, it is the strongest evidence you have about the *shape* of
 the agent, because it was read off a picture of that shape. Keep its ids. Where the prose and the

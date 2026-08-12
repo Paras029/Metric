@@ -73,6 +73,19 @@ _DIAGRAM_REPAIR_PROMPT = "ingest.diagram_repair"
 # flow and wrong for pieces, where it would fold the end of the first picture into the start of
 # the second as "the same step under a different label". Neither reading can tell which it is
 # looking at from the pictures alone with any reliability, and whoever uploaded them knows.
+# What a person watching is told is happening. Two activities, because two are what a person is
+# waiting for: the documents being read, and the diagrams being read.
+#
+# The passes underneath are not among them. Reading a pack is a first sweep over three groups of
+# questions, then a sweep or two putting what is still open back to the documents; reading diagrams
+# is one call per image, one to put them together, and one checking the result against the pictures
+# again. Naming each of those on screen described the machinery to somebody who cannot act on any
+# of it -- "Looking again at what is unanswered (1 of 2)" invites the reader to wonder what went
+# wrong the first time, and nothing did. The bar already answers how far along; this answers what
+# is being waited on, and those are the only two questions a progress line has.
+READING_DOCUMENTS = "Reading the submitted documents"
+READING_DIAGRAMS = "Reading the workflow diagrams"
+
 SPLIT_ACROSS_IMAGES = "split"
 SAME_FLOW_EACH = "same_flow"
 DIAGRAM_MODES = (SPLIT_ACROSS_IMAGES, SAME_FLOW_EACH)
@@ -298,10 +311,10 @@ class DocumentExtractor:
         for number, chunk in enumerate(chunks, start=1):
             cancellation.check(self._cancel)
             part = f" (part {number} of {len(chunks)})" if len(chunks) > 1 else ""
-            self._say(f"Reading the documents{part}")
+            self._say(READING_DOCUMENTS)
             reply = self._ask(_READ_PROMPT, "INGEST_READ", questions=questions, corpus=chunk,
                               documents=inventory)
-            self._step(f"Read the documents{part}")
+            self._step(READING_DOCUMENTS)
             if reply is None:
                 continue
             self._note_documents_used(reply.get("documents_used"))
@@ -401,9 +414,9 @@ class DocumentExtractor:
             return
 
         cancellation.check(self._cancel)
-        self._say("Building the workflow")
+        self._say(READING_DIAGRAMS)
         reply = self._synthesize_diagrams(readings, names)
-        self._step("Built the workflow")
+        self._step(READING_DIAGRAMS)
         if reply is None:
             self._unreadable(record, loaded,
                              "each diagram was read on its own but could not be put together "
@@ -424,7 +437,7 @@ class DocumentExtractor:
         images that are not there.
         """
         path, image = entry
-        self._say("Reading the workflow diagram")
+        self._say(READING_DIAGRAMS)
         user = prompt_loader.render(_DIAGRAM_ONLY_PROMPT, filename=path.name,
                                     facets=_facet_guide())
         try:
@@ -434,14 +447,14 @@ class DocumentExtractor:
                 tier=config.stage_tier("INGEST_DIAGRAM_READ", config.JUDGEMENT), images=[image]))
         except Exception as exc:
             self._called(failed=True)
-            self._step("Read the workflow diagram")
+            self._step(READING_DIAGRAMS)
             logger.warning("Could not read diagram %s: %s", path.name, exc)
             self._unreadable(record, [entry],
                              "the diagram could not be read. Supply a written description of the "
                              "flow it shows, or add it as a note.")
             return
         self._called()
-        self._step("Read the workflow diagram")
+        self._step(READING_DIAGRAMS)
         self._settle(record, reply, [entry], names)
 
     def _settle(self, record: EvidenceRecord, reply: dict,
@@ -502,9 +515,9 @@ class DocumentExtractor:
     def _read_diagram_step(self, index: int, total: int, path: Path,
                            image: Tuple[str, bytes]) -> Optional[Tuple[str, dict]]:
         """One pool worker's share: report progress, read the image, name it if it read."""
-        self._say(f"Reading images ({index} of {total})")
+        self._say(READING_DIAGRAMS)
         reading = self._read_one_diagram(path, image, index, total)
-        self._step(f"Read images ({index} of {total})")
+        self._step(READING_DIAGRAMS)
         return (path.name, reading) if reading else None
 
     def _read_one_diagram(self, path: Path, image: Tuple[str, bytes], index: int,
@@ -579,7 +592,7 @@ class DocumentExtractor:
             return structure
 
         cancellation.check(self._cancel)
-        self._say("Checking the workflow against the images")
+        self._say(READING_DIAGRAMS)
         logger.info("The workflow read from the diagrams left %d point(s) unresolved; "
                     "looking again.", len(problems))
 
@@ -595,11 +608,11 @@ class DocumentExtractor:
                 tier=config.stage_tier("INGEST_DIAGRAM_REPAIR", config.JUDGEMENT), images=images))
         except Exception as exc:
             self._called(failed=True)
-            self._step("Checked the workflow")
+            self._step(READING_DIAGRAMS)
             logger.warning("Could not check the diagrams again: %s", exc)
             return structure
         self._called()
-        self._step("Checked the workflow")
+        self._step(READING_DIAGRAMS)
 
         repaired = diagram_structure.merge(structure, reply)
         remaining = diagram_structure.audit(repaired)
@@ -724,7 +737,7 @@ class DocumentExtractor:
                      outstanding: List[Tuple[str, str]], number: int, last: bool) -> None:
         """One sweep: answer what the documents settle, and on the last pass rule on the rest."""
         pass_of = f" ({number} of {self._passes})" if self._passes > 1 else ""
-        self._say(f"Looking again at what is unanswered{pass_of}")
+        self._say(READING_DOCUMENTS)
         established = "\n\n".join(
             f"## {FACET_HEADINGS.get(a.facet, a.facet)}\n{a.answer}"
             for a in record.answers if a.is_answered and a.answer)
@@ -743,7 +756,7 @@ class DocumentExtractor:
                           questions="\n".join(f"- [{tag}] {question}"
                                               for tag, (_, question) in tagged.items()),
                           corpus=corpus)
-        self._step(f"Looked again at what is unanswered{pass_of}")
+        self._step(READING_DOCUMENTS)
         if reply is None:
             return
 
