@@ -1122,6 +1122,32 @@
                     {% endfor %}
                   </ul>
                 {% endif %}
+                {# Asked only where there is more than one picture. The reading works this out for
+                   itself and usually gets it right, but the mistake it makes when it does not is
+                   quiet and expensive: shown several pictures of one agent it looks for a join,
+                   and a wrongly joined graph enumerates routes the agent does not have. #}
+                {% if row.relates %}
+                  <form class="drop__relates" method="post"
+                        action="{{ url_for('set_image_relationship', key=stage.key) }}">
+                    <label class="drop__relates-label" for="relates-{{ row.group.key }}">
+                      How these pictures relate
+                    </label>
+                    <select class="select" id="relates-{{ row.group.key }}" name="relationship"
+                            onchange="this.form.submit()">
+                      {% for value, label in row.relates.items() %}
+                        <option value="{{ value }}"
+                                {% if value == row.relationship %}selected{% endif %}>
+                          {{ label }}
+                        </option>
+                      {% endfor %}
+                    </select>
+                    <noscript><button class="button button--quiet" type="submit">Save</button></noscript>
+                    <span class="drop__note">
+                      Only a steer for the pass that joins them. Leave it alone and the reading
+                      decides from the pictures themselves.
+                    </span>
+                  </form>
+                {% endif %}
                 {% if row.note %}
                   <p class="drop__note {% if row.problem %}drop__note--problem{% endif %}">
                     {{ row.note }}

@@ -33,8 +33,9 @@ from ..core.gaps import CAPABILITY, DECISION, STATE, find_gaps
 from ..core.intake import read_review_notes, set_decision_scope, write_template
 from ..core.models import MATERIALITY
 from ..ingest.conversations import read_conversations
-from ..ingest.groups import (ALL_EXTENSIONS, DEFAULT_GROUP, GROUP_BY_KEY, GROUPS, MODEL_DOC,
-                             OWNER_SCENARIOS, SUPPORTING, folder_for, files_in, remove_file)
+from ..ingest.groups import (ALL_EXTENSIONS, DEFAULT_GROUP, DIAGRAMS, GROUP_BY_KEY, GROUPS,
+                             MODEL_DOC, OWNER_SCENARIOS, SUPPORTING, folder_for, files_in,
+                             remove_file)
 from ..io import read_space_metadata, read_scenarios, write_coverage_report, write_space_metadata
 from ..llm import metering
 from ..llm.cancellation import Stopped
@@ -85,6 +86,15 @@ REDACTABLE_GROUPS = (MODEL_DOC, SUPPORTING, OWNER_SCENARIOS)
 # every upload as intake evidence meant dropping in a transcript at the coverage stage marked six
 # finished stages stale, to re-derive a byte-identical result.
 STAGE_THAT_READS: Dict[str, str] = {OWNER_SCENARIOS: "coverage"}
+
+# What somebody can say about how the submitted images relate to one another, and how each reads
+# on the page. Empty is the default and the first option: nobody has to answer, and the reading
+# works it out from the pictures where nobody has.
+IMAGE_RELATIONSHIPS = {
+    "": "Let the reading work it out",
+    "one_flow": "One flow, split across several pictures",
+    "separate": "Separate pictures that do not continue one another",
+}
 
 # The three kinds of row the declared graph is made of, in the order they are worth reading: a
 # decision naming no outcomes enumerates nothing at all, which is more urgent than a capability
@@ -287,7 +297,13 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             row = {"group": group, "files": [f.name for f in files], "note": "", "problem": False,
                   "redactable": group.key in REDACTABLE_GROUPS,
                   "redacted": {f.name for f in files
-                              if workspace.is_marked_for_redaction(group.key, f.name)}}
+                              if workspace.is_marked_for_redaction(group.key, f.name)},
+                  # Only where there is more than one picture. With one there is nothing to
+                  # relate, and a control asking how it relates to itself is a control that makes
+                  # a reader wonder what they have missed.
+                  "relates": (IMAGE_RELATIONSHIPS if group.key == DIAGRAMS and len(files) > 1
+                              else None),
+                  "relationship": workspace.image_relationship}
             if group.key == OWNER_SCENARIOS and files:
                 # Say how it was read now rather than when coverage runs, while there is still
                 # time to ask them for a clearer file. A transcript file that cannot be split into
@@ -599,6 +615,29 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             workspace.state(reader).artifacts.pop(Path(name).name, None)
             workspace.set_redact(group, name, False)
             workspace.invalidate_from(reader)
+            workspace.save()
+        return redirect(url_for("stage", key=key))
+
+    @app.route("/stage/<key>/images", methods=["POST"])
+    def set_image_relationship(key: str):
+        """Say how the submitted images relate, for the pass that decides what joins to what.
+
+        The reading is asked to work this out for itself, and it usually can. But the mistake it
+        makes when it cannot is a quiet and expensive one: shown several pictures of one agent, it
+        looks for a join, and a wrongly joined graph enumerates routes the agent does not have --
+        each of which is issued to the model owner as a test of behaviour nobody built. Somebody
+        who has seen the pack settles that in one click.
+
+        Optional, and no answer is a real answer. Invalidates the intake only when it changes:
+        it is an input to the reading, so it makes a completed reading out of date the same way a
+        new file would, but selecting what was already selected has changed nothing.
+        """
+        workspace = _workspace()
+        chosen = request.form.get("relationship", "")
+        chosen = chosen if chosen in IMAGE_RELATIONSHIPS else ""
+        if chosen != workspace.image_relationship:
+            workspace.image_relationship = chosen
+            workspace.invalidate_from("intake")
             workspace.save()
         return redirect(url_for("stage", key=key))
 

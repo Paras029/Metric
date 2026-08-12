@@ -172,8 +172,10 @@ class DocumentExtractor:
                  describe_images: Optional[Callable[..., str]] = None,
                  resolve_passes: Optional[int] = None, cancel=None,
                  redact: Optional[Callable[..., Tuple[List, Optional[dict]]]] = None,
-                 should_redact: Optional[Callable[[Path], bool]] = None) -> None:
+                 should_redact: Optional[Callable[[Path], bool]] = None,
+                 image_relationship: str = "") -> None:
         self._complete = complete or ask_llm
+        self._image_relationship = image_relationship
         self._describe_images = describe_images or ask_llm_with_images
         self._progress = progress or (lambda *args, **kwargs: None)
         self._resolve = resolve
@@ -445,7 +447,11 @@ class DocumentExtractor:
             logger.warning("Could not read diagram %s: %s", path.name, exc)
             return None
         self._called()
-        return reply if (reply.get("nodes") or reply.get("edges")) else None
+        # A picture that is not a flow is a reading, not a failure. It returns no boxes and says so
+        # in `depicts`, and what it does carry -- the thresholds in a table, what a screen offers --
+        # is exactly what used to be thrown away, along with the image, as "could not be read".
+        return reply if (reply.get("nodes") or reply.get("edges")
+                         or reply.get("observations") or reply.get("subject")) else None
 
     def _synthesize_diagrams(self, readings: List[Tuple[str, dict]],
                              names: str) -> Optional[dict]:
@@ -463,7 +469,9 @@ class DocumentExtractor:
             for index, ((name, _), reading) in enumerate(zip(readings, namespaced), start=1))
 
         user = prompt_loader.render(_DIAGRAM_SYNTHESIZE_PROMPT, facets=_facet_guide(),
-                                    document=names, readings=blocks)
+                                    document=names, readings=blocks,
+                                    relationship=_RELATIONSHIPS.get(
+                                        self._image_relationship, _RELATIONSHIPS[""]))
         try:
             reply = parse_json_object(council.deliberate(
                 self._complete, prompt_loader.load(_SYSTEM_PROMPT), user,
@@ -765,6 +773,25 @@ def _fold_diagram_observations(record: EvidenceRecord) -> None:
             answer.unknowns = [u for u in answer.unknowns if u.strip() != generic]
 
 
+# What the reader is told about how the submitted images relate to one another, keyed by what the
+# person who uploaded them said. Empty is the default and says nothing beyond "work it out", which
+# is the honest position: they can see the pictures and the person filing them cannot always.
+#
+# The steer exists because the reading gets one wrong in a way that is expensive and quiet. Told
+# nothing, a model shown three pictures of one agent will look for the join, and a wrongly joined
+# graph enumerates routes the agent does not have -- each of them issued to the model owner as a
+# test of behaviour nobody built. Somebody who knows the pack can settle that in one click.
+_RELATIONSHIPS = {
+    "": "Which of these it is, you have to work out from the readings themselves. Nobody has said.",
+    "one_flow": "The person who submitted these says they are **one flow split across several "
+                "pictures**. Look for the joins; an arrow running off one page is picked up on "
+                "another. Say so in `unresolved` if the readings do not bear that out.",
+    "separate": "The person who submitted these says they are **separate pictures that do not "
+                "continue one another**. Do not join them. Each flow among them keeps its own "
+                "opening state, and a picture that is not a flow contributes observations only.",
+}
+
+
 def _facet_guide() -> str:
     return "\n".join(f"- {key}: {description}" for key, description in FACETS.items())
 
@@ -821,11 +848,12 @@ def _merge(existing: Optional[FacetAnswer], addition: FacetAnswer) -> FacetAnswe
 def extract_documents(paths: Sequence[Path], complete: Optional[CompletionFn] = None,
                       progress: Optional[ProgressFn] = None, resolve: bool = True,
                       describe_images: Optional[Callable[..., str]] = None,
-                      resolve_passes: Optional[int] = None, cancel=None) -> EvidenceRecord:
+                      resolve_passes: Optional[int] = None, cancel=None,
+                      image_relationship: str = "") -> EvidenceRecord:
     """Read a submitted pack into a verified evidence record."""
     return DocumentExtractor(complete=complete, progress=progress, resolve=resolve,
-                             describe_images=describe_images,
-                             resolve_passes=resolve_passes, cancel=cancel).run(paths)
+                             describe_images=describe_images, resolve_passes=resolve_passes,
+                             cancel=cancel, image_relationship=image_relationship).run(paths)
 
 
 def record_to_json(record: EvidenceRecord, path: Path) -> None:

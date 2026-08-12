@@ -85,13 +85,24 @@ state sheets — a box with branching arrows is a decision, an arrow's label is 
 it lands in is a state — so the reading keeps that structure the whole way rather than flattening
 it to sentences and asking a later pass to rebuild a graph from the sentences. Three passes:
 
-1. **Each image on its own**, into an explicit list of boxes and arrows. Enumerated rather than
-   described, because a box missed in a paragraph vanishes silently, where a box missed in a node
-   list shows up as an arrow pointing at nothing. Arrows that run off the edge of the image are
-   recorded as exactly that — they are where one image joins another.
-2. **All the readings together**, joined into one graph and written in the intake's own
-   vocabulary: decisions with named outcomes, states with `reached_via`, terminal flags and
-   outcome types.
+1. **Each image on its own.** It first says what it is looking at — a flow, or something else —
+   and only a flow is read as boxes and arrows. Enumerated rather than described, because a box
+   missed in a paragraph vanishes silently, where a box missed in a node list shows up as an arrow
+   pointing at nothing. Arrows that run off the edge of the image are recorded as exactly that.
+
+   **Not every picture is a flow, and saying so is a real answer.** A screenshot of a screen, a
+   table of decline codes, an architecture picture of systems — these arrive in packs, and forcing
+   one into boxes and arrows invents a workflow the agent does not have, which is worse than
+   finding no workflow because the invented one gets enumerated and issued. A picture that is not
+   a flow contributes observations instead, and is kept rather than reported unreadable.
+2. **All the readings together**, written in the intake's own vocabulary: decisions with named
+   outcomes, states with `reached_via`, terminal flags and outcome types.
+
+   **How the images relate is worked out, not assumed.** They may be one flow across several
+   pictures, several separate flows, one flow plus supporting pictures, or pictures with nothing
+   to do with each other. Only what genuinely joins is joined; separate flows keep their own
+   opening states rather than being welded end to end. A false join is the expensive mistake, since
+   it makes the enumeration walk routes the agent does not have.
 3. **Whatever that graph cannot account for, back to the images.** The graph is checked against
    properties it must have to be walkable at all — every outcome leads somewhere, every state is
    reached by an outcome that exists, a branch has more than one branch — and the specific
@@ -106,6 +117,14 @@ An image that fails on its own is dropped rather than losing the rest; the diagr
 reported unreadable if every one of them was, or if nothing could be made of them together. A
 repair pass that returns nothing usable leaves the first reading exactly as it was — a second look
 can improve a reading, never damage it.
+
+**You can say how the pictures relate**, where more than one was submitted: a control under the
+workflow-diagrams card offers *one flow split across several pictures*, *separate pictures that do
+not continue one another*, or leaving it to the reading. It is a steer for the joining pass rather
+than a rule, it is optional, and leaving it alone is the default. It exists because the reading's
+mistake here is quiet: shown several pictures of one agent it will look for the join, and somebody
+who has seen the pack can settle it in one click. Changing it makes a completed reading out of
+date, the same as adding a file; re-selecting what was already selected changes nothing.
 
 **Redaction.** With `PII_REDACTION=on`, every passage a document is read into is redacted before it
 is joined into a corpus and before any of it reaches a model call — names, account numbers and
