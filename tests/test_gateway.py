@@ -49,6 +49,14 @@ class _FakeChatModel(GenericFakeChatModel):
         self.seen.append((messages, kwargs))
         return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
 
+    def bind_tools(self, tools, **kwargs):
+        """What a real implementation does: put the tools on as a bound keyword.
+
+        BaseChatModel declares this and raises NotImplementedError, so a stub inheriting the
+        declaration would stand in for a model that cannot bind tools rather than one that can.
+        """
+        return self.bind(tools=list(tools), **kwargs)
+
 
 def _model(model_id="stub", reply="the reply"):
     return _FakeChatModel(messages=itertools.cycle([AIMessage(content=reply)]),
@@ -297,6 +305,64 @@ class TestImages(_WithSafeChain):
         self.assertIn("LLM_VISION", str(raised.exception))
 
 
+class TestAModelAnAgentCanUse(_WithSafeChain):
+    """An agent loop needs tools bound to the model, and the order that happens in is load-bearing.
+
+    ``bind_tools`` is a method on the chat model. ``bind`` returns a ``RunnableBinding``, which no
+    longer has it. So binding the generation parameters first makes tools impossible to add, and it
+    fails by the attribute simply not being there -- an AttributeError several layers from the
+    cause, at the point somebody tries to build the agent rather than at the point the ordering was
+    chosen.
+    """
+
+    def _tool(self):
+        from langchain_core.tools import tool
+
+        @tool
+        def read_document(name: str) -> str:
+            """Read one submitted document."""
+            return ""
+        return read_document
+
+    def test_the_ordinary_model_cannot_bind_tools(self):
+        """Not a defect -- it is what the parameters being bound costs, and why tool_model exists.
+        Pinned so that anyone who reaches for bind_tools on it finds this instead of an
+        AttributeError."""
+        self.assertFalse(hasattr(gateway.chat_model(tier=config.STANDARD), "bind_tools"))
+
+    def test_tools_and_the_tier_both_reach_the_model(self):
+        """Both, in one binding. Tools bound and the tier's cap lost would send an agent's turns
+        at whatever default the gateway picks."""
+        model = gateway.tool_model([self._tool()], tier=config.JUDGEMENT)
+        model.invoke("read policy.pdf")
+
+        _, kwargs = self.built[0].seen[0]
+        self.assertTrue(kwargs.get("tools"), "the tools did not reach the model")
+        self.assertEqual(kwargs["max_tokens"], config.JUDGEMENT.max_tokens)
+        self.assertEqual(kwargs["reasoning_effort"], config.JUDGEMENT.reasoning_effort)
+
+    def test_it_shares_the_built_model_with_ordinary_calls(self):
+        """Building reads a config file and sets up credentials. An agent asking for the same model
+        an ordinary call already built should not pay for it again."""
+        gateway.ask_llm("s", "u", tier=config.STANDARD)
+        gateway.tool_model([self._tool()], tier=config.STANDARD)
+        self.assertEqual(len(self.built), 1)
+
+    def test_a_model_that_cannot_bind_tools_says_so_plainly(self):
+        """Some gateways hand back something that is a Runnable and not a chat model. An agent
+        cannot be built on that, and the message should say what to run to find out."""
+        # A real chat model that has not implemented it -- which is what LangChain's own base
+        # class gives you, and why the guard cannot be a hasattr.
+        cannot = GenericFakeChatModel(messages=itertools.cycle([AIMessage(content="x")]))
+        self.assertTrue(hasattr(cannot, "bind_tools"), "the guard must not rely on hasattr")
+
+        with mock.patch.object(gateway, "_built_model", return_value=cannot):
+            with self.assertRaises(gateway.ModelUnavailable) as caught:
+                gateway.tool_model([self._tool()], tier=config.STANDARD)
+        self.assertIn("cannot bind tools", str(caught.exception))
+        self.assertIn("probe_agent_support", str(caught.exception))
+
+
 class TestGenerationParameters(_WithSafeChain):
     """Bound to the model with LangChain's own bind, rather than passed per call.
 
@@ -306,8 +372,13 @@ class TestGenerationParameters(_WithSafeChain):
     """
 
     def _received(self, index=0):
-        _, kwargs = self.built[index].seen[0]
-        return kwargs
+        """The parameters of one call, counted across every model that was built.
+
+        Flattened deliberately. Two tiers naming the same model share one built model and wrap it
+        twice, so "the second call" is the second entry on the same model rather than the first
+        entry on a second one -- and a test indexing per built model reads an empty list.
+        """
+        return [kwargs for model in self.built for _, kwargs in model.seen][index]
 
     def test_a_tier_sends_its_cap_and_its_effort(self):
         gateway.ask_llm("s", "u", tier=config.JUDGEMENT)
@@ -331,6 +402,9 @@ class TestGenerationParameters(_WithSafeChain):
         self.assertEqual(len(gateway._models), 2)
         self.assertEqual({self._received(0)["max_tokens"], self._received(1)["max_tokens"]},
                          {config.JUDGEMENT.max_tokens, config.STANDARD.max_tokens})
+        # ...and the model underneath them was built once. Building reads a config file and sets
+        # up credentials; two tiers naming one model is the common case, not the exception.
+        self.assertEqual(len(self.built), 1)
 
     def test_the_same_tier_is_built_once_and_reused(self):
         """Building reads a config file and sets up credentials; doing it per batch is waste."""

@@ -42,7 +42,7 @@ from __future__ import annotations
 import base64
 import logging
 import threading
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from . import config
 from .cancellation import Stopped, is_set
@@ -51,6 +51,7 @@ from .metering import record_call
 logger = logging.getLogger(__name__)
 
 _models: Dict[Tuple, Any] = {}
+_built: Dict[str, Any] = {}
 _lock = threading.Lock()
 
 
@@ -177,18 +178,49 @@ def _generation_parameters(tier: Optional["config.Tier"], temperature: Optional[
     return parameters
 
 
+def _built_model(model_id: str):
+    """The model SafeChain builds, cached, before anything is bound to it.
+
+    Cached at this point rather than after binding because the expensive part is the build --
+    it reads a config file and sets up credentials -- and because two callers want the same model
+    wrapped differently: an ordinary call binds generation parameters, and an agent has to bind
+    its tools first. Wrapping is cheap; building is not.
+    """
+    from langchain_core.runnables import Runnable
+
+    with _lock:
+        if model_id in _built:
+            return _built[model_id]
+
+        try:
+            made = _load_safechain()(model_id)
+        except Exception as exc:
+            raise ModelUnavailable(
+                f"SafeChain could not build '{model_id}' ({exc}). The name has to match one "
+                f"declared in the config.yml at CONFIG_PATH.") from exc
+
+        if not isinstance(made, Runnable):
+            raise ModelUnavailable(
+                f"SafeChain returned {type(made).__name__} for '{model_id}' rather than a "
+                f"LangChain runnable. Everything here is built on that interface.")
+
+        _built[model_id] = made
+        return made
+
+
 def chat_model(tier: Optional["config.Tier"] = None, model: Optional[str] = None,
                temperature: Optional[float] = None, max_tokens: Optional[int] = None,
                reasoning_effort: Optional[str] = None):
     """A LangChain chat model for this tier, built once and reused.
 
     ``bind`` and ``with_retry`` are LangChain's own, and are the reason nothing here needs to know
-    how SafeChain passes parameters or handles failures. Building reads a config file and sets up
-    credentials, so doing it per call would repeat that work on every batch of every pass; the
-    cache is keyed on everything that can change the model, so an override still gets its own.
-    """
-    from langchain_core.runnables import Runnable
+    how SafeChain passes parameters or handles failures. The cache is keyed on everything that can
+    change the model, so an override still gets its own.
 
+    What comes back has generation parameters already bound, which makes it a ``RunnableBinding``
+    and not a chat model any more -- so it has no ``bind_tools``. That is what :func:`tool_model`
+    is for; the two differ only in the order things are bound.
+    """
     model_id = model or (tier.model if tier else config.LLM_MODEL_ID)
     parameters = _generation_parameters(tier, temperature, max_tokens, reasoning_effort)
     attempts = tier.max_attempts if tier else config.DEFAULT_MAX_ATTEMPTS
@@ -198,22 +230,44 @@ def chat_model(tier: Optional["config.Tier"] = None, model: Optional[str] = None
         if key in _models:
             return _models[key]
 
-        build = _load_safechain()
-        try:
-            built = build(model_id)
-        except Exception as exc:
-            raise ModelUnavailable(
-                f"SafeChain could not build '{model_id}' ({exc}). The name has to match one "
-                f"declared in the config.yml at CONFIG_PATH.") from exc
+    bound = _built_model(model_id).bind(**parameters).with_retry(
+        stop_after_attempt=attempts, wait_exponential_jitter=True)
+    with _lock:
+        _models[key] = bound
+    return bound
 
-        if not isinstance(built, Runnable):
-            raise ModelUnavailable(
-                f"SafeChain returned {type(built).__name__} for '{model_id}' rather than a "
-                f"LangChain runnable. Everything here is built on that interface.")
 
-        _models[key] = built.bind(**parameters).with_retry(
-            stop_after_attempt=attempts, wait_exponential_jitter=True)
-        return _models[key]
+def tool_model(tools: Sequence, tier: Optional["config.Tier"] = None,
+               model: Optional[str] = None, temperature: Optional[float] = None,
+               max_tokens: Optional[int] = None, reasoning_effort: Optional[str] = None):
+    """The same model with tools bound, for a caller that runs a loop rather than one call.
+
+    Bound in one step rather than two, and that ordering is the whole reason this function
+    exists. ``bind_tools`` is a method on the chat model; ``bind`` returns a ``RunnableBinding``
+    that no longer has it. So parameters bound first make tools impossible to add, silently --
+    the attribute is simply absent, and a caller reaching for it gets an AttributeError several
+    layers from the cause.
+
+    Not cached, unlike :func:`chat_model`: the tools differ per caller and are not reliably
+    hashable, and the expensive half -- building the model -- is cached underneath anyway.
+    """
+    model_id = model or (tier.model if tier else config.LLM_MODEL_ID)
+    parameters = _generation_parameters(tier, temperature, max_tokens, reasoning_effort)
+    attempts = tier.max_attempts if tier else config.DEFAULT_MAX_ATTEMPTS
+
+    built = _built_model(model_id)
+    try:
+        bound = built.bind_tools(tools, **parameters)
+    except (AttributeError, NotImplementedError) as exc:
+        # Attempted rather than checked for. Every LangChain chat model *has* bind_tools -- the
+        # base class defines it and raises NotImplementedError -- so hasattr answers yes for
+        # models that cannot do it at all, and the failure then arrives from inside LangChain at
+        # the first turn of the loop rather than here.
+        raise ModelUnavailable(
+            f"'{model_id}' cannot bind tools ({type(exc).__name__}), so an agent loop cannot run "
+            f"on it. Run tools/probe_agent_support.py to see what this gateway supports.") from exc
+
+    return bound.with_retry(stop_after_attempt=attempts, wait_exponential_jitter=True)
 
 
 def _image_parts(images: List[Tuple[str, bytes]]) -> List[dict]:
@@ -390,6 +444,11 @@ ask_llm.batch = ask_llm_batch
 
 
 def reset_models() -> None:
-    """Drop the built models, so a configuration change takes effect without a restart."""
+    """Drop the built models, so a configuration change takes effect without a restart.
+
+    Both caches, or a changed setting would be picked up by the wrappers and not by the model
+    they wrap -- which is the half that holds the credentials and the endpoint.
+    """
     with _lock:
         _models.clear()
+        _built.clear()

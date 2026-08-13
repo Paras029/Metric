@@ -26,10 +26,20 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-# A 1x1 PNG. Enough to prove images survive the same request shape as tools; a real diagram would
-# only make the call slower without testing anything this does not.
-_PNG = base64.b64decode(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+# A small PNG that actually contains a flow: two boxes joined by an arrow, one labelled A and
+# one labelled B. It has to have something in it. The first version of this probe sent a 1x1 white
+# pixel, and the model reported -- correctly -- that it could not see anything, which read as
+# "vision does not work in a tool conversation" when all it showed was that a blank image is
+# blank. An image check needs an image.
+_FLOW_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAQQAAABaCAIAAADRmb9uAAABmklEQVR42u3bUY7CMBBEQd//0iDlKwIlMhKxx+6q"
+    "CySD5wELbHsBh+YhADGAGEAMIAYQA4gBxABiADGAGEAMIAYQA4gBxABiADGAGEAMIAYQA4gBxAB7xNDCxB2/8/0p"
+    "hqjNCIzBsGIQg/MVg2GdrxhshvMVg80wshhshpHFYDOMLAabYWQx2Awji8FmGFkMNsPIYrAZRg6MYfDVN96Mq9GG"
+    "jVzh95FiEMPddBUWUQy9tz7yBrZ/z/A9oBjEkPsG+mNGMSwQw/m6dR6s/XoQgxiiYzhPKobqMcx6axv4OaMYxHB5"
+    "3UDDztRHq3+74wF34pXBK0O5GGY9f/ibQQyF9uP+ck/fjE+TxCCGoBh8z7BGDD3XevR+fAMtBjFExDD9t0k+TVp+"
+    "XfYezfmKwbDOVwyGdb5isBlGFoPNMLIYbIaRxWAzjCwGm2FkMdgMI4vBZhhZDDbDyGKwGUaeGIP/gdx7P5xvbwwQ"
+    "9NTgIQAxgBhADCAGEAOIAcQAYgAxgBhADCAGEAOIAcQAYgAxgBhADCAGEAOIAcQAi3gDeHKb8SP/JPkAAAAASUVO"
+    "RK5CYII=")
 
 findings: dict = {}
 
@@ -175,15 +185,20 @@ def main() -> int:
             """Record one box read off a workflow diagram."""
             return "unused in the probe"
 
-        encoded = base64.b64encode(_PNG).decode()
+        encoded = base64.b64encode(_FLOW_PNG).decode()
         message = HumanMessage(content=[
-            {"type": "text", "text": "Record any box you can see in this image."},
+            {"type": "text", "text": "This image shows two boxes joined by an arrow. Call "
+                                     "record_box once for each box you can see."},
             {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{encoded}"}}])
         reply = raw.bind_tools([record_box]).invoke(
-            [SystemMessage("You have tools. Use them."), message])
-        return {"accepted_image_with_tools": True,
-                "tool_calls": len(getattr(reply, "tool_calls", []) or []),
-                "text": (reply.content or "")[:100]}
+            [SystemMessage("You have tools. Use them rather than describing the picture."),
+             message])
+        calls = getattr(reply, "tool_calls", []) or []
+        return {"request_accepted": True,
+                "tool_calls": len(calls),
+                "saw_the_image": bool(calls) or "box" in (reply.content or "").lower(),
+                "args": [c.get("args") for c in calls][:4],
+                "text": (reply.content or "")[:140]}
 
     # ---------------------------------------------------------------- 7. the fallback
     @check("7. Does with_structured_output work?",
