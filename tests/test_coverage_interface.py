@@ -136,8 +136,12 @@ class TestTheCoveragePage(unittest.TestCase):
         self.client.post("/stage/coverage/threshold", data={"threshold": "5"})
 
         book = load_workbook(self._workspace().root / "coverage.xlsx")
-        verdicts = {row[0]: row[4] for row in book["Scenarios"].iter_rows(min_row=2,
-                                                                         values_only=True)}
+        rows = list(book["Scenarios"].iter_rows(min_row=1, values_only=True))
+        # Read by header rather than by position. A column added to this sheet is a change to the
+        # report, not to what "represented" means, and a test that reads column five turns the
+        # first into the second.
+        at = {str(name): index for index, name in enumerate(rows[0])}
+        verdicts = {row[at["SC ID"]]: row[at["Represented?"]] for row in rows[1:]}
         self.assertTrue(all(v == "No" for v in verdicts.values()),
                         "nothing has five conversations, so nothing is represented")
 

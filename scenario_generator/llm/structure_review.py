@@ -116,8 +116,9 @@ def _validate_reconnections(entries, decision_ids, state_ids) -> List[Reconnecti
     return out
 
 
-def _validate_consolidations(entries, decision_ids) -> List[Consolidation]:
+def _validate_consolidations(entries, decision_ids, block_of=None) -> List[Consolidation]:
     out = []
+    block_of = block_of or {}
     for entry in entries or []:
         if not isinstance(entry, dict):
             continue
@@ -126,6 +127,24 @@ def _validate_consolidations(entries, decision_ids) -> List[Consolidation]:
             if str(d).strip().upper() in decision_ids))
         kept = str(entry.get("id", "")).strip().upper()
         if len(members) < 2 or kept not in members:
+            continue
+
+        # Refused rather than requested, but only between capabilities that are actually blocks.
+        #
+        # The distinction matters, because "capability" means two different things in an intake
+        # depending on whether a span has been drawn on it. Without one it is a label -- and two
+        # decisions labelled "identify via last four" and "identify via full SSN" are very often
+        # exactly the same check split in two, which is the single most useful merge this pass
+        # proposes. With a span it is a block of the graph with its own entry and exit, and
+        # merging across one welds two blocks together and re-enumerates the whole scenario
+        # space: far more than the proposal claims to do, and invisible in a reply that otherwise
+        # reads perfectly well, when applying it is a click.
+        blocks = {block_of.get(member, "") for member in members}
+        if len(blocks) > 1 and any(block for block in blocks):
+            logger.info("Discarded a proposed merge of %s: %s are separate blocks of the graph "
+                        "with their own spans, and merging across one re-enumerates the whole "
+                        "scenario space.", ", ".join(members),
+                        " and ".join(sorted(b for b in blocks if b)))
             continue
 
         outcomes = [str(o).strip() for o in (entry.get("outcomes") or []) if str(o).strip()]
@@ -161,6 +180,7 @@ def review_structure(intake: IntakeData, complete: Optional[CompletionFn] = None
     complete = complete or ask_llm
     decision_ids = {d.id for d in intake.decisions}
     state_ids = {s.id for s in intake.states}
+    bounded = {c.id for c in intake.capabilities if c.is_bounded}
 
     user = prompt_loader.render(
         _TASK_PROMPT, use_case=describe_use_case(intake), structure=describe_graph(intake),
@@ -176,7 +196,12 @@ def review_structure(intake: IntakeData, complete: Optional[CompletionFn] = None
 
     review = StructureReview(
         reconnections=_validate_reconnections(reply.get("reconnections"), decision_ids, state_ids),
-        consolidations=_validate_consolidations(reply.get("consolidations"), decision_ids))
+        consolidations=_validate_consolidations(
+            reply.get("consolidations"), decision_ids,
+            # Only capabilities with a span count as blocks here -- see
+            # _validate_consolidations. A capability nobody has bounded is a label.
+            block_of={d.id: d.trigger_capability for d in intake.decisions
+                      if d.trigger_capability in bounded}))
     logger.info("Structure review: %d reconnection(s), %d consolidation(s) proposed in 1 model "
                 "call.", len(review.reconnections), len(review.consolidations))
     return review

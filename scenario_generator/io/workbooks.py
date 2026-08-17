@@ -212,6 +212,18 @@ def read_scenarios(path: str, intake: IntakeData) -> List[Scenario]:
     return scenarios
 
 
+def _capability_name(intake: IntakeData, capability_id: str) -> str:
+    """A capability's name for a sheet somebody reads, falling back to its id.
+
+    Names rather than ids on anything issued: "CAP-02" is a key into a workbook the model owner
+    was never given, and a pack that groups by it groups by nothing they can see.
+    """
+    if not capability_id:
+        return "Whole journey"
+    match = next((c for c in intake.capabilities if c.id == capability_id), None)
+    return (match.name or capability_id) if match else capability_id
+
+
 def write_data_template(path: str, intake: IntakeData, scenarios: List[Scenario],
                          variations_mapping: dict = None) -> int:
     """Modeling-team-facing workbook, issued blank and returned filled. Returns scenario count.
@@ -226,15 +238,21 @@ def write_data_template(path: str, intake: IntakeData, scenarios: List[Scenario]
     guide = sheets.add_sheet(workbook, "Instructions", ["Topic", "Notes"], [26, 110])
     sheets.write_rows(guide, _TEMPLATE_INSTRUCTIONS)
 
+    # Capability is on the issued sheet as well as the internal one. The pack is ordered block by
+    # block and a tester works through it that way -- everything about identification, then
+    # everything about verification -- and a column they can sort and filter on is what makes that
+    # order usable rather than merely present.
     index = sheets.add_sheet(workbook, "Scenarios",
-                             ["SC ID", "Name", "Description", "Persona", "Starting Situation",
-                              "Recommended Turns", "Required Variations"], [10, 40, 66, 30, 46, 18, 14])
+                             ["SC ID", "Name", "Capability", "Description", "Persona",
+                              "Starting Situation", "Recommended Turns", "Required Variations"],
+                             [10, 40, 22, 66, 30, 46, 18, 14])
     # Starting Situation carries the precondition where there is one. A scenario scoped to a
     # capability begins part-way through a journey, and a tester told only the name of the state
     # it starts in ("Cardmember verified") has not been told to go and arrange it -- they open a
     # fresh session, the agent is at the beginning, and the conversation they run is not the one
     # being asked for. It is the one field that decides whether the pack is runnable.
-    sheets.write_rows(index, [[s.id, s.name, s.description, s.persona.name,
+    sheets.write_rows(index, [[s.id, s.name, _capability_name(intake, s.capability_id),
+                               s.description, s.persona.name,
                                s.precondition or s.seeded_state,
                                recommended_turns(s), required_variations(s.effective_materiality, variations_mapping)]
                               for s in scenarios])
@@ -331,11 +349,15 @@ def write_coverage_report(path: str, report, mappings, texts: dict = None) -> No
 
     scenarios = sheets.add_sheet(
         workbook, "Scenarios",
-        ["SC ID", "Category", "Materiality", "Conversations", "Represented?",
+        ["SC ID", "Capability", "Category", "Materiality", "Conversations", "Represented?",
          "Confidence Split", "Conversation IDs", "Description"],
-        [10, 14, 12, 14, 14, 22, 38, 60])
+        [10, 22, 14, 12, 14, 14, 22, 38, 60])
+    # Grouped by block, because that is how the thin end of this list is read: "nothing has
+    # exercised verification" is an actionable sentence, and "SC-014, SC-017 and SC-021 are
+    # uncovered" is the same fact in a form nobody can act on.
     sheets.write_rows(scenarios, [
-        [entry.scenario.id, entry.scenario.category, entry.scenario.materiality, entry.count,
+        [entry.scenario.id, entry.scenario.capability_id or "Whole journey",
+         entry.scenario.category, entry.scenario.materiality, entry.count,
          "Yes" if entry.represented(report.threshold) else "No",
          entry.confidence_summary, ", ".join(entry.conversation_ids),
          texts.get(entry.scenario.id, "")]

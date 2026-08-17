@@ -134,6 +134,23 @@ def _capability_gaps(intake: IntakeData) -> List[Gap]:
                 "A capability nothing branches on contributes no scenarios -- either it needs a "
                 "decision, or it does not belong in this intake as its own capability.",
                 example="DEC-04"))
+    # Asked only where *some* capability has a span. An intake nobody has divided yet walks the
+    # whole graph and is complete as it stands, so asking this of every capability on a first run
+    # would put a question against every row of a sheet nobody has got to -- which is how a list
+    # of real gaps stops being read.
+    partly_drawn = any(c.is_bounded for c in intake.capabilities)
+    for capability in intake.capabilities:
+        if partly_drawn and not capability.is_bounded:
+            named = capability.name or capability.id
+            gaps.append(Gap(
+                CAPABILITY, capability.id, "span",
+                f"Which state does {named} start from, and which states does it hand on or "
+                f"finish at?",
+                "Scenarios are enumerated one capability at a time, so a capability without both "
+                "an entry and an exit is walked by nothing and contributes no scenarios at all. "
+                "The other capabilities here have a span, so this one is a gap rather than a "
+                "choice not to divide the graph.",
+                example="entered at S-04; hands on or ends at S-07, S-08"))
     return gaps
 
 

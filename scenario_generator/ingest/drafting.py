@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Set
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from openpyxl import load_workbook
 
@@ -492,14 +492,53 @@ def _validate(data: dict) -> dict:
             "review_notes": data.get("review_notes") or []}
 
 
+def _spans_already_drawn(path: Path) -> Dict[str, Tuple[str, str]]:
+    """Each capability's entry and exit cells, read off the workbook about to be overwritten.
+
+    Writing a draft replaces the file, and a capability's span is the one thing in it that no
+    model produces: it is drawn by hand, against the graph, and it decides how the entire scenario
+    space is enumerated. Rewriting the workbook without carrying it over silently threw that work
+    away on every re-run -- and a re-run is exactly what somebody does after drawing spans, so the
+    loss was guaranteed rather than unlucky.
+
+    Read as the raw cell text rather than as parsed ids, so whatever a person typed comes back
+    exactly as they typed it.
+    """
+    if not path.exists():
+        return {}
+    try:
+        book = load_workbook(path)
+        if "L2 Capabilities" not in book.sheetnames:
+            return {}
+        sheet = book["L2 Capabilities"]
+        drawn = {}
+        for row in sheet.iter_rows(min_row=2):
+            identifier = str(row[0].value or "").strip() if row else ""
+            if not identifier:
+                continue
+            entry = str(row[3].value or "").strip() if len(row) > 3 else ""
+            exit_states = str(row[4].value or "").strip() if len(row) > 4 else ""
+            if entry or exit_states:
+                drawn[identifier] = (entry, exit_states)
+        return drawn
+    except Exception as exc:                     # an unreadable prior file is not a reason to fail
+        logger.warning("Could not read the existing capability spans back: %s", exc)
+        return {}
+
+
 def write_drafted_intake(path: Path, draft: DraftedIntake) -> None:
     """Write the draft into a workbook of exactly the shape ``init-template`` produces.
 
     The provenance goes on its own sheet rather than into the declared columns. ``read_intake``
     looks sheets up by name and reads cells positionally, so an extra sheet is invisible to it and
     the file works as a ``build-graph`` input whether or not anyone edits it.
+
+    Capability spans already drawn on this file are carried across -- see
+    :func:`_spans_already_drawn`. Nothing else in the workbook is preserved, because everything
+    else here is something the draft is entitled to have an opinion about and a span is not.
     """
     path = Path(path)
+    drawn = _spans_already_drawn(path)
     write_template(str(path))
     book = load_workbook(path)
     data = draft.data
@@ -526,8 +565,9 @@ def write_drafted_intake(path: Path, draft: DraftedIntake) -> None:
                                  "Y" if persona["is_default"] else ""])
 
     for capability in data["capabilities"]:
+        entry, exit_states = drawn.get(capability["id"], ("", ""))
         book["L2 Capabilities"].append(
-            [capability["id"], capability["name"], capability["type"]])
+            [capability["id"], capability["name"], capability["type"], entry, exit_states])
 
     for decision in data["decisions"]:
         book["L3 Decisions"].append([

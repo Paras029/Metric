@@ -49,6 +49,14 @@ TWO KINDS OF PROPOSAL
    — note this in the rationale rather than silently declining to propose it, so a person can see
    the tradeoff you weighed and decide for themselves.
 
+   **Never merge decisions belonging to different capabilities.** A capability is a block of the
+   agent with its own entry and exit states, and the scenario space is enumerated one block at a
+   time. Two decisions in different blocks may look like alternate routes to the same fact and
+   still be no such thing: merging them welds two blocks together and changes how the whole space
+   is enumerated, which is a far larger change than the one being proposed. Where two decisions
+   across a boundary really are the same check, say so in the rationale of some other proposal and
+   leave the merge to a person.
+
    Every proposed merge must keep every capability the merged decisions used, listed against the
    new decision — consolidating the branch is not the same as forgetting what it touches, even
    though only one of them can remain the workbook's Triggering Capability.

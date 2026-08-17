@@ -66,18 +66,41 @@ def instantiate_proposal(entry: dict, index: int, intake: IntakeData) -> Scenari
         rationale = f"{rationale} ({dropped} proposed step(s) discarded as outside the " \
                     f"intake vocabulary)".strip()
 
+    # Which block the proposal belongs to, read off the decisions it actually walks rather than
+    # taken from what it claimed. A proposal is enumerated over the same blocks as everything else
+    # -- it goes into the same pack, in the same order, and a reviewer reading the identification
+    # section should find the proposals about identification there. Left empty where the steps
+    # straddle two blocks or name none, because a proposal that crosses a boundary is not scoped
+    # to either and pretending otherwise would file it under the wrong one.
+    by_step = {intake_decision.trigger_capability
+               for step in steps
+               for intake_decision in intake.decisions
+               if intake_decision.id == step.decision_id and intake_decision.trigger_capability}
+    block = next(iter(by_step)) if len(by_step) == 1 else ""
+    entry_state = next((c for c in intake.capabilities if c.id == block), None)
+    seeded = "Session start"
+    precondition = ""
+    if entry_state is not None and entry_state.entry_states:
+        opens_at = next((s for s in intake.states if s.id == entry_state.entry_states[0]), None)
+        if opens_at is not None:
+            seeded = opens_at.description or seeded
+            precondition = (f"Start with the interaction already at: {seeded}. "
+                            f"This scenario tests {entry_state.name or block} from that point on.")
+
     scenario = Scenario(
         id=f"LP-{index:03d}",
         path=steps,
         category=one_of(entry.get("category"), CATEGORIES, "Proposed"),
         persona=persona,
-        seeded_state="Session start",
+        seeded_state=seeded,
         termination=str(entry.get("expected_outcome", "")).strip() or "See scenario description.",
         capabilities=[c for c in (entry.get("capabilities") or []) if c in capability_ids],
         tools=[],
         touches_state_change=bool(entry.get("touches_state_change")),
         turn_meta=_turn_meta(steps, entry, intake),
         origin=ORIGIN_PROPOSED,
+        capability_id=block,
+        precondition=precondition,
     )
     scenario.name = prose(entry, "title") or prose(entry, "name")
     scenario.description = prose(entry, "description")

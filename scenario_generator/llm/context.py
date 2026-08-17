@@ -65,8 +65,19 @@ def describe_graph(intake: IntakeData) -> str:
     was indistinguishable from the declaration it replaced. That is the intermittent failure this
     line fixes: not a model that is bad at graphs, a prompt that withheld the graph.
     """
+    # The span is part of what a capability *is* now: it is the block of the graph the scenario
+    # space is enumerated over, so a call asked to reason about the structure -- to reconnect a
+    # stray decision, or to judge whether two decisions are the same branch -- has to be able to
+    # see where one block ends and the next begins. Without it, a merge that reads perfectly well
+    # locally can weld two blocks together and change how the whole space is enumerated.
+    def _span(c) -> str:
+        if not c.entry_states and not c.exit_states:
+            return " — no span drawn, so nothing is walked through it"
+        return (f" — entered at {', '.join(c.entry_states) or 'nothing'}"
+                f"; hands on or ends at {', '.join(c.exit_states) or 'nothing'}")
+
     capabilities = "\n".join(
-        f"- {c.id} ({c.name}){f' — type: {c.type}' if c.type else ''}"
+        f"- {c.id} ({c.name}){f' — type: {c.type}' if c.type else ''}{_span(c)}"
         for c in intake.capabilities) or "- none declared"
 
     decisions = "\n".join(

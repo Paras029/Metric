@@ -147,7 +147,8 @@ class TestTheNameReachesThePageAndThePack(unittest.TestCase):
 
         with open_for_reading(str(path), "a data template") as book:
             header, rows = read_table(book["Scenarios"])
-        self.assertEqual(header[:3], ["SC ID", "Name", "Description"])
+        self.assertEqual(header[:2], ["SC ID", "Name"])
+        self.assertIn("Capability", header)
         self.assertIn("Locked out after two failed checks", [row[1] for row in rows])
 
     def test_the_pack_still_carries_no_expected_outcome(self):
