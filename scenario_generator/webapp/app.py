@@ -46,7 +46,8 @@ from ..pipeline import revise_intake_workbook
 from . import stagecancel
 from .coverageview import coverage_view, stored_mappings, stored_report
 from .graphpage import render_graph_page
-from .graphview import (declaration as _declaration, graph_summary, render_svg,
+from .graphview import (declaration as _declaration, graph_summary, render_blocks_svg,
+                        render_svg,
                         routes as _graph_routes)
 from .runners import (CONTEXT, DRAFT_INTAKE, EVIDENCE, OVERLAP, METADATA, RUNNERS,
                       STAGE_OUTPUTS,
@@ -191,12 +192,15 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         # full width in the page on the stages where reading it *is* the work, and small in the
         # side panel everywhere after, so what the scenario space was built from stays in view without
         # anyone navigating back for it.
-        graph_svg, graph_facts, aside_graph = "", {}, ""
+        graph_svg, graph_facts, aside_graph, blocks_svg = "", {}, "", ""
         if intake is not None:
             try:
                 graph_facts = graph_summary(intake)
                 if key in GRAPH_STAGES:
                     graph_svg = render_svg(intake)
+                    # Empty unless spans are drawn, which the template reads as "there is no
+                    # block view to offer" rather than as an empty picture to show.
+                    blocks_svg = render_blocks_svg(intake)
                 else:
                     aside_graph = render_svg(intake)
             except Exception as exc:
@@ -232,6 +236,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             notes=_notes_with_origin(workspace),
             note_total=len(workspace.notes),
             graph_svg=graph_svg,
+            blocks_svg=blocks_svg,
             graph_facts=graph_facts,
             intake_problem=intake_problem,
             aside_graph=aside_graph,

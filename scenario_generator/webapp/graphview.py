@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from ..core.graph import DecisionGraph
+from ..utils.text import parse_reached_via
 from ..core.models import Decision, IntakeData, State
 
 BOX_WIDTH = 190
@@ -41,12 +42,17 @@ MAX_LABEL = 22
 # down (or up) a dedicated vertical lane past the edge of the ordinary flow, and back in the right
 # of the target. Each such edge gets its own lane so two loops never run on top of each other.
 LOOP_LANE_GAP = 30
+
+# How far apart the labels of two edges leaving the same box are pushed. See _label_position.
+LABEL_STAGGER = 19
 LOOP_MARGIN = 34
 
 START = "start"
 DECISION = "decision"
 TERMINAL = "terminal"
 ORPHAN = "orphan"
+BLOCK = "block"
+"""One capability, drawn collapsed: the whole of its internal branching as a single box."""
 
 _START_ID = "__start__"
 
@@ -341,6 +347,105 @@ def build_layout(intake: IntakeData, pending_decisions: Sequence[str] = (),
     return layout
 
 
+def build_block_layout(intake: IntakeData) -> Layout:
+    """The agent as its capabilities, with the internal branching of each one folded away.
+
+    The detailed graph answers "what happens inside verification"; this answers "what does this
+    agent do", and on a real use case those are different pictures at very different sizes. Forty
+    decision boxes is a diagram somebody zooms around rather than reads, and the sequence of blocks
+    -- which is the thing a validator is actually orienting by -- is the first casualty of drawing
+    every branch at once.
+
+    Each bounded capability is one box. An exit that is another block's entry becomes an arrow
+    between them, labelled with the position handed over; an exit that ends the interaction is
+    drawn as its own ending box hanging off the block, because how a block can *fail* is exactly
+    what gets lost when it is summarised. Capabilities with no span are left out: nothing is
+    walked through them, and drawing a box for something that contributes no scenarios would put
+    the emptiest part of the declaration at the same size as the rest.
+
+    Returns an empty layout where no spans are drawn at all, which the caller reads as "there is
+    no block view to show".
+    """
+    layout = Layout()
+    bounded = [c for c in intake.capabilities if c.is_bounded]
+    if not bounded:
+        return layout
+
+    described = {s.id: s for s in intake.states}
+    entered_by: Dict[str, str] = {}
+    for capability in bounded:
+        for state_id in capability.entry_states:
+            entered_by.setdefault(state_id, capability.id)
+
+    starts = [s.id for s in intake.states if not parse_reached_via(s.reached_via)]
+    opens = next((entered_by[s] for s in starts if s in entered_by), None)
+
+    layout.nodes[_START_ID] = Node(
+        id=_START_ID, kind=START, title="Start",
+        caption=described[starts[0]].description if starts else "The interaction opens",
+        detail="Where the interaction opens")
+
+    for capability in bounded:
+        inside = [d.id for d in intake.decisions if d.trigger_capability == capability.id]
+        layout.nodes[capability.id] = Node(
+            id=capability.id, kind=BLOCK, title=capability.id,
+            caption=capability.name or capability.id,
+            detail=_panel(capability.name or capability.id, [
+                ("Type", capability.type or "not declared"),
+                ("Entered at", ", ".join(capability.entry_states)),
+                ("Hands on or ends at", ", ".join(capability.exit_states)),
+                ("Decisions inside", ", ".join(inside) or "none tagged with it"),
+            ], footer="Click to open this block in the full graph"),
+            merged_ids=tuple(inside))
+
+    if opens:
+        layout.edges.append(Edge(source=_START_ID, target=opens, outcome="",
+                                 state_label=layout.nodes[_START_ID].caption,
+                                 detail="Where the interaction opens"))
+
+    # One arrow per pair of blocks, however many positions they hand over at. Two blocks joined
+    # at two positions is two edges between the same pair of boxes, drawn on top of each other
+    # with their labels colliding -- and the fact worth reading is that they join, with how many
+    # ways as a detail on the arrow rather than as a second arrow underneath the first.
+    handoffs: Dict[Tuple[str, str], List[State]] = {}
+    for capability in bounded:
+        for exit_id in capability.exit_states:
+            state = described.get(exit_id)
+            if state is None:
+                continue
+            onward = entered_by.get(exit_id)
+            if onward and onward != capability.id:
+                handoffs.setdefault((capability.id, onward), []).append(state)
+            elif state.is_terminal:
+                # Its own box rather than a line on the block, because how a block can end is the
+                # first thing lost when one is summarised, and it is what the pack tests.
+                ending = f"{capability.id}:{exit_id}"
+                layout.nodes[ending] = Node(
+                    id=ending, kind=TERMINAL, title=exit_id, caption=state.description,
+                    detail=_state_detail(state), outcome_type=state.outcome_type,
+                    merged_ids=(exit_id,))
+                layout.edges.append(Edge(
+                    source=capability.id, target=ending, outcome="ends",
+                    state_label=state.description or exit_id, detail=_state_detail(state)))
+
+    for (source, target), positions in handoffs.items():
+        label = (positions[0].description or positions[0].id if len(positions) == 1
+                 else f"{len(positions)} ways")
+        named = layout.nodes[source].caption
+        layout.edges.append(Edge(
+            source=source, target=target, outcome="hands on", state_label=label,
+            detail=f"{named} hands on to {layout.nodes[target].caption} at "
+                   + "; ".join(f"{p.id} ({p.description})" for p in positions)))
+
+    _assign_depths(layout)
+    for edge in layout.edges:
+        source, target = layout.nodes.get(edge.source), layout.nodes.get(edge.target)
+        if source and target:
+            edge.is_back = target.depth <= source.depth
+    _place(layout)
+    return layout
+
+
 def _assign_depths(layout: Layout) -> None:
     """Breadth-first from the start, so depth reads as how far into the interaction a step is."""
     outgoing: Dict[str, List[str]] = {}
@@ -436,13 +541,19 @@ def _edge_path(edge: Edge, source: Node, target: Node) -> str:
             f"{x2:.1f} {midpoint:.1f} {x2:.1f} {y2:.1f}")
 
 
-def _label_position(edge: Edge, source: Node, target: Node) -> tuple:
-    """Where an edge's outcome label sits -- along the lane for a loop, at the midpoint otherwise."""
+def _label_position(edge: Edge, source: Node, target: Node, rank: int = 0) -> tuple:
+    """Where an edge's outcome label sits -- along the lane for a loop, at the midpoint otherwise.
+
+    ``rank`` staggers the labels of edges leaving the same box. Every one of them has the same
+    vertical midpoint, so two branches out of one decision put two labels on the same line and the
+    wider of the two is read as one string of nonsense running through the other. Staggering by
+    rank is what keeps a three-way branch legible; it is the label that moves, never the arrow.
+    """
     if edge.is_back:
         y1, y2 = source.y + BOX_HEIGHT / 2, target.y + BOX_HEIGHT / 2
         return edge.lane_x, (y1 + y2) / 2
     mid_x = (source.x + target.x) / 2 + BOX_WIDTH / 2
-    mid_y = (source.y + BOX_HEIGHT + target.y) / 2
+    mid_y = (source.y + BOX_HEIGHT + target.y) / 2 + rank * LABEL_STAGGER
     return mid_x, mid_y
 
 
@@ -469,17 +580,44 @@ def _edge_label(edge: Edge) -> str:
     return f"{edge.outcome} → {state}" if edge.outcome else state
 
 
+def _block_of(intake: IntakeData) -> Dict[str, str]:
+    """Which capability each box in the detailed graph belongs to.
+
+    A decision says so itself. A state does not, so it takes the block whose exits name it --
+    which is the same rule the walk uses to decide where a route finishes, so what the drawing
+    outlines and what the enumeration walks cannot disagree.
+    """
+    owner = {d.id: d.trigger_capability for d in intake.decisions if d.trigger_capability}
+    for capability in intake.capabilities:
+        if not capability.is_bounded:
+            continue
+        for state_id in tuple(capability.entry_states) + tuple(capability.exit_states):
+            owner.setdefault(state_id, capability.id)
+    return owner
+
+
 def render_svg(intake: IntakeData, pending_decisions: Sequence[str] = (),
                pending_states: Sequence[str] = ()) -> str:
     """The declared graph as a self-contained SVG. Returns an empty string for an empty intake."""
     layout = build_layout(intake, pending_decisions, pending_states)
+    return _render(layout, "The declared decision graph", _block_of(intake))
+
+
+def render_blocks_svg(intake: IntakeData) -> str:
+    """The same agent with each capability collapsed to one box. Empty where no spans are drawn."""
+    return _render(build_block_layout(intake), "The agent's capabilities", {})
+
+
+def _render(layout: Layout, aria_label: str, block_of: Dict[str, str]) -> str:
+    """One layout as an SVG. Shared by the detailed graph and the collapsed one, because two
+    copies of the drawing code is how the two quietly stop looking like the same picture."""
     if not layout.nodes:
         return ""
 
     parts = [
         f'<svg class="graph" viewBox="0 0 {layout.width:.0f} {layout.height:.0f}" '
         f'width="{layout.width:.0f}" height="{layout.height:.0f}" '
-        f'role="img" aria-label="The declared decision graph" '
+        f'role="img" aria-label="{html.escape(aria_label)}" '
         f'xmlns="http://www.w3.org/2000/svg">',
         '<defs><marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" '
         'markerHeight="7" orient="auto-start-reverse">'
@@ -503,12 +641,25 @@ def render_svg(intake: IntakeData, pending_decisions: Sequence[str] = (),
     # Labels are drawn after every edge so no path crosses over the text. A loop's label is
     # rotated to run along its lane -- upright, it would need the label's full text width just to
     # fit between two lanes 30px apart, which no reasonable width leaves room for.
+    # Ranked within the set of edges leaving each box, so siblings do not stack their labels on
+    # one line. Ordered left to right by where each lands, so the stagger reads as a fan rather
+    # than as an arbitrary shuffle.
+    siblings: Dict[str, List[Edge]] = {}
+    for edge in layout.edges:
+        if not edge.is_back:
+            siblings.setdefault(edge.source, []).append(edge)
+    rank_of: Dict[int, int] = {}
+    for leaving in siblings.values():
+        leaving.sort(key=lambda e: layout.nodes[e.target].x if e.target in layout.nodes else 0)
+        for position, edge in enumerate(leaving):
+            rank_of[id(edge)] = position
+
     for edge in layout.edges:
         source, target = layout.nodes.get(edge.source), layout.nodes.get(edge.target)
         if not source or not target:
             continue
         label = _edge_label(edge)
-        mid_x, mid_y = _label_position(edge, source, target)
+        mid_x, mid_y = _label_position(edge, source, target, rank_of.get(id(edge), 0))
         width = len(label) * 5.6 + 14
         classes = "graph__label" + (" graph__label--loop" if edge.is_back else "")
         rotate = f' transform="rotate(-90 {mid_x:.1f} {mid_y:.1f})"' if edge.is_back else ""
@@ -538,6 +689,11 @@ def render_svg(intake: IntakeData, pending_decisions: Sequence[str] = (),
             classes.append("graph__node--unreachable")
             detail += "\n\nNot connected to anything yet."
 
+        owner = block_of.get(node.id, "")
+        block = f' data-capability="{html.escape(owner)}"' if owner else ""
+        if node.kind == BLOCK:
+            block = f' data-capability="{html.escape(node.id)}"'
+
         lines = _wrap(node.caption or node.title)
         text_y = node.y + (BOX_HEIGHT / 2) - (len(lines) - 1) * 6 + 1
         spans = "".join(
@@ -545,7 +701,7 @@ def render_svg(intake: IntakeData, pending_decisions: Sequence[str] = (),
             f'{html.escape(line)}</tspan>' for i, line in enumerate(lines))
 
         parts.append(
-            f'<g class="{" ".join(classes)}" data-node="{html.escape(node.id)}">'
+            f'<g class="{" ".join(classes)}" data-node="{html.escape(node.id)}"{block}>'
             f'<title>{html.escape(detail)}</title>'
             f'<rect x="{node.x:.1f}" y="{node.y:.1f}" width="{BOX_WIDTH}" height="{BOX_HEIGHT}" '
             f'rx="{_corner(node.kind)}"/>'

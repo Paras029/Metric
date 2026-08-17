@@ -26,7 +26,7 @@ from typing import List, Optional, Sequence
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from ..core.models import IntakeData, Scenario
-from .graphview import graph_summary, render_svg, routes
+from .graphview import graph_summary, render_blocks_svg, render_svg, routes
 from .scenarios import to_row
 
 HERE = Path(__file__).parent
@@ -54,6 +54,7 @@ def render_graph_page(intake: IntakeData, scenarios: Optional[Sequence[Scenario]
     return _environment().get_template(TEMPLATE).render(
         title=title or intake.name,
         graph_svg=render_svg(intake),
+        blocks_svg=render_blocks_svg(intake),
         graph_facts=graph_summary(intake),
         rows=rows,
         drawn=datetime.now().strftime("%d %b %Y"),

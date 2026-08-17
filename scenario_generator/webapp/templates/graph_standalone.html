@@ -23,8 +23,14 @@
       <button class="graph__zoom" type="button" data-zoom="in" title="Zoom in">+</button>
       <button class="graph__zoom" type="button" data-zoom="fit" title="Fit to width">Fit</button>
       <span class="graph__level mono" data-zoom-level>100%</span>
+      {% if blocks_svg %}
+        <button class="graph__zoom graph__zoom--view" type="button" data-graph-detail>
+          Show every decision
+        </button>
+      {% endif %}
       <span class="graph__hint" data-graph-selection>
-        Hover to follow one thread · drag to pan
+        {% if blocks_svg %}Click a capability to open it · drag to pan
+        {% else %}Hover to follow one thread · drag to pan{% endif %}
       </span>
       <button class="graph__zoom graph__zoom--clear" type="button" data-graph-clear hidden>
         Clear routes
@@ -33,7 +39,14 @@
     {# No data-graph-section here: the graph is never folded away on this page, so there
      is nothing for opening a scenario to unfold. The script guards for its absence. #}
     <div class="graph__frame" data-graph>
-      <div class="graph__canvas" data-graph-canvas>{{ graph_svg | safe }}</div>
+      <div class="graph__canvas" data-graph-canvas>
+        {% if blocks_svg %}
+          <div data-graph-view="blocks">{{ blocks_svg | safe }}</div>
+          <div data-graph-view="detail" hidden>{{ graph_svg | safe }}</div>
+        {% else %}
+          {{ graph_svg | safe }}
+        {% endif %}
+      </div>
     </div>
     <p class="graph__facts">
       <span class="mono">{{ graph_facts.decisions }}</span> decisions with

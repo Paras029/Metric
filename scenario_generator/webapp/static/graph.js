@@ -240,3 +240,53 @@
 
   refresh();
 })();
+
+/* Two views of one agent: capabilities collapsed, and every decision.
+ *
+ * The collapsed view is what a reader orients by, so it is shown first wherever spans have been
+ * drawn. Opening a block switches to the detailed graph with that block's boxes lit and the rest
+ * dimmed -- which is what makes the detail readable at all on a real use case, where the whole
+ * picture is forty boxes and only a tenth of them are the block being looked at. */
+(function () {
+  var canvas = document.querySelector('[data-graph-canvas]');
+  if (!canvas) { return; }
+  var blocks = canvas.querySelector('[data-graph-view="blocks"]');
+  var detail = canvas.querySelector('[data-graph-view="detail"]');
+  var toggle = document.querySelector('[data-graph-detail]');
+  if (!blocks || !detail || !toggle) { return; }
+
+  function show(which, capability) {
+    var wantDetail = which === 'detail';
+    blocks.hidden = wantDetail;
+    detail.hidden = !wantDetail;
+    toggle.textContent = wantDetail ? 'Show capabilities' : 'Show every decision';
+
+    // Dimming rather than hiding: a block's boxes mean nothing without the ones they lead to,
+    // and removing the rest would leave arrows pointing off the edge of the drawing.
+    var first = null;
+    detail.querySelectorAll('[data-node]').forEach(function (node) {
+      var owner = node.getAttribute('data-capability') || '';
+      var mine = !capability || owner === capability;
+      node.classList.toggle('graph__node--faded', !mine);
+      if (mine && capability && !first) { first = node; }
+    });
+
+    // And brought into view. On a real graph the block just opened is usually below the fold, so
+    // without this the click lands on a screen of faded boxes and reads as the drawing greying
+    // itself out for no reason.
+    if (first && first.scrollIntoView) {
+      first.scrollIntoView({ block: 'center', inline: 'center' });
+    }
+  }
+
+  toggle.addEventListener('click', function () {
+    show(detail.hidden ? 'detail' : 'blocks', '');
+  });
+
+  blocks.querySelectorAll('[data-capability]').forEach(function (node) {
+    node.style.cursor = 'pointer';
+    node.addEventListener('click', function () {
+      show('detail', node.getAttribute('data-capability'));
+    });
+  });
+})();

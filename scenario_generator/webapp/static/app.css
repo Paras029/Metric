@@ -1815,3 +1815,10 @@ ol, ul { list-style: none; padding: 0; }
 .span__field { display: flex; flex-direction: column; gap: 0.35rem; min-width: 16rem; flex: 1 1 16rem; }
 .span__label { font-size: 0.78rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-dim); }
 .span .select { width: 100%; }
+
+/* A collapsed capability: squarer than an ending, heavier than a decision, so the three kinds of
+   box in the two drawings stay tellable apart at a glance. */
+.graph__node--block rect { fill: var(--surface); stroke: var(--ink-mid); stroke-width: 2; }
+.graph__node--block .graph__caption { font-weight: 600; }
+.graph__node--faded { opacity: 0.22; }
+.graph__zoom--view { margin-left: auto; }

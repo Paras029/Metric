@@ -296,13 +296,32 @@
           <button class="graph__zoom" type="button" data-zoom="in" title="Zoom in">+</button>
           <button class="graph__zoom" type="button" data-zoom="fit" title="Fit to width">Fit</button>
           <span class="graph__level mono" data-zoom-level>100%</span>
-          <span class="graph__hint">Hover to follow one thread · drag to pan</span>
+          {% if blocks_svg %}
+            <button class="graph__zoom graph__zoom--view" type="button" data-graph-detail>
+              Show every decision
+            </button>
+          {% endif %}
+          <span class="graph__hint">
+            {% if blocks_svg %}Click a capability to open it · drag to pan
+            {% else %}Hover to follow one thread · drag to pan{% endif %}
+          </span>
           <button class="graph__zoom graph__zoom--clear" type="button" data-graph-clear hidden>
             Clear routes
           </button>
         </div>
         <div class="graph__frame" data-graph>
-          <div class="graph__canvas" data-graph-canvas>{{ graph_svg | safe }}</div>
+          <div class="graph__canvas" data-graph-canvas>
+            {% if blocks_svg %}
+              {# Two drawings of the same agent. The collapsed one is shown first because it is
+                 the one that answers "what does this agent do" -- forty decision boxes is a
+                 picture somebody zooms around rather than reads. Clicking a block opens the
+                 full graph with that block lit. #}
+              <div data-graph-view="blocks">{{ blocks_svg | safe }}</div>
+              <div data-graph-view="detail" hidden>{{ graph_svg | safe }}</div>
+            {% else %}
+              {{ graph_svg | safe }}
+            {% endif %}
+          </div>
         </div>
         <p class="graph__facts">
           <span class="mono">{{ graph_facts.decisions }}</span> decisions with
