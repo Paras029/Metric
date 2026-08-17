@@ -55,9 +55,31 @@ VARIATIONS_BY_MATERIALITY = {"Low": 1, "Medium": 3, "High": 8}
 # --------------------------------------------------------------------------- intake
 @dataclass(frozen=True)
 class Capability:
+    """One block of the agent's work, and the part of the graph that does it.
+
+    A capability used to be a label on a decision and nothing else. It is now the unit the
+    scenario space is enumerated over, because a whole-journey walk does not survive a real agent:
+    an agent that identifies a cardmember, then verifies them, then verifies a charge has three
+    blocks of roughly a dozen routes each, and walking it end to end multiplies them into hundreds
+    of scenarios that differ only in how an earlier block was entered. Nobody tests those
+    separately, and a pack of seven hundred is not a pack anybody runs.
+
+    ``entry_states`` are the positions this block can be entered in; ``exit_states`` the positions
+    it hands on or finishes in. Both are drawn by hand -- where one capability ends and the next
+    begins is a judgement about the agent, not something a graph or a model can read off it -- and
+    an exit of one block is ordinarily the entry of the next, which is what makes the two join up.
+    """
+
     id: str
     name: str
     type: str = ""
+    entry_states: Tuple[str, ...] = ()
+    exit_states: Tuple[str, ...] = ()
+
+    @property
+    def is_bounded(self) -> bool:
+        """Whether this capability has been given a span to walk."""
+        return bool(self.entry_states and self.exit_states)
 
 
 @dataclass(frozen=True)
@@ -160,6 +182,16 @@ class Scenario:
     capabilities: List[str]
     tools: List[str]
     touches_state_change: bool
+    capability_id: str = ""
+    """The block this scenario walks. Empty only where the graph was walked whole."""
+    precondition: str = ""
+    """What has to be true before the tester starts, in words a tester can act on.
+
+    A capability-scoped scenario does not begin at the start of the conversation: one that tests
+    verification begins with a cardmember already identified. That is not a detail of the route --
+    it is the first instruction the tester needs, and without it the conversation they run is a
+    different one from the scenario being asked for.
+    """
     turn_meta: List[TurnMeta] = field(default_factory=list)
     origin: str = "graph"
     name: str = ""                # issued to the owner -- a handle, not a summary

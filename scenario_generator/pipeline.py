@@ -10,8 +10,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional, Sequence
 
-from .core import (DecisionGraph, IntakeData, Scenario, build_probes, enumerate_paths,
-                   instantiate_all, read_intake, read_owner_scenarios)
+from .core import (DecisionGraph, IntakeData, Scenario, build_probes, enumerate_by_span,
+                   enumerate_paths, instantiate_all, instantiate_span, number_scenarios,
+                   read_intake, read_owner_scenarios)
 from .core.context import load_context as _load_context
 from .core.gaps import find_gaps
 from .core.representation import DEFAULT_THRESHOLD, build_report
@@ -45,8 +46,11 @@ def load_context(path: str = None, notes=None) -> str:
 def build_scenario_space(intake: IntakeData, with_probes: bool = False) -> List[Scenario]:
     """Deterministic scenario set from an intake — no LLM."""
     graph = DecisionGraph(intake.decisions, intake.states)
-    walked, augmented = enumerate_paths(graph)
-    scenarios = instantiate_all(walked, augmented, graph, intake.personas, intake.tools)
+    scenarios: List[Scenario] = []
+    for span, walked, augmented in enumerate_by_span(graph, intake.capabilities):
+        scenarios += instantiate_span(span, walked, augmented, graph, intake.personas,
+                                      intake.tools)
+    number_scenarios(scenarios)
     if with_probes:
         scenarios += build_probes(intake)
     return scenarios

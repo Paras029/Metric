@@ -113,9 +113,9 @@ class TestEnumerationDoesNotRepeatItself(unittest.TestCase):
         from scenario_generator.core import graph as graph_module
         original = graph_module._shortest_prefix_to
 
-        def counted(g, decision_id):
+        def counted(g, decision_id, span):
             searches.append(decision_id)
-            return original(g, decision_id)
+            return original(g, decision_id, span)
 
         graph_module._shortest_prefix_to = counted
         try:

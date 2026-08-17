@@ -15,10 +15,11 @@ from __future__ import annotations
 import logging
 import re
 from collections import defaultdict, deque
-from typing import Dict, List, Optional, Set, Tuple
+from dataclasses import dataclass
+from typing import Dict, FrozenSet, List, Optional, Sequence, Set, Tuple
 
 from ..utils.text import parse_reached_via
-from .models import Decision, State, Step
+from .models import Capability, Decision, State, Step
 
 logger = logging.getLogger(__name__)
 
@@ -67,16 +68,83 @@ class DecisionGraph:
         return [s.id for s in self.states.values() if decision_id in s.next_decisions]
 
 
-# --------------------------------------------------------------------------- enumeration
-def walk_paths(graph: DecisionGraph) -> List[Path]:
-    """DFS from every start state, keeping only the routes that reach a declared ending.
+# --------------------------------------------------------------------------- spans
+@dataclass(frozen=True)
+class Span:
+    """One block of the graph to enumerate over, entered one way.
 
-    A route finishes when it arrives at a state the intake marks as ending the interaction. Every
-    other way a walk can come to a halt is the declaration running out rather than the agent
-    finishing:
+    A span is a capability and a single entry state, so a capability that can be entered two ways
+    produces two spans -- which is what makes "after identification by document" and "after
+    identification by one-time code" two scenario sets rather than one set that quietly assumes
+    the first. See :func:`spans_for`.
+    """
+
+    capability_id: str
+    name: str
+    entry_state: str
+    exit_states: FrozenSet[str]
+    adopts_orphans: bool = True
+    """Whether a decision no state leads to, tagged with this capability, is walked here.
+
+    A disconnected decision is still declared, and its outcomes are still things the agent can do,
+    so the augmentation pass gives it a route of its own rather than leaving it untested. It has
+    no position in the graph, so nothing about the graph says which block it belongs to -- the
+    capability it is tagged with does. Set on the first span of each capability only, or a
+    capability entered two ways would produce the same orphan route twice.
+    """
+
+    @property
+    def is_whole_graph(self) -> bool:
+        return not self.capability_id
+
+
+def spans_for(graph: DecisionGraph, capabilities: Sequence[Capability]) -> List[Span]:
+    """What to walk: one span per capability entry state, or the whole graph if none are drawn.
+
+    The fallback matters as much as the feature. An intake nobody has divided into capabilities
+    yet is the ordinary state of a use case on its first run, and a scenario space of nothing at
+    all would read as the tool being broken rather than as a step not yet taken. So an undivided
+    graph walks exactly as it always did, start to ending, and dividing it is what makes the
+    enumeration smaller.
+
+    Entry and exit states that name nothing in the graph are dropped rather than honoured: a span
+    hanging off a state id somebody mistyped would silently enumerate nothing, and a capability
+    that contributes no scenarios is the failure this is most likely to produce by accident.
+    """
+    spans: List[Span] = []
+    for capability in capabilities:
+        entries = [s for s in capability.entry_states if s in graph.states]
+        exits = frozenset(s for s in capability.exit_states if s in graph.states)
+        if not entries or not exits:
+            if capability.entry_states or capability.exit_states:
+                logger.warning(
+                    "Capability %s declares a span this graph cannot place (entry %s, exit %s), "
+                    "so it is not walked as a block.", capability.id,
+                    ", ".join(capability.entry_states) or "none",
+                    ", ".join(capability.exit_states) or "none")
+            continue
+        for position, entry in enumerate(entries):
+            spans.append(Span(capability.id, capability.name or capability.id, entry, exits,
+                              adopts_orphans=position == 0))
+
+    if spans:
+        return spans
+
+    endings = frozenset(s.id for s in graph.states.values() if s.is_terminal)
+    return [Span("", "", start, endings) for start in graph.start_states]
+
+
+# --------------------------------------------------------------------------- enumeration
+def walk_paths(graph: DecisionGraph, span: Optional[Span] = None) -> List[Path]:
+    """DFS across one span, keeping only the routes that reach one of its exits.
+
+    A route finishes when it arrives at a state the span names as an exit, or at a state the
+    intake marks as ending the interaction -- an ending inside a block is an ending, whether or
+    not somebody remembered to list it. Every other way a walk can come to a halt is the
+    declaration running out rather than the agent finishing:
 
     * the outcome taken names a destination no state declares (``OUT:DEC-02=Odd``);
-    * the state reached leads nowhere but is not marked as an ending;
+    * the state reached leads nowhere and is neither an exit nor an ending;
     * every decision the state offers has used up its ``Max Attempts``, or is out of scope.
 
     All three used to be recorded as paths, and became scenarios. None of them can be one: a
@@ -84,9 +152,19 @@ def walk_paths(graph: DecisionGraph) -> List[Path]:
     route the declaration stops short of has no expected outcome to have -- so the metadata
     workbook carried an ending of nothing at all, and the pack asked for a conversation nobody
     could mark. They are dropped here, which is what keeps that out of everything downstream.
+
+    Called with no span, this walks the whole graph exactly as it did before spans existed.
     """
+    if span is None:
+        endings = frozenset(s.id for s in graph.states.values() if s.is_terminal)
+        return [p for start in graph.start_states
+                for p in walk_paths(graph, Span("", "", start, endings))]
+
     paths: List[Path] = []
     truncated = {"paths": False, "depth": False}
+
+    def finishes_here(state: Optional[State], state_id: str) -> bool:
+        return state_id in span.exit_states or (state is not None and state.is_terminal)
 
     def visit(state_id: str, path: Path, fired: Dict[str, int]) -> None:
         if len(paths) >= MAX_PATHS:
@@ -96,8 +174,8 @@ def walk_paths(graph: DecisionGraph) -> List[Path]:
             truncated["depth"] = True
             return
         state = graph.state(state_id)
-        if state is None or state.is_terminal or not state.next_decisions:
-            if path and state is not None and state.is_terminal:
+        if state is None or finishes_here(state, state_id) or not state.next_decisions:
+            if path and finishes_here(state, state_id):
                 paths.append(list(path))
             return
 
@@ -118,8 +196,7 @@ def walk_paths(graph: DecisionGraph) -> List[Path]:
         # Exhausting a retry limit is a real thing that happens, but what the agent does at that
         # point is exactly what the intake has not said -- so there is no outcome to test against.
 
-    for start in graph.start_states:
-        visit(start, [], {})
+    visit(span.entry_state, [], {})
 
     if truncated["paths"]:
         logger.warning("Path enumeration stopped at the MAX_PATHS cap of %d — the scenario set is "
@@ -134,19 +211,64 @@ def covered_variants(paths: List[Path]) -> Set[Tuple[str, str]]:
     return {(step.decision_id, step.variant) for path in paths for step in path}
 
 
-def _shortest_prefix_to(graph: DecisionGraph, decision_id: str) -> Path:
-    """BFS for the shortest path from a start state to any state offering `decision_id`."""
+def _belongs_to(graph: DecisionGraph, decision: Decision, span: Span, within: Set[str]) -> bool:
+    """Whether this span is the one that should give this decision a focused route."""
+    if decision.id in within:
+        return True
+    if not span.adopts_orphans or graph.states_offering(decision.id):
+        return False
+    # Disconnected: nothing in the graph reaches it, so the capability it names is the only
+    # statement anybody has made about where it belongs.
+    return span.is_whole_graph or decision.trigger_capability == span.capability_id
+
+
+def _decisions_within(graph: DecisionGraph, span: Span) -> Set[str]:
+    """Every decision the span can reach, stopping where the block hands on.
+
+    What makes a decision part of a block is that a route through the block can fire it, and the
+    walk itself is not enough to tell: a decision behind a retry limit is inside the block and
+    never appears in a walked path, which is exactly the case the augmentation pass exists for.
+    Reachability ignores attempt counts for that reason -- it answers "does this belong here",
+    not "was this walked".
+    """
+    within: Set[str] = set()
+    seen = {span.entry_state}
+    queue = deque([span.entry_state])
+    while queue:
+        state = graph.state(queue.popleft())
+        if state is None or state.is_terminal:
+            continue
+        for decision_id in state.next_decisions:
+            decision = graph.decision(decision_id)
+            if decision is None or decision.out_of_scope:
+                continue
+            within.add(decision_id)
+            for variant in decision.variants:
+                landing = graph.successor(decision_id, variant)
+                if landing in seen or landing in span.exit_states:
+                    continue
+                seen.add(landing)
+                queue.append(landing)
+    return within
+
+
+def _shortest_prefix_to(graph: DecisionGraph, decision_id: str, span: Span) -> Path:
+    """BFS for the shortest path from the span's entry to any state offering `decision_id`."""
     targets = set(graph.states_offering(decision_id))
     if not targets:
         return []
-    queue = deque((start, []) for start in graph.start_states)
-    visited = set(graph.start_states)
+    queue = deque([(span.entry_state, [])])
+    visited = {span.entry_state}
     while queue:
         state_id, prefix = queue.popleft()
         if state_id in targets:
             return prefix
         state = graph.state(state_id)
-        if state is None or state.is_terminal or len(prefix) >= MAX_DEPTH:
+        if state is None or len(prefix) >= MAX_DEPTH:
+            continue
+        # An exit is where the block hands on, so the search stops there for the same reason the
+        # walk does: a route that leaves the block is not a route through it.
+        if state.is_terminal or (prefix and state_id in span.exit_states):
             continue
         for next_decision in state.next_decisions:
             decision = graph.decision(next_decision)
@@ -162,13 +284,22 @@ def _shortest_prefix_to(graph: DecisionGraph, decision_id: str) -> Path:
 
 
 def _shortest_suffix_to_ending(graph: DecisionGraph, state_id: str,
-                               fired: Dict[str, int], taken: int) -> Optional[Path]:
-    """BFS onward from `state_id` to any declared ending, or ``None`` if none can be reached.
+                               fired: Dict[str, int], taken: int,
+                               span: Span) -> Optional[Path]:
+    """BFS onward from `state_id` to the end of the span, or ``None`` if it cannot be reached.
+
+    The end of the span is either an exit it declares or a state the intake marks as ending the
+    interaction, exactly as in :func:`walk_paths` -- the two have to agree about where a route
+    finishes, or an augmented route would run past the block it belongs to.
 
     Attempt counts are carried in rather than restarted, because they are what makes the rest of
     the route legal: a suffix that fires a decision a fourth time is not a route the agent has.
     """
-    if graph.state(state_id) is not None and graph.state(state_id).is_terminal:
+    def finished(candidate: str) -> bool:
+        state = graph.state(candidate)
+        return candidate in span.exit_states or (state is not None and state.is_terminal)
+
+    if finished(state_id):
         return []
 
     queue = deque([(state_id, [], fired)])
@@ -189,7 +320,7 @@ def _shortest_suffix_to_ending(graph: DecisionGraph, state_id: str,
                 next_state = graph.successor(decision_id, variant, occurrence)
                 step = Step(decision_id, variant, next_state)
                 landed = graph.state(next_state)
-                if landed is not None and landed.is_terminal:
+                if finished(next_state):
                     return suffix + [step]
                 after = {**used, decision_id: occurrence + 1}
                 mark = (next_state, tuple(sorted(after.items())))
@@ -200,7 +331,8 @@ def _shortest_suffix_to_ending(graph: DecisionGraph, state_id: str,
     return None
 
 
-def augment_variants(graph: DecisionGraph, paths: List[Path]) -> List[Path]:
+def augment_variants(graph: DecisionGraph, paths: List[Path],
+                     span: Optional[Span] = None) -> List[Path]:
     """A focused route for every declared (decision, variant) the DFS missed.
 
     Carried on to an ending rather than stopped at the outcome being reached for. These exist to
@@ -209,17 +341,22 @@ def augment_variants(graph: DecisionGraph, paths: List[Path]) -> List[Path]:
     is the one thing a scenario cannot be. An outcome whose continuation dead-ends is dropped: it
     is unreachable in a complete route, so there is no conversation to ask anybody to run.
     """
+    if span is None:
+        endings = frozenset(s.id for s in graph.states.values() if s.is_terminal)
+        span = Span("", "", graph.start_states[0] if graph.start_states else "", endings)
+
     already = covered_variants(paths)
+    within = _decisions_within(graph, span)
     extra: List[Path] = []
     for decision in graph.decisions.values():
-        if decision.out_of_scope:
+        if decision.out_of_scope or not _belongs_to(graph, decision, span, within):
             continue
         missing = [v for v in decision.variants if (decision.id, v) not in already]
         if not missing:
             continue
         # One search per decision, not per outcome: the route *to* a decision is the same
         # whichever of its outcomes is being reached for.
-        prefix = _shortest_prefix_to(graph, decision.id)
+        prefix = _shortest_prefix_to(graph, decision.id, span)
         fired: Dict[str, int] = {}
         for step in prefix:
             fired[step.decision_id] = fired.get(step.decision_id, 0) + 1
@@ -228,7 +365,7 @@ def augment_variants(graph: DecisionGraph, paths: List[Path]) -> List[Path]:
             landing = graph.successor(decision.id, variant, occurrence)
             reached = prefix + [Step(decision.id, variant, landing)]
             suffix = _shortest_suffix_to_ending(
-                graph, landing, {**fired, decision.id: occurrence + 1}, len(reached))
+                graph, landing, {**fired, decision.id: occurrence + 1}, len(reached), span)
             if suffix is None:
                 continue
             extra.append(reached + suffix)
@@ -236,9 +373,10 @@ def augment_variants(graph: DecisionGraph, paths: List[Path]) -> List[Path]:
     return extra
 
 
-def enumerate_paths(graph: DecisionGraph) -> Tuple[List[Path], List[Path]]:
-    """Return (walked, augmented) paths, de-duplicated by decision-variant signature."""
-    walked = walk_paths(graph)
+def enumerate_paths(graph: DecisionGraph,
+                    span: Optional[Span] = None) -> Tuple[List[Path], List[Path]]:
+    """Return (walked, augmented) paths over one span, de-duplicated by decision-variant signature."""
+    walked = walk_paths(graph, span)
     seen: Set[tuple] = set()
 
     def keep(path: Path) -> bool:
@@ -249,8 +387,20 @@ def enumerate_paths(graph: DecisionGraph) -> Tuple[List[Path], List[Path]]:
         return True
 
     unique_walked = [p for p in walked if keep(p)]
-    unique_augmented = [p for p in augment_variants(graph, walked) if keep(p)]
+    unique_augmented = [p for p in augment_variants(graph, walked, span) if keep(p)]
     return unique_walked, unique_augmented
+
+
+def enumerate_by_span(graph: DecisionGraph,
+                      capabilities: Sequence[Capability]) -> List[Tuple[Span, List[Path],
+                                                                        List[Path]]]:
+    """Every span, with the routes through it. The whole enumeration, in one call.
+
+    De-duplication is per span rather than across the set. Two capabilities sharing a decision
+    would otherwise have the second one silently lose the routes the first had already claimed --
+    and the point of walking blocks separately is that each block is tested on its own terms.
+    """
+    return [(span,) + enumerate_paths(graph, span) for span in spans_for(graph, capabilities)]
 
 
 # --------------------------------------------------------------------------- structural hints

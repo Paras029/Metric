@@ -15,6 +15,7 @@ from .models import (CATEGORIES, INPUT_SOURCES, Capability, Decision, IntakeData
                      Persona, State, Tool)
 
 _DECISION_TOKEN = re.compile(r"DEC-\d+")
+_STATE_TOKEN = re.compile(r"S-\d+", re.I)
 
 # The sheets an intake must have. "Tools" is optional -- an agent that calls nothing
 # is unusual but not malformed.
@@ -100,7 +101,12 @@ def read_intake(path: str) -> IntakeData:
     if not any(p.is_default for p in personas):
         personas[0] = Persona(personas[0].id, personas[0].name, personas[0].applies_to, True)
 
-    capabilities = [Capability(_cell(r, 0), _cell(r, 1), _cell(r, 2))
+    # Entry and exit are read as whatever state ids appear in the cell, so "S-00, S-03" and
+    # "S-00 and S-03" and a list down the cell all mean the same thing. The alternative is a
+    # separator nobody remembers and a span that silently covers half the block it names.
+    capabilities = [Capability(_cell(r, 0), _cell(r, 1), _cell(r, 2),
+                               tuple(t.upper() for t in _STATE_TOKEN.findall(_cell(r, 3))),
+                               tuple(t.upper() for t in _STATE_TOKEN.findall(_cell(r, 4))))
                     for r in rows["L2 Capabilities"]]
 
     decisions = [Decision(_cell(r, 0), _cell(r, 1), _cell(r, 2), _cell(r, 3),
@@ -178,6 +184,11 @@ _GUIDE = [
     ("The core idea", "L3 Decisions and L4 States describe the agent as a graph. A State is a "
                       "position the conversation can be in; a Decision is a branch point with named "
                       "outcomes; 'Reached Via' on a State says which Decision outcome leads there."),
+    ("Entry / Exit States", "On L2 Capabilities: which states a capability is entered in, and "
+                            "which it hands on or finishes in. Scenarios are enumerated one "
+                            "capability at a time, from each entry state to any exit state, so an "
+                            "exit of one capability is usually an entry of the next. Leave both "
+                            "blank on every capability to walk the whole graph end to end instead."),
     ("Reached Via", "Use 'Start' for the opening state, or 'DEC-xx=Variant' for a state reached by a "
                     "decision outcome. Two states may share the same value if an outcome recurs."),
     ("Possible Outputs", "Separate outcomes with '/'. Use plain words where they fit (Pass, Fail, "
@@ -409,7 +420,8 @@ def write_template(path: str) -> None:
     sheets.add_sheet(workbook, "Personas",
                      ["ID", "Name", "Applies To", "Default"], [10, 34, 28, 10])
     sheets.add_sheet(workbook, "L2 Capabilities",
-                     ["Capability ID", "Name", "Type"], [14, 30, 20])
+                     ["Capability ID", "Name", "Type", "Entry States", "Exit States"],
+                     [14, 30, 20, 22, 26])
     sheets.add_sheet(workbook, "L3 Decisions",
                      ["Decision ID", "Decision", "Triggering Capability", "Inputs",
                       "Possible Outputs", "Input Source", "Max Attempts", "Outcome Condition",

@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import Dict, List, Optional, Tuple
 
-from .graph import DecisionGraph, Path
+from .graph import DecisionGraph, Path, Span
 from .models import (ORIGIN_GRAPH, ORIGIN_VARIANT_GAP, VARIATIONS_BY_MATERIALITY, Persona,
                      Scenario, Step, Tool, TurnMeta)
 
@@ -145,12 +145,18 @@ def _started_at(path: Path, graph: DecisionGraph) -> str:
 
 
 def instantiate_path(path: Path, graph: DecisionGraph, personas: List[Persona],
-                     tools: List[Tool], origin: str) -> Scenario:
+                     tools: List[Tool], origin: str, span: Optional[Span] = None) -> Scenario:
     category = categorise(path, graph)
     turn_meta = build_turn_meta(path, graph, tools)
     tool_names, state_changing = _scenario_tools(path, graph, tools)
 
-    start_state = graph.state(_started_at(path, graph)) if graph.start_states else None
+    # Where the conversation opens. For a capability-scoped scenario that is the span's entry
+    # state, not the graph's start: a verification scenario begins with the cardmember already
+    # identified, and seeding it at the top of the journey would ask for a different conversation.
+    if span is not None and not span.is_whole_graph:
+        start_state = graph.state(span.entry_state)
+    else:
+        start_state = graph.state(_started_at(path, graph)) if graph.start_states else None
     terminal_state = graph.state(path[-1].next_state) if path else None
 
     capabilities = list(dict.fromkeys(
@@ -169,6 +175,8 @@ def instantiate_path(path: Path, graph: DecisionGraph, personas: List[Persona],
         touches_state_change=state_changing,
         turn_meta=turn_meta,
         origin=origin,
+        capability_id=span.capability_id if span else "",
+        precondition=_precondition(span, start_state),
     )
     scenario.name = fallback_name(category, turn_meta)
     scenario.description = fallback_description(category, turn_meta)
@@ -177,18 +185,48 @@ def instantiate_path(path: Path, graph: DecisionGraph, personas: List[Persona],
     return scenario
 
 
-def instantiate_all(walked: List[Path], augmented: List[Path], graph: DecisionGraph,
-                    personas: List[Persona], tools: List[Tool]) -> List[Scenario]:
-    """All scenarios, ordered and assigned stable SC-xxx IDs."""
-    scenarios = [instantiate_path(p, graph, personas, tools, ORIGIN_GRAPH) for p in walked]
-    scenarios += [instantiate_path(p, graph, personas, tools, ORIGIN_VARIANT_GAP)
-                  for p in augmented]
+def _precondition(span: Optional[Span], start_state) -> str:
+    """What the tester has to arrange before the first turn, in their own terms.
 
+    Empty for a whole-graph walk, where the conversation genuinely starts at the start and saying
+    so would be noise on every scenario in the pack.
+    """
+    if span is None or span.is_whole_graph or start_state is None:
+        return ""
+    return (f"Start with the interaction already at: {start_state.description}. "
+            f"This scenario tests {span.name} from that point on.")
+
+
+def instantiate_span(span: Span, walked: List[Path], augmented: List[Path], graph: DecisionGraph,
+                     personas: List[Persona], tools: List[Tool]) -> List[Scenario]:
+    """The scenarios one span produces, unnumbered."""
+    return ([instantiate_path(p, graph, personas, tools, ORIGIN_GRAPH, span) for p in walked]
+            + [instantiate_path(p, graph, personas, tools, ORIGIN_VARIANT_GAP, span)
+               for p in augmented])
+
+
+def number_scenarios(scenarios: List[Scenario]) -> List[Scenario]:
+    """Order the set and assign stable SC-xxx ids.
+
+    Capability first, so the pack reads in the order the agent works: everything testing
+    identification, then everything testing verification. A tester works through one block at a
+    time, and a pack ordered by category interleaves them.
+    """
     order = {ORIGIN_GRAPH: 0, ORIGIN_VARIANT_GAP: 1}
-    scenarios.sort(key=lambda s: (order.get(s.origin, 9), s.category, len(s.path)))
+    scenarios.sort(key=lambda s: (s.capability_id, order.get(s.origin, 9), s.category,
+                                  len(s.path)))
     for index, scenario in enumerate(scenarios, start=1):
         scenario.id = f"SC-{index:03d}"
     return scenarios
+
+
+def instantiate_all(walked: List[Path], augmented: List[Path], graph: DecisionGraph,
+                    personas: List[Persona], tools: List[Tool]) -> List[Scenario]:
+    """All scenarios of one whole-graph walk, ordered and assigned stable SC-xxx IDs."""
+    scenarios = [instantiate_path(p, graph, personas, tools, ORIGIN_GRAPH) for p in walked]
+    scenarios += [instantiate_path(p, graph, personas, tools, ORIGIN_VARIANT_GAP)
+                  for p in augmented]
+    return number_scenarios(scenarios)
 
 
 def peer_signals(scenarios: List[Scenario]) -> Dict[str, dict]:
