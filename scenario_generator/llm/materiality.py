@@ -98,6 +98,13 @@ class MaterialityAssessor:
             "category": s.category,
             "description": s.description,
             "capabilities_involved": s.capabilities,
+            # Which block of the agent this tests, and what is already true when it starts. A
+            # scenario covering verification only is a different proposition from one covering a
+            # whole journey that happens to pass through it -- fewer steps, a narrower blast
+            # radius -- and judging its weight without knowing that reads it as a thin scenario
+            # rather than a scoped one.
+            "tests_capability": s.capability_id,
+            "already_established": s.precondition,
             "num_steps": len(s.turn_meta),
             "touches_state_changing_action": s.touches_state_change,
             "is_probe": s.is_probe,

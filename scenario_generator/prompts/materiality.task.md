@@ -33,6 +33,12 @@ to each scenario and how much weight it carries. No single signal decides a tier
   unlocks, using the business objective above, rather than treating the name as inherently
   significant.
 
+- tests_capability and already_established: where these are present the scenario covers one block
+  of the agent rather than a whole journey, and starts with the position in `already_established`
+  already arranged. Judge it on what *that block* being mishandled would cost, not on how few
+  steps it has -- a short scenario is not a small one, and a scoped scenario is short by
+  construction. What has already happened before it starts is context, not something it tests.
+
 - category: a hint, never a verdict. A Happy path can be High where it is the route most users
   take and failure has broad reach. A Retry or Fallback on a peripheral capability can be Low
   despite being a failure path.

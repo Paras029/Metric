@@ -106,6 +106,11 @@ def _batch_payload(scenarios: List[Scenario], signals: dict) -> str:
         "expected_outcome": s.termination,
         "existing_materiality": s.effective_materiality,
         "capabilities": s.capabilities,
+        # The block it walks, and what the tester must have arranged first. Without these the
+        # review reads every capability-scoped scenario as starting from nothing, and calls the
+        # ones testing the same block redundant when what they differ in is the entry position.
+        "tests_capability": s.capability_id,
+        "already_established": s.precondition,
         "touches_state_changing_action": s.touches_state_change,
         "num_steps": len(s.turn_meta),
         "num_turns": s.turn_count,
