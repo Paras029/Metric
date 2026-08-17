@@ -1802,3 +1802,16 @@ ol, ul { list-style: none; padding: 0; }
     animation-duration: .01ms !important;
   }
 }
+
+/* Setting a capability's span. Two multi-selects side by side, because the choice is "which of
+   these states" twice over and a picker per state id would be a wall of checkboxes. */
+.span {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+  margin-top: 0.75rem;
+}
+.span__field { display: flex; flex-direction: column; gap: 0.35rem; min-width: 16rem; flex: 1 1 16rem; }
+.span__label { font-size: 0.78rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-dim); }
+.span .select { width: 100%; }

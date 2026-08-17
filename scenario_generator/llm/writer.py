@@ -229,6 +229,12 @@ class ScenarioWriter:
             "id": scenario.id,
             "persona": scenario.persona.name,
             "starting_state": scenario.seeded_state,
+            # What the tester has to have arranged before turn one. A capability-scoped scenario
+            # begins part-way through a journey -- verification is tested with the cardmember
+            # already identified -- and a writer that does not know this writes a turn plan that
+            # starts by identifying them again, which tests the wrong block and burns the turns.
+            "already_established": scenario.precondition,
+            "tests_capability": scenario.capability_id,
             "steps": [{"decision": t.decision_name, "outcome": t.expected_variant,
                        "resulting_situation": t.next_state,
                        "driven_by_tester": t.input_source == "User"}

@@ -627,8 +627,9 @@ def routes(intake: IntakeData, scenarios: Sequence) -> Dict[str, dict]:
     return found
 
 
-def declaration(intake: IntakeData) -> Tuple[List[dict], List[dict], List[dict]]:
-    """The intake as three readable lists: decisions with their states, capabilities, and tools.
+def declaration(intake: IntakeData) -> Tuple[List[dict], List[dict], List[dict], List[dict]]:
+    """The intake as four readable lists: decisions with their states, capabilities, tools, and
+    every state, for the pickers that set a capability's span.
 
     The page used to show the decisions alone, with their outcome labels and nothing about where
     those outcomes lead -- which is half of what a decision *is*, and the half the whole graph
@@ -674,7 +675,20 @@ def declaration(intake: IntakeData) -> Tuple[List[dict], List[dict], List[dict]]
         # drops the probes that would have tested it. Both are worth seeing without opening a file.
         "decisions": by_capability.get(capability.id, []),
         "tools": [t.name for t in intake.tools if t.capability_id == capability.id],
+        # The block this capability covers. Shown as the states themselves rather than as ids,
+        # because the choice is made by reading the drawing and "S-04" means nothing without it.
+        "entry_states": list(capability.entry_states),
+        "exit_states": list(capability.exit_states),
+        "is_bounded": capability.is_bounded,
     } for capability in intake.capabilities]
+
+    # Every state, for the two pickers that set a span. Ordered as the intake declares them, so
+    # the list reads down the flow rather than alphabetically.
+    state_options = [{"id": state.id,
+                      "label": f"{state.id} · {state.description or 'no description'}"
+                               + (" · ends" if state.is_terminal else ""),
+                      "terminal": state.is_terminal}
+                     for state in intake.states]
 
     known = {c.id for c in intake.capabilities}
     tool_rows = [{
@@ -683,4 +697,4 @@ def declaration(intake: IntakeData) -> Tuple[List[dict], List[dict], List[dict]]
         "state_changing": tool.state_changing,
         "unlinked": bool(tool.capability_id) and tool.capability_id not in known,
     } for tool in intake.tools]
-    return rows, capabilities, tool_rows
+    return rows, capabilities, tool_rows, state_options

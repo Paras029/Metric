@@ -232,8 +232,15 @@ def instantiate_all(walked: List[Path], augmented: List[Path], graph: DecisionGr
 def peer_signals(scenarios: List[Scenario]) -> Dict[str, dict]:
     """Redundancy and relative depth for each scenario, computed across the whole set.
 
-    Grouped by (category, capability set); within a group, ranked by depth. Supplied to the
-    materiality judgement as evidence, so redundancy is measured rather than guessed at.
+    Grouped by (capability, entry position, category); within a group, ranked by depth. Supplied
+    to the materiality judgement as evidence, so redundancy is measured rather than guessed at.
+
+    The block a scenario walks is what makes two scenarios comparable, and the position it is
+    entered from is part of that: verification-after-a-document-check and
+    verification-after-a-one-time-code are peers of their own siblings, not of each other, and
+    counting them together would report every scenario in a two-entry block as twice as redundant
+    as it is. Falls back to the set of capabilities the route touches, which is what an undivided
+    graph has.
 
     Probes are excluded: with no decision path, depth and redundancy say nothing useful about
     them, and each tests a distinct property.
@@ -242,7 +249,9 @@ def peer_signals(scenarios: List[Scenario]) -> Dict[str, dict]:
     for scenario in scenarios:
         if scenario.is_probe:
             continue
-        key = (scenario.category, tuple(sorted(scenario.capabilities)))
+        block = ((scenario.capability_id, scenario.precondition) if scenario.capability_id
+                 else tuple(sorted(scenario.capabilities)))
+        key = (block, scenario.category)
         groups.setdefault(key, []).append(scenario)
 
     signals = {}

@@ -30,7 +30,8 @@ from flask import (Flask, abort, jsonify, redirect, render_template, request, se
 from werkzeug.utils import secure_filename
 
 from ..core.gaps import CAPABILITY, DECISION, STATE, find_gaps
-from ..core.intake import read_review_notes, set_decision_scope, write_template
+from ..core.intake import (read_review_notes, set_capability_span, set_decision_scope,
+                           write_template)
 from ..core.models import MATERIALITY
 from ..ingest.conversations import read_conversations
 from ..ingest.extraction import SAME_FLOW_EACH, SPLIT_ACROSS_IMAGES
@@ -213,9 +214,9 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         # Every already-declared decision, with whether it is walked -- shown only on the intake
         # stage, and only for what the workbook already has. A sketched decision is not here yet
         # to have a scope one way or the other.
-        decisions, capabilities, tools = [], [], []
+        decisions, capabilities, tools, state_options = [], [], [], []
         if key == "intake" and intake is not None:
-            decisions, capabilities, tools = _declaration(intake)
+            decisions, capabilities, tools, state_options = _declaration(intake)
 
         return render_template(
             "stage.html",
@@ -237,6 +238,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             aside_files=_submitted_files(workspace),
             decisions=decisions,
             capabilities=capabilities,
+            state_options=state_options,
             tools=tools,
             questions=_declaration_questions(workspace, intake) if key == "intake" else [],
             graph_open=key in GRAPH_OPEN_STAGES,
@@ -686,6 +688,28 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             return redirect(url_for("stage", key="intake",
                                     invalidated=", ".join(s.title for s in invalidated)))
         return redirect(url_for("stage", key="intake"))
+
+    @app.route("/stage/intake/capability/<capability_id>/span", methods=["POST"])
+    def set_span(capability_id: str):
+        """Set which states one capability is entered in and which it hands on or finishes at.
+
+        This is the whole of how a capability gets a span: nothing proposes one, because where a
+        block of the agent ends is a judgement about the agent rather than something readable off
+        the graph. It is set here, against the drawing, and takes effect on the next run.
+        """
+        workspace = _workspace()
+        path = workspace.artifact_path("intake", "workbook")
+        if not path:
+            abort(404)
+        entries = request.form.getlist("entry")
+        exits = request.form.getlist("exit")
+        if set_capability_span(str(path), capability_id, entries, exits):
+            invalidated = workspace.invalidate_from("intake")
+            workspace.save()
+            return redirect(url_for("stage", key="intake",
+                                    invalidated=", ".join(s.title for s in invalidated))
+                            + "#capabilities")
+        return redirect(url_for("stage", key="intake") + "#capabilities")
 
     @app.route("/stage/intake/revise", methods=["POST"])
     def revise_intake():

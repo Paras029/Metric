@@ -67,6 +67,7 @@ class TestEveryRouteIsReachable(unittest.TestCase):
             "/stage/<key>/redact": ["POST"],
             "/stage/<key>/diagrams": ["POST"],
             "/stage/<key>/scenario/<scenario_id>": ["POST"],
+            "/stage/intake/capability/<capability_id>/span": ["POST"],
             "/stage/intake/decision/<decision_id>/scope": ["POST"],
             "/stage/intake/revise": ["POST"],
             "/stage/intake/structure-review": ["POST"],

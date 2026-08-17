@@ -285,6 +285,9 @@ class ScenarioRow:
     persona_id: str
     signature: Tuple[Tuple[str, str], ...]
     origin: str = "graph"
+    capability_id: str = ""
+    """The block this scenario walks, empty where the graph was walked whole. Coverage reads it
+    to know that a conversation crossing several blocks is credited to only one of them."""
 
 
 # --------------------------------------------------------------------------- their own material

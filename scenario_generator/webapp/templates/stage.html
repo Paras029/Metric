@@ -430,11 +430,22 @@
        materiality. Neither was on the page at all, so both were only visible by opening the
        workbook -- which is where a blank one goes unnoticed. #}
     {% if capabilities %}
-      <section class="block">
+      <section class="block" id="capabilities">
         <h2 class="block__title">Capabilities</h2>
         <p class="block__body">
-          What the agent can do. The type decides which adversarial probes apply.
+          What the agent can do, and which part of the graph does it. Scenarios are enumerated one
+          capability at a time, from each entry state to any exit state — so an exit of one is
+          usually an entry of the next. Leave every span blank to walk the whole graph instead.
         </p>
+        {% set unbounded = capabilities | rejectattr('is_bounded') | list | length %}
+        {% if unbounded and unbounded < capabilities | length %}
+          <p class="aside aside--warn">
+            <span class="mono">{{ unbounded }}</span> of
+            <span class="mono">{{ capabilities | length }}</span> capabilities have no span, so
+            nothing is walked through them. A capability is only enumerated once it has both an
+            entry and an exit.
+          </p>
+        {% endif %}
         {% call fold("Every declared capability", capabilities | length, "",
                      open=capabilities | length <= 6) %}
         <ul class="declared">
@@ -461,6 +472,35 @@
                   {% for name in capability.tools %}{{ name }}{{ ", " if not loop.last }}{% endfor %}
                 {%- endif %}
               </p>
+              {# Set against the drawing above rather than in the workbook: which box a block
+                 hands on at is read by following the arrows, and a spreadsheet between the two
+                 makes that judgement harder than it is. #}
+              <form class="span" method="post"
+                    action="{{ url_for('set_span', capability_id=capability.id) }}">
+                <label class="span__field">
+                  <span class="span__label">Entered at</span>
+                  <select class="select" name="entry" multiple size="4">
+                    {% for option in state_options %}
+                      <option value="{{ option.id }}"
+                        {% if option.id in capability.entry_states %}selected{% endif %}>
+                        {{ option.label }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <label class="span__field">
+                  <span class="span__label">Hands on or ends at</span>
+                  <select class="select" name="exit" multiple size="4">
+                    {% for option in state_options %}
+                      <option value="{{ option.id }}"
+                        {% if option.id in capability.exit_states %}selected{% endif %}>
+                        {{ option.label }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <button class="button button--quiet" type="submit">Save span</button>
+              </form>
             </li>
           {% endfor %}
         </ul>

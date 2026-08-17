@@ -50,6 +50,10 @@ _TEMPLATE_INSTRUCTIONS = [
                               "one the requested number of times and record what happened in the "
                               "Variation_Log and Variation_Summary sheets. Return this same file."),
     ("Sheets you read", "Scenarios and Turn_Plan describe what to run. Do not edit them."),
+    ("Starting Situation", "Where the conversation has to be before turn one. Many scenarios test "
+                           "one capability of the agent rather than a whole journey, so they start "
+                           "part-way through: get the session to that position first, then follow "
+                           "the turn plan. Turns spent getting there are not part of the scenario."),
     ("Sheets you fill", "Variation_Log (one row per scenario, variation and turn) and Variation_Summary (one row "
                         "per scenario and variation). Both are already pre-populated with the SC ID, "
                         "Run and Turn numbers — fill the blank columns beside them."),
@@ -224,8 +228,14 @@ def write_data_template(path: str, intake: IntakeData, scenarios: List[Scenario]
 
     index = sheets.add_sheet(workbook, "Scenarios",
                              ["SC ID", "Name", "Description", "Persona", "Starting Situation",
-                              "Recommended Turns", "Required Variations"], [10, 40, 66, 30, 32, 18, 14])
-    sheets.write_rows(index, [[s.id, s.name, s.description, s.persona.name, s.seeded_state,
+                              "Recommended Turns", "Required Variations"], [10, 40, 66, 30, 46, 18, 14])
+    # Starting Situation carries the precondition where there is one. A scenario scoped to a
+    # capability begins part-way through a journey, and a tester told only the name of the state
+    # it starts in ("Cardmember verified") has not been told to go and arrange it -- they open a
+    # fresh session, the agent is at the beginning, and the conversation they run is not the one
+    # being asked for. It is the one field that decides whether the pack is runnable.
+    sheets.write_rows(index, [[s.id, s.name, s.description, s.persona.name,
+                               s.precondition or s.seeded_state,
                                recommended_turns(s), required_variations(s.effective_materiality, variations_mapping)]
                               for s in scenarios])
 
@@ -301,7 +311,7 @@ def read_space_metadata(path: str, functional_only: bool = True) -> List[Scenari
             capabilities=[c.strip() for c in cell("Capabilities").split(",") if c.strip()],
             persona_id=cell("Persona ID"),
             signature=tuple(parse_path_str(cell("Decision Path"))),
-            origin=origin))
+            origin=origin, capability_id=cell("Capability")))
     return space
 
 

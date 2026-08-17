@@ -11,6 +11,13 @@ Its fields:
 
 - persona: the kind of user the tester should play.
 - starting_state: where the interaction begins.
+- already_established: what the tester must arrange *before* the first turn, when present. A
+  scenario is scoped to one capability of the agent, so it usually does not begin at the start of
+  the conversation -- one testing verification begins with the cardmember already identified.
+  Where this is present, the route below covers only that capability, and the turn plan must
+  start from that position. Do not write turns that re-do the earlier part of the journey: those
+  turns test a different capability, and this scenario would then not test its own.
+- tests_capability: which capability of the agent this scenario exercises, when scoped to one.
 - steps: the route, in order. Each step names a decision, the outcome the tester must induce at
   that decision, and the situation that follows it.
 - driven_by_tester: true where the step is driven by something the user says or supplies. Where
@@ -33,7 +40,9 @@ WHAT TO RETURN FOR EACH SCENARIO
 - description: two or three sentences. Say what situation the tester is setting up and what makes
   this route distinct from the straightforward version of the same journey -- the specific
   condition, the specific failure, the specific sequence. Name the real subject matter. Do not say
-  what the agent should do about it.
+  what the agent should do about it. Where `already_established` is present, open by stating that
+  position in the tester's own words, in one short clause, then say what is being tested from
+  there.
 
 - turn_plan: exactly as many numbered lines as that scenario's own turns_to_write value, written
   "1. ", "2. " and so on, joined with the two characters \n and nothing else. Each line tells the tester what to say or do to

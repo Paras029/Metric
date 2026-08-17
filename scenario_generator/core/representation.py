@@ -110,6 +110,19 @@ class CoverageReport:
 
     threshold: int = DEFAULT_THRESHOLD
 
+    capability_scoped: int = 0
+    """How many scenarios in the space cover one capability rather than a whole journey.
+
+    Recorded because it bounds what this report can claim. A conversation is matched to exactly
+    one scenario, decided by where it ends, so a conversation running the whole journey is
+    credited to the capability it finishes in and not to the capabilities it passed through on the
+    way. Those earlier capabilities are therefore counted as less exercised than they were.
+
+    The error runs in the safe direction -- it understates the model owner's coverage, so the
+    pack asks for testing already done rather than skipping testing that was not -- but it is
+    still an error, and this stage must not make it quietly. See :meth:`summary`.
+    """
+
     @property
     def conversations(self) -> int:
         return sum(s.count for s in self.scenarios) + len(self.unmatched) + len(self.outside)
@@ -137,6 +150,11 @@ class CoverageReport:
         }
         if self.outside:
             counts["Ran a probe rather than a route"] = len(self.outside)
+        if self.capability_scoped:
+            counts["Counted per capability"] = (
+                f"{self.capability_scoped} of {len(self.scenarios)} scenarios cover one "
+                f"capability. Each conversation is credited to the capability it ends in, so "
+                f"earlier capabilities it passed through read as less exercised than they were.")
         return counts
 
 
@@ -181,4 +199,5 @@ def build_report(mappings, scenarios: List[ScenarioRow],
 
     ordered = sorted(buckets.values(), key=lambda b: (b.count, b.scenario.id))
     return CoverageReport(scenarios=ordered, groups=list(groups.values()),
-                          unmatched=unmatched, outside=outside, threshold=threshold)
+                          unmatched=unmatched, outside=outside, threshold=threshold,
+                          capability_scoped=sum(1 for s in scenarios if s.capability_id))

@@ -257,6 +257,32 @@ def set_decision_scope(path: str, decision_id: str, out_of_scope: bool) -> bool:
     return False
 
 
+def set_capability_span(path: str, capability_id: str, entry_states: List[str],
+                        exit_states: List[str]) -> bool:
+    """Set one capability's entry and exit states in place. Returns whether a row was found.
+
+    The same narrow exception :func:`set_decision_scope` makes, for the same reason and more so.
+    Where one block of the agent ends and the next begins is decided by looking at the drawing --
+    following the arrows out of identification and seeing which box the flow hands on at -- and
+    routing that through "edit the L2 sheet, save, upload again" would put a spreadsheet between
+    the judgement and the picture it is made from.
+
+    Written as a comma-separated list because that is what the reader parses out of the cell, and
+    what a person typing into the sheet by hand would most likely write.
+    """
+    workbook = _open_for_editing(path)
+    if "L2 Capabilities" not in workbook.sheetnames:
+        return False
+    sheet = workbook["L2 Capabilities"]
+    for row in sheet.iter_rows(min_row=2):
+        if row and str(row[0].value or "").strip() == capability_id:
+            sheet.cell(row=row[0].row, column=4, value=", ".join(entry_states))
+            sheet.cell(row=row[0].row, column=5, value=", ".join(exit_states))
+            workbook.save(path)
+            return True
+    return False
+
+
 def set_state_reached_via(path: str, state_id: str, reached_via: str) -> bool:
     """Correct one state's Reached Via column in place. Returns whether a row was found.
 

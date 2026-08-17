@@ -13,9 +13,14 @@ THE AGENT
 
 THE SCENARIO SPACE
 
-Each of these is one complete route through the agent, from the opening of the conversation to a
-specific ending. **A scenario is identified by where it ends as much as by what it does on the
-way.**
+Each of these is one route through the agent, ending at a specific point. **A scenario is
+identified by where it ends as much as by what it does on the way.**
+
+Many scenarios cover one capability of the agent rather than a whole journey, and start part-way
+through: one testing verification begins with the customer already identified. Where a scenario
+says what must already be established before it starts, that position is a *precondition* and not
+part of the route — a conversation that reached that position under its own steam still matches,
+as long as what it did afterwards is the route.
 
 {{scenarios}}
 
@@ -37,7 +42,9 @@ Where two scenarios both fit the route, the right one is the one whose ending is
 ending. Where the conversation ends somewhere no scenario ends, that is very likely a `no_match`
 rather than a near-enough fit.
 
-Exactly one scenario, or none. Never a list.
+Exactly one scenario, or none. Never a list. A conversation that runs through several capabilities
+matches the scenario covering the capability it **ends in** — the earlier capabilities it passed
+through are preconditions of that scenario, not separate matches.
 
 WHAT MAKES A MATCH CONFIDENT
 
