@@ -109,6 +109,43 @@ class TestWhatTheDraftDroppedComesBack(unittest.TestCase):
         self.assertEqual([s["id"] for s in carry_diagram_through(folded, _DRAWN)["states"]],
                          ["S-00", "S-01"])
 
+    def test_where_both_claim_the_same_arrow_the_walk_takes_the_drafts_state(self):
+        """Two states can claim one arrow without either being droppable, and order settles it.
+
+        A diagram draws two outcomes of one decision landing in the same box; the draft reads
+        them as two different endings and declares only the first. The drawn box still has a route
+        nobody else claims, so it is carried rather than folded away — and now the draft's state
+        and the carried one both say they are reached by that first outcome. The walk takes the
+        first it finds, so the carried row going in ahead of the draft's would quietly overrule a
+        reading the drafting call was asked to make.
+        """
+        from scenario_generator.core.graph import DecisionGraph
+        from scenario_generator.core.models import Decision, State
+
+        drawn = {
+            "capabilities": [],
+            "decisions": [{"id": "DEC-02", "name": "Eligible", "capability_id": "",
+                           "inputs": "", "outcomes": ["Ok", "No"], "input_source": "User",
+                           "max_attempts": 1, "outcome_condition": ""}],
+            "states": [{"id": "S-03", "reached_via": "DEC-02=Ok, DEC-02=No",
+                        "description": "The session ends", "next_decisions": [],
+                        "is_terminal": True, "outcome_type": "Happy path"}],
+        }
+        split = _draft(decisions=drawn["decisions"],
+                       states=[{"id": "S-08", "reached_via": "DEC-02=Ok",
+                                "description": "Filed", "next_decisions": [],
+                                "is_terminal": True, "outcome_type": "Happy path"}])
+
+        merged = carry_diagram_through(split, drawn)
+        self.assertEqual([s["id"] for s in merged["states"]], ["S-08", "S-03"])
+
+        graph = DecisionGraph(
+            [Decision(d["id"], d["name"], "", "", list(d["outcomes"]))
+             for d in merged["decisions"]],
+            [State(s["id"], s["reached_via"], s["description"], list(s["next_decisions"]),
+                   s["is_terminal"], s["outcome_type"]) for s in merged["states"]])
+        self.assertEqual(graph.successor("DEC-02", "Ok"), "S-08")
+
     def test_an_unreferenced_capability_is_not_carried(self):
         """A capability row nothing points at is noise in the sheet a reviewer opens first."""
         unused = {"capabilities": _DRAWN["capabilities"] + [
