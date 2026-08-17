@@ -36,9 +36,14 @@ _METADATA_COLUMNS = ["SC ID", "Decision Path", "Category", "Materiality",
                      "Reviewed Materiality", "Review Rationale", "Review Flag",
                      "Proposal Rationale", "Proposal Anchor", "Effective Materiality",
                      "Owner Coverage", "Owner Coverage Note",
-                     "Reviewed Category", "Review Category Rationale"]
+                     "Reviewed Category", "Review Category Rationale",
+                     # The block this scenario walks and what the tester has to arrange before
+                     # the first turn. Appended rather than slotted in beside "Capabilities":
+                     # a metadata workbook outlives any one run and is read by column name, so a
+                     # column inserted mid-sheet would misread every workbook written before it.
+                     "Capability", "Precondition"]
 _METADATA_WIDTHS = [10, 40, 18, 12, 12, 46, 22, 24, 11, 13, 26, 40, 13, 18, 26, 22,
-                    18, 52, 16, 52, 14, 18, 18, 26, 18, 52]
+                    18, 52, 16, 52, 14, 18, 18, 26, 18, 52, 18, 60]
 
 _TEMPLATE_INSTRUCTIONS = [
     ("What this workbook is", "A set of test scenarios for your agent, issued by MRMG. Run each "
@@ -83,7 +88,8 @@ def _write_metadata_sheet(workbook, scenarios: List[Scenario]) -> None:
         s.review_materiality, s.review_rationale, s.review_flag,
         s.proposed_rationale, s.proposed_anchor, s.effective_materiality,
         s.owner_coverage, s.owner_coverage_note,
-        s.review_category, s.review_category_rationale]
+        s.review_category, s.review_category_rationale,
+        s.capability_id, s.precondition]
         for s in scenarios])
 
 
@@ -191,6 +197,7 @@ def read_scenarios(path: str, intake: IntakeData) -> List[Scenario]:
             proposed_anchor=cell("Proposal Anchor"),
             owner_coverage=cell("Owner Coverage"),
             owner_coverage_note=cell("Owner Coverage Note"),
+            capability_id=cell("Capability"), precondition=cell("Precondition"),
             review_category=cell("Reviewed Category"),
             review_category_rationale=cell("Review Category Rationale"),
         ))

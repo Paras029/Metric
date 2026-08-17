@@ -263,3 +263,35 @@ class TestOutcomesTheWalkCannotReachAreStillCovered(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheBlockSurvivesTheWorkbook(unittest.TestCase):
+    """A scenario read back out of the metadata workbook has to still know which block it walks.
+
+    Every stage after the workflow reads the scenario space off disk rather than out of memory, so
+    a field the writer records and the reader drops is a field that exists only until the next
+    stage runs -- and the precondition is the one instruction that makes a capability-scoped
+    scenario runnable at all.
+    """
+
+    def _round_trip(self):
+        import tempfile
+        from pathlib import Path
+
+        from scenario_generator.core.models import IntakeData
+        from scenario_generator.io import read_scenarios, write_space_metadata
+
+        intake = IntakeData(use_case={"Use case name": "Disputes"}, personas=_PERSONAS,
+                            capabilities=_CAPABILITIES, decisions=_DECISIONS, states=_STATES,
+                            tools=[])
+        path = Path(tempfile.mkdtemp()) / "space.xlsx"
+        written = _scenarios()
+        write_space_metadata(str(path), intake, written)
+        return written, read_scenarios(str(path), intake)
+
+    def test_the_capability_and_precondition_come_back(self):
+        written, read_back = self._round_trip()
+        self.assertEqual([s.capability_id for s in read_back],
+                         [s.capability_id for s in written])
+        self.assertEqual([s.precondition for s in read_back],
+                         [s.precondition for s in written])
