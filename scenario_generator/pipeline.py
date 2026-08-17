@@ -604,5 +604,5 @@ def annotate_coverage(metadata_path: str, intake: IntakeData, report) -> int:
 
     write_space_metadata(metadata_path, intake, scenarios)
     logger.info("Annotated %d scenario(s) with what their conversations cover. Nothing was "
-                "removed -- whether to drop a covered scenario is your call.", annotated)
+                "removed -- dropping a covered scenario is a judgement call.", annotated)
     return annotated

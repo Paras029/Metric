@@ -2,18 +2,15 @@
 {% block title %}METRIC{% endblock %}
 
 {% block body %}
-{# Two panels: what this is, and what to do about it.
-   The left one is the product's own surface -- deep navy, carrying the wordmark and the eight
-   steps drawn as the route the tool walks. It is the only screen with room for an identity, and a
-   centred white column on an off-white field is not one. The right one is the whole of the
-   interaction: one field, one button, and whatever is already in progress. #}
+{# Two panels: the product's own surface on the left, carrying the wordmark and the eight steps
+   as the route the tool walks; the whole of the interaction on the right. #}
 <main class="gate">
 
   <aside class="gate__brand">
     <div class="gate__brandInner">
       <p class="gate__mark">METRIC</p>
       <p class="gate__lede">
-        An independent scenario space for an agentic AI system — built from the model owner's documentation, and issued back to them without the answers.
+        An independent scenario space for an agentic AI system.
       </p>
 
       <ol class="route" aria-label="The eight steps">
@@ -31,7 +28,7 @@
   <section class="gate__work">
     <div class="gate__workInner">
       <h1 class="gate__title">Start a use case</h1>
-      <p class="gate__sub">Name the agent you are validating.</p>
+      <p class="gate__sub">Name the agent under validation.</p>
 
       <form class="gate__form" method="post" action="{{ url_for('create_workspace') }}">
         <label class="field">

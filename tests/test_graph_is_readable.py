@@ -88,7 +88,7 @@ class TestABoxSaysWhatKindOfThingItIs(unittest.TestCase):
         from scenario_generator.webapp import app as webapp
 
         template = (Path(webapp.__file__).parent / "templates" / "stage.html").read_text()
-        self.assertIn("rounded boxes the ways an interaction can end", template)
+        self.assertIn("rounded boxes the endings", template)
 
 
 class TestOneEndingIsOneBox(unittest.TestCase):

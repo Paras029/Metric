@@ -47,25 +47,20 @@ class Group:
 
 GROUPS: Tuple[Group, ...] = (
     Group(MODEL_DOC, "Model documentation",
-          "The document describing the agent: what it does, where it branches, what it must not "
-          "do. The main source for everything downstream.",
+          "What the agent does, where it branches, what it must not do.",
           _DOCUMENTS, icon="document"),
 
     Group(OWNER_SCENARIOS, "The model owner's testing",
-          "The conversations the model owner has already run, in whatever shape they arrived — "
-          "one row per turn, a transcript per row, or a document of exchanges. Any grouping the "
-          "model owner applied is read too, and checked rather than taken at face value. Used to "
-          "measure how much of the scenario space the model owner's testing already exercises.",
+          "Conversations already run, in whatever shape they arrived. Used to measure "
+          "coverage, never to describe the agent.",
           (".xlsx", ".xlsm", ".csv", ".docx", ".pdf", ".md", ".txt"), icon="checklist"),
 
     Group(DIAGRAMS, "Workflow diagrams",
-          "Screenshots or exports of the agent's flow. Several images of one long flow are read "
-          "together as a sequence.",
+          "Screenshots or exports of the agent's flow.",
           _IMAGES, icon="diagram"),
 
     Group(SUPPORTING, "Supporting material",
-          "Vendor documentation, decks, policy extracts, rule tables, anything else that bears on "
-          "how the agent behaves.",
+          "Vendor documentation, decks, policy extracts, rule tables.",
           _DOCUMENTS + _IMAGES, icon="folder"),
 )
 

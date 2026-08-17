@@ -14,9 +14,7 @@
   <section class="block">
     <h1 class="block__title">{{ title }} — the declared graph</h1>
     <p class="block__body">
-      <strong>Boxes are decisions</strong>, <strong>arrows the states between them</strong>,
-      rounded boxes the ways an interaction can end. A branch missing here is a branch that will
-      never be tested.
+      Boxes are decisions, arrows the states between them, rounded boxes the endings.
     </p>
     <p class="graph__facts">Drawn {{ drawn }} from the declaration in METRIC.</p>
 
@@ -51,8 +49,8 @@
          several open at once light several, which is how two are compared. #}
       <h2 class="block__title" id="scenarios">The scenarios that walk it</h2>
       <p class="block__body">
-        Open one to light the route it takes, from the start box to the ending. Open several and
-        they all stay lit. <span class="mono">{{ rows | length }}</span> in all.
+        Open one to light its route; several stay lit at once.
+        <span class="mono">{{ rows | length }}</span> in all.
       </p>
       <ul class="cards">
         {% for row in rows %}
@@ -90,7 +88,6 @@
       <p class="aside aside--bad">
         Not reachable from the start:
         <span class="mono">{{ graph_facts.unreachable | join(', ') }}</span>.
-        A state nothing leads to is usually a gap in the declaration rather than in the agent.
       </p>
     {% endif %}
   </section>

@@ -32,107 +32,54 @@ STATUS_LABELS = {
 
 @dataclass(frozen=True)
 class Stage:
-    """One step of the pipeline, as the person using it experiences it."""
+    """One step of the pipeline."""
 
     key: str
     title: str
     blurb: str
-    detail: str = ""
     optional: bool = False
 
     requires: Tuple[str, ...] = ()
     """What must have produced something before this stage can run.
 
-    Empty means every required stage before it, which is the ordinary case: the pipeline is mostly
-    a chain and each step consumes the last one's output. Stating it explicitly is for the stages
-    that are not — measuring what the model owner's testing covers needs the scenario space and
-    nothing after it, and gating it on the review as well would mean the transcripts could not be
-    submitted until the last model pass had finished, for no reason.
+    Empty means every required stage before it, which is the ordinary case. Stated explicitly only
+    for the stages that break the chain: coverage needs the scenario space and nothing after it,
+    and gating it on the review would block transcripts behind the last model pass for no reason.
     """
 
 
-# The order here is the order of the pipeline, and the dependency chain is linear: each stage
-# depends on the one before it. Optional stages can be skipped without blocking what follows.
+# The order here is the order of the pipeline, and the chain is linear except where a stage names
+# its own dependencies. Optional stages can be skipped without blocking what follows.
 #
-# The blurb is the whole of what a stage says about itself before you run it. One sentence, in
-# the language a business reader already has: it is read by a validator on their first day and by
-# somebody's director on the way past their desk, and neither of them is served by a paragraph.
-# The detail below it is for the person who wants the reasoning, folded away until asked for.
+# One line each. A stage page has the run button, the inputs and the result on it; a paragraph
+# explaining the stage above all three pushes the work below the fold and is read once.
 STAGES: Tuple[Stage, ...] = (
-    Stage("intake", "Intake drafting",
-          "What the agent is, as a decision graph. Drafted from the model owner's "
-          "documentation, then confirmed by you.",
-          "Reads everything submitted — documentation, vendor material, workflow diagrams — and "
-          "drafts the declaration the whole scenario space is built on. Reading and drafting are one "
-          "step because they are one job: the reading exists to be drafted from, and a person has "
-          "no decision to make between them. Whatever the documents leave unsettled is folded into "
-          "the draft as a note against the row it concerns, so the work is correction rather than "
-          "transcription. Upload a completed intake instead if you already have one — it is then "
-          "read and never written to.\n\n"
-          "This is the boundary of what can be tested. Nothing absent from here reaches the "
-          "scenario space."),
+    Stage("intake", "Intake",
+          "The agent as a decision graph, drafted from the submitted documentation."),
 
     Stage("workflow", "Workflow",
-          "Every distinct route through the graph, walked exhaustively. Plus the adversarial "
-          "probes that apply to this agent.",
-          "Walks the declared graph depth-first and turns every distinct route into a scenario, so "
-          "coverage of the declared design is demonstrable rather than asserted. Adversarial "
-          "probes are added separately, since they test properties of the agent rather than routes "
-          "through it. No model decides which scenarios exist — this stage is the reason the "
-          "scenario space can be defended."),
+          "Every route through each capability, walked exhaustively, plus the probes that apply."),
 
     Stage("scenarios", "Scenario space",
-          "Each route written up as something a tester can run: a name, what happens, and the "
-          "turns to take.",
-          "Writes each scenario in business language, for somebody who has never seen how the "
-          "agent was built. The expected outcome is withheld from this step by construction — it "
-          "is never put in the prompt — because what this produces is issued to the model owner, "
-          "and text that revealed the answer would leave the exercise measuring nothing."),
+          "Each route written up for a tester: a name, what happens, and the turns to take."),
 
     Stage("variations", "Variation space",
-          "The variants of each scenario worth running separately — different phrasing, different "
-          "user, different conditions.",
-          "A scenario says what is being tested; a variation says how else the same test can "
-          "arrive. Not built yet: the stage is here so the shape of the pipeline is the shape you "
-          "will use, and it passes through without changing anything.",
+          "Variants of each scenario worth running separately. Not built yet.",
           optional=True),
 
     Stage("materiality", "Materiality",
-          "What it would cost the business if the agent handled each scenario badly, and how many "
-          "variations that justifies.",
-          "Assigns each scenario a tier by business consequence rather than abstract severity, "
-          "judged across the set — whether a scenario matters depends partly on what else the "
-          "scenario space covers. The tier decides how many variations each scenario is issued with, so it "
-          "governs the size of the request you make."),
+          "What a mishandled scenario would cost, and how many runs that justifies."),
 
     Stage("review", "Review",
-          "One pass over the whole space, with the documentation still in view. Settles "
-          "materiality, flags what is weak, proposes what was missed.",
-          "The only step that sees the scenario and variation space whole, against the context "
-          "read at intake. Enumeration is exhaustive over what was declared but bounded by it, so "
-          "this works at that boundary: it settles materiality with everything in view, checks the "
-          "ending each scenario is filed under, flags what is redundant, under-specified or "
-          "mis-scoped, and proposes what enumeration could not reach. It cannot remove anything — "
-          "a flag is a recommendation to you."),
+          "One pass over the whole space against the documentation: settles materiality, flags "
+          "weak scenarios, proposes what enumeration could not reach."),
 
     Stage("coverage", "Coverage",
-          "How much of the space the model owner's testing already reaches. Skip it if they "
-          "submitted none.",
-          "Reads the transcripts of the testing already done and maps each conversation onto at "
-          "most one scenario, decided by where the exchange ends rather than by what it passes "
-          "through — a conversation that authenticates and stops is not evidence for a scenario "
-          "that authenticates and then does something else. What comes out is a count per "
-          "scenario rather than a covered/not-covered flag, because one conversation and forty are "
-          "not the same evidence.",
+          "How much of the space the model owner's own testing already reaches.",
           optional=True, requires=("intake", "workflow")),
 
     Stage("summary", "Summary",
-          "What to send the model owner: the data template, and what still has to be asked for.",
-          "Writes the two workbooks and states what is outstanding. The data template goes to the "
-          "model owner and carries no expected outcome, decision path or materiality. The scenario space metadata "
-          "stays with you and holds the ground truth. Alongside them: what the documentation never "
-          "settled, what the review flagged, and where the model owner's evidence is thin — "
-          "the request to make of them, in one place."),
+          "The data template to issue, and what still has to be asked for."),
 )
 
 STAGE_BY_KEY: Dict[str, Stage] = {stage.key: stage for stage in STAGES}

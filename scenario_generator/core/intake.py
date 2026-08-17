@@ -77,7 +77,7 @@ def _sheet(workbook, name: str, path: str) -> list:
             f"'{Path(path).name}' has no '{name}' sheet, so it is not an intake workbook this "
             f"can read. It needs the sheets the template ships with: "
             f"{', '.join(_REQUIRED_SHEETS)}. Download a blank template and fill that in, or "
-            f"check you have uploaded the right file.")
+            f"check the right file was uploaded.")
     return sheets.read_rows(workbook[name])
 
 

@@ -267,7 +267,7 @@ def _run_intake(workspace: Workspace, progress=None, cancel=None) -> Dict[str, o
             raise ValueError(
                 "Nothing to draft from yet. Add the model owner's documentation, a workflow "
                 "diagram, or any combination of the two above — a pack of pictures is a pack. Or "
-                "upload a completed intake workbook if you already have one.")
+                "upload a completed intake workbook instead.")
         cancellation.check(cancel)
         action = "drafted"
         draft_intake_workbook(str(context), str(target),
@@ -291,7 +291,7 @@ def _run_intake(workspace: Workspace, progress=None, cancel=None) -> Dict[str, o
         "drafted": "drafted the declaration from the documentation",
         "revised": ("revised the declaration already here, folding in every answer and note "
                     "since — nothing they do not touch was changed"),
-        "read": "read the workbook you provided; it is never overwritten",
+        "read": "read the workbook provided; it is never overwritten",
     }[action]
     report("Intake ready", 2, 2)
     return summary
