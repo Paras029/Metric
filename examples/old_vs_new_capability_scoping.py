@@ -23,6 +23,11 @@ If verification genuinely behaves the same however the cardmember was identified
 entry state instead of two collapses those six scenarios to three. That is a modelling decision
 about the agent, which is why nothing here makes it automatically.
 """
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from scenario_generator.core.graph import DecisionGraph, enumerate_by_span
 from scenario_generator.core.generation import instantiate_span, number_scenarios
 from scenario_generator.core.models import Capability, Decision, Persona, State
