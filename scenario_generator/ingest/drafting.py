@@ -132,12 +132,89 @@ def draft_intake(context: str, complete: Optional[Callable[..., str]] = None,
 
     reply = council.deliberate(complete, system, user, stage="INTAKE_DRAFT",
                                tier=config.stage_tier("INTAKE_DRAFT", config.JUDGEMENT))
-    return DraftedIntake(_validate(parse_json_object(reply)))
+    return DraftedIntake(carry_diagram_through(_validate(parse_json_object(reply)), structure))
 
 
 # How each part of a declaration is identified, for matching a repair's rows against the draft's.
 _ROW_KEY = {"personas": "id", "capabilities": "id", "decisions": "id", "states": "id",
             "tools": "name"}
+
+
+def carry_diagram_through(data: dict, structure: Optional[dict]) -> dict:
+    """The draft, with every box the diagram declared and the draft dropped put back.
+
+    A diagram is read deterministically -- box by box, into the intake's own vocabulary, audited
+    and repaired against its own picture -- and then, until this existed, the *only* thing that
+    carried that graph into the workbook was one model call being asked nicely to start from it.
+    When that call underperformed, a workflow that had been read correctly off the image arrived
+    as an empty declaration, and nothing anywhere said a graph had been lost. A pack of nothing
+    but diagrams could therefore produce a blank intake and read as though the tool required a
+    written document, which it does not: any combination of documents and pictures is a pack.
+
+    So the instruction is enforced rather than requested, on the same principle as
+    :func:`carry_forward`. The draft still wins wherever the two describe the same row -- correcting
+    the diagram against the prose is exactly what the drafting call is for -- and it still adds
+    everything the picture does not cover. What it cannot do is silently drop a branch somebody
+    drew.
+
+    Draft only, never revision. A revision starts from a workbook a person may have corrected by
+    hand, and a state deleted there was deleted on purpose; putting it back from the picture every
+    run would make the correction impossible to keep.
+    """
+    from . import diagram_structure
+
+    if not structure or diagram_structure.is_empty(structure):
+        return data
+
+    merged = dict(data)
+    # Through the same validation the drafted rows went through, so a carried row cannot arrive
+    # with a capability type or outcome type the rest of the tool does not recognise.
+    drawn = _validate({part: list(structure.get(part) or [])
+                       for part in ("capabilities", "decisions", "states")})
+
+    superseded = _states_taken_over(drawn, data)
+    restored: Dict[str, List[str]] = {}
+    for part in ("decisions", "states"):
+        kept = list(data.get(part) or [])
+        seen = {str(row.get("id", "")).strip() for row in kept}
+        added = [row for row in drawn[part]
+                 if str(row.get("id", "")).strip() not in seen
+                 and not (part == "states" and str(row.get("id", "")).strip() in superseded)]
+        if added:
+            restored[part] = [str(row["id"]) for row in added]
+        merged[part] = kept + added
+
+    # Outcomes are the branch labels, so a decision can survive with a route missing from it.
+    drew = {d["id"]: [str(o) for o in d["outcomes"]] for d in drawn["decisions"]}
+    for decision in merged["decisions"]:
+        outcomes = [str(o) for o in (decision.get("outcomes") or [])]
+        lowered = {o.lower() for o in outcomes}
+        dropped = [o for o in drew.get(str(decision.get("id", "")), [])
+                   if o.lower() not in lowered]
+        if dropped:
+            decision["outcomes"] = outcomes + dropped
+            restored.setdefault("outcomes", []).extend(
+                f"{decision.get('id', '')}={o}" for o in dropped)
+
+    # A capability only where something now points at it. Carrying the rest would put rows in the
+    # workbook that no decision names, which is noise in the one sheet a reviewer reads first.
+    named = {str(d.get("capability_id", "")).strip() for d in merged["decisions"]}
+    have = {str(c.get("id", "")).strip() for c in (data.get("capabilities") or [])}
+    missing = [c for c in drawn["capabilities"] if c["id"] in named and c["id"] not in have]
+    if missing:
+        restored["capabilities"] = [c["id"] for c in missing]
+    merged["capabilities"] = list(data.get("capabilities") or []) + missing
+
+    if restored:
+        detail = "; ".join(f"{part}: {', '.join(ids)}" for part, ids in sorted(restored.items()))
+        logger.warning("The draft left out %s, all of which were read off a submitted workflow "
+                       "diagram. They were carried into the declaration unchanged.", detail)
+        merged["review_notes"] = list(data.get("review_notes") or []) + [{
+            "field": "Read from the diagram",
+            "note": ("Taken straight from the submitted workflow diagram because the draft did "
+                     f"not include them — {detail}. They were read off an image and checked "
+                     "against no text, so confirm them before relying on them.")}]
+    return merged
 
 
 def carry_forward(first: dict, repaired: dict) -> dict:

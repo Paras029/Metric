@@ -265,8 +265,9 @@ def _run_intake(workspace: Workspace, progress=None, cancel=None) -> Dict[str, o
     elif ours:
         if not context.exists():
             raise ValueError(
-                "Nothing to draft from. Add the model owner's documentation above, or upload a "
-                "completed intake workbook if you already have one.")
+                "Nothing to draft from yet. Add the model owner's documentation, a workflow "
+                "diagram, or any combination of the two above — a pack of pictures is a pack. Or "
+                "upload a completed intake workbook if you already have one.")
         cancellation.check(cancel)
         action = "drafted"
         draft_intake_workbook(str(context), str(target),

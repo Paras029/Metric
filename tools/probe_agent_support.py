@@ -5,10 +5,13 @@ reading and filling until the declaration audits clean. Whether that can be buil
 own tool-calling -- or has to be hand-rolled on JSON in text -- depends on things nobody can look
 up, because they depend on what SafeChain hands back and what the gateway model behind it does.
 
-Nine checks, each one deciding something specific about the design. Every one is guarded, so a
-failure reports itself and the rest still run. Nothing is written anywhere and no project file is
-touched: this reads your .env and config.yml exactly as a normal run would, and spends a handful
-of model calls.
+Ten checks, each one deciding something specific about the design. The first nine go straight at
+SafeChain's model, so they say what your gateway can do regardless of what this tool does with it;
+the last one runs the same loop through the project's own :func:`gateway.tool_model`, which is the
+only way to see from the outside whether the plumbing built for the agent actually works here.
+Every check is guarded, so a failure reports itself and the rest still run. Nothing is written
+anywhere and no project file is touched: this reads your .env and config.yml exactly as a normal
+run would, and spends a handful of model calls.
 
     python tools/probe_agent_support.py
 
@@ -242,6 +245,38 @@ def main() -> int:
         return {"seconds_per_turn": timings, "twenty_calls_would_be":
                 f"~{sum(timings) / len(timings) * 20 / 60:.1f} minutes if run one at a time"}
 
+    # ---------------------------------------------------------------- 10. the project's own path
+    @check("10. Does the project's tool_model() run a loop on this gateway?",
+           "whether the plumbing the agent is built on works here. Checks 3 to 5 test SafeChain's "
+           "model directly; this tests what METRIC hands an agent -- the tiered parameters, the "
+           "retry, and the bind order -- which is the part that can be wrong on its own.")
+    def _ten():
+        from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+        from langchain_core.tools import tool
+
+        from scenario_generator.llm.gateway import tool_model
+
+        @tool
+        def look_up_decision(decision_id: str) -> str:
+            """Return what a declared decision says. Use this rather than guessing."""
+            return "unused in the probe"
+
+        agent = tool_model([look_up_decision], tier=config.JUDGEMENT, model=model_id)
+        history = [SystemMessage("You have tools. Use them rather than answering from memory."),
+                   HumanMessage("What does decision DEC-03 say? Look it up.")]
+        first = agent.invoke(history)
+        if not getattr(first, "tool_calls", None):
+            return {"bound": True, "first_turn_called_a_tool": False,
+                    "text_instead": (first.content or "")[:120]}
+
+        history += [first, ToolMessage(content="DEC-03 'Timeout check' has outcomes Timeout "
+                                               "and Ok.",
+                                       tool_call_id=first.tool_calls[0]["id"])]
+        second = agent.invoke(history)
+        return {"bound": True, "first_turn_called_a_tool": True,
+                "second_turn_used_the_result": "timeout" in (second.content or "").lower(),
+                "second_turn_text": (second.content or "")[:160]}
+
     # ---------------------------------------------------------------- verdict
     print(f"\n{'═' * 78}\nWHAT THIS MEANS\n{'═' * 78}")
     tools_work = isinstance(findings.get("3. Does the model actually emit a tool call?"), dict) \
@@ -249,9 +284,20 @@ def main() -> int:
     loop_works = isinstance(findings.get("4. Can a tool result be fed back for a second turn?"),
                             dict)
 
+    ours = findings.get("10. Does the project's tool_model() run a loop on this gateway?")
     if tools_work and loop_works:
         print("Tool-calling and multi-turn both work. The loop is LangChain's own, tools are typed\n"
               "functions, and the existing readers become those tools unchanged.")
+        if isinstance(ours, dict) and ours.get("first_turn_called_a_tool"):
+            print("And check 10 says the same thing through METRIC's own gateway, so the tiering\n"
+                  "and retry the agent will run on are working here and not only in the tests.")
+        elif isinstance(ours, dict):
+            print("But check 10 got no tool call through METRIC's own gateway while check 3 got\n"
+                  "one straight from SafeChain. The difference between them is the tier's\n"
+                  "generation parameters, so that is where to look.")
+        else:
+            print("Check 10 could not run, so nothing here says whether METRIC's own gateway\n"
+                  "reaches the same place. Its failure is printed above.")
     elif tools_work:
         print("Tool calls are emitted but the loop did not close. Look at check 4 -- an agent\n"
               "needs the second turn, so this is the thing to solve before anything is built.")

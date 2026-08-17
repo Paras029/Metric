@@ -248,12 +248,23 @@ class DocumentExtractor:
         # past its own end.
         self._total += (len(self._split(corpus.text)) - 1) * len(FACET_GROUPS)
 
+        # A pack can be nothing but pictures, and a pack of pictures is a pack. There is then no
+        # prose to put the questions to, and putting them to an empty corpus anyway is three
+        # model calls spent being told that nothing was found -- followed by the resolution
+        # sweeps asking those same questions of that same emptiness. What such a pack knows comes
+        # off the images, and is folded into the answers further down. The estimate is corrected
+        # here rather than up front because whether a pack has prose in it is a fact about the
+        # parsed text, not about the file extensions: a scanned PDF is a document that yields none.
+        prose_to_read = bool(corpus.text.strip())
+        if not prose_to_read:
+            self._total -= len(FACET_GROUPS) + (self._passes if self._resolve else 0)
+
         # Reading the text and reading the diagrams are independent, so they go together.
         chunks = self._split(corpus.text)
         inventory = _inventory(corpus)
         with ThreadPoolExecutor(max_workers=MAX_PARALLEL_CALLS) as pool:
             futures = [pool.submit(self._read_group, label, facets, chunks, inventory)
-                       for label, facets in FACET_GROUPS]
+                       for label, facets in FACET_GROUPS] if prose_to_read else []
             diagram_future = (pool.submit(self._read_diagrams, corpus.diagrams, record)
                               if corpus.diagrams else None)
             answers: Dict[str, FacetAnswer] = {}
@@ -269,7 +280,7 @@ class DocumentExtractor:
         self._stop_if_mostly_failing("reading")
         cancellation.check(self._cancel)
 
-        if self._resolve and self._passes:
+        if self._resolve and self._passes and prose_to_read:
             self._resolve_unknowns(record, corpus.text)
 
         answered = sum(1 for a in record.answers if a.is_answered)
@@ -591,6 +602,11 @@ class DocumentExtractor:
         if not problems or not config.LLM_VISION:
             return structure
 
+        # Counted here rather than up front, because this is the first moment anything knows the
+        # call is going to happen. See :meth:`_estimate_units`.
+        with self._lock:
+            self._total += 1
+
         cancellation.check(self._cancel)
         self._say(READING_DIAGRAMS)
         logger.info("The workflow read from the diagrams left %d point(s) unresolved; "
@@ -824,11 +840,16 @@ class DocumentExtractor:
         """
         images = [p for p in paths if is_image(p)]
         sweeps = self._passes if self._resolve else 0
-        # One call per diagram read on its own, one to put them together into a workflow, and one
-        # more where that workflow does not account for itself and is put back to the images. A
-        # single image needs no putting-together, so it costs one call fewer.
-        diagram_calls = (2 if len(images) == 1 else len(images) + 2) if images else 0
-        return len(paths) + len(FACET_GROUPS) + diagram_calls + sweeps
+        # One call per diagram read on its own, and one to put them together into a workflow. A
+        # single image needs no putting-together, so it costs one call fewer. The look-again pass
+        # is deliberately not counted: it happens only where the joined graph cannot account for
+        # itself, which nothing knows until the reading is done, and counting a call that usually
+        # does not happen leaves the bar stopped short of its own end on every clean reading.
+        # It adds itself to the total at the point it commits -- see :meth:`_repair_structure`.
+        diagram_calls = (1 if len(images) == 1 else len(images) + 1) if images else 0
+        # An image is never a parse step: it goes whole to the vision pass, so nothing here turns
+        # it into text and the bar would wait forever for a step that is not coming.
+        return len(paths) - len(images) + len(FACET_GROUPS) + diagram_calls + sweeps
 
     def _say(self, message: str) -> None:
         """What is happening right now, without claiming it has happened.
