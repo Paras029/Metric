@@ -132,7 +132,25 @@ def draft_intake(context: str, complete: Optional[Callable[..., str]] = None,
 
     reply = council.deliberate(complete, system, user, stage="INTAKE_DRAFT",
                                tier=config.stage_tier("INTAKE_DRAFT", config.JUDGEMENT))
-    return DraftedIntake(carry_diagram_through(_validate(parse_json_object(reply)), structure))
+    drafted = carry_diagram_through(_validate(parse_json_object(reply)), structure)
+    return DraftedIntake(_consolidated(drafted))
+
+
+def _consolidated(data: dict) -> dict:
+    """The declaration with its duplicates folded together, and a review note saying which.
+
+    Run on every draft rather than offered as a step. The duplication is not occasional -- the
+    model is filling six sheets that reference each other by id, from prose that references
+    nothing by id -- and the cost of leaving it lands on the scenario space rather than on the
+    workbook: two capabilities that are one capability are two blocks where there is one.
+    """
+    from .consolidate import consolidate
+
+    folded, notes = consolidate(data)
+    if notes:
+        folded["review_notes"] = list(folded.get("review_notes") or []) + [
+            {"field": "Folded together", "note": note} for note in notes]
+    return folded
 
 
 # How each part of a declaration is identified, for matching a repair's rows against the draft's.
@@ -358,7 +376,7 @@ def revise_intake(context: str, current: str, complete: Optional[Callable[..., s
     except TypeError:                                      # a stub completion without the keywords
         reply = complete(system, user)
 
-    return DraftedIntake(_validate(parse_json_object(reply)))
+    return DraftedIntake(_consolidated(_validate(parse_json_object(reply))))
 
 
 # A persona is a person arriving with an objective, and only two objectives are universal: to use
