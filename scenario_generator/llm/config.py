@@ -292,6 +292,19 @@ def llm_vision() -> bool:
     return _truthy(setting("LLM_VISION", "ingestion", "vision", default="on"))
 
 
+def intake_loop() -> bool:
+    """Whether the intake stage finishes its declaration with a tool-calling loop.
+
+    Off by default, and deliberately a switch rather than a replacement. The fixed sequence that
+    drafts an intake works, is what every test exercises, and needs nothing from the gateway
+    beyond an ordinary completion; the loop needs tool-calling, which not every gateway offers --
+    run tools/probe_agent_support.py to find out before turning this on. What it adds is the
+    thing a fixed sequence cannot do: read the audit, go back to the documents for what is still
+    missing, and stop when the declaration is complete rather than when the calls run out.
+    """
+    return _truthy(setting("LLM_INTAKE_LOOP", "ingestion", "intake_loop", default="off"))
+
+
 def max_image_bytes() -> int:
     """Base64 inflates an image by about a third, and gateways cap the request body. Anything
     larger is refused with a reason rather than sent and rejected."""
@@ -565,6 +578,7 @@ def stage_concurrency(stage: str, default: int = None) -> int:
 _LIVE = {
     "LLM_MODEL_ID": llm_model_id,
     "LLM_VISION": llm_vision,
+    "LLM_INTAKE_LOOP": intake_loop,
     "MAX_IMAGE_BYTES": max_image_bytes,
     "DEFAULT_TEMPERATURE": default_temperature,
     "DEFAULT_MAX_ATTEMPTS": default_max_attempts,

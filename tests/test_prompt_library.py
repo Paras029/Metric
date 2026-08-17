@@ -18,6 +18,10 @@ from scenario_generator.llm.writer import ScenarioWriter
 # than discovered, so that deleting a prompt or renaming a placeholder fails loudly.
 _CONTRACT = {
     "shared.mission": set(),
+    # The intake loop's goal prompt. No placeholders: what is wrong with the
+    # declaration arrives as a message rather than baked into the system prompt,
+    # because it changes on every sweep and the goal does not.
+    "ingest.agent": set(),
     "shared.materiality_scale": set(),
     "shared.house_style": set(),
     "writer.system": set(),

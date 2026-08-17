@@ -398,6 +398,24 @@ than shortening the answer — which is why each tier sets both together.
 **If a reply comes back truncated**, reduce the batch size first. Raise the cap only if that does
 not resolve it.
 
+### Finishing the intake with a loop
+
+`LLM_INTAKE_LOOP` (or `ingestion.intake_loop`) is **off** by default. Switched on, the intake
+stage does not stop when its drafting calls are spent: it audits the declaration it just wrote,
+goes back to the submitted documents for whatever is still structurally missing, and stops when
+the declaration audits clean or its budget of turns runs out.
+
+Whether it is finished is never the model's call. That is decided against the declaration on disk
+by the same check the interface shows as open questions, so a loop cannot talk itself into
+stopping early or run forever because it is not satisfied. Where the documents genuinely do not
+settle something, it records a question — and a question that does not name a row the audit is
+already raising is refused, because "is DEC-07 clear?" is not a question anybody can answer.
+
+It needs a gateway that supports tool-calling, which not all do. Run `python
+tools/probe_agent_support.py` to find out before switching it on; check 10 exercises exactly the
+path this uses. A gateway that cannot run it leaves the drafted declaration untouched and says so
+in the stage result, rather than failing the stage.
+
 **How many calls a stage made** is reported when it finishes — in the stage's own result panel in
 the interface, and on the last line of the command's output on the command line. Retries inside a
 call are not counted again: the number is how much work the stage asked for, not how many times

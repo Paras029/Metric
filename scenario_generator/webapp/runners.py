@@ -30,7 +30,7 @@ from ..ingest.conversations import UnreadableConversations
 from ..io import read_space_metadata, read_scenarios, write_data_template, write_space_metadata
 from ..llm import MaterialityAssessor, ScenarioReviewer, ScenarioWriter
 from ..llm.gateway import ask_llm
-from ..llm import cancellation
+from ..llm import cancellation, config
 from ..pipeline import (build_scenario_space, draft_intake_workbook, ingest_documents,
                         map_conversation_coverage, revise_intake_workbook, structural_problems)
 from .coverageview import stored_report
@@ -277,6 +277,13 @@ def _run_intake(workspace: Workspace, progress=None, cancel=None) -> Dict[str, o
     else:
         report("Reading the intake workbook", 1, 2)
 
+    # The loop runs after the draft rather than instead of it: it needs a declaration to audit,
+    # and the fixed sequence is what produces one. Off unless switched on -- see
+    # config.intake_loop -- because it needs tool-calling and not every gateway offers it.
+    if ours and config.intake_loop():
+        cancellation.check(cancel)
+        summary.update(_finish_with_loop(workspace, target, report))
+
     intake = _intake(workspace)
     summary.update({
         "Use case": intake.name, "Capabilities": len(intake.capabilities),
@@ -295,6 +302,28 @@ def _run_intake(workspace: Workspace, progress=None, cancel=None) -> Dict[str, o
     }[action]
     report("Intake ready", 2, 2)
     return summary
+
+
+def _finish_with_loop(workspace: Workspace, target: Path, report) -> Dict[str, object]:
+    """Work the remaining structural gaps with the tool-calling loop, and report what it managed.
+
+    Never allowed to fail the stage. A declaration exists by this point and is exactly as good as
+    the draft left it; a loop that cannot run is a step not taken, not a run to throw away.
+    """
+    from ..ingest import agent
+
+    try:
+        state = agent.run(workspace.root, str(target), progress=report)
+    except Exception as exc:
+        logger.warning("The intake loop could not run: %s", exc)
+        return {"The loop": f"could not run ({exc}); the drafted declaration is unchanged"}
+
+    # The questions are not filed anywhere separately, and that is deliberate. Every one of them
+    # has to name a row the audit is already complaining about -- that is the filter it passed to
+    # be asked at all -- so each is already on this page as an open question against that row.
+    # Writing them a second time would put the same question in two places and make answering it
+    # in one of them look like leaving it open in the other.
+    return {"The loop": state.summary()}
 
 
 def _run_variations(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
