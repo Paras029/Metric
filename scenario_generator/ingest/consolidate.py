@@ -20,41 +20,13 @@ for.
 from __future__ import annotations
 
 import logging
-import re
 from typing import Dict, List, Tuple
+
+from ..utils.text import name_key
 
 logger = logging.getLogger(__name__)
 
-# Words that carry no distinguishing weight in the name of a capability, tool or persona. Two
-# names that differ only by these are the same name: "Identity check" and "Identity checking
-# service" name one thing, and keeping both splits a block in half.
-_NOISE = {"the", "a", "an", "of", "for", "and", "to", "service", "services", "system", "systems",
-          "check", "checking", "checks", "verification", "verify", "verifying", "process",
-          "processing", "handler", "handling", "module", "component", "step", "agent", "user"}
-
-_SPLIT = re.compile(r"[^a-z0-9]+")
-
-
-def _key(text: str) -> str:
-    """A name reduced to what distinguishes it: lowercase, de-pluralised, noise words dropped.
-
-    Joined with no separator, so a compound written as one word and as two reduces to the same
-    key: "Cardmember" and "Card members" are one persona, and keeping both doubles a part of the
-    scenario space without widening it. Sorted, so word order does not matter -- "dispute filing"
-    and "filing a dispute" are one capability.
-
-    Deliberately aggressive on stop words and deliberately not fuzzy beyond that. Edit distance
-    would fold "Identity check" into "Identity checks" and also into "Identify charge", and the
-    second is a real distinction the whole scenario space hangs on.
-    """
-    words = []
-    for word in _SPLIT.split(str(text or "").lower()):
-        if not word or word in _NOISE:
-            continue
-        if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
-            word = word[:-1]
-        words.append(word)
-    return "".join(sorted(set(words)))
+_key = name_key
 
 
 def _merge_rows(rows: List[dict], key_field: str, id_field: str = "id") -> Tuple[List[dict],

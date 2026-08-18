@@ -21,8 +21,9 @@ duplicate.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Set
+from typing import Dict, List, Set
 
+from ..utils.text import name_key
 from .graph import DecisionGraph
 from .models import IntakeData
 
@@ -138,6 +139,28 @@ def _capability_gaps(intake: IntakeData) -> List[Gap]:
     # whole graph and is complete as it stands, so asking this of every capability on a first run
     # would put a question against every row of a sheet nobody has got to -- which is how a list
     # of real gaps stops being read.
+    # Documentation written at capability level and read as though it were at decision level.
+    # A capability with exactly one decision, named the same thing, is almost always "the agent
+    # identifies the customer" turned into a decision because a decision was what the form asked
+    # for -- and its outcomes are then whatever the reading supposed they were rather than what
+    # the agent does. That is worse than a thin declaration: a thin one can be asked about, and
+    # scenarios built on supposed outcomes cannot be told from real ones by anybody downstream.
+    by_capability: Dict[str, List] = {}
+    for decision in intake.decisions:
+        by_capability.setdefault(decision.trigger_capability, []).append(decision)
+    for capability in intake.capabilities:
+        inside = by_capability.get(capability.id, [])
+        if len(inside) == 1 and name_key(inside[0].name) == name_key(capability.name):
+            gaps.append(Gap(
+                CAPABILITY, capability.id, "granularity",
+                f"What does the agent actually decide inside {capability.name or capability.id}, "
+                f"and how can each of those decisions turn out?",
+                f"{capability.id} holds a single decision of the same name, which usually means "
+                f"the documentation described this capability as one step and it was recorded as "
+                f"one decision. A capability is a group of decisions; if there is genuinely only "
+                f"one, say so and this stops being asked.",
+                example="Matches the record / does not match / no record found"))
+
     partly_drawn = any(c.is_bounded for c in intake.capabilities)
     for capability in intake.capabilities:
         if partly_drawn and not capability.is_bounded:

@@ -127,11 +127,71 @@ def spans_for(graph: DecisionGraph, capabilities: Sequence[Capability]) -> List[
             spans.append(Span(capability.id, capability.name or capability.id, entry, exits,
                               adopts_orphans=position == 0))
 
-    if spans:
-        return spans
+    if not spans:
+        endings = frozenset(s.id for s in graph.states.values() if s.is_terminal)
+        return [Span("", "", start, endings) for start in graph.start_states]
 
+    return spans + _spans_for_the_gaps(graph, spans)
+
+
+UNASSIGNED = "UNASSIGNED"
+"""The block a decision belonging to no capability is walked under.
+
+Not a capability, and not pretending to be one: it has no entry or exit anybody drew and no name
+anybody chose. It exists because the alternative is worse -- a decision in no capability is walked
+by nothing, so every one of its outcomes goes untested and nothing anywhere says so. A consent gate
+between identification and verification is a real branch of a live system whether or not somebody
+got round to filing it under a heading.
+"""
+
+
+def _spans_for_the_gaps(graph: DecisionGraph, drawn: Sequence[Span]) -> List[Span]:
+    """Spans covering the decisions no capability's span reaches.
+
+    Capabilities are drawn by hand, so between two of them there is usually something nobody
+    filed: a consent gate, a channel check, a step that belongs to the flow rather than to any one
+    block. Those decisions are declared, their outcomes are real, and without this they are walked
+    by nothing at all -- the quietest possible failure, since the declaration looks complete and
+    the scenario space simply has a hole in it.
+
+    Each gap span starts where the uncovered region is entered from -- a capability's exit, or the
+    graph's own start -- and ends where the flow rejoins a capability or stops. That is the same
+    rule the drawn spans follow, so a scenario out of a gap reads like any other: it starts
+    somewhere stated and ends somewhere declared.
+    """
+    covered: Set[str] = set()
+    for span in drawn:
+        covered |= _decisions_within(graph, span)
+
+    loose = {d.id for d in graph.decisions.values()
+             if not d.out_of_scope and d.id not in covered and graph.states_offering(d.id)}
+    if not loose:
+        return []
+
+    entries = {span.entry_state for span in drawn}
     endings = frozenset(s.id for s in graph.states.values() if s.is_terminal)
-    return [Span("", "", start, endings) for start in graph.start_states]
+    exits = frozenset(entries | set(endings))
+
+    # Entered from wherever the covered part of the graph hands into it. A state that offers a
+    # loose decision and is itself only reachable through other loose decisions is in the middle
+    # of the gap rather than at its edge, and walking from there as well would re-walk the tail of
+    # a route the edge already covers.
+    from_inside = {graph.successor(decision, variant)
+                   for decision in loose
+                   for variant in graph.decisions[decision].variants}
+    openings = [state.id for state in graph.states.values()
+                if any(d in loose for d in state.next_decisions)
+                and state.id not in from_inside]
+    if not openings:                       # every opening is inside the gap: start where it starts
+        openings = sorted({state.id for state in graph.states.values()
+                           if any(d in loose for d in state.next_decisions)})[:1]
+
+    logger.info("%d decision(s) belong to no capability (%s); walking them from %s so their "
+                "outcomes are still tested.", len(loose), ", ".join(sorted(loose)),
+                ", ".join(sorted(openings)))
+    return [Span(UNASSIGNED, "Not grouped into a capability", opening,
+                 frozenset(exits - {opening}), adopts_orphans=index == 0)
+            for index, opening in enumerate(sorted(openings))]
 
 
 # --------------------------------------------------------------------------- enumeration

@@ -1,5 +1,7 @@
 WHAT THIS IS
 
+{{cds}}
+
 The intake below describes an agent as a decision graph, before it is walked into a scenario space.
 This is a chance to catch two kinds of problem while they are still cheap to fix: pieces of the
 declaration that do not connect to anything, and pieces that connect fine but test the same thing

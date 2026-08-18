@@ -460,7 +460,8 @@ def run(workspace_root: Path, intake_path: str, converse=None, progress=None,
     converse = converse or Conversation(tools)
 
     messages: List[dict] = [
-        {"role": "system", "content": prompt_loader.load(_SYSTEM_PROMPT)},
+        {"role": "system", "content": prompt_loader.load("shared.cds") + "\n\n"
+                                      + prompt_loader.load(_SYSTEM_PROMPT)},
         {"role": "human", "content": _opening(pack, problems, started_from_nothing, notes)},
     ]
 

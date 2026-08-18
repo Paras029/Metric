@@ -1,5 +1,7 @@
 WHAT YOU ARE DOING
 
+{{cds}}
+
 The intake below is already declared -- drafted earlier, corrected by hand, or some of both. Since
 it was last written, the validator has answered specific questions about it and possibly
 added documents. Your job is to **revise it**, not redraft it from nothing: carry forward

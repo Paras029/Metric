@@ -18,6 +18,7 @@ from scenario_generator.llm.writer import ScenarioWriter
 # than discovered, so that deleting a prompt or renaming a placeholder fails loudly.
 _CONTRACT = {
     "shared.mission": set(),
+    "shared.cds": set(),
     # The intake loop's goal prompt. No placeholders: what is wrong with the
     # declaration arrives as a message rather than baked into the system prompt,
     # because it changes on every sweep and the goal does not.
@@ -35,7 +36,7 @@ _CONTRACT = {
     "reviewer.field_guide": set(),
     "reviewer.assess": {"owner", "total", "digest", "materiality", "batch"},
     "reviewer.category": {"owner", "total", "digest", "categories", "batch"},
-    "reviewer.propose": {"owner", "total", "digest", "limit", "categories", "materiality"},
+    "reviewer.propose": {"owner", "total", "digest", "limit", "categories", "materiality", "cds"},
     "reviewer.adjudicate": {"total", "digest", "materiality", "scale_values", "batch"},
     "reviewer.owner_block": {"owner_scenarios"},
     "ingest.system": set(),
@@ -47,14 +48,14 @@ _CONTRACT = {
     "ingest.diagram_only": {"facets", "filename", "vocabulary"},
     "shared.diagram_vocabulary": set(),
     "ingest.diagram_repair": {"document", "structure", "problems"},
-    "intake.draft": {"context", "structure"},
-    "intake.revise": {"context", "current", "structure"},
-    "intake.repair": {"context", "current", "structure", "problems", "enumeration"},
+    "intake.draft": {"context", "structure", "cds"},
+    "intake.revise": {"context", "current", "structure", "cds"},
+    "intake.repair": {"context", "current", "structure", "problems", "enumeration", "cds"},
     "coverage.system": set(),
     "coverage.map": {"use_case", "scenarios", "conversations"},
     "coverage.migrate": {"origin", "sample"},
     "structure_review.system": set(),
-    "structure_review.task": {"use_case", "structure", "hints", "context"},
+    "structure_review.task": {"use_case", "structure", "hints", "context", "cds"},
 }
 
 _INTAKE = IntakeData(
@@ -98,7 +99,7 @@ class TestPromptLibrary(unittest.TestCase):
         """Prompts embed JSON, so braces must pass through untouched by the placeholder pass."""
         self.assertIn('{"proposals": []}', prompt_loader.render(
             "reviewer.propose", owner="", total=1, digest="d", limit=1,
-            categories="c", materiality="m"))
+            categories="c", materiality="m", cds=""))
 
 
 class TestWriterWithholdsTheAnswerKey(unittest.TestCase):

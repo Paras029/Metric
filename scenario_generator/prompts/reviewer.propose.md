@@ -1,5 +1,7 @@
 {{owner}}THE SCENARIO SPACE AS IT STANDS ({{total}} scenarios)
 
+{{cds}}
+
 {{digest}}
 
 YOUR TASK

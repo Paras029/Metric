@@ -1,5 +1,7 @@
 WHAT YOU ARE DOING
 
+{{cds}}
+
 You are filling in the intake: the structured description of an AI agent that a validation team
 will build its entire scenario space from. Everything the scenario space can test comes from what is
 written here, so a branch you leave out is a branch nobody ever tests.

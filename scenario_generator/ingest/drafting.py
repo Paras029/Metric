@@ -43,6 +43,13 @@ INPUT_SOURCES = ("User", "Tool", "Memory-Session", "Memory-CrossSession", "Syste
 OUTCOME_TYPES = ("Happy path", "Retry", "Fallback", "Escalation", "Termination")
 CONFIDENCE = ("High", "Medium", "Low")
 
+def _cds() -> str:
+    """The one definition of capability, decision and state, shared by every prompt that writes a
+    graph. Written once because three prompts describing the same three things in slightly
+    different words is how two of them end up describing something else."""
+    return prompt_loader.load("shared.cds")
+
+
 def _structure_block(structure: Optional[dict]) -> str:
     """The diagram-derived graph as a prompt section, or a line saying there was not one."""
     from . import diagram_structure
@@ -126,7 +133,7 @@ def draft_intake(context: str, complete: Optional[Callable[..., str]] = None,
     from sentences describing it, and a diagram is frequently the only place a branch is drawn.
     """
     complete = complete or ask_llm
-    user = prompt_loader.render(_DRAFT_PROMPT, context=context,
+    user = prompt_loader.render(_DRAFT_PROMPT, context=context, cds=_cds(),
                                 structure=_structure_block(structure))
     system = prompt_loader.load(_SYSTEM_PROMPT)
 
@@ -333,7 +340,7 @@ def repair_intake(context: str, current: str, problems: List[str],
         return None
 
     complete = complete or ask_llm
-    user = prompt_loader.render(_REPAIR_PROMPT, context=context, current=current,
+    user = prompt_loader.render(_REPAIR_PROMPT, context=context, current=current, cds=_cds(),
                                 structure=_structure_block(structure),
                                 enumeration=enumeration or "Not available.",
                                 problems="\n".join(f"- {problem}" for problem in problems))
@@ -367,7 +374,7 @@ def revise_intake(context: str, current: str, complete: Optional[Callable[..., s
     for the intake stage's "Revise with these answers" action.
     """
     complete = complete or ask_llm
-    user = prompt_loader.render(_REVISE_PROMPT, context=context, current=current,
+    user = prompt_loader.render(_REVISE_PROMPT, context=context, current=current, cds=_cds(),
                                 structure=_structure_block(structure))
     system = prompt_loader.load(_SYSTEM_PROMPT)
 

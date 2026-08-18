@@ -1,5 +1,7 @@
 WHAT YOU ARE DOING
 
+{{cds}}
+
 The intake below was drafted from the documentation, and a structural check has found specific
 things missing from it. Each one is listed. Your job is to **fill in those specific gaps**, and
 change nothing else.

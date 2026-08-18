@@ -956,7 +956,8 @@ def _vocabulary() -> str:
     behind -- and a diagram prompt describing `is_terminal` differently from the one beside it
     produces two declarations that disagree about what an ending is.
     """
-    return prompt_loader.load("shared.diagram_vocabulary")
+    return (prompt_loader.load("shared.cds") + "\n\n"
+            + prompt_loader.load("shared.diagram_vocabulary"))
 
 
 def _facet_guide() -> str:

@@ -184,6 +184,7 @@ def review_structure(intake: IntakeData, complete: Optional[CompletionFn] = None
 
     user = prompt_loader.render(
         _TASK_PROMPT, use_case=describe_use_case(intake), structure=describe_graph(intake),
+        cds=prompt_loader.load("shared.cds"),
         hints=_render_hints(intake), context=supplementary_context(context))
     system = prompt_loader.load(_SYSTEM_PROMPT)
 

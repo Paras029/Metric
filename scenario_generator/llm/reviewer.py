@@ -374,6 +374,7 @@ class ScenarioReviewer:
     def _propose(self, intake: IntakeData, preamble: str, shared: dict) -> List[Scenario]:
         user = f"{preamble}\n\n" + prompt_loader.render(
             _PROPOSE_PROMPT, **shared, limit=self._limit,
+            cds=prompt_loader.load("shared.cds"),
             categories=", ".join(CATEGORIES), materiality=", ".join(MATERIALITY))
         try:
             reply = parse_json_object(self._call(user))
