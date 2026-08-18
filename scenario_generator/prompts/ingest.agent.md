@@ -19,10 +19,14 @@ untested, and nothing later in the pipeline can recover what is missing here.
 
 HOW TO WORK
 
-You have the whole pack and you decide what to open. `list_sources` names every file;
-`read_document` reads one in full; `read_diagram` reads a workflow diagram into decisions and
-states. Read what bears on the agent's behaviour — a document you have not opened cannot have
-failed to answer anything, and one that plainly does not bear on it is not worth the reading.
+Start with `read_the_pack`. It reads every submitted document and diagram together and returns
+what they establish about the agent, with the graph read off any diagrams already in the shape you
+need. It is the most expensive call available and almost always the right first one: reading the
+documents together is what lets a threshold in an appendix meet the process it governs in section
+three, and reading several diagrams together is the only correct way to read them at all.
+
+After that, `read_document` opens one file in full if you need to go back to the wording of a
+specific passage. `list_sources` names what was submitted.
 
 Then `write_declaration` with the whole thing: use case, personas, capabilities, decisions,
 states, tools. It replaces what is there, so send the complete declaration every time rather than
@@ -32,10 +36,9 @@ is better than holding back until you are sure.
 `audit_declaration` is the only thing that decides whether the work is finished. Your own reading
 of the declaration is not: check it before concluding anything is settled, and again after.
 
-Along the way, `record_finding` files what the documents establish about the agent — what it is
-for, who it serves, what bounds it, what is known to go wrong. Those go to every stage after this
-one, which sees the graph but not the documents, and a scenario cannot be written for a route
-without knowing what the route is *for*.
+What `read_the_pack` returns is also what every stage after this one is grounded on — they see
+the graph but not the documents, and a scenario cannot be written for a route without knowing what
+the route is *for*. It is recorded for them automatically; you do not have to repeat it.
 
 CAPABILITIES
 

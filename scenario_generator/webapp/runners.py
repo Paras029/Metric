@@ -334,7 +334,11 @@ def _read_and_draft_with_loop(workspace: Workspace, target: Path, report) -> Dic
         state = agent.run(workspace.root, str(target), progress=report,
                           should_redact=lambda path: workspace.is_marked_for_redaction(
                               _group_of(workspace, path), Path(path).name),
-                          notes=workspace.note_lines())
+                          notes=workspace.note_lines(),
+                          # How several submitted images relate to one another. Guessed at, it
+                          # welds two drawings of one flow end to end and invents routes the agent
+                          # does not have -- and the person who uploaded them already said.
+                          diagram_mode=workspace.diagram_mode)
     except Exception as exc:
         logger.warning("The intake loop could not run (%s); falling back to the fixed sequence.",
                        exc)

@@ -39,12 +39,31 @@ class TestTheCollapsedDrawing(unittest.TestCase):
     def test_no_spans_at_all_means_no_second_drawing(self):
         self.assertEqual(render_blocks_svg(_intake("2_travel_no_spans.xlsx")), "")
 
-    def test_each_ending_of_a_block_is_drawn(self):
+    def test_every_ending_a_block_can_reach_is_drawn(self):
         """How a block can fail is exactly what gets lost when one is summarised, and it is what
-        the pack tests."""
+        the pack tests.
+
+        Not only the states listed as exits. An exit list says where the block *hands on*; a
+        decision inside it can also refuse, escalate or lock out, and those endings are reached
+        without ever appearing in the list. Drawing only the listed ones showed a block as having
+        one way to fail when it had three.
+        """
         layout = build_block_layout(_intake())
         endings = {n.title for n in layout.nodes.values() if n.kind == TERMINAL}
-        self.assertEqual(endings, {"S-04", "S-08", "S-11", "S-12", "S-13"})
+        self.assertEqual(endings,
+                         {"S-04", "S-08", "S-09", "S-10", "S-11", "S-12", "S-13", "S-14"})
+
+    def test_an_ending_reached_inside_a_block_but_not_listed_as_an_exit_is_still_drawn(self):
+        """The specific hole. S-10 is "account restricted, handed to fraud" -- reachable from a
+        decision inside verification, and named in nobody's exit list."""
+        from scenario_generator.core.intake import read_intake
+
+        intake = read_intake(str(EXAMPLES / "1_disputes_three_blocks.xlsx"))
+        listed = {state for c in intake.capabilities for state in c.exit_states}
+        self.assertNotIn("S-10", listed, "the fixture no longer exercises this case")
+
+        drawn = {n.title for n in build_block_layout(intake).nodes.values() if n.kind == TERMINAL}
+        self.assertIn("S-10", drawn)
 
     def test_two_blocks_joined_two_ways_are_one_arrow(self):
         """Two edges between the same pair land on top of each other with their labels colliding,

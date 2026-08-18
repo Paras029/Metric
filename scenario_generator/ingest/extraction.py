@@ -1017,11 +1017,20 @@ def extract_documents(paths: Sequence[Path], complete: Optional[CompletionFn] = 
                       progress: Optional[ProgressFn] = None, resolve: bool = True,
                       describe_images: Optional[Callable[..., str]] = None,
                       resolve_passes: Optional[int] = None, cancel=None,
-                      diagram_mode: str = SPLIT_ACROSS_IMAGES) -> EvidenceRecord:
-    """Read a submitted pack into a verified evidence record."""
+                      diagram_mode: str = SPLIT_ACROSS_IMAGES,
+                      should_redact: Optional[Callable[[Path], bool]] = None) -> EvidenceRecord:
+    """Read a submitted pack into a verified evidence record.
+
+    ``should_redact`` is the per-file redaction toggle: given a path, whether *this* document must
+    be masked regardless of the global setting. :class:`DocumentExtractor` has always taken it,
+    and this convenience wrapper did not pass it on -- harmless while the only callers were tests
+    and the command line, and a silent loss of the interface's per-file choice the moment anything
+    reading a real submitted pack came through here.
+    """
     return DocumentExtractor(complete=complete, progress=progress, resolve=resolve,
                              describe_images=describe_images, resolve_passes=resolve_passes,
-                             cancel=cancel, diagram_mode=diagram_mode).run(paths)
+                             cancel=cancel, diagram_mode=diagram_mode,
+                             should_redact=should_redact).run(paths)
 
 
 def record_to_json(record: EvidenceRecord, path: Path) -> None:

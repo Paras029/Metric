@@ -347,6 +347,28 @@ def build_layout(intake: IntakeData, pending_decisions: Sequence[str] = (),
     return layout
 
 
+def _endings_within(graph, capability, described) -> List[str]:
+    """A capability's exits, plus every ending a decision inside it can reach.
+
+    Ordered so the declared exits come first and the endings found by walking follow, which keeps
+    the drawing stable when somebody adds an exit that was already being reached.
+    """
+    from ..core.graph import Span, _decisions_within
+
+    found = list(capability.exit_states)
+    span = Span(capability.id, capability.name or capability.id,
+                capability.entry_states[0], frozenset(capability.exit_states))
+    for decision_id in _decisions_within(graph, span):
+        decision = graph.decision(decision_id)
+        if decision is None:
+            continue
+        for variant in decision.variants:
+            landing = graph.state(graph.successor(decision_id, variant))
+            if landing is not None and landing.is_terminal and landing.id not in found:
+                found.append(landing.id)
+    return found
+
+
 def build_block_layout(intake: IntakeData) -> Layout:
     """The agent as its capabilities, with the internal branching of each one folded away.
 
@@ -371,6 +393,7 @@ def build_block_layout(intake: IntakeData) -> Layout:
     if not bounded:
         return layout
 
+    graph = DecisionGraph(intake.decisions, intake.states)
     described = {s.id: s for s in intake.states}
     entered_by: Dict[str, str] = {}
     for capability in bounded:
@@ -409,7 +432,13 @@ def build_block_layout(intake: IntakeData) -> Layout:
     # ways as a detail on the arrow rather than as a second arrow underneath the first.
     handoffs: Dict[Tuple[str, str], List[State]] = {}
     for capability in bounded:
-        for exit_id in capability.exit_states:
+        # Every ending the block can actually reach, not only the ones somebody listed as exits.
+        # An exit list is where the block *hands on*; a decision inside it can also refuse, escalate
+        # or lock out, and those are endings the pack tests. Drawing only the listed ones showed a
+        # block as having one way to fail when it had three, which is exactly the thing a
+        # collapsed view must not lose -- how a capability goes wrong is most of what is tested
+        # about it.
+        for exit_id in _endings_within(graph, capability, described):
             state = described.get(exit_id)
             if state is None:
                 continue

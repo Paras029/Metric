@@ -168,7 +168,7 @@ class Pack:
         from .readers import is_image
 
         self.root = Path(root)
-        self._should_redact = should_redact or (lambda path: False)
+        self.should_redact = should_redact or (lambda path: False)
         self.files: Dict[str, Path] = {
             path.name: path
             for paths in evidence_files(self.root).values() for path in paths}
@@ -197,13 +197,14 @@ class Pack:
             self._text[name] = f"{name} could not be read: {exc}"
             return self._text[name]
         segments, self._mapping = redact_segments(
-            segments, self._mapping, force=self._should_redact(path))
+            segments, self._mapping, force=self.should_redact(path))
         self._text[name] = "\n\n".join(f"[{s.locator}]\n{s.text}" for s in segments)
         return self._text[name]
 
 
-def build_tools(pack: "Pack", intake_path: str, findings: Dict[str, List[str]],
-                structure: Dict[str, list], describe_images=None) -> List[Tool]:
+def build_tools(pack: "Pack", intake_path: str, read_once: Dict[str, object],
+                structure: Dict[str, list], describe_images=None,
+                diagram_mode: str = "split") -> List[Tool]:
     """The loop's whole surface: read what was submitted, write what it establishes, check itself.
 
     Every one wraps a reader or writer that already exists and is already tested. Nothing here
@@ -238,34 +239,43 @@ def build_tools(pack: "Pack", intake_path: str, findings: Dict[str, List[str]],
         already_read.add(key)
         return pack.text_of(key)
 
-    def read_one_diagram(name: str = "", **_) -> str:
-        """One image, read into the intake's own vocabulary by the existing vision pass.
+    def read_the_pack(**_) -> str:
+        """Read everything submitted, with the pipeline that was built to do it.
 
-        A nested model call, and the only one in the tool surface. It stays nested because a
-        workflow diagram *is* the decision and state sheets, and the pass that reads one that way
-        is audited against its own picture -- handing the raw image into this conversation instead
-        would be a second, unaudited way of reading the same thing.
+        The loop used to read documents one at a time as raw text and file free-form notes about
+        them, which threw away three things worth keeping. The facet reading puts every document
+        to the model *together*, so a threshold in an appendix and the process it governs in
+        section three are in front of it at once. Grounding checks every claim's verbatim quote
+        against the corpus and drops the ones that are not there. And diagrams go through the
+        three-pass reading -- per image, joined, then checked against the pictures again -- which
+        is the only correct way to read several.
+
+        That last one was not merely weaker but wrong. Reading images one at a time always took
+        the single-image path, whose prompt says the image *is* the whole flow; three images each
+        got told that, each numbered its boxes from one, and the collisions were dropped on merge.
+        Whole pictures disappeared silently.
+
+        So this is one tool call that runs the real thing. It is the most expensive call the loop
+        can make and the one it should almost always make first.
         """
-        from . import diagram_structure
-        from .extraction import DocumentExtractor
+        from .context_document import build_context_document
+        from .extraction import extract_documents
 
-        key = str(name).strip()
-        if key not in pack.diagrams:
-            return f"There is no submitted diagram called {key!r}. Call list_sources first."
+        if read_once.get("record") is not None:
+            return ("The pack is already read; what it established is above. Use read_document "
+                    "for a specific file, or write_declaration.")
+        if not pack.files:
+            return "Nothing was submitted, so there is nothing to read."
         try:
-            reader = DocumentExtractor(describe_images=describe_images)
-            record = _empty_record()
-            reader._read_diagrams([pack.diagrams[key]], record)
+            record = extract_documents(
+                list(pack.files.values()), should_redact=pack.should_redact,
+                describe_images=describe_images, diagram_mode=diagram_mode)
         except Exception as exc:
-            return f"{key} could not be read: {exc}"
-        read = record.structure or {}
-        if diagram_structure.is_empty(read):
-            return f"Nothing could be read off {key}."
-        for part, rows in read.items():
-            structure.setdefault(part, [])
-            have = {r.get("id") for r in structure[part]}
-            structure[part] += [r for r in rows if r.get("id") not in have]
-        return diagram_structure.render(read)
+            return f"The pack could not be read: {exc}"
+
+        read_once["record"] = record
+        structure.update(record.structure or {})
+        return build_context_document(record)
 
     def what_is_declared(**_) -> str:
         from ..llm.context import describe_graph, describe_use_case
@@ -285,36 +295,16 @@ def build_tools(pack: "Pack", intake_path: str, findings: Dict[str, List[str]],
     def write(declaration: str = "", **_) -> str:
         return _write_declaration(declaration, intake_path, structure)
 
-    def record(facet: str = "", statement: str = "", **_) -> str:
-        """What a document establishes, filed against the question it answers.
-
-        Kept because every stage after this one is grounded on it rather than on the workbook: the
-        writer needs to know what the agent is *for* to describe a route through it, and the graph
-        alone does not say. Deterministic -- this only files what it is given.
-        """
-        from ..core.evidence import FACETS
-
-        key = str(facet).strip().lower()
-        if key not in FACETS:
-            return (f"{facet!r} is not one of the questions this records against. Use one of: "
-                    + ", ".join(FACETS))
-        text = str(statement).strip()
-        if len(text) < 10:
-            return "Nothing recorded: say what the documents establish, in a sentence."
-        findings.setdefault(key, [])
-        if text not in findings[key]:
-            findings[key].append(text)
-        return "Recorded."
-
     return [
         Tool("list_sources", "List every submitted file, and whether each is a document or a "
                              "workflow diagram. Call this first.", list_sources),
         Tool("read_document", "Read one submitted document in full, with its page markers. "
                               "Takes the file name exactly as list_sources gave it.",
              read_one_document),
-        Tool("read_diagram", "Read one submitted workflow diagram into decisions, outcomes and "
-                             "states. Takes the file name exactly as list_sources gave it.",
-             read_one_diagram),
+        Tool("read_the_pack", "Read every submitted document and workflow diagram together, and "
+                              "return what they establish about the agent, with the graph read "
+                              "off any diagrams. Almost always the first thing to do.",
+             read_the_pack),
         Tool("what_is_declared", "The declaration as it currently stands: the use case, and the "
                                  "decision graph with every edge.", what_is_declared),
         Tool("audit_declaration", "What is still structurally wrong with the declaration. This "
@@ -324,9 +314,6 @@ def build_tools(pack: "Pack", intake_path: str, findings: Dict[str, List[str]],
                                   "personas, capabilities, decisions, states and tools. Replaces "
                                   "what is there, so send the whole declaration every time, not "
                                   "a patch.", write),
-        Tool("record_finding", "File what the documents establish about one of the questions "
-                               "every later stage is grounded on. Takes a facet and a sentence.",
-             record),
     ]
 
 
@@ -443,7 +430,8 @@ class Conversation:
 
 def run(workspace_root: Path, intake_path: str, converse=None, progress=None,
         max_turns: int = MAX_TURNS, sweeps: int = SWEEPS_BEFORE_PAUSE,
-        should_redact=None, describe_images=None, notes: Sequence[str] = ()) -> Progress:
+        should_redact=None, describe_images=None, notes: Sequence[str] = (),
+        diagram_mode: str = "split") -> Progress:
     """Read the pack and fill the declaration, and stop when it is complete or the budget is spent.
 
     Returns what happened rather than the declaration: the declaration is the workbook at
@@ -453,7 +441,7 @@ def run(workspace_root: Path, intake_path: str, converse=None, progress=None,
     """
     report = progress or (lambda *args, **kwargs: None)
     pack = Pack(Path(workspace_root), should_redact=should_redact)
-    findings: Dict[str, List[str]] = {}
+    read_once: Dict[str, object] = {}
     structure: Dict[str, list] = {}
     questions: List[str] = []
 
@@ -462,9 +450,10 @@ def run(workspace_root: Path, intake_path: str, converse=None, progress=None,
     started_from_nothing = not Path(intake_path).exists()
     if not problems and not started_from_nothing:
         state.stopped_because = "the declaration was already structurally complete"
-        return _finish(state, intake_path, questions, findings, structure, workspace_root)
+        return _finish(state, intake_path, questions, read_once, structure, workspace_root)
 
-    tools = build_tools(pack, intake_path, findings, structure, describe_images=describe_images)
+    tools = build_tools(pack, intake_path, read_once, structure,
+                        describe_images=describe_images, diagram_mode=diagram_mode)
     tools.append(build_question_tool(problems, questions))
     by_name = {tool.name: tool for tool in tools}
     converse = converse or Conversation(tools)
@@ -485,7 +474,7 @@ def run(workspace_root: Path, intake_path: str, converse=None, progress=None,
             except Exception as exc:
                 logger.warning("The loop's model call failed on turn %d: %s", state.turns, exc)
                 state.stopped_because = f"a model call failed: {exc}"
-                return _finish(state, intake_path, questions, findings, structure, workspace_root)
+                return _finish(state, intake_path, questions, read_once, structure, workspace_root)
             state.calls += 1
 
             if not reply.get("tool_calls"):
@@ -530,10 +519,10 @@ def run(workspace_root: Path, intake_path: str, converse=None, progress=None,
         state.gaps_now = len(remaining)
         if not remaining and Path(intake_path).exists():
             state.stopped_because = "the declaration audits clean"
-            return _finish(state, intake_path, questions, findings, structure, workspace_root)
+            return _finish(state, intake_path, questions, read_once, structure, workspace_root)
         if state.turns >= max_turns:
             state.stopped_because = f"the budget of {max_turns} turns was spent"
-            return _finish(state, intake_path, questions, findings, structure, workspace_root)
+            return _finish(state, intake_path, questions, read_once, structure, workspace_root)
 
         closed = [problem for problem in problems if problem not in remaining]
         stuck = [problem for problem in remaining if problem in problems]
@@ -546,14 +535,14 @@ def run(workspace_root: Path, intake_path: str, converse=None, progress=None,
             state.stopped_because = (
                 f"a full sweep closed nothing, so {len(remaining)} gap(s) are not in the "
                 f"documents")
-            return _finish(state, intake_path, questions, findings, structure, workspace_root)
+            return _finish(state, intake_path, questions, read_once, structure, workspace_root)
 
         messages.append({"role": "human", "content": _next_sweep(closed, stuck, remaining)})
         problems = remaining
 
     state.stopped_because = (f"{sweeps} sweeps finished with {state.gaps_now} left, which the "
                              f"documents do not appear to settle")
-    return _finish(state, intake_path, questions, findings, structure, workspace_root)
+    return _finish(state, intake_path, questions, read_once, structure, workspace_root)
 
 
 def _doing(state: "Progress") -> str:
@@ -630,39 +619,33 @@ def _next_sweep(closed: Sequence[str], stuck: Sequence[str],
 
 
 def _finish(state: Progress, intake_path: str, questions: List[str],
-            findings: Dict[str, List[str]], structure: Dict[str, list],
+            read_once: Dict[str, object], structure: Dict[str, list],
             workspace_root: Path) -> Progress:
     state.gaps_now = len(outstanding(intake_path)) if Path(intake_path).exists() else 0
     state.questions = list(questions)
-    state.findings = dict(findings)
-    if findings or structure:
-        _write_evidence(Path(workspace_root), findings, structure)
+    record = read_once.get("record")
+    if record is not None:
+        _write_evidence(Path(workspace_root), record)
+        state.findings = {answer.facet: list(answer.points)
+                          for answer in record.answers if answer.points}
     logger.info("Intake loop: %d turn(s), %d call(s), %d gap(s) left, %d question(s). Stopped "
                 "because %s.", state.turns, state.calls, state.gaps_now, len(state.questions),
                 state.stopped_because)
     return state
 
 
-def _write_evidence(root: Path, findings: Dict[str, List[str]],
-                    structure: Dict[str, list]) -> None:
-    """The context every later stage is grounded on, rendered from what the loop filed.
+def _write_evidence(root: Path, record) -> None:
+    """The context every later stage is grounded on, and the record behind it.
 
-    Written in the same two files the sequence this replaces wrote, in the same formats, because
-    six stages downstream read them and none of them should be able to tell which path produced
-    the run. The graph is the workbook; this is everything else the documents established, which
-    the workbook has no column for and the writer cannot describe a route without.
+    Written straight from what :func:`extraction.extract_documents` produced rather than
+    reassembled from anything the loop said about it. That record carries the verbatim quote,
+    document and page behind every claim, each one already checked against the corpus -- provenance
+    a person auditing the run needs and no summary can reconstruct. The same two files, in the same
+    formats, as the sequence this replaces, so no later stage can tell which path produced the run.
     """
-    from ..core.evidence import FACETS, EvidenceRecord, FacetAnswer
     from .context_document import build_context_document
     from .extraction import record_to_json
 
-    record = EvidenceRecord(structure=dict(structure))
-    record.answers = [
-        FacetAnswer(facet=facet,
-                    answer=" ".join(findings.get(facet, [])),
-                    points=list(findings.get(facet, [])),
-                    confidence="Medium" if findings.get(facet) else "Low")
-        for facet in FACETS]
     try:
         (root / "ingest_context.md").write_text(build_context_document(record), encoding="utf-8")
         record_to_json(record, root / "ingest_evidence.json")

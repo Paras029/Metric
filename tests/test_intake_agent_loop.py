@@ -12,6 +12,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from scenario_generator.ingest import agent
 
@@ -355,21 +356,59 @@ class TestItBuildsADeclarationFromNothing(unittest.TestCase):
         self.assertLessEqual(state.calls, 4, "more than the sequence it replaces")
 
     def test_what_the_documents_establish_is_written_for_later_stages(self):
-        """Every stage after this one sees the graph and not the documents."""
+        """Every stage after this one sees the graph and not the documents, so the reading has to
+        land on disk in the two files they read."""
         import json as _json
-        agent.run(self.root, str(self.intake), converse=_scripted(
-            _call("record_finding", facet="use_case",
-                  statement="The agent resolves disputed card charges without a person."),
-            _call("write_declaration", declaration=_json.dumps(_DECLARATION))))
+        from scenario_generator.core.evidence import EvidenceRecord, FacetAnswer
+
+        record = EvidenceRecord(answers=[FacetAnswer(
+            facet="use_case", answer="It resolves disputed card charges without a person.",
+            points=["It resolves disputed card charges without a person."],
+            confidence="High")])
+
+        def reads(paths, **kwargs):
+            return record
+
+        with mock.patch("scenario_generator.ingest.extraction.extract_documents", reads):
+            agent.run(self.root, str(self.intake), converse=_scripted(
+                _call("read_the_pack"),
+                _call("write_declaration", declaration=_json.dumps(_DECLARATION))))
+
         context = (self.root / "ingest_context.md").read_text()
         self.assertIn("resolves disputed card charges", context)
         self.assertTrue((self.root / "ingest_evidence.json").exists())
 
-    def test_a_finding_against_a_question_nobody_asks_is_refused(self):
-        tools = {t.name: t for t in agent.build_tools(
-            agent.Pack(self.root), str(self.intake), {}, {})}
-        self.assertIn("not one of the questions",
-                      tools["record_finding"].run(facet="vibes", statement="It feels fine."))
+    def test_the_pack_is_read_with_the_pipeline_built_for_it(self):
+        """Not re-implemented in the loop. Reading documents one at a time as raw text threw away
+        the grounding, the facet coverage, and -- worst -- the multi-image diagram passes."""
+        seen = {}
+
+        def reads(paths, **kwargs):
+            from scenario_generator.core.evidence import EvidenceRecord
+            seen["paths"] = list(paths)
+            seen["kwargs"] = kwargs
+            return EvidenceRecord()
+
+        with mock.patch("scenario_generator.ingest.extraction.extract_documents", reads):
+            agent.run(self.root, str(self.intake), converse=_scripted(_call("read_the_pack")),
+                      diagram_mode="same_flow")
+
+        self.assertEqual([p.name for p in seen["paths"]], ["notes.md"])
+        self.assertEqual(seen["kwargs"]["diagram_mode"], "same_flow",
+                         "the mode somebody chose for their images was not passed through")
+        self.assertIn("should_redact", seen["kwargs"])
+
+    def test_reading_the_pack_twice_is_refused(self):
+        """The most expensive call available, and its result is already in the conversation."""
+        def reads(paths, **kwargs):
+            from scenario_generator.core.evidence import EvidenceRecord
+            return EvidenceRecord()
+
+        with mock.patch("scenario_generator.ingest.extraction.extract_documents", reads):
+            tools = {t.name: t for t in agent.build_tools(
+                agent.Pack(self.root), str(self.intake), {}, {})}
+            tools["read_the_pack"].run()
+            self.assertIn("already read", tools["read_the_pack"].run())
 
 
 class TestWhatWriteDeclarationRefuses(unittest.TestCase):
@@ -524,3 +563,70 @@ class TestTheCapabilityLifecycle(unittest.TestCase):
                      {"id": "CAP-03", "name": "Charge handling", "type": "Transactional"}])
         kept = [c.id for c in read_intake(str(self.intake)).capabilities]
         self.assertEqual(kept, ["CAP-01", "CAP-03"])
+
+
+class TestDiagramsAreReadTheWayTheyWereBuiltToBe(unittest.TestCase):
+    """Several images are three passes, not one call per picture.
+
+    Reading them one at a time always took the single-image path, whose prompt says the image *is*
+    the whole flow. Three images each got told that, each numbered its boxes from one, and the
+    collisions were dropped when the readings were merged — whole pictures vanished silently, and
+    what survived was a graph welded out of three drawings that each thought they were complete.
+    """
+
+    def setUp(self):
+        import base64
+
+        png = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+        self.root = Path(tempfile.mkdtemp())
+        (self.root / "sources" / "diagrams").mkdir(parents=True)
+        for n in (1, 2, 3):
+            (self.root / "sources" / "diagrams" / f"flow{n}.png").write_bytes(png)
+        self.intake = self.root / "i.xlsx"
+        self.prompts = []
+
+    def _read(self, **kwargs):
+        import json as _json
+
+        def images(system, user, images=None, **k):
+            self.prompts.append(("image", user))
+            return _json.dumps({"nodes": [{"ref": "n1", "kind": "decision", "label": "Check"}],
+                                "edges": [], "continues_offpage": [], "observations": []})
+
+        def text(system, user, **k):
+            self.prompts.append(("text", user))
+            return _json.dumps({"capabilities": [], "decisions": [], "states": [],
+                                "observations": [], "unresolved": [], "answer": "",
+                                "points": [], "unknowns": [], "sources": [],
+                                "confidence": "Low"})
+
+        with mock.patch("scenario_generator.ingest.extraction.ask_llm", text), \
+             mock.patch("scenario_generator.ingest.extraction.ask_llm_with_images", images):
+            return agent.run(self.root, str(self.intake),
+                             converse=_scripted(_call("read_the_pack")), **kwargs)
+
+    def test_no_image_is_told_it_is_the_whole_flow(self):
+        """The specific regression. That prompt is correct for one image and a lie for three."""
+        self._read()
+        told = [p for kind, p in self.prompts if "It is the only image in the pack" in p]
+        self.assertEqual(told, [])
+
+    def test_each_image_is_read_on_its_own_and_the_result_checked_against_them(self):
+        """Three reads and a look-again. The last one goes back to the pictures with whatever the
+        joined graph could not account for, which is where a missed arrow gets caught."""
+        self._read()
+        self.assertEqual(sum(1 for kind, _ in self.prompts if kind == "image"), 4)
+
+    def test_and_then_they_are_joined(self):
+        """The pass that decides whether a box in one picture is the same box in another."""
+        self._read()
+        joined = [p for kind, p in self.prompts if kind == "text" and "IMAGE 1 of 3" in p]
+        self.assertEqual(len(joined), 1)
+
+    def test_the_mode_somebody_chose_for_their_images_is_honoured(self):
+        """Stitching two drawings of one flow welds them end to end and invents routes the agent
+        does not have. Reconciling pieces of one picture loses a step. The person knows which."""
+        self._read(diagram_mode="same_flow")
+        joined = next(p for kind, p in self.prompts if kind == "text" and "IMAGE 1 of 3" in p)
+        self.assertIn("same flow", joined.lower())
