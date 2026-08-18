@@ -398,12 +398,16 @@ than shortening the answer — which is why each tier sets both together.
 **If a reply comes back truncated**, reduce the batch size first. Raise the cap only if that does
 not resolve it.
 
-### Finishing the intake with a loop
+### Reading the pack as a loop
 
-`LLM_INTAKE_LOOP` (or `ingestion.intake_loop`) is **off** by default. Switched on, the intake
-stage does not stop when its drafting calls are spent: it audits the declaration it just wrote,
-goes back to the submitted documents for whatever is still structurally missing, and stops when
-the declaration audits clean or its budget of turns runs out.
+`LLM_INTAKE_LOOP` (or `ingestion.intake_loop`) is **off** by default. Switched on, it **replaces**
+the reading-and-drafting sequence at the intake stage rather than running after it.
+
+The sequence reads every document against three groups of questions, puts what is left open back
+to them twice more, drafts a declaration and repairs it once: seven to nine model calls in a fixed
+order, made whether or not each has anything to do. The loop decides what to open, writes a
+declaration, audits it, and goes back only for what is missing — an ordinary pack finishes in
+three or four calls, and a large one spends what it needs instead of what the sequence budgeted.
 
 Whether it is finished is never the model's call. That is decided against the declaration on disk
 by the same check the interface shows as open questions, so a loop cannot talk itself into
@@ -411,10 +415,22 @@ stopping early or run forever because it is not satisfied. Where the documents g
 settle something, it records a question — and a question that does not name a row the audit is
 already raising is refused, because "is DEC-07 clear?" is not a question anybody can answer.
 
+What does not change: files are parsed and redacted deterministically before any tool can read
+them, diagrams go through the same audited vision pass, and the declaration is validated against
+the intake's own vocabulary and consolidated before it is written. It writes the same context
+document and evidence record the sequence did, so no later stage can tell which path produced the
+run.
+
+**Capability spans are the one thing it may not write.** Where a block of the agent begins and
+ends is drawn by a person against the graph and decides how the whole scenario space is
+enumerated; the loop fills in everything else about a capability — its name, its type, what it
+does — from the decisions inside the span and the documents describing them, and carries the span
+across untouched.
+
 It needs a gateway that supports tool-calling, which not all do. Run `python
 tools/probe_agent_support.py` to find out before switching it on; check 10 exercises exactly the
-path this uses. A gateway that cannot run it leaves the drafted declaration untouched and says so
-in the stage result, rather than failing the stage.
+path this uses. A gateway that cannot run it falls back to the fixed sequence and says so in the
+stage result, rather than failing the stage.
 
 **How many calls a stage made** is reported when it finishes — in the stage's own result panel in
 the interface, and on the last line of the command's output on the command line. Retries inside a

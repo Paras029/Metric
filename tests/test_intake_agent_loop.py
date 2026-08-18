@@ -83,21 +83,33 @@ class TestTheToolSurface(unittest.TestCase):
         self.root = Path(tempfile.mkdtemp())
         self.intake = self.root / "intake.xlsx"
         shutil.copy(EXAMPLES / "4_spans_drawn_wrongly.xlsx", self.intake)
-        self.tools = {t.name: t for t in agent.build_tools(self.root, str(self.intake))}
+        self.tools = self._tools()
+
+    def _tools(self):
+        pack = agent.Pack(self.root)
+        return {t.name: t for t in agent.build_tools(pack, str(self.intake), {}, {})}
 
     def test_it_lists_what_was_submitted(self):
         sources = (self.root / "sources" / "model_doc")
         sources.mkdir(parents=True)
         (sources / "notes.md").write_text("# Agent\n\nIt verifies then files.\n")
-        tools = {t.name: t for t in agent.build_tools(self.root, str(self.intake))}
-        self.assertIn("notes.md", tools["list_sources"].run())
+        self.assertIn("notes.md", self._tools()["list_sources"].run())
+
+    def test_a_document_comes_back_with_its_page_markers(self):
+        sources = (self.root / "sources" / "model_doc")
+        sources.mkdir(parents=True)
+        (sources / "notes.md").write_text("# Agent\n\nIt verifies the cardmember.\n")
+        read = self._tools()["read_document"].run(name="notes.md")
+        self.assertIn("verifies the cardmember", read)
+        self.assertIn("[", read, "no locator, so nothing can be traced back to a page")
 
     def test_it_says_so_plainly_when_nothing_was_submitted(self):
         """Any combination of documents and diagrams is a pack, including none of either."""
         self.assertIn("Nothing was submitted", self.tools["list_sources"].run())
 
     def test_asking_for_a_file_that_is_not_there_is_answered_not_raised(self):
-        self.assertIn("no submitted file", self.tools["read_document"].run(name="absent.pdf"))
+        self.assertIn("no submitted document",
+                      self.tools["read_document"].run(name="absent.pdf"))
 
     def test_the_audit_is_the_declaration_rather_than_the_documents(self):
         reported = self.tools["audit_declaration"].run()
@@ -187,31 +199,45 @@ class TestTheSwitch(unittest.TestCase):
         os.environ.pop("LLM_INTAKE_LOOP", None)
         self.assertFalse(config.intake_loop())
 
-    def test_a_gateway_that_cannot_run_it_leaves_the_draft_alone(self):
-        import os
+    def test_a_gateway_that_cannot_run_it_falls_back_to_the_sequence(self):
+        """An intake stage producing nothing because tool-calling is unavailable would be worse
+        than one costing a few more calls."""
         from unittest import mock
-        from openpyxl import load_workbook
 
         from scenario_generator.webapp import runners
 
         root = Path(tempfile.mkdtemp())
+        (root / "sources" / "model_doc").mkdir(parents=True)
+        (root / "sources" / "model_doc" / "notes.md").write_text("# Agent\n\nIt verifies.\n")
         target = root / "drafted_intake.xlsx"
-        shutil.copy(EXAMPLES / "4_spans_drawn_wrongly.xlsx", target)
-        before = load_workbook(target)["L3 Decisions"].max_row
 
         class _Workspace:
             def __init__(self, root):
                 self.root = root
+            def note_lines(self):
+                return []
+            def is_marked_for_redaction(self, group, name):
+                return False
+            def artifact_path(self, *_):
+                return None
+            def state(self, _):
+                return type("S", (), {"artifacts": {}})()
 
-        with mock.patch.object(runners.agent if hasattr(runners, "agent") else agent, "run",
-                               side_effect=RuntimeError("no tool calling here")):
-            with mock.patch("scenario_generator.ingest.agent.run",
-                            side_effect=RuntimeError("no tool calling here")):
-                result = runners._finish_with_loop(_Workspace(root), target,
-                                                   lambda *a, **k: None)
+        fell_back = {}
 
+        def _sequence(workspace, provided, target, context, ours, report, cancel, summary):
+            fell_back["yes"] = True
+            summary["_action"] = "drafted"
+
+        with mock.patch("scenario_generator.ingest.agent.run",
+                        side_effect=RuntimeError("no tool calling here")), \
+             mock.patch.object(runners, "_needs_reading", return_value=False), \
+             mock.patch.object(runners, "_draft_or_revise", _sequence):
+            result = runners._read_and_draft_with_loop(_Workspace(root), target,
+                                                       lambda *a, **k: None)
+
+        self.assertTrue(fell_back, "the stage produced nothing rather than falling back")
         self.assertIn("could not run", str(result["The loop"]))
-        self.assertEqual(load_workbook(target)["L3 Decisions"].max_row, before)
 
     def test_the_summary_says_what_it_did(self):
         root = Path(tempfile.mkdtemp())
@@ -222,3 +248,227 @@ class TestTheSwitch(unittest.TestCase):
         self.assertIn("Gaps at the start", summary)
         self.assertIn("Stopped because", summary)
         self.assertGreaterEqual(summary["Model calls"], 1)
+
+
+_DECLARATION = {
+    "use_case": {"name": "Disputes assistant", "objective": "Resolve disputed charges"},
+    "personas": [{"id": "P1", "name": "Cardmember", "applies_to": "Wants a charge investigated",
+                  "is_default": True}],
+    "capabilities": [{"id": "CAP-01", "name": "Identification", "type": "Gating"}],
+    "decisions": [{"id": "DEC-01", "name": "Identify the cardmember", "capability_id": "CAP-01",
+                   "inputs": "card details", "outcomes": ["Identified", "Cannot identify"],
+                   "input_source": "User", "max_attempts": 2, "outcome_condition": ""}],
+    "states": [
+        {"id": "S-00", "reached_via": "Start", "description": "The chat opens",
+         "next_decisions": ["DEC-01"], "is_terminal": False, "outcome_type": ""},
+        {"id": "S-01", "reached_via": "DEC-01=Identified", "description": "Identified",
+         "next_decisions": [], "is_terminal": True, "outcome_type": "Happy path"},
+        {"id": "S-02", "reached_via": "DEC-01=Cannot identify", "description": "Locked out",
+         "next_decisions": [], "is_terminal": True, "outcome_type": "Termination"}],
+    "tools": [{"name": "Identity service", "capability_id": "CAP-01", "changes_state": False}],
+    "confidence": {}, "review_notes": [],
+}
+
+
+class TestItBuildsADeclarationFromNothing(unittest.TestCase):
+    """The loop replaces the sequence, so it has to produce a declaration rather than repair one."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        (self.root / "sources" / "model_doc").mkdir(parents=True)
+        (self.root / "sources" / "model_doc" / "notes.md").write_text(
+            "# Disputes assistant\n\nIt identifies the cardmember, then files a dispute.\n")
+        self.intake = self.root / "drafted_intake.xlsx"
+
+    def test_a_written_declaration_lands_in_a_readable_workbook(self):
+        import json as _json
+        from scenario_generator.core.intake import read_intake
+
+        state = agent.run(self.root, str(self.intake), converse=_scripted(
+            _call("write_declaration", declaration=_json.dumps(_DECLARATION))))
+        self.assertTrue(self.intake.exists())
+        intake = read_intake(str(self.intake))
+        # Two gaps remain, and they are the right two: this declaration states no agent type
+        # and no success criteria, and the audit is what says so.
+        self.assertEqual([d.id for d in intake.decisions], ["DEC-01"])
+        self.assertTrue(all("use_case" in p for p in agent.outstanding(str(self.intake))))
+
+    def test_it_costs_far_less_than_the_sequence_it_replaces(self):
+        """Seven to nine calls were spent before this loop existed, every run, whatever the pack.
+        A one-document pack that resolves in two turns must not cost more than that."""
+        import json as _json
+        state = agent.run(self.root, str(self.intake), converse=_scripted(
+            _call("read_document", name="notes.md"),
+            _call("write_declaration", declaration=_json.dumps(_DECLARATION))))
+        self.assertLessEqual(state.calls, 4, "more than the sequence it replaces")
+
+    def test_what_the_documents_establish_is_written_for_later_stages(self):
+        """Every stage after this one sees the graph and not the documents."""
+        import json as _json
+        agent.run(self.root, str(self.intake), converse=_scripted(
+            _call("record_finding", facet="use_case",
+                  statement="The agent resolves disputed card charges without a person."),
+            _call("write_declaration", declaration=_json.dumps(_DECLARATION))))
+        context = (self.root / "ingest_context.md").read_text()
+        self.assertIn("resolves disputed card charges", context)
+        self.assertTrue((self.root / "ingest_evidence.json").exists())
+
+    def test_a_finding_against_a_question_nobody_asks_is_refused(self):
+        tools = {t.name: t for t in agent.build_tools(
+            agent.Pack(self.root), str(self.intake), {}, {})}
+        self.assertIn("not one of the questions",
+                      tools["record_finding"].run(facet="vibes", statement="It feels fine."))
+
+
+class TestWhatWriteDeclarationRefuses(unittest.TestCase):
+    """The one tool that changes anything, so the one that has to refuse. An empty workbook
+    overwriting a partial one is the worst thing a turn could do, and the easiest to produce."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.intake = self.root / "intake.xlsx"
+        self.tools = {t.name: t for t in agent.build_tools(
+            agent.Pack(self.root), str(self.intake), {}, {})}
+
+    def test_something_that_is_not_json_is_refused_with_the_reason(self):
+        answer = self.tools["write_declaration"].run(declaration="here is the graph, roughly")
+        self.assertIn("not written", answer.lower())
+        self.assertFalse(self.intake.exists())
+
+    def test_a_declaration_with_no_graph_in_it_is_refused(self):
+        import json as _json
+        answer = self.tools["write_declaration"].run(
+            declaration=_json.dumps({"use_case": {"name": "x"}, "decisions": [], "states": []}))
+        self.assertIn("describes no agent", answer)
+        self.assertFalse(self.intake.exists())
+
+    def test_a_write_reports_what_is_still_outstanding(self):
+        import json as _json
+        thin = dict(_DECLARATION,
+                    decisions=[dict(_DECLARATION["decisions"][0],
+                                    outcomes=["Identified", "Cannot identify", "Timed out"])])
+        answer = self.tools["write_declaration"].run(declaration=_json.dumps(thin))
+        self.assertIn("Still outstanding", answer)
+        self.assertIn("Timed out", answer)
+
+
+class TestSpansSurviveTheLoop(unittest.TestCase):
+    """Where a block begins and ends is a person's judgement about the agent and decides how the
+    whole scenario space is enumerated. The loop fills in everything else about a capability."""
+
+    def test_a_span_already_drawn_is_carried_across_a_write(self):
+        import json as _json
+        from scenario_generator.core.intake import read_intake
+
+        root = Path(tempfile.mkdtemp())
+        intake = root / "intake.xlsx"
+        shutil.copy(EXAMPLES / "1_disputes_three_blocks.xlsx", intake)
+        before = {c.id: (c.entry_states, c.exit_states)
+                  for c in read_intake(str(intake)).capabilities}
+
+        tools = {t.name: t for t in agent.build_tools(agent.Pack(root), str(intake), {}, {})}
+        # The loop rewrites the declaration and says nothing about spans, as it is told not to.
+        stripped = dict(_DECLARATION, capabilities=[
+            {"id": cid, "name": f"Renamed {cid}", "type": "Gating"} for cid in before])
+        tools["write_declaration"].run(declaration=_json.dumps(stripped))
+
+        after = read_intake(str(intake))
+        self.assertEqual({c.id: (c.entry_states, c.exit_states) for c in after.capabilities},
+                         before)
+        self.assertTrue(any(c.name.startswith("Renamed") for c in after.capabilities),
+                        "the loop's own corrections were lost along with the spans")
+
+
+class TestTheCapabilityLifecycle(unittest.TestCase):
+    """A capability is filled in by two hands, and each owns a different part of it.
+
+    A person draws the span -- where the block starts and where it hands on -- against the
+    drawing, because that decides how the whole scenario space is enumerated and no model can read
+    it off a document. Everything else about the capability is the loop's: its name, its type,
+    what it does, from the decisions inside the span and the documents describing them.
+
+    The failure worth guarding is the loop overwriting the half it does not own.
+    """
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.intake = self.root / "intake.xlsx"
+        shutil.copy(EXAMPLES / "1_disputes_three_blocks.xlsx", self.intake)
+
+    def _declaration(self, capabilities):
+        from scenario_generator.core.intake import read_intake
+        current = read_intake(str(self.intake))
+        return {
+            "use_case": {"name": current.name, "objective": "Resolve disputed charges"},
+            "personas": [{"id": p.id, "name": p.name, "applies_to": " ".join(p.applies_to),
+                          "is_default": p.is_default} for p in current.personas],
+            "capabilities": capabilities,
+            "decisions": [{"id": d.id, "name": d.name, "capability_id": d.trigger_capability,
+                           "inputs": d.inputs, "outcomes": list(d.variants),
+                           "input_source": d.input_source, "max_attempts": d.max_attempts,
+                           "outcome_condition": d.outcome_condition} for d in current.decisions],
+            "states": [{"id": s.id, "reached_via": s.reached_via, "description": s.description,
+                        "next_decisions": list(s.next_decisions), "is_terminal": s.is_terminal,
+                        "outcome_type": s.outcome_type} for s in current.states],
+            "tools": [{"name": t.name, "capability_id": t.capability_id,
+                       "changes_state": t.state_changing} for t in current.tools],
+            "confidence": {}, "review_notes": []}
+
+    def _write(self, capabilities):
+        import json as _json
+        tools = {t.name: t for t in agent.build_tools(
+            agent.Pack(self.root), str(self.intake), {}, {})}
+        return tools["write_declaration"].run(
+            declaration=_json.dumps(self._declaration(capabilities)))
+
+    def test_a_span_the_user_redrew_survives_the_loop_rewriting_everything_else(self):
+        from scenario_generator.core.intake import read_intake, set_capability_span
+
+        set_capability_span(str(self.intake), "CAP-02", ["S-02"], ["S-07", "S-08"])
+        self._write([{"id": "CAP-01", "name": "Cardmember identification", "type": "Gating"},
+                     {"id": "CAP-02", "name": "Cardmember verification", "type": "Gating"},
+                     {"id": "CAP-03", "name": "Charge handling", "type": "Transactional"}])
+
+        after = {c.id: c for c in read_intake(str(self.intake)).capabilities}
+        self.assertEqual(after["CAP-02"].entry_states, ("S-02",), "the redrawn span was lost")
+        self.assertEqual(after["CAP-02"].exit_states, ("S-07", "S-08"))
+        self.assertEqual(after["CAP-02"].name, "Cardmember verification",
+                         "the loop's enrichment was lost along with it")
+
+    def test_the_loop_fills_in_a_type_the_workbook_left_blank(self):
+        """An untyped capability drops its adversarial probes silently, which is exactly the kind
+        of blank the loop exists to close."""
+        from scenario_generator.core.intake import read_intake
+
+        self._write([{"id": "CAP-01", "name": "Identification", "type": ""},
+                     {"id": "CAP-02", "name": "Verification", "type": ""},
+                     {"id": "CAP-03", "name": "Charge handling", "type": "Transactional"}])
+        self.assertEqual(
+            [c.type for c in read_intake(str(self.intake)).capabilities if c.id == "CAP-01"], [""])
+
+        self._write([{"id": "CAP-01", "name": "Identification", "type": "Gating"},
+                     {"id": "CAP-02", "name": "Verification", "type": "Gating"},
+                     {"id": "CAP-03", "name": "Charge handling", "type": "Transactional"}])
+        typed = {c.id: c.type for c in read_intake(str(self.intake)).capabilities}
+        self.assertEqual(typed["CAP-01"], "Gating")
+
+    def test_redrawing_a_span_changes_what_is_enumerated(self):
+        """The whole reason the span is the person's to draw."""
+        from scenario_generator.core.intake import read_intake, set_capability_span
+        from scenario_generator.pipeline import build_scenario_space
+
+        before = len(build_scenario_space(read_intake(str(self.intake)), with_probes=False))
+        set_capability_span(str(self.intake), "CAP-02", ["S-02"], ["S-07", "S-08"])
+        after = len(build_scenario_space(read_intake(str(self.intake)), with_probes=False))
+        self.assertEqual((before, after), (14, 11))
+
+    def test_the_loop_folds_a_capability_declared_twice(self):
+        """Two capabilities that are one capability are two blocks of the space where there is
+        one, so this matters more than tidiness."""
+        from scenario_generator.core.intake import read_intake
+
+        self._write([{"id": "CAP-01", "name": "Identification", "type": "Gating"},
+                     {"id": "CAP-02", "name": "Identification service", "type": "Gating"},
+                     {"id": "CAP-03", "name": "Charge handling", "type": "Transactional"}])
+        kept = [c.id for c in read_intake(str(self.intake)).capabilities]
+        self.assertEqual(kept, ["CAP-01", "CAP-03"])

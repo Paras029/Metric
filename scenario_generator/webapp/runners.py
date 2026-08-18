@@ -248,41 +248,24 @@ def _run_intake(workspace: Workspace, progress=None, cancel=None) -> Dict[str, o
     summary: Dict[str, object] = {}
     action = "read"
 
-    # Reading first, and only where it is needed. An uploaded intake is authoritative, so a pack
-    # submitted alongside it is still read -- later stages are grounded on that reading -- but it
-    # never competes with the workbook for what the agent is.
-    if _needs_reading(workspace):
-        cancellation.check(cancel)
-        summary.update(_read_documents(workspace, progress=report, cancel=cancel))
-
-    if ours and provided is not None and target.exists():
-        cancellation.check(cancel)
-        action = "revised"
-        revise_intake_workbook(str(target), str(target),
-                               context_path=str(context) if context.exists() else None,
-                               evidence_path=str(workspace.root / EVIDENCE),
-                               notes=workspace.note_lines(), progress=report)
-    elif ours:
-        if not context.exists():
-            raise ValueError(
-                "Nothing to draft from yet. Add the model owner's documentation, a workflow "
-                "diagram, or any combination of the two above — a pack of pictures is a pack. Or "
-                "upload a completed intake workbook instead.")
-        cancellation.check(cancel)
-        action = "drafted"
-        draft_intake_workbook(str(context), str(target),
-                              evidence_path=str(workspace.root / EVIDENCE),
-                              notes=workspace.note_lines(), progress=report)
-        workspace.state("intake").artifacts["workbook"] = DRAFT_INTAKE
-    else:
-        report("Reading the intake workbook", 1, 2)
-
-    # The loop runs after the draft rather than instead of it: it needs a declaration to audit,
-    # and the fixed sequence is what produces one. Off unless switched on -- see
-    # config.intake_loop -- because it needs tool-calling and not every gateway offers it.
+    # One path or the other, never both. The loop replaces the reading and drafting sequence
+    # rather than following it: running it afterwards spent seven to nine calls on the sequence
+    # and then up to twenty-four more going over the same documents, which is the same work
+    # bought twice.
     if ours and config.intake_loop():
         cancellation.check(cancel)
-        summary.update(_finish_with_loop(workspace, target, report))
+        summary.update(_read_and_draft_with_loop(workspace, target, report))
+        workspace.state("intake").artifacts["workbook"] = DRAFT_INTAKE
+        action = "looped"
+    else:
+        # Reading first, and only where it is needed. An uploaded intake is authoritative, so a
+        # pack submitted alongside it is still read -- later stages are grounded on that reading
+        # -- but it never competes with the workbook for what the agent is.
+        if _needs_reading(workspace):
+            cancellation.check(cancel)
+            summary.update(_read_documents(workspace, progress=report, cancel=cancel))
+        _draft_or_revise(workspace, provided, target, context, ours, report, cancel, summary)
+        action = summary.pop("_action", "read")
 
     intake = _intake(workspace)
     summary.update({
@@ -299,24 +282,71 @@ def _run_intake(workspace: Workspace, progress=None, cancel=None) -> Dict[str, o
         "revised": ("revised the declaration already here, folding in every answer and note "
                     "since — nothing they do not touch was changed"),
         "read": "read the workbook provided; it is never overwritten",
+        "looped": ("read the pack and filled the declaration in a loop, stopping when it audited "
+                   "clean rather than when the calls ran out"),
     }[action]
     report("Intake ready", 2, 2)
     return summary
 
 
-def _finish_with_loop(workspace: Workspace, target: Path, report) -> Dict[str, object]:
-    """Work the remaining structural gaps with the tool-calling loop, and report what it managed.
+def _draft_or_revise(workspace: Workspace, provided, target: Path, context: Path, ours: bool,
+                     report, cancel, summary: Dict[str, object]) -> None:
+    """The fixed sequence: draft a declaration, or revise the one already here.
 
-    Never allowed to fail the stage. A declaration exists by this point and is exactly as good as
-    the draft left it; a loop that cannot run is a step not taken, not a run to throw away.
+    Unchanged, and still the default. It needs nothing from the gateway beyond an ordinary
+    completion, which the loop cannot say.
+    """
+    if ours and provided is not None and target.exists():
+        cancellation.check(cancel)
+        summary["_action"] = "revised"
+        revise_intake_workbook(str(target), str(target),
+                               context_path=str(context) if context.exists() else None,
+                               evidence_path=str(workspace.root / EVIDENCE),
+                               notes=workspace.note_lines(), progress=report)
+    elif ours:
+        if not context.exists():
+            raise ValueError(
+                "Nothing to draft from yet. Add the model owner's documentation, a workflow "
+                "diagram, or any combination of the two above — a pack of pictures is a pack. Or "
+                "upload a completed intake workbook instead.")
+        cancellation.check(cancel)
+        summary["_action"] = "drafted"
+        draft_intake_workbook(str(context), str(target),
+                              evidence_path=str(workspace.root / EVIDENCE),
+                              notes=workspace.note_lines(), progress=report)
+        workspace.state("intake").artifacts["workbook"] = DRAFT_INTAKE
+    else:
+        summary["_action"] = "read"
+        report("Reading the intake workbook", 1, 2)
+
+
+def _read_and_draft_with_loop(workspace: Workspace, target: Path, report) -> Dict[str, object]:
+    """Read the pack and fill the declaration in one loop, and report what it managed.
+
+    Replaces the reading and drafting sequence rather than following it. A gateway that cannot run
+    it falls back to that sequence rather than failing the stage -- an intake stage that produces
+    nothing because tool-calling is unavailable would be a worse outcome than one that costs a few
+    more calls.
     """
     from ..ingest import agent
 
     try:
-        state = agent.run(workspace.root, str(target), progress=report)
+        state = agent.run(workspace.root, str(target), progress=report,
+                          should_redact=lambda path: workspace.is_marked_for_redaction(
+                              _group_of(workspace, path), Path(path).name),
+                          notes=workspace.note_lines())
     except Exception as exc:
-        logger.warning("The intake loop could not run: %s", exc)
-        return {"The loop": f"could not run ({exc}); the drafted declaration is unchanged"}
+        logger.warning("The intake loop could not run (%s); falling back to the fixed sequence.",
+                       exc)
+        context = workspace.root / CONTEXT
+        summary: Dict[str, object] = {"The loop": f"could not run ({exc}); read the pack the "
+                                                  f"ordinary way instead"}
+        if _needs_reading(workspace):
+            summary.update(_read_documents(workspace, progress=report))
+        _draft_or_revise(workspace, workspace.artifact_path("intake", "workbook"), target,
+                         context, True, report, None, summary)
+        summary.pop("_action", None)
+        return summary
 
     # The questions are not filed anywhere separately, and that is deliberate. Every one of them
     # has to name a row the audit is already complaining about -- that is the filter it passed to
@@ -324,6 +354,14 @@ def _finish_with_loop(workspace: Workspace, target: Path, report) -> Dict[str, o
     # Writing them a second time would put the same question in two places and make answering it
     # in one of them look like leaving it open in the other.
     return {"The loop": state.summary()}
+
+
+def _group_of(workspace: Workspace, path) -> str:
+    """Which upload group a submitted file came from, for the per-file redaction toggle."""
+    for group, paths in evidence_files(workspace.root).items():
+        if any(p == Path(path) for p in paths):
+            return group
+    return "supporting"
 
 
 def _run_variations(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:

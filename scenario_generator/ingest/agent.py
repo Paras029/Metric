@@ -1,15 +1,23 @@
-"""Filling the intake as a loop rather than as a fixed sequence of calls.
+"""Reading a submitted pack and filling the intake, as one loop.
 
-The pipeline that drafts an intake is a good pipeline and this does not replace it. Documents are
-still parsed, redacted and read in parallel; diagrams are still read box by box and audited
-against their own picture; the draft is still carried through deterministically. What that
-sequence cannot do is *notice*. It makes its calls in a fixed order, writes what comes back, and
-stops -- so a declaration with a decision that leads nowhere, or a block nothing hands on to, is
-finished as far as the pipeline is concerned, and the only thing that reads it afterwards is a
-person.
+This is the ingestion path, not a pass that runs after one. The sequence it replaces read every
+document against three groups of questions, put what was left open back to them twice more,
+drafted a declaration from the result and repaired it once -- seven to nine model calls in a fixed
+order, every one of them made whether or not it had anything to do. Running a loop *after* that
+spent them twice over, which is the reason this replaces the sequence rather than following it.
 
-This runs the same readers under a goal instead: fill the intake, keep going until it audits
-clean or the budget is spent. Three things make that safe to run against a model:
+What the sequence did well is kept, and most of it was never a model call to begin with. Files are
+still parsed and redacted deterministically before anything sees them, so no passage reaches a
+model that has not been through redaction. Diagrams are still read by the same tested vision pass,
+one call per image. The declaration is still validated against the intake's own vocabulary,
+consolidated, and written into a workbook of exactly the shape a person would have filled in.
+
+What changes is what decides the order and the number. The loop reads what it judges worth
+reading, writes a declaration, audits it, and goes back for what is missing -- so a two-page pack
+costs a fraction of a sixty-page one instead of the same fixed seven, and a declaration that is
+still incomplete after the first write gets another look instead of being handed on regardless.
+
+Three things make that safe to point at a model.
 
 **The termination oracle is deterministic.** Whether the declaration is finished is decided by
 :func:`core.gaps.find_gaps` and the graph audit, never by the model saying it is done. A loop that
@@ -20,15 +28,15 @@ worse day is immediately.
 calls the code that already does, so the loop cannot be a second way of doing the same job that
 drifts from the first.
 
-**The budget is hard and the work is idempotent.** Each turn is a bounded number of calls, the
-declaration on disk is the state, and stopping at any point leaves a workbook that is exactly as
+**The budget is hard and the work is idempotent.** The declaration on disk is the state, so a run
+stopped at any point -- budget spent, gateway down, stage cancelled -- leaves a workbook exactly as
 good as the last thing written to it. There is no half-applied turn.
 
-The pause is deliberate. After the sweeps the loop stops and puts what it could not settle to a
-person, because the questions that remain at that point are the ones no amount of re-reading will
-answer -- what the documents do not say. Those questions are filtered in code against the audit,
-so every one names a specific row and a specific hole rather than asking whether a decision is
-clear.
+Capability spans are the one thing the loop may not write. Where a block of the agent begins and
+ends is a judgement a person makes against the drawing, and it decides how the entire scenario
+space is enumerated; the loop fills in everything *else* about a capability -- its type, and what
+it does, from the decisions inside the span and the documents that describe them -- and carries
+the span across untouched.
 """
 from __future__ import annotations
 
@@ -45,11 +53,11 @@ from ..llm import config, prompt_loader
 
 logger = logging.getLogger(__name__)
 
-# What a full run is allowed to spend, and what it aims to. The cap is a backstop against a loop
-# that will not settle; the target is what a pack of ordinary size actually costs, and going past
-# it is a signal that the declaration is not converging rather than that it is large.
+# What a full run is allowed to spend. A backstop against a loop that will not settle, not a
+# budget it aims at: an ordinary pack finishes in three or four turns because the loop stops when
+# the declaration audits clean, and the sequence this replaces spent seven to nine every time
+# whatever the pack contained.
 MAX_TURNS = 24
-TARGET_TURNS = 16
 
 # How many sweeps run before the loop stops and asks. Two, because the first reads and the second
 # fixes what the first left; a third mostly re-litigates the second, and every turn past the point
@@ -69,6 +77,7 @@ class Progress:
     gaps_at_start: int = 0
     gaps_now: int = 0
     questions: List[str] = field(default_factory=list)
+    findings: Dict[str, List[str]] = field(default_factory=dict)
     stopped_because: str = ""
 
     def summary(self) -> Dict[str, object]:
@@ -97,7 +106,11 @@ def outstanding(intake_path: str) -> List[str]:
     except Exception as exc:
         return [f"The declaration could not be read: {exc}"]
 
-    problems = [f"{gap.target_id}: {gap.question}" for gap in find_gaps(intake)]
+    # Labelled by the row it concerns, falling back to the kind of row where there is no id --
+    # a use-case field belongs to the use case rather than to a row, and printing it as ": What
+    # kind of agent is this?" gives a model nothing to name back and gives the question filter
+    # nothing to match on.
+    problems = [f"{gap.target_id or gap.kind}: {gap.question}" for gap in find_gaps(intake)]
     graph = DecisionGraph(intake.decisions, intake.states)
     for decision in intake.decisions:
         if decision.out_of_scope:
@@ -140,38 +153,109 @@ class Tool:
     run: Callable[..., str]
 
 
-def build_tools(workspace_root: Path, intake_path: str) -> List[Tool]:
-    """The loop's whole surface: read what was submitted, read what is declared, write it back.
+class Pack:
+    """Everything submitted, parsed and redacted once, before any model sees it.
 
-    Every one wraps a reader that already exists and is already tested. Nothing here parses a
-    document or looks at an image on its own account -- a second implementation of either would be
-    a second thing to keep in step with the first, and the first is the one that has been through
-    redaction and grounding.
+    Deterministic and done up front, because it is not a model call and never was: parsing a PDF,
+    masking what redaction masks, and setting images aside for the vision pass cost nothing but
+    wall-clock, and doing them once means no tool call can reach a passage redaction has not been
+    through. Parsing is lazy per file -- a sixty-page appendix nobody opens is never parsed --
+    but redaction is not optional on anything that is.
     """
-    from .groups import evidence_files
-    from .readers import UnreadableDocument, is_image, read_document
 
-    files = {path.name: path
-             for paths in evidence_files(workspace_root).values() for path in paths}
+    def __init__(self, root: Path, should_redact=None) -> None:
+        from .groups import evidence_files
+        from .readers import is_image
+
+        self.root = Path(root)
+        self._should_redact = should_redact or (lambda path: False)
+        self.files: Dict[str, Path] = {
+            path.name: path
+            for paths in evidence_files(self.root).values() for path in paths}
+        self.documents = {n: p for n, p in self.files.items() if not is_image(p)}
+        self.diagrams = {n: p for n, p in self.files.items() if is_image(p)}
+        self._text: Dict[str, str] = {}
+        self._mapping = None
+
+    def text_of(self, name: str) -> str:
+        """One document as locatable, redacted text. Parsed once and remembered.
+
+        The redaction mapping carries between documents, which is why they are masked here in one
+        place rather than per call: a substitution engine has to mask the same name the same way
+        everywhere it appears, and a per-call mask would give one person three different aliases
+        across three documents and make the pack unreadable as a whole.
+        """
+        from .readers import UnreadableDocument, read_document
+        from .redaction import redact_segments
+
+        if name in self._text:
+            return self._text[name]
+        path = self.documents[name]
+        try:
+            _, segments = read_document(path)
+        except UnreadableDocument as exc:
+            self._text[name] = f"{name} could not be read: {exc}"
+            return self._text[name]
+        segments, self._mapping = redact_segments(
+            segments, self._mapping, force=self._should_redact(path))
+        self._text[name] = "\n\n".join(f"[{s.locator}]\n{s.text}" for s in segments)
+        return self._text[name]
+
+
+def build_tools(pack: "Pack", intake_path: str, findings: Dict[str, List[str]],
+                structure: Dict[str, list], describe_images=None) -> List[Tool]:
+    """The loop's whole surface: read what was submitted, write what it establishes, check itself.
+
+    Every one wraps a reader or writer that already exists and is already tested. Nothing here
+    parses a document, reads an image, or validates a declaration on its own account -- a second
+    implementation of any of those would be a second thing to keep in step with the first, and the
+    first is the one that has been through redaction, grounding and the intake's own vocabulary.
+    """
+    from .readers import is_image
 
     def list_sources(**_) -> str:
-        if not files:
-            return ("Nothing was submitted. The declaration has to be built from what is already "
-                    "in the workbook, or a question has to go to the model owner.")
+        if not pack.files:
+            return ("Nothing was submitted. Build the declaration from what is already in the "
+                    "workbook, or record questions for the model owner.")
         return json.dumps([{"name": name, "kind": "diagram" if is_image(path) else "document"}
-                           for name, path in sorted(files.items())], indent=2)
+                           for name, path in sorted(pack.files.items())], indent=2)
 
     def read_one_document(name: str = "", **_) -> str:
-        path = files.get(str(name).strip())
-        if path is None:
-            return f"There is no submitted file called {name!r}. Call list_sources first."
-        if is_image(path):
-            return f"{name} is an image; call read_diagram for it."
+        key = str(name).strip()
+        if key in pack.diagrams:
+            return f"{key} is an image; call read_diagram for it."
+        if key not in pack.documents:
+            return f"There is no submitted document called {key!r}. Call list_sources first."
+        return pack.text_of(key)
+
+    def read_one_diagram(name: str = "", **_) -> str:
+        """One image, read into the intake's own vocabulary by the existing vision pass.
+
+        A nested model call, and the only one in the tool surface. It stays nested because a
+        workflow diagram *is* the decision and state sheets, and the pass that reads one that way
+        is audited against its own picture -- handing the raw image into this conversation instead
+        would be a second, unaudited way of reading the same thing.
+        """
+        from . import diagram_structure
+        from .extraction import DocumentExtractor
+
+        key = str(name).strip()
+        if key not in pack.diagrams:
+            return f"There is no submitted diagram called {key!r}. Call list_sources first."
         try:
-            reference, segments = read_document(path)
-        except UnreadableDocument as exc:
-            return f"{name} could not be read: {exc}"
-        return "\n\n".join(f"[{segment.locator}]\n{segment.text}" for segment in segments)
+            reader = DocumentExtractor(describe_images=describe_images)
+            record = _empty_record()
+            reader._read_diagrams([pack.diagrams[key]], record)
+        except Exception as exc:
+            return f"{key} could not be read: {exc}"
+        read = record.structure or {}
+        if diagram_structure.is_empty(read):
+            return f"Nothing could be read off {key}."
+        for part, rows in read.items():
+            structure.setdefault(part, [])
+            have = {r.get("id") for r in structure[part]}
+            structure[part] += [r for r in rows if r.get("id") not in have]
+        return diagram_structure.render(read)
 
     def what_is_declared(**_) -> str:
         from ..llm.context import describe_graph, describe_use_case
@@ -188,18 +272,90 @@ def build_tools(workspace_root: Path, intake_path: str) -> List[Tool]:
                     "every state is reached, and nothing required is blank.")
         return "\n".join(f"- {problem}" for problem in problems)
 
+    def write(declaration: str = "", **_) -> str:
+        return _write_declaration(declaration, intake_path, structure)
+
+    def record(facet: str = "", statement: str = "", **_) -> str:
+        """What a document establishes, filed against the question it answers.
+
+        Kept because every stage after this one is grounded on it rather than on the workbook: the
+        writer needs to know what the agent is *for* to describe a route through it, and the graph
+        alone does not say. Deterministic -- this only files what it is given.
+        """
+        from ..core.evidence import FACETS
+
+        key = str(facet).strip().lower()
+        if key not in FACETS:
+            return (f"{facet!r} is not one of the questions this records against. Use one of: "
+                    + ", ".join(FACETS))
+        text = str(statement).strip()
+        if len(text) < 10:
+            return "Nothing recorded: say what the documents establish, in a sentence."
+        findings.setdefault(key, [])
+        if text not in findings[key]:
+            findings[key].append(text)
+        return "Recorded."
+
     return [
         Tool("list_sources", "List every submitted file, and whether each is a document or a "
                              "workflow diagram. Call this first.", list_sources),
         Tool("read_document", "Read one submitted document in full, with its page markers. "
                               "Takes the file name exactly as list_sources gave it.",
              read_one_document),
+        Tool("read_diagram", "Read one submitted workflow diagram into decisions, outcomes and "
+                             "states. Takes the file name exactly as list_sources gave it.",
+             read_one_diagram),
         Tool("what_is_declared", "The declaration as it currently stands: the use case, and the "
                                  "decision graph with every edge.", what_is_declared),
         Tool("audit_declaration", "What is still structurally wrong with the declaration. This "
                                   "is what decides whether the work is finished, so check it "
                                   "before concluding anything is.", audit),
+        Tool("write_declaration", "Write the declaration. Takes a JSON object with use_case, "
+                                  "personas, capabilities, decisions, states and tools. Replaces "
+                                  "what is there, so send the whole declaration every time, not "
+                                  "a patch.", write),
+        Tool("record_finding", "File what the documents establish about one of the questions "
+                               "every later stage is grounded on. Takes a facet and a sentence.",
+             record),
     ]
+
+
+def _empty_record():
+    from ..core.evidence import EvidenceRecord
+    return EvidenceRecord()
+
+
+def _write_declaration(declaration: str, intake_path: str, structure: Dict[str, list]) -> str:
+    """Validate a proposed declaration and write it, or say exactly why it was not written.
+
+    The one tool that changes anything, so it is the one that refuses. A reply that does not parse,
+    or that declares no graph at all, is rejected with the reason rather than written -- an empty
+    workbook overwriting a partial one is the single worst thing a loop could do with a turn, and
+    it is also the easiest for a model to produce by accident.
+    """
+    from ..utils import parse_json_object
+    from .drafting import DraftedIntake, _consolidated, _validate, carry_diagram_through
+    from .drafting import write_drafted_intake
+
+    try:
+        proposed = parse_json_object(declaration)
+    except Exception as exc:
+        return f"Not written: that is not a JSON object ({exc}). Send the whole declaration."
+    if not isinstance(proposed, dict):
+        return "Not written: send a JSON object with use_case, decisions and states."
+
+    data = _consolidated(carry_diagram_through(_validate(proposed), structure or None))
+    if not data["decisions"] or not data["states"]:
+        return ("Not written: a declaration with no decisions or no states describes no agent. "
+                "Read the documents and send the graph.")
+
+    write_drafted_intake(Path(intake_path), DraftedIntake(data))
+    remaining = outstanding(intake_path)
+    if not remaining:
+        return ("Written, and it audits clean: every outcome leads somewhere and nothing "
+                "required is blank.")
+    return ("Written. Still outstanding:\n"
+            + "\n".join(f"- {problem}" for problem in remaining))
 
 
 def build_question_tool(problems: Sequence[str], recorded: List[str]) -> Tool:
@@ -276,46 +432,48 @@ class Conversation:
 
 
 def run(workspace_root: Path, intake_path: str, converse=None, progress=None,
-        max_turns: int = MAX_TURNS, sweeps: int = SWEEPS_BEFORE_PAUSE) -> Progress:
-    """Work towards a complete declaration, and stop when it is complete or the budget is spent.
+        max_turns: int = MAX_TURNS, sweeps: int = SWEEPS_BEFORE_PAUSE,
+        should_redact=None, describe_images=None, notes: Sequence[str] = ()) -> Progress:
+    """Read the pack and fill the declaration, and stop when it is complete or the budget is spent.
 
-    Returns what happened rather than the declaration: the declaration is the workbook on disk,
-    which every tool reads and the caller already has a path to. Nothing here is left half-applied
-    -- a run stopped at any point leaves the workbook exactly as good as the last thing written.
+    Returns what happened rather than the declaration: the declaration is the workbook at
+    ``intake_path``, which every tool reads and the caller already has. Nothing is left
+    half-applied -- a run stopped at any point leaves the workbook exactly as good as the last
+    thing written to it.
     """
     report = progress or (lambda *args, **kwargs: None)
+    pack = Pack(Path(workspace_root), should_redact=should_redact)
+    findings: Dict[str, List[str]] = {}
+    structure: Dict[str, list] = {}
+    questions: List[str] = []
+
     problems = outstanding(intake_path)
     state = Progress(gaps_at_start=len(problems), gaps_now=len(problems))
-    if not problems:
+    started_from_nothing = not Path(intake_path).exists()
+    if not problems and not started_from_nothing:
         state.stopped_because = "the declaration was already structurally complete"
-        return state
+        return _finish(state, intake_path, questions, findings, structure, workspace_root)
 
-    questions: List[str] = []
-    tools = build_tools(Path(workspace_root), intake_path)
+    tools = build_tools(pack, intake_path, findings, structure, describe_images=describe_images)
     tools.append(build_question_tool(problems, questions))
     by_name = {tool.name: tool for tool in tools}
     converse = converse or Conversation(tools)
 
     messages: List[dict] = [
         {"role": "system", "content": prompt_loader.load(_SYSTEM_PROMPT)},
-        {"role": "human", "content":
-            "The declaration is incomplete. What is wrong with it:\n\n"
-            + "\n".join(f"- {problem}" for problem in problems)
-            + "\n\nRead whatever was submitted and settle as many of these as the documents "
-              "allow. Check audit_declaration before concluding anything is finished."},
+        {"role": "human", "content": _opening(pack, problems, started_from_nothing, notes)},
     ]
 
     for sweep in range(1, sweeps + 1):
         while state.turns < max_turns:
             state.turns += 1
-            report(f"Working through what the declaration still needs (sweep {sweep})",
-                   state.turns, max_turns)
+            report(_LINE, state.turns, max_turns)
             try:
                 reply = converse(messages)
             except Exception as exc:
                 logger.warning("The loop's model call failed on turn %d: %s", state.turns, exc)
                 state.stopped_because = f"a model call failed: {exc}"
-                return _finish(state, intake_path, questions)
+                return _finish(state, intake_path, questions, findings, structure, workspace_root)
             state.calls += 1
 
             if not reply.get("tool_calls"):
@@ -337,30 +495,86 @@ def run(workspace_root: Path, intake_path: str, converse=None, progress=None,
 
         remaining = outstanding(intake_path)
         state.gaps_now = len(remaining)
-        if not remaining:
+        if not remaining and Path(intake_path).exists():
             state.stopped_because = "the declaration audits clean"
-            return _finish(state, intake_path, questions)
+            return _finish(state, intake_path, questions, findings, structure, workspace_root)
         if state.turns >= max_turns:
             state.stopped_because = f"the budget of {max_turns} turns was spent"
-            return _finish(state, intake_path, questions)
+            return _finish(state, intake_path, questions, findings, structure, workspace_root)
 
         problems = remaining
-        messages.append({
-            "role": "human",
-            "content": "Still outstanding:\n\n"
-                       + "\n".join(f"- {problem}" for problem in remaining)
-                       + "\n\nSettle what the documents settle. Record a question for the model "
-                         "owner only where they genuinely do not."})
+        messages.append({"role": "human", "content":
+                         "Still outstanding:\n\n"
+                         + "\n".join(f"- {problem}" for problem in remaining)
+                         + "\n\nSettle what the documents settle. Record a question for the "
+                           "model owner only where they genuinely do not."})
 
     state.stopped_because = (f"{sweeps} sweeps finished with {state.gaps_now} left, which the "
                              f"documents do not appear to settle")
-    return _finish(state, intake_path, questions)
+    return _finish(state, intake_path, questions, findings, structure, workspace_root)
 
 
-def _finish(state: Progress, intake_path: str, questions: List[str]) -> Progress:
-    state.gaps_now = len(outstanding(intake_path))
+_LINE = "Reading the pack and filling the declaration"
+
+
+def _opening(pack: "Pack", problems: Sequence[str], from_nothing: bool,
+             notes: Sequence[str]) -> str:
+    """The first message: what was submitted, what exists, and what is wrong with it.
+
+    Named files rather than a count, because the first thing the loop has to decide is what to
+    open, and a list it already has is a tool call it does not have to spend.
+    """
+    submitted = ("Submitted: "
+                 + ", ".join(sorted(pack.files)) if pack.files else
+                 "Nothing was submitted.")
+    if from_nothing:
+        state = ("There is no declaration yet. Read what was submitted and write one with "
+                 "write_declaration.")
+    else:
+        state = ("A declaration exists. What is wrong with it:\n\n"
+                 + "\n".join(f"- {problem}" for problem in problems)
+                 + "\n\nRead whatever bears on those and settle as many as the documents allow.")
+    said = ("\n\nThe validator has also said:\n"
+            + "\n".join(f"- {note}" for note in notes)) if notes else ""
+    return f"{submitted}\n\n{state}{said}"
+
+
+def _finish(state: Progress, intake_path: str, questions: List[str],
+            findings: Dict[str, List[str]], structure: Dict[str, list],
+            workspace_root: Path) -> Progress:
+    state.gaps_now = len(outstanding(intake_path)) if Path(intake_path).exists() else 0
     state.questions = list(questions)
+    state.findings = dict(findings)
+    if findings or structure:
+        _write_evidence(Path(workspace_root), findings, structure)
     logger.info("Intake loop: %d turn(s), %d call(s), %d gap(s) left, %d question(s). Stopped "
                 "because %s.", state.turns, state.calls, state.gaps_now, len(state.questions),
                 state.stopped_because)
     return state
+
+
+def _write_evidence(root: Path, findings: Dict[str, List[str]],
+                    structure: Dict[str, list]) -> None:
+    """The context every later stage is grounded on, rendered from what the loop filed.
+
+    Written in the same two files the sequence this replaces wrote, in the same formats, because
+    six stages downstream read them and none of them should be able to tell which path produced
+    the run. The graph is the workbook; this is everything else the documents established, which
+    the workbook has no column for and the writer cannot describe a route without.
+    """
+    from ..core.evidence import FACETS, EvidenceRecord, FacetAnswer
+    from .context_document import build_context_document
+    from .extraction import record_to_json
+
+    record = EvidenceRecord(structure=dict(structure))
+    record.answers = [
+        FacetAnswer(facet=facet,
+                    answer=" ".join(findings.get(facet, [])),
+                    points=list(findings.get(facet, [])),
+                    confidence="Medium" if findings.get(facet) else "Low")
+        for facet in FACETS]
+    try:
+        (root / "ingest_context.md").write_text(build_context_document(record), encoding="utf-8")
+        record_to_json(record, root / "ingest_evidence.json")
+    except OSError as exc:
+        logger.warning("Could not write what the loop established: %s", exc)
