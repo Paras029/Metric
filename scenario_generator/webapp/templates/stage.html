@@ -496,29 +496,47 @@
                  makes that judgement harder than it is. #}
               <form class="span" method="post"
                     action="{{ url_for('set_span', capability_id=capability.id) }}">
-                <label class="span__field">
-                  <span class="span__label">Entered at</span>
-                  <select class="select" name="entry" multiple size="4">
+                {# Checkboxes rather than a multi-select. A <select multiple> renders as a grey
+                   scrolling list that reads as a display rather than a control, needs ctrl-click
+                   nobody discovers, and -- the reason it had to go -- an ordinary click on one
+                   option silently clears every other. Somebody adding a second entry state would
+                   have deleted the first without being shown that it happened. #}
+                <div class="span__side">
+                  <p class="span__label">Entered at</p>
+                  <ul class="span__list">
                     {% for option in state_options %}
-                      <option value="{{ option.id }}"
-                        {% if option.id in capability.entry_states %}selected{% endif %}>
-                        {{ option.label }}
-                      </option>
+                      <li>
+                        <label class="check">
+                          <input type="checkbox" name="entry" value="{{ option.id }}"
+                                 {% if option.id in capability.entry_states %}checked{% endif %}>
+                          <span class="mono">{{ option.id }}</span> {{ option.label_text }}
+                        </label>
+                      </li>
                     {% endfor %}
-                  </select>
-                </label>
-                <label class="span__field">
-                  <span class="span__label">Hands on or ends at</span>
-                  <select class="select" name="exit" multiple size="4">
+                  </ul>
+                </div>
+                <div class="span__side">
+                  <p class="span__label">Hands on or ends at</p>
+                  <ul class="span__list">
                     {% for option in state_options %}
-                      <option value="{{ option.id }}"
-                        {% if option.id in capability.exit_states %}selected{% endif %}>
-                        {{ option.label }}
-                      </option>
+                      <li>
+                        <label class="check">
+                          <input type="checkbox" name="exit" value="{{ option.id }}"
+                                 {% if option.id in capability.exit_states %}checked{% endif %}>
+                          <span class="mono">{{ option.id }}</span> {{ option.label_text }}
+                          {%- if option.terminal %} <span class="mark">ends</span>{% endif %}
+                        </label>
+                      </li>
                     {% endfor %}
-                  </select>
-                </label>
-                <button class="button button--quiet" type="submit">Save span</button>
+                  </ul>
+                </div>
+                <div class="span__save">
+                  <button class="button button--quiet" type="submit">Save span</button>
+                  <span class="span__note">
+                    {% if capability.is_bounded %}Walked as a block.
+                    {% else %}No span, so nothing is walked through this capability.{% endif %}
+                  </span>
+                </div>
               </form>
             </li>
           {% endfor %}

@@ -57,12 +57,64 @@ class TestWhenItStops(unittest.TestCase):
         self.assertGreater(state.gaps_now, 0)
         self.assertNotIn("clean", state.stopped_because)
 
-    def test_it_stops_at_its_budget_rather_than_looping(self):
+    def test_asking_for_the_same_thing_over_and_over_ends_the_sweep(self):
+        """A turn that asks for exactly what the last turn asked for gets the same answer, so the
+        turn after it asks again. Two of those is a loop, and a loop at judgement tier is expensive
+        in a way nothing on screen makes obvious."""
         def forever(messages):
             return _call("audit_declaration")
-        state = agent.run(self.root, str(self.intake), converse=forever, max_turns=5)
+        state = agent.run(self.root, str(self.intake), converse=forever, max_turns=24)
+        self.assertLessEqual(state.turns, 4, "went round in circles at the budget's expense")
+
+    def test_the_hard_budget_still_applies_when_the_calls_genuinely_vary(self):
+        """The repetition guard is not the only stop: a model doing different things every turn
+        and never finishing still has to be cut off somewhere."""
+        turns = {"n": 0}
+
+        def varied(messages):
+            turns["n"] += 1
+            return _call("read_document", name=f"absent-{turns['n']}.pdf")
+
+        state = agent.run(self.root, str(self.intake), converse=varied, max_turns=5)
         self.assertEqual(state.turns, 5)
         self.assertIn("budget of 5 turns", state.stopped_because)
+
+    def test_a_sweep_that_closes_nothing_ends_the_run(self):
+        """Everything the second sweep could read, the first could read. What is left at that
+        point is what the documents do not say, and another pass is money for nothing."""
+        replies = [_call("what_is_declared"), _call("audit_declaration")]
+
+        def stalls(messages):
+            return replies.pop(0) if replies else {"content": "no more",
+                                                   "tool_calls": [], "raw_tool_calls": []}
+
+        state = agent.run(self.root, str(self.intake), converse=stalls, max_turns=24, sweeps=4)
+        self.assertIn("closed nothing", state.stopped_because)
+        self.assertLess(state.turns, 10)
+
+    def test_a_document_is_not_sent_twice(self):
+        """The text is already in the conversation; sending it again buys nothing, costs the whole
+        document in tokens, and precedes repeating whatever was concluded from it."""
+        sources = self.root / "sources" / "model_doc"
+        sources.mkdir(parents=True)
+        (sources / "notes.md").write_text("# Agent\n\nIt verifies the cardmember.\n")
+        tools = {t.name: t for t in agent.build_tools(
+            agent.Pack(self.root), str(self.intake), {}, {})}
+
+        first = tools["read_document"].run(name="notes.md")
+        second = tools["read_document"].run(name="notes.md")
+        self.assertIn("verifies the cardmember", first)
+        self.assertIn("already in this conversation", second)
+
+    def test_the_progress_line_says_what_is_happening(self):
+        """A constant line is why a working loop reads as a stuck one."""
+        lines = []
+        agent.run(self.root, str(self.intake),
+                  converse=_scripted(_call("list_sources"), _call("audit_declaration")),
+                  progress=lambda message, done, total: lines.append(message))
+        self.assertIn("Looking at what was submitted", lines)
+        self.assertIn("Checking what the declaration still needs", lines)
+        self.assertGreater(len(set(lines)), 1, "every turn printed the same sentence")
 
     def test_a_failing_model_call_stops_it_without_losing_what_was_done(self):
         def breaks(messages):

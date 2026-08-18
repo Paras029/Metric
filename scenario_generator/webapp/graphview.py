@@ -843,6 +843,7 @@ def declaration(intake: IntakeData) -> Tuple[List[dict], List[dict], List[dict],
     state_options = [{"id": state.id,
                       "label": f"{state.id} · {state.description or 'no description'}"
                                + (" · ends" if state.is_terminal else ""),
+                      "label_text": state.description or "no description",
                       "terminal": state.is_terminal}
                      for state in intake.states]
 

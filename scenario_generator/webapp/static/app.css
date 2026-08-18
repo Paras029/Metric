@@ -1803,18 +1803,41 @@ ol, ul { list-style: none; padding: 0; }
   }
 }
 
-/* Setting a capability's span. Two multi-selects side by side, because the choice is "which of
-   these states" twice over and a picker per state id would be a wall of checkboxes. */
+/* Setting a capability's span. Two columns of checkboxes, because the choice is "which of these
+   states" twice over and the control has to look like something a person can change. */
 .span {
   display: flex;
   flex-wrap: wrap;
-  gap: 1rem;
-  align-items: flex-end;
-  margin-top: 0.75rem;
+  gap: 1.25rem;
+  align-items: flex-start;
+  margin-top: 0.85rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--rule);
 }
-.span__field { display: flex; flex-direction: column; gap: 0.35rem; min-width: 16rem; flex: 1 1 16rem; }
-.span__label { font-size: 0.78rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-dim); }
-.span .select { width: 100%; }
+.span__side { flex: 1 1 20rem; min-width: 17rem; }
+.span__label {
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin: 0 0 0.4rem;
+}
+.span__list {
+  list-style: none;
+  margin: 0;
+  padding: 0.35rem 0.5rem;
+  max-height: 11rem;
+  overflow-y: auto;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--surface);
+}
+.span__list li { margin: 0.1rem 0; }
+.span__list .check { display: flex; align-items: baseline; gap: 0.45rem; font-size: 0.86rem; }
+/* The id is one token; breaking "S-00" across two lines makes a list of them unreadable. */
+.span__list .mono { white-space: nowrap; }
+.span__save { display: flex; flex-direction: column; gap: 0.4rem; padding-top: 1.3rem; }
+.span__note { font-size: 0.78rem; color: var(--ink-dim); max-width: 12rem; }
 
 /* A collapsed capability: squarer than an ending, heavier than a decision, so the three kinds of
    box in the two drawings stay tellable apart at a glance. */

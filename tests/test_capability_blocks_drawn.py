@@ -98,3 +98,71 @@ class TestLabelsDoNotStackOnOneLine(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheSpanIsEditableWithoutDestroyingItself(unittest.TestCase):
+    """The control has to look like a control, and must not lose a span to an ordinary click.
+
+    It was a <select multiple>: a grey scrolling list that reads as a display rather than
+    something changeable, needing a ctrl-click nobody discovers. The failure that forced the
+    rebuild is worse than the discoverability one — an ordinary click on one option clears every
+    other, so somebody adding a second entry state would silently delete the first.
+    """
+
+    def setUp(self):
+        import tempfile, time
+
+        from scenario_generator.webapp.app import create_app
+
+        self.root = Path(tempfile.mkdtemp())
+        self.client = create_app(self.root).test_client()
+        self.client.post("/workspaces", data={"name": "Spans"})
+        source = EXAMPLES / "1_disputes_three_blocks.xlsx"
+        with open(source, "rb") as handle:
+            self.client.post("/stage/intake/upload",
+                             data={"files": (handle, source.name), "group": "intake_workbook"},
+                             content_type="multipart/form-data")
+        self.client.post("/stage/intake/run")
+        for _ in range(400):
+            if self.client.get("/stage/intake/progress").get_json()["status"] != "running":
+                break
+            time.sleep(0.05)
+        self.workbook = Path(next(self.root.glob("*/"))) / source.name
+
+    def _spans(self):
+        from scenario_generator.core.intake import read_intake
+        return {c.id: (c.entry_states, c.exit_states)
+                for c in read_intake(str(self.workbook)).capabilities}
+
+    def test_the_control_is_checkboxes_rather_than_a_multi_select(self):
+        page = self.client.get("/stage/intake").data.decode()
+        self.assertIn('type="checkbox" name="entry"', page)
+        self.assertIn('type="checkbox" name="exit"', page)
+        self.assertNotIn('name="entry" multiple', page)
+
+    def test_what_is_already_set_comes_back_ticked(self):
+        page = self.client.get("/stage/intake").data.decode()
+        self.assertIn('name="entry" value="S-00"\n                                 checked', page)
+
+    def test_saving_several_states_keeps_all_of_them(self):
+        self.client.post("/stage/intake/capability/CAP-02/span",
+                         data={"entry": ["S-02", "S-03"], "exit": ["S-07", "S-08", "S-10"]})
+        self.assertEqual(self._spans()["CAP-02"], (("S-02", "S-03"), ("S-07", "S-08", "S-10")))
+
+    def test_editing_one_capability_leaves_the_others_alone(self):
+        before = self._spans()
+        self.client.post("/stage/intake/capability/CAP-02/span",
+                         data={"entry": ["S-02"], "exit": ["S-07"]})
+        after = self._spans()
+        self.assertEqual({k: v for k, v in after.items() if k != "CAP-02"},
+                         {k: v for k, v in before.items() if k != "CAP-02"})
+
+    def test_a_span_can_be_cleared_by_ticking_nothing(self):
+        """Undividing a capability has to be as available as dividing one."""
+        self.client.post("/stage/intake/capability/CAP-03/span", data={})
+        self.assertEqual(self._spans()["CAP-03"], ((), ()))
+
+    def test_the_page_says_whether_a_capability_is_walked_as_a_block(self):
+        self.client.post("/stage/intake/capability/CAP-03/span", data={})
+        page = self.client.get("/stage/intake").data.decode()
+        self.assertIn("nothing is walked through this capability", page)

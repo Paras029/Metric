@@ -44,7 +44,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence
+from typing import Callable, Dict, List, Optional, Sequence, Set
 
 from ..core.gaps import find_gaps
 from ..core.graph import DecisionGraph
@@ -213,6 +213,8 @@ def build_tools(pack: "Pack", intake_path: str, findings: Dict[str, List[str]],
     """
     from .readers import is_image
 
+    already_read: Set[str] = set()
+
     def list_sources(**_) -> str:
         if not pack.files:
             return ("Nothing was submitted. Build the declaration from what is already in the "
@@ -226,6 +228,14 @@ def build_tools(pack: "Pack", intake_path: str, findings: Dict[str, List[str]],
             return f"{key} is an image; call read_diagram for it."
         if key not in pack.documents:
             return f"There is no submitted document called {key!r}. Call list_sources first."
+        # A second read returns a pointer rather than the document. The text is already in this
+        # conversation, so sending it again buys nothing and costs the whole document in tokens --
+        # and a loop that re-reads what it has already read is a loop about to repeat what it
+        # already concluded, which is the thing being guarded against.
+        if key in already_read:
+            return (f"{key} is already in this conversation, above -- re-read it there. If it did "
+                    f"not answer the question, it does not, and something else has to.")
+        already_read.add(key)
         return pack.text_of(key)
 
     def read_one_diagram(name: str = "", **_) -> str:
@@ -465,10 +475,11 @@ def run(workspace_root: Path, intake_path: str, converse=None, progress=None,
         {"role": "human", "content": _opening(pack, problems, started_from_nothing, notes)},
     ]
 
+    repeated: Dict[str, object] = {}
     for sweep in range(1, sweeps + 1):
         while state.turns < max_turns:
             state.turns += 1
-            report(_LINE, state.turns, max_turns)
+            report(_doing(state), state.turns, max_turns)
             try:
                 reply = converse(messages)
             except Exception as exc:
@@ -480,8 +491,29 @@ def run(workspace_root: Path, intake_path: str, converse=None, progress=None,
             if not reply.get("tool_calls"):
                 break
 
+            # A turn that asks for exactly what the last turn asked for gets the same answer, so
+            # the turn after it asks again. Two of those is a loop, and a loop at judgement tier
+            # is expensive in a way nothing on screen makes obvious. Said once, then ended: the
+            # model is told what it is doing, and if it does it again the sweep is over.
+            signature = tuple(sorted((call["tool"], json.dumps(call.get("args") or {}, sort_keys=True))
+                                     for call in reply["tool_calls"]))
+            if signature == repeated.get("last"):
+                repeated["count"] = repeated.get("count", 0) + 1
+                if repeated["count"] >= 2:
+                    logger.info("The loop asked for the same thing three turns running; ending "
+                                "the sweep rather than going round again.")
+                    break
+            else:
+                repeated["last"], repeated["count"] = signature, 0
+
             messages.append({"role": "assistant", "content": reply.get("content", ""),
                              "raw_tool_calls": reply.get("raw_tool_calls", [])})
+            if repeated.get("count"):
+                messages.append({
+                    "role": "human",
+                    "content": "That is the same call as the last turn, and it returned the same "
+                               "thing. Either act on what it already told you, or record a "
+                               "question and stop."})
             for call in reply["tool_calls"]:
                 tool = by_name.get(call["tool"])
                 state.tools_run.append(call["tool"])
@@ -503,19 +535,50 @@ def run(workspace_root: Path, intake_path: str, converse=None, progress=None,
             state.stopped_because = f"the budget of {max_turns} turns was spent"
             return _finish(state, intake_path, questions, findings, structure, workspace_root)
 
+        closed = [problem for problem in problems if problem not in remaining]
+        stuck = [problem for problem in remaining if problem in problems]
+
+        # A sweep that closed nothing will not be followed by one that does. Everything the second
+        # sweep could read, the first one could read; what is left at that point is what the
+        # documents do not say, and another pass over them is the loop going round in circles at
+        # judgement-tier prices. This is the stop that matters most in practice.
+        if not closed:
+            state.stopped_because = (
+                f"a full sweep closed nothing, so {len(remaining)} gap(s) are not in the "
+                f"documents")
+            return _finish(state, intake_path, questions, findings, structure, workspace_root)
+
+        messages.append({"role": "human", "content": _next_sweep(closed, stuck, remaining)})
         problems = remaining
-        messages.append({"role": "human", "content":
-                         "Still outstanding:\n\n"
-                         + "\n".join(f"- {problem}" for problem in remaining)
-                         + "\n\nSettle what the documents settle. Record a question for the "
-                           "model owner only where they genuinely do not."})
 
     state.stopped_because = (f"{sweeps} sweeps finished with {state.gaps_now} left, which the "
                              f"documents do not appear to settle")
     return _finish(state, intake_path, questions, findings, structure, workspace_root)
 
 
-_LINE = "Reading the pack and filling the declaration"
+def _doing(state: "Progress") -> str:
+    """What the loop is doing right now, in the words of what it last did.
+
+    A constant line here is why a working loop reads as a stuck one: every turn printed the same
+    sentence, so the only visible difference between reading three documents and going round in
+    circles was the number beside it. Naming the last tool is enough -- a person watching wants to
+    know it is moving, and which way.
+    """
+    if not state.tools_run:
+        return "Reading the pack and filling the declaration"
+    return _TOOL_LINES.get(state.tools_run[-1], "Working through the declaration")
+
+
+_TOOL_LINES = {
+    "list_sources": "Looking at what was submitted",
+    "read_document": "Reading a submitted document",
+    "read_diagram": "Reading a workflow diagram",
+    "what_is_declared": "Re-reading the declaration",
+    "audit_declaration": "Checking what the declaration still needs",
+    "write_declaration": "Writing the declaration",
+    "record_finding": "Recording what the documents establish",
+    "ask_the_model_owner": "Noting a question for the model owner",
+}
 
 
 def _opening(pack: "Pack", problems: Sequence[str], from_nothing: bool,
@@ -538,6 +601,32 @@ def _opening(pack: "Pack", problems: Sequence[str], from_nothing: bool,
     said = ("\n\nThe validator has also said:\n"
             + "\n".join(f"- {note}" for note in notes)) if notes else ""
     return f"{submitted}\n\n{state}{said}"
+
+
+def _next_sweep(closed: Sequence[str], stuck: Sequence[str],
+                remaining: Sequence[str]) -> str:
+    """What to say at a sweep boundary, given what moved.
+
+    Repeating the outstanding list verbatim is what made the loop go round in circles: the model
+    was shown the same words it had already been shown, so it did the same thing it had already
+    done. What it needs instead is the difference -- what closed, and which of these it has now
+    failed to settle from the documents twice, because those are the ones to stop reading for and
+    ask about.
+    """
+    said = [f"Since the last sweep, {len(closed)} settled: "
+            + "; ".join(closed[:4]) + ("; …" if len(closed) > 4 else "")]
+    if stuck:
+        said.append(
+            "These were outstanding last sweep too, and reading for them again has not settled "
+            "them:\n" + "\n".join(f"- {problem}" for problem in stuck)
+            + "\n\nDo not read the same documents again for these. Either the answer is "
+              "somewhere you have not looked, or the documents do not contain it -- in which case "
+              "record a question with ask_the_model_owner and move on.")
+    fresh = [problem for problem in remaining if problem not in stuck]
+    if fresh:
+        said.append("Newly outstanding, from what you just wrote:\n"
+                    + "\n".join(f"- {problem}" for problem in fresh))
+    return "\n\n".join(said)
 
 
 def _finish(state: Progress, intake_path: str, questions: List[str],
