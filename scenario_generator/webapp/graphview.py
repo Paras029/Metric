@@ -548,7 +548,35 @@ def _assign_depths(layout: Layout) -> None:
                 seen.add(target)
                 frontier.append((target, depth + 1))
 
+    # What the walk never reached. It is parked below everything reachable rather than dropped --
+    # a block nothing routes into is a defect in the declaration and belongs on the page -- but
+    # parking every one of them on a single row is what made the drawing unreadable in exactly the
+    # case it exists to expose: an unreachable capability, its endings, and whatever it hands on
+    # to all landed side by side on one line, with arrows running horizontally between boxes in
+    # the same row and every label stacked on top of the next.
+    #
+    # So the parked nodes are laid out the same way as the rest, breadth-first from each root
+    # among them. The result reads as a second small flow underneath the main one, which is what
+    # it is.
     parked = max((n.depth for n in layout.nodes.values() if n.id in seen), default=0) + 1
+    stranded = [node_id for node_id in layout.nodes if node_id not in seen]
+    reached_within = {edge.target for edge in layout.edges
+                      if edge.source in set(stranded) and edge.target in set(stranded)}
+    roots = [node_id for node_id in stranded if node_id not in reached_within] or stranded
+
+    frontier = [(node_id, parked) for node_id in roots]
+    seen.update(roots)
+    while frontier:
+        node_id, depth = frontier.pop(0)
+        node = layout.nodes.get(node_id)
+        if node is not None:
+            node.depth = depth
+        for target in outgoing.get(node_id, []):
+            if target not in seen:
+                seen.add(target)
+                frontier.append((target, depth + 1))
+
+    # Anything a cycle among the stranded nodes hid from even that walk.
     for node in layout.nodes.values():
         if node.id not in seen:
             node.depth = parked
@@ -624,6 +652,57 @@ def _edge_path(edge: Edge, source: Node, target: Node) -> str:
     midpoint = (y1 + y2) / 2
     return (f"M {x1:.1f} {y1:.1f} C {x1:.1f} {midpoint:.1f} "
             f"{x2:.1f} {midpoint:.1f} {x2:.1f} {y2:.1f}")
+
+
+def _label_width(edge: Edge) -> float:
+    """How wide an edge's label box is. The same arithmetic the rect is drawn with, because a
+    stagger computed from a different width is a stagger that does not match the picture."""
+    return len(_edge_label(edge)) * 5.6 + 14
+
+
+def _stagger(layout: Layout) -> Dict[int, int]:
+    """Which row each edge's label sits on, so no two labels are drawn over each other.
+
+    Every edge between the same pair of rows shares one vertical midpoint, so without this a
+    three-way branch puts three labels on one line and the widest is read as a string of nonsense
+    running through the others.
+
+    Ranked across the whole band rather than within the set of edges leaving one box, which is
+    the bug this replaces. Per-source ranking keeps siblings apart and does nothing about two
+    *different* boxes whose arrows land in the same row -- which never happens in the detailed
+    graph, where each decision fans out on its own, and happens constantly in the collapsed one,
+    where four endings from two overlapping blocks sit in a single row.
+
+    Packed greedily rather than by position: an edge takes the first row where it does not
+    overlap anything already there. A fan whose labels do not touch stays on one line, which
+    matters because every extra row pushes the label further from the arrow it belongs to.
+    """
+    bands: Dict[int, List[Edge]] = {}
+    for edge in layout.edges:
+        source, target = layout.nodes.get(edge.source), layout.nodes.get(edge.target)
+        if edge.is_back or not source or not target:
+            continue
+        bands.setdefault(round((source.y + BOX_HEIGHT + target.y) / 2), []).append(edge)
+
+    rank_of: Dict[int, int] = {}
+    for band in bands.values():
+        # Left to right, so the stagger reads as a fan rather than as an arbitrary shuffle.
+        band.sort(key=lambda e: (layout.nodes[e.source].x + layout.nodes[e.target].x) / 2)
+        rows: List[List[tuple]] = []
+        for edge in band:
+            source, target = layout.nodes[edge.source], layout.nodes[edge.target]
+            middle = (source.x + target.x) / 2 + BOX_WIDTH / 2
+            half = _label_width(edge) / 2
+            span = (middle - half, middle + half)
+            for index, taken in enumerate(rows):
+                if all(span[1] <= left or span[0] >= right for left, right in taken):
+                    taken.append(span)
+                    rank_of[id(edge)] = index
+                    break
+            else:
+                rows.append([span])
+                rank_of[id(edge)] = len(rows) - 1
+    return rank_of
 
 
 def _label_position(edge: Edge, source: Node, target: Node, rank: int = 0) -> tuple:
@@ -726,18 +805,7 @@ def _render(layout: Layout, aria_label: str, block_of: Dict[str, str]) -> str:
     # Labels are drawn after every edge so no path crosses over the text. A loop's label is
     # rotated to run along its lane -- upright, it would need the label's full text width just to
     # fit between two lanes 30px apart, which no reasonable width leaves room for.
-    # Ranked within the set of edges leaving each box, so siblings do not stack their labels on
-    # one line. Ordered left to right by where each lands, so the stagger reads as a fan rather
-    # than as an arbitrary shuffle.
-    siblings: Dict[str, List[Edge]] = {}
-    for edge in layout.edges:
-        if not edge.is_back:
-            siblings.setdefault(edge.source, []).append(edge)
-    rank_of: Dict[int, int] = {}
-    for leaving in siblings.values():
-        leaving.sort(key=lambda e: layout.nodes[e.target].x if e.target in layout.nodes else 0)
-        for position, edge in enumerate(leaving):
-            rank_of[id(edge)] = position
+    rank_of = _stagger(layout)
 
     for edge in layout.edges:
         source, target = layout.nodes.get(edge.source), layout.nodes.get(edge.target)
@@ -745,7 +813,7 @@ def _render(layout: Layout, aria_label: str, block_of: Dict[str, str]) -> str:
             continue
         label = _edge_label(edge)
         mid_x, mid_y = _label_position(edge, source, target, rank_of.get(id(edge), 0))
-        width = len(label) * 5.6 + 14
+        width = _label_width(edge)
         classes = "graph__label" + (" graph__label--loop" if edge.is_back else "")
         rotate = f' transform="rotate(-90 {mid_x:.1f} {mid_y:.1f})"' if edge.is_back else ""
         parts.append(

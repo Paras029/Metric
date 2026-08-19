@@ -567,3 +567,95 @@ class TestTheGraphCanLeaveTheTool(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestNothingIsDrawnOverAnythingElse(unittest.TestCase):
+    """Swept over every example, in both drawings.
+
+    Three defects, and each of them makes a picture that looks finished and is not readable: two
+    boxes in the same place, an arrow running sideways between boxes on one row, and two labels
+    stacked on top of each other so the wider reads as nonsense running through the other. None
+    of them fails anything; they are only visible by looking, which is why they are measured here.
+    """
+
+    EXAMPLES = Path(__file__).resolve().parent.parent / "examples" / "intakes"
+
+    def _drawings(self):
+        from scenario_generator.core.intake import read_intake
+        from scenario_generator.webapp.graphview import build_block_layout, build_layout
+
+        for path in sorted(self.EXAMPLES.glob("*.xlsx")):
+            intake = read_intake(str(path))
+            yield f"{path.name} (every decision)", build_layout(intake)
+            blocks = build_block_layout(intake)
+            if blocks.nodes:
+                yield f"{path.name} (capabilities)", blocks
+
+    def test_no_two_boxes_are_in_the_same_place(self):
+        from scenario_generator.webapp.graphview import BOX_HEIGHT, BOX_WIDTH
+
+        for name, layout in self._drawings():
+            boxes = list(layout.nodes.values())
+            for index, one in enumerate(boxes):
+                for other in boxes[index + 1:]:
+                    apart = (abs(one.x - other.x) >= BOX_WIDTH - 1
+                             or abs(one.y - other.y) >= BOX_HEIGHT - 1)
+                    self.assertTrue(apart, f"{name}: {one.id} and {other.id} overlap")
+
+    def test_no_arrow_runs_sideways(self):
+        """An arrow between two boxes on the same row reads as a connection between neighbours
+        rather than as a step forward, and its label has nowhere to sit. It means the depths were
+        assigned wrongly -- which used to happen to every node the walk could not reach, because
+        they were all parked on one line together."""
+        for name, layout in self._drawings():
+            for edge in layout.edges:
+                source, target = layout.nodes.get(edge.source), layout.nodes.get(edge.target)
+                if not source or not target or edge.is_back:
+                    continue
+                self.assertNotEqual(source.y, target.y,
+                                    f"{name}: {edge.source} -> {edge.target} runs sideways")
+
+    def test_no_two_labels_are_drawn_over_each_other(self):
+        from scenario_generator.webapp.graphview import (_label_position, _label_width, _stagger)
+
+        for name, layout in self._drawings():
+            rank_of = _stagger(layout)
+            placed = []
+            for edge in layout.edges:
+                source, target = layout.nodes.get(edge.source), layout.nodes.get(edge.target)
+                if not source or not target:
+                    continue
+                x, y = _label_position(edge, source, target, rank_of.get(id(edge), 0))
+                width = _label_width(edge)
+                for other_x, other_y, other_width, other in placed:
+                    clear = (abs(y - other_y) >= 16
+                             or abs(x - other_x) >= (width + other_width) / 2 - 2)
+                    self.assertTrue(clear, f"{name}: the labels on {other} and "
+                                           f"{edge.source} -> {edge.target} are drawn over "
+                                           f"each other")
+                placed.append((x, y, width, f"{edge.source} -> {edge.target}"))
+
+    def test_a_fan_whose_labels_do_not_touch_stays_on_one_line(self):
+        """Every extra row puts a label further from the arrow it belongs to, so the stagger is
+        packed rather than assigned by position."""
+        from scenario_generator.core.models import Decision, IntakeData, State
+        from scenario_generator.webapp.graphview import build_layout, _stagger
+
+        intake = IntakeData(
+            use_case={"Use case name": "Wide"}, personas=[], capabilities=[],
+            decisions=[Decision(id="DEC-01", name="Pick", trigger_capability="", inputs="",
+                                variants=["A", "B", "C"])],
+            states=[State(id="S-00", reached_via="Start", description="Opens",
+                          next_decisions=["DEC-01"], is_terminal=False),
+                    State(id="S-01", reached_via="DEC-01=A", description="A",
+                          next_decisions=[], is_terminal=True, outcome_type="Happy path"),
+                    State(id="S-02", reached_via="DEC-01=B", description="B",
+                          next_decisions=[], is_terminal=True, outcome_type="Termination"),
+                    State(id="S-03", reached_via="DEC-01=C", description="C",
+                          next_decisions=[], is_terminal=True, outcome_type="Escalation")],
+            tools=[])
+        layout = build_layout(intake)
+        branches = [e for e in layout.edges if e.source == "DEC-01"]
+        self.assertEqual(len(branches), 3)
+        self.assertEqual({_stagger(layout).get(id(e), 0) for e in branches}, {0},
+                         "three short labels that do not touch were staggered anyway")
