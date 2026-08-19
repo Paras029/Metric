@@ -234,6 +234,34 @@ sending any further calls — whichever one is already in flight is left to fini
 off — and nothing that run would have produced is written, so the stage lands back exactly where
 it was before you ran it, ready to run again rather than stuck looking failed.
 
+**The declaration is editable where it is read.** The intake stage carries the whole declaration
+— decisions, states, capabilities, tools, personas — behind toggles rather than as five lists down
+the page. Any row opens into its fields; edit them and save. The workbook stays the record and a
+change made here is a change made there, but the round trip is gone: correcting one outcome used
+to mean downloading the workbook, finding the row, editing, saving and uploading, and the
+judgement being made in that loop is made by looking at the graph, which is on screen the whole
+time.
+
+Three things the panel does that a spreadsheet cannot:
+
+- **Selecting a row lights it in the drawing**, and what lights differs by kind. A decision is a
+  box. A state is usually an *arrow* — only an ending has a box of its own. A capability is every
+  decision tagged with it, and its block in the collapsed view. A tool is the decisions of the
+  capability it belongs to, which is the honest answer to "where is this used". A persona lights
+  nothing, and the panel says so rather than looking broken: every route is walked by every
+  persona.
+- **Edits are staged and can be previewed.** *Show it in the graph* applies them to a copy of the
+  workbook and redraws from that, so a new decision can be seen attaching before anything is
+  written. Nothing is saved until *Save changes*, which then marks every stage built from the
+  declaration out of date.
+- **Removing is staged too**, so what stops being reachable can be seen before the row goes. A
+  deletion is never cascaded: anything still pointing at what was removed is reported, and the
+  audit raises it on the next render, because cleaning those up as well turns one deliberate
+  removal into several nobody asked for.
+
+Everything here works with scripting off — each row is an ordinary form that posts and reloads.
+The staging, the preview and the highlighting are what scripting adds.
+
 **Drawing a capability's span.** Each capability reads as what it is — the states it is entered
 at, an arrow, the states it hands on or ends at. *Change the span* opens two lists, each cut to
 the states that could plausibly be a boundary of *that* capability and each saying on what basis

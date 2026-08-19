@@ -1998,3 +1998,153 @@ body.is-expanded { overflow: hidden; }
   .expand__list { border-right: 0; border-bottom: 1px solid var(--rule); }
   .expand__graph .graph__frame { height: 100%; }
 }
+
+
+/* =================================================================== editing the declaration
+ *
+ * The workbook is the record and stays the record; this removes the round trip to change one cell
+ * of it. Five kinds of row behind toggles rather than five sections down the page, because five
+ * stacked lists is a page nobody reaches the bottom of and the question is never "show me
+ * everything" -- it is "which decisions are wrong", then "where does that state go".
+ */
+.editor { margin-top: var(--s4); }
+
+.editor__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+  border-bottom: 2px solid var(--ink);
+}
+.editor__tab {
+  font: inherit;
+  font-size: var(--t-small);
+  font-weight: 600;
+  padding: var(--s2) var(--s3);
+  border: 1px solid transparent;
+  border-bottom: 0;
+  background: none;
+  color: var(--ink-mid);
+  cursor: pointer;
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+  margin-bottom: -2px;
+}
+.editor__tab:hover { color: var(--ink); background: var(--surface-sunk); }
+/* The selected tab joins the rule under it rather than sitting on a coloured pill: the row of
+   tabs is a boundary, and the one in front is the one the boundary opens onto. */
+.editor__tab[aria-selected="true"] {
+  color: var(--ink);
+  background: var(--surface);
+  border-color: var(--ink);
+  border-bottom: 2px solid var(--surface);
+}
+.editor__count { color: var(--ink-dim); font-weight: 400; }
+
+.editor__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s3) 0;
+  flex-wrap: wrap;
+}
+.editor__state { font-size: var(--t-meta); color: var(--warn); margin-right: auto; }
+.editor__report:not([hidden]) { margin-bottom: var(--s3); }
+.editor__report .aside { margin: 0 0 var(--s2); }
+
+.erows { list-style: none; margin: 0; padding: 0; }
+.erow { border-top: 1px solid var(--rule-soft); }
+.erow:first-child { border-top: 0; }
+
+/* A row that has been changed but not saved, and one staged for removal. Both have to be legible
+   at a glance in a list of forty: an editor whose unsaved state is only in a counter is one where
+   the wrong row gets saved. */
+.erow--dirty { box-shadow: inset 3px 0 0 var(--blue); }
+.erow--removing { box-shadow: inset 3px 0 0 var(--bad); }
+.erow--removing .erow__title { text-decoration: line-through; color: var(--ink-dim); }
+
+.erow__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  padding: var(--s2) var(--s2) var(--s2) var(--s3);
+  cursor: pointer;
+  list-style: none;
+  font-size: var(--t-small);
+}
+.erow__head::-webkit-details-marker { display: none; }
+.erow__head:hover { background: var(--surface-sunk); }
+.erow__body[open] > .erow__head { background: var(--blue-tint); }
+.erow__key { flex: 0 0 auto; color: var(--ink-dim); }
+.erow__title { font-weight: 600; }
+.erow__note {
+  color: var(--ink-dim);
+  font-size: var(--t-meta);
+  margin-left: auto;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 55%;
+}
+
+.erow__problems {
+  margin: 0 var(--s3) var(--s2);
+  padding: var(--s2) var(--s3);
+  background: var(--warn-tint);
+  border: 1px solid #E8D3AC;
+  border-radius: var(--r-sm);
+  font-size: var(--t-meta);
+  color: var(--warn);
+  list-style: none;
+}
+.erow__problems li + li { margin-top: var(--s1); }
+
+.erow__form { padding: 0 var(--s3) var(--s4); }
+.efields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: var(--s3);
+}
+.efield { display: flex; flex-direction: column; gap: var(--s1); min-width: 0; }
+.efield__label {
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.efield__input {
+  font: inherit;
+  font-size: var(--t-small);
+  padding: .3rem .45rem;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  min-width: 0;
+}
+.efield__input:focus { outline: 2px solid var(--blue); outline-offset: -1px; }
+.efield__input--small { max-width: 6rem; }
+.efield__check { align-self: flex-start; accent-color: var(--blue); margin: .2rem 0; }
+.efield__hint { font-size: var(--t-meta); color: var(--ink-dim); }
+
+.erow__actions { display: flex; gap: var(--s2); margin-top: var(--s4); }
+.button--danger { border-color: var(--bad-edge); color: var(--bad); }
+.button--danger:hover { border-color: var(--bad); background: var(--bad-tint); }
+
+.erow__new {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s3);
+  margin-top: var(--s4);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--rule);
+}
+.erow__new .efield { flex: 0 0 12rem; }
+
+/* In the expanded view the panel is one of two columns, so the fields stack rather than trying to
+   sit two abreast in twenty rem, and the tabs tighten enough to stay on one line -- a row of
+   toggles that wraps reads as two rows of unrelated controls. */
+.expand__list .efields { grid-template-columns: 1fr; }
+.expand__list .erow__note { display: none; }
+.expand__list .editor__tab { padding: var(--s2); font-size: var(--t-meta); }
+.expand__list .erow__form { padding-bottom: var(--s3); }

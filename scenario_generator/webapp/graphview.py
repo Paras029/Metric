@@ -97,6 +97,12 @@ class Edge:
     detail: str
     pending: bool = False
 
+    state_id: str = ""
+    """Which declared state this arrow *is*. An intermediate state has no box -- it is the arrow
+    between the decision that produced it and the decision it offers -- so this is the only way to
+    point at one from outside the drawing, which is what the editor does when a state is selected
+    in a list beside it."""
+
     out_of_scope: bool = False
     """Whether this edge leaves a decision marked out of scope -- see :class:`Node`. Drawn muted
     rather than left off: the route is declared, it is just not one the scenario space walks."""
@@ -292,7 +298,7 @@ def build_layout(intake: IntakeData, pending_decisions: Sequence[str] = (),
                 continue
             layout.edges.append(Edge(
                 source=source, target=decision_id, outcome="",
-                state_label=state.description or state.id,
+                state_label=state.description or state.id, state_id=state.id,
                 detail=_state_detail(state),
                 pending=pending or state.id in pending_states))
 
@@ -308,7 +314,7 @@ def build_layout(intake: IntakeData, pending_decisions: Sequence[str] = (),
             if state.is_terminal:
                 layout.edges.append(Edge(
                     source=decision.id, target=stands_for.get(state.id, state.id), outcome=variant,
-                    state_label=state.description or state.id,
+                    state_label=state.description or state.id, state_id=state.id,
                     detail=_edge_detail(decision, variant, state),
                     pending=pending, out_of_scope=decision.out_of_scope))
                 continue
@@ -317,7 +323,7 @@ def build_layout(intake: IntakeData, pending_decisions: Sequence[str] = (),
                     continue
                 layout.edges.append(Edge(
                     source=decision.id, target=decision_id, outcome=variant,
-                    state_label=state.description or state.id,
+                    state_label=state.description or state.id, state_id=state.id,
                     detail=_edge_detail(decision, variant, state),
                     pending=pending, out_of_scope=decision.out_of_scope))
 
@@ -984,6 +990,78 @@ def _described(states: Dict[str, State], ids: Sequence[str]) -> List[dict]:
              "terminal": bool(state_id in states and states[state_id].is_terminal),
              "missing": state_id not in states}
             for state_id in ids]
+
+
+def highlights(intake: IntakeData) -> Dict[str, Dict[str, dict]]:
+    """What each row of the declaration points at in the drawing, by kind and key.
+
+    The editor is a list beside a picture, and the whole reason to put them side by side is that
+    selecting a row should answer "which part of the agent is this" without anybody tracing it.
+    That question has a different answer for each kind, and getting the differences right is most
+    of the value:
+
+    - A **decision** is a box, and the arrows out of it are its outcomes.
+    - A **state** is usually *not* a box. An intermediate state is the arrow between the decision
+      that produced it and the decision it offers, so pointing at one means lighting edges; only a
+      terminal state has a box of its own.
+    - A **capability** is every decision tagged with it, every arrow between them, and -- in the
+      collapsed drawing -- its own block.
+    - A **tool** has nothing of its own in the graph. What it has is the decisions of the
+      capability it belongs to, which is the honest answer to "where is this used".
+    - A **persona** has nothing at all. Every route is walked by every persona, so lighting
+      anything would be lighting the whole graph.
+
+    Shaped like :func:`routes` -- nodes and edges as plain lists -- because the page lights all of
+    them with one function and a second shape would be a second function that drifts.
+    """
+    layout = build_layout(intake)
+    drawn = {(edge.source, edge.target, edge.outcome) for edge in layout.edges}
+    stands_for = {state_id: node.id for node in layout.nodes.values()
+                  for state_id in (node.merged_ids or (node.id,))}
+
+    def _edges(keep) -> List[list]:
+        return [[e.source, e.target, e.outcome] for e in layout.edges
+                if keep(e) and (e.source, e.target, e.outcome) in drawn]
+
+    found: Dict[str, Dict[str, dict]] = {k: {} for k in
+                                         ("capability", "decision", "state", "tool", "persona")}
+
+    for decision in intake.decisions:
+        found["decision"][decision.id] = {
+            "nodes": [decision.id] if decision.id in layout.nodes else [],
+            "edges": _edges(lambda e, d=decision.id: e.source == d or e.target == d)}
+
+    for state in intake.states:
+        box = stands_for.get(state.id)
+        found["state"][state.id] = {
+            "nodes": [box] if box in layout.nodes else [],
+            "edges": _edges(lambda e, s=state.id: e.state_id == s)}
+
+    for capability in intake.capabilities:
+        inside = {d.id for d in intake.decisions if d.trigger_capability == capability.id}
+        nodes = sorted(inside & set(layout.nodes))
+        # The block itself, for the collapsed drawing. Lighting it there and its decisions here
+        # means one selection reads in whichever view happens to be showing.
+        nodes.append(capability.id)
+        for state_id in tuple(capability.entry_states) + tuple(capability.exit_states):
+            box = stands_for.get(state_id)
+            if box in layout.nodes:
+                nodes.append(box)
+        found["capability"][capability.id] = {
+            "nodes": sorted(set(nodes)),
+            "edges": _edges(lambda e: e.source in inside or e.target in inside)}
+
+    for tool in intake.tools:
+        used_by = {d.id for d in intake.decisions
+                   if tool.capability_id and d.trigger_capability == tool.capability_id}
+        found["tool"][tool.name] = {
+            "nodes": sorted(used_by & set(layout.nodes)),
+            "edges": _edges(lambda e: e.source in used_by)}
+
+    for persona in intake.personas:
+        found["persona"][persona.id] = {"nodes": [], "edges": []}
+
+    return found
 
 
 def declaration(intake: IntakeData) -> Tuple[List[dict], List[dict], List[dict], List[dict]]:

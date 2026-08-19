@@ -43,9 +43,14 @@ class TestTheExpandedView(unittest.TestCase):
         cls.intake = client.get("/stage/intake").get_data(as_text=True)
         cls.scenarios = client.get("/stage/scenarios").get_data(as_text=True)
 
-    def test_the_graph_can_be_expanded_from_a_stage_that_has_no_scenarios(self):
+    def test_the_intake_stage_expands_with_the_declaration_beside_it(self):
+        """Which panel comes along depends on what the stage has. The intake stage carries the
+        editor, every stage after it carries the scenario space, and no stage carries both --
+        the declaration is editable only where nothing has been built from it yet."""
         self.assertIn("data-expand-open", self.intake)
-        self.assertIn("Open full screen", self.intake)
+        self.assertIn("Open with the declaration", self.intake)
+        self.assertIn('data-movable="declaration"', self.intake)
+        self.assertNotIn('data-movable="space"', self.intake)
 
     def test_a_stage_with_scenarios_says_the_list_comes_too(self):
         self.assertIn("Open with the scenarios", self.scenarios)
@@ -58,6 +63,15 @@ class TestTheExpandedView(unittest.TestCase):
                          self.scenarios, re.S)
         self.assertIsNotNone(head, "the section header is not where this expects it")
         self.assertIn("data-expand-open", head.group(0))
+
+    def test_a_stage_with_no_side_panel_expands_the_graph_on_its_own(self):
+        from scenario_generator.webapp.app import create_app
+
+        bare = create_app(Path(tempfile.mkdtemp())).test_client()
+        bare.post("/workspaces", data={"name": "Nothing yet"})
+        page = bare.get("/stage/workflow").get_data(as_text=True)
+        if "data-expand-open" in page:
+            self.assertIn("Open full screen", page)
 
     def test_both_sections_are_movable_and_both_have_somewhere_to_go_back_to(self):
         """The anchors are the whole of the reversibility. Without them a section put back lands

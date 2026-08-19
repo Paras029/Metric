@@ -30,6 +30,8 @@ from flask import (Flask, abort, jsonify, redirect, render_template, request, se
 from werkzeug.utils import secure_filename
 
 from ..core.gaps import CAPABILITY, DECISION, STATE, find_gaps
+from ..core.editing import apply_edits
+from ..core.editing import preview as editing_preview
 from ..core.graph import DecisionGraph, exits_for
 from ..core.intake import (read_review_notes, set_capability_span, set_decision_scope,
                            write_template)
@@ -47,10 +49,12 @@ from ..pipeline import revise_intake_workbook
 from . import stagecancel
 from .coverageview import coverage_view, stored_mappings, stored_report
 from .graphpage import render_graph_page
-from .graphview import (declaration as _declaration, graph_summary, render_blocks_svg,
-                        render_svg,
+from .declaration import FIELDS as EDITOR_FIELDS, editable
+from .graphview import (declaration as _declaration, graph_summary, highlights,
+                        render_blocks_svg, render_svg,
                         routes as _graph_routes)
 from .runners import (CONTEXT, DRAFT_INTAKE, EVIDENCE, OVERLAP, METADATA, RUNNERS,
+                      structural_problems,
                       STAGE_OUTPUTS,
                       _apply_proposal, _context, _intake, _proposal_dicts,
                       _scenarios, _snapshot)
@@ -247,6 +251,11 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             state_options=state_options,
             tools=tools,
             questions=_declaration_questions(workspace, intake) if key == "intake" else [],
+            # Only on the intake stage. Every later stage is built *from* the declaration, and an
+            # editor on one of those would let somebody change the graph a scenario space was
+            # already walked from without the page saying what that cost.
+            editor=editable(intake) if key == "intake" and intake is not None else None,
+            highlights=highlights(intake) if key == "intake" and intake is not None else {},
             graph_open=key in GRAPH_OPEN_STAGES,
             routes=_routes(intake, scenarios) if graph_svg else {},
             structure_proposals=(workspace.structure_proposals
@@ -744,6 +753,138 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
                                     invalidated=", ".join(s.title for s in invalidated))
                             + "#capabilities")
         return redirect(url_for("stage", key="intake") + "#capabilities")
+
+    # ------------------------------------------------------------------ editing the declaration
+    #
+    # Three routes over one idea, all returning the same JSON: the declaration as rows, the two
+    # drawings, and what the audit still says. The page swaps that in without a reload, which is
+    # what makes selecting a row and seeing it light in the graph feel like one thing rather than
+    # a form and a picture that happen to be adjacent.
+
+    def _declaration_state(intake, report=None) -> Dict[str, object]:
+        """Everything the editing panel needs after any change, in one answer.
+
+        The drawings go back with the rows deliberately. An editor that returns "saved" and leaves
+        the picture as it was makes the reader check whether it worked, and checking means
+        reloading, which is the round trip this whole feature exists to remove.
+        """
+        return {
+            "declaration": editable(intake),
+            "highlights": highlights(intake),
+            "graph_svg": render_svg(intake),
+            "blocks_svg": render_blocks_svg(intake),
+            "facts": graph_summary(intake),
+            "outstanding": structural_problems(intake),
+            "report": {
+                "written": [list(pair) for pair in (report.written if report else [])],
+                "removed": [list(pair) for pair in (report.removed if report else [])],
+                "refused": list(report.refused) if report else [],
+                "dangling": list(report.dangling) if report else [],
+            },
+        }
+
+    def _edits_from_request() -> list:
+        body = request.get_json(silent=True) or {}
+        edits = body.get("edits")
+        return edits if isinstance(edits, list) else []
+
+    @app.route("/stage/intake/declaration", methods=["GET"])
+    def read_declaration():
+        """The declaration as it stands on disk. What the panel's refresh asks for."""
+        workspace = _workspace()
+        if not workspace.artifact_path("intake", "workbook"):
+            abort(404)
+        return jsonify(_declaration_state(_intake(workspace)))
+
+    @app.route("/stage/intake/declaration/preview", methods=["POST"])
+    def preview_declaration():
+        """What the declaration would be with these edits, without writing them.
+
+        Applied to a copy of the workbook rather than to the model in memory, on purpose: what is
+        wanted is what the *file* becomes, because that is what every stage after this one reads,
+        and the two differ exactly where an edit is malformed -- which is the case a preview is
+        for. See :func:`core.editing.preview`.
+        """
+        workspace = _workspace()
+        path = workspace.artifact_path("intake", "workbook")
+        if not path:
+            abort(404)
+        try:
+            intake, report = editing_preview(str(path), _edits_from_request())
+        except Exception as exc:
+            logger.exception("Could not preview the declaration")
+            return jsonify({"error": str(exc)}), 400
+        return jsonify(_declaration_state(intake, report))
+
+    @app.route("/stage/intake/declaration/save", methods=["POST"])
+    def save_declaration():
+        """Write the edits to the workbook, and mark everything built from it out of date.
+
+        The invalidation is the part that matters and the part that is easy to leave out. A
+        corrected branch changes which routes exist, so a scenario space built before it is a
+        space for a different agent -- and a page that showed it as finished afterwards would be
+        the most expensive kind of wrong.
+        """
+        workspace = _workspace()
+        path = workspace.artifact_path("intake", "workbook")
+        if not path:
+            abort(404)
+        edits = _edits_from_request()
+        try:
+            report = apply_edits(str(path), edits)
+        except Exception as exc:
+            logger.exception("Could not write the declaration")
+            return jsonify({"error": str(exc)}), 400
+
+        invalidated = []
+        if report.changed:
+            invalidated = [s.title for s in workspace.invalidate_from("intake")]
+            workspace.save()
+
+        answer = _declaration_state(_intake(workspace), report)
+        answer["invalidated"] = invalidated
+        return jsonify(answer)
+
+    @app.route("/stage/intake/declaration/row", methods=["POST"])
+    def edit_row():
+        """One row, posted as an ordinary form. The path that works with scripting off.
+
+        Everything else in this interface works without scripting and this is no exception, but it
+        is the one place where the enhancement is most of the value: staged edits, a preview
+        before saving, and a row lighting its part of the graph as it is selected all need it. So
+        the form is real and posts here, and the script intercepts it. Without the script it is a
+        row at a time and a page reload, which is still far better than a spreadsheet round trip.
+        """
+        workspace = _workspace()
+        path = workspace.artifact_path("intake", "workbook")
+        if not path:
+            abort(404)
+
+        kind = request.form.get("kind", "")
+        key = request.form.get("key", "").strip()
+        action = request.form.get("action", "upsert")
+        spec = EDITOR_FIELDS.get(kind, [])
+        fields = {}
+        if action != "delete":
+            for one in spec:
+                if one["kind"] == "flag":
+                    fields[one["name"]] = bool(request.form.get(one["name"]))
+                elif one["name"] in request.form:
+                    fields[one["name"]] = request.form.get(one["name"], "")
+
+        try:
+            report = apply_edits(str(path), [{"kind": kind, "key": key, "action": action,
+                                              "fields": fields}])
+        except Exception as exc:
+            logger.exception("Could not write %s %s", kind, key)
+            return redirect(url_for("stage", key="intake") + "#declaration")
+
+        invalidated = []
+        if report.changed:
+            invalidated = [s.title for s in workspace.invalidate_from("intake")]
+            workspace.save()
+        return redirect(url_for("stage", key="intake",
+                                invalidated=", ".join(invalidated)) + "#declaration")
 
     @app.route("/stage/intake/revise", methods=["POST"])
     def revise_intake():

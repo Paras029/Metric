@@ -399,6 +399,10 @@
   function open() {
     overlay.hidden = false;
     document.body.classList.add('is-expanded');
+    // Whichever side panel this stage has. The intake stage carries the declaration editor, every
+    // stage after it carries the scenario space, and no stage carries both -- the declaration is
+    // editable only where nothing has been built from it yet.
+    move('declaration', slot('space'));
     move('space', slot('space'));
     move('graph', slot('graph'));
 
@@ -408,9 +412,12 @@
     if (folded) { folded.open = true; }
 
     if (note) {
-      note.textContent = slot('space').firstElementChild
-        ? 'Open a scenario to light its route · Escape to close'
-        : 'Hover to follow one thread · drag to pan · Escape to close';
+      var beside = slot('space').firstElementChild;
+      note.textContent = !beside
+        ? 'Hover to follow one thread · drag to pan · Escape to close'
+        : beside.dataset.movable === 'declaration'
+          ? 'Select a row to light it · edit and save · Escape to close'
+          : 'Open a scenario to light its route · Escape to close';
     }
     // The button rides inside the graph section, so it comes along. Hidden rather than left
     // showing, because "open full screen" on a screen that is already full reads as a control
@@ -423,14 +430,12 @@
   function close() {
     // Back where each came from, in the order the page had them. The anchors exist because a
     // section put back at the end of the page would be in the wrong place and would stay there.
-    var graphAnchor = anchor('graph'), spaceAnchor = anchor('space');
-    var graph = section('graph'), space = section('space');
-    if (graph && graphAnchor && graphAnchor.parentNode) {
-      graphAnchor.parentNode.insertBefore(graph, graphAnchor.nextSibling);
-    }
-    if (space && spaceAnchor && spaceAnchor.parentNode) {
-      spaceAnchor.parentNode.insertBefore(space, spaceAnchor.nextSibling);
-    }
+    ['graph', 'space', 'declaration'].forEach(function (name) {
+      var moved = section(name), home = anchor(name);
+      if (moved && home && home.parentNode) {
+        home.parentNode.insertBefore(moved, home.nextSibling);
+      }
+    });
     overlay.hidden = true;
     opener.hidden = false;
     document.body.classList.remove('is-expanded');

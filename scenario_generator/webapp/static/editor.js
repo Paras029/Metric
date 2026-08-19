@@ -1,0 +1,324 @@
+// Editing the declaration beside the drawing.
+//
+// The workbook is the record and stays the record. What this removes is the round trip to change
+// one cell of it -- download, find the row, edit, save, upload -- because the judgement being made
+// in that loop is made by looking at the graph, which is on screen the whole time.
+//
+// Everything here is an enhancement over forms that already work. With scripting off each row
+// posts on its own and the page reloads, which is what the rest of this interface does. With it,
+// three things become possible that a plain form cannot do:
+//
+//   **Selecting a row lights it in the graph.** That answers "which part of the agent is this"
+//   without anybody tracing it, and the answer differs by kind: a decision is a box, a state is
+//   usually an *arrow* (only a terminal state has a box of its own), a capability is every
+//   decision tagged with it, and a tool is the decisions of the capability it belongs to.
+//
+//   **Edits are staged.** Correcting a branch usually means touching a decision and the states
+//   around it, and saving each separately leaves the declaration briefly incoherent, with the
+//   audit complaining about a half-finished edit.
+//
+//   **A preview before saving.** The server applies the staged edits to a copy of the workbook and
+//   returns the drawing it would produce, so a new decision can be seen attaching to the graph
+//   before anything is written.
+(function () {
+  var editor = document.querySelector('[data-editor]');
+  if (!editor) { return; }
+
+  var canvas = document.querySelector('[data-graph-canvas]');
+  var stateLine = editor.querySelector('[data-editor-state]');
+  var reportBox = editor.querySelector('[data-editor-report]');
+  var previewButton = editor.querySelector('[data-editor-preview]');
+  var saveButton = editor.querySelector('[data-editor-save]');
+  var refreshButton = editor.querySelector('[data-editor-refresh]');
+
+  // Keyed by kind and key, so a row edited, collapsed and edited again is one staged edit rather
+  // than two -- the second of which would carry only the fields touched the second time.
+  var staged = {};
+  var lit = [];
+  var previewing = false;
+
+  // Which row is selected, tracked rather than read back off the DOM. Opening one row closes the
+  // row that was open, and *that* fires its own toggle -- asynchronously, so it arrives after the
+  // new row has lit its part of the graph and darkens it again. The symptom is a selection that
+  // works once and never afterwards, which gets diagnosed as "the highlighting is flaky".
+  var selected = null;
+
+  function drawings() {
+    return canvas ? Array.prototype.slice.call(canvas.querySelectorAll('svg')) : [];
+  }
+
+  function quoted(value) {
+    return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  }
+
+  function darken() {
+    drawings().forEach(function (one) { one.classList.remove('graph--focused'); });
+    lit.forEach(function (el) {
+      el.classList.remove('is-lit');
+      el.classList.remove('is-lit--source');
+    });
+    lit = [];
+  }
+
+  function light(selector) {
+    drawings().forEach(function (one) {
+      Array.prototype.forEach.call(one.querySelectorAll(selector), function (el) {
+        el.classList.add('is-lit');
+        el.classList.add('is-lit--source');
+        lit.push(el);
+      });
+    });
+  }
+
+  function say(text) { if (stateLine) { stateLine.textContent = text || ''; } }
+
+  function highlightsFor(kind, key) {
+    var all = window.METRIC_HIGHLIGHTS || {};
+    return (all[kind] || {})[key] || null;
+  }
+
+  function show(kind, key) {
+    darken();
+    var found = highlightsFor(kind, key);
+    if (!found) { return; }
+    if (!found.nodes.length && !found.edges.length) {
+      // Said rather than left silent. A selection that lights nothing reads as the highlighting
+      // being broken, when for a persona it is the correct answer.
+      say(kind === 'persona'
+        ? 'Every route is walked by every persona, so there is nothing to light.'
+        : key + ' is not connected to the graph yet.');
+      return;
+    }
+    drawings().forEach(function (one) { one.classList.add('graph--focused'); });
+    found.nodes.forEach(function (id) { light('[data-node="' + quoted(id) + '"]'); });
+    found.edges.forEach(function (edge) {
+      light('[data-source="' + quoted(edge[0]) + '"][data-target="' + quoted(edge[1]) +
+            '"][data-outcome="' + quoted(edge[2]) + '"]');
+    });
+  }
+
+  function countStaged() { return Object.keys(staged).length; }
+
+  function announce() {
+    var count = countStaged();
+    if (previewButton) { previewButton.hidden = !count; }
+    if (saveButton) { saveButton.hidden = !count; }
+    if (!count) {
+      say(previewing ? 'Showing an unsaved change. Refresh to put it back.' : '');
+      return;
+    }
+    say(count === 1 ? '1 unsaved change' : count + ' unsaved changes');
+  }
+
+  // --------------------------------------------------------------------------- tabs
+  var tabs = Array.prototype.slice.call(editor.querySelectorAll('[data-editor-tab]'));
+  var panels = Array.prototype.slice.call(editor.querySelectorAll('[data-editor-panel]'));
+
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      var wanted = tab.dataset.editorTab;
+      tabs.forEach(function (other) {
+        other.setAttribute('aria-selected', String(other === tab));
+      });
+      panels.forEach(function (panel) {
+        panel.hidden = panel.dataset.editorPanel !== wanted;
+      });
+      // Switching what is being edited drops the highlight. A decision left lit while the tools
+      // list is showing says that tool is that decision.
+      selected = null;
+      darken();
+    });
+  });
+
+  // --------------------------------------------------------------------------- selection
+  //
+  // The row's own disclosure is the selector. Nothing else on the page is one, so there is no
+  // second control that can disagree with what is open.
+  editor.addEventListener('toggle', function (event) {
+    var body = event.target;
+    if (!body.classList || !body.classList.contains('erow__body')) { return; }
+    var row = body.closest('[data-row-kind]');
+    if (!row) { return; }
+
+    if (body.open) {
+      // One at a time. Several open rows would light several parts of the graph with no way to
+      // tell which is which. The scenario list opens several deliberately, because there the
+      // comparison between two routes is the point; here the question is about one row.
+      Array.prototype.forEach.call(
+        editor.querySelectorAll('.erow__body[open]'), function (other) {
+          if (other !== body) { other.open = false; }
+        });
+      selected = body;
+      show(row.dataset.rowKind, row.dataset.rowKey);
+    } else if (body === selected) {
+      selected = null;
+      darken();
+    }
+  }, true);
+
+  // --------------------------------------------------------------------------- staging
+  function collect(form) {
+    var fields = {};
+    Array.prototype.forEach.call(form.querySelectorAll('[data-field]'), function (input) {
+      fields[input.dataset.field] = input.type === 'checkbox' ? input.checked : input.value;
+    });
+    return fields;
+  }
+
+  function stage(row, form) {
+    staged[row.dataset.rowKind + ' ' + row.dataset.rowKey] = {
+      kind: row.dataset.rowKind,
+      key: row.dataset.rowKey,
+      action: 'upsert',
+      fields: collect(form),
+    };
+    row.classList.add('erow--dirty');
+    announce();
+  }
+
+  editor.addEventListener('input', function (event) {
+    var form = event.target.closest && event.target.closest('.erow__form');
+    var row = form && form.closest('[data-row-kind]');
+    if (row) { stage(row, form); }
+  });
+  editor.addEventListener('change', function (event) {
+    // Checkboxes and selects fire change rather than input in older engines, and a flag that
+    // silently fails to stage is the worst of the possible bugs here: it looks saved.
+    var form = event.target.closest && event.target.closest('.erow__form');
+    var row = form && form.closest('[data-row-kind]');
+    if (row) { stage(row, form); }
+  });
+
+  // Remove is staged like everything else, so a deletion can be previewed. Seeing what stops
+  // being reachable before the row goes is most of what makes a deletion safe to make.
+  editor.addEventListener('click', function (event) {
+    var button = event.target.closest && event.target.closest('button[value="delete"]');
+    if (!button) { return; }
+    var row = button.closest('[data-row-kind]');
+    if (!row) { return; }
+    event.preventDefault();
+    var id = row.dataset.rowKind + ' ' + row.dataset.rowKey;
+    if (staged[id] && staged[id].action === 'delete') {
+      delete staged[id];
+      row.classList.remove('erow--removing');
+    } else {
+      staged[id] = { kind: row.dataset.rowKind, key: row.dataset.rowKey, action: 'delete' };
+      row.classList.add('erow--removing');
+      row.classList.remove('erow--dirty');
+    }
+    announce();
+  });
+
+  // Adding one is staged too, so a new decision can be seen attaching before it is written.
+  Array.prototype.forEach.call(editor.querySelectorAll('.erow__new'), function (form) {
+    form.addEventListener('submit', function (event) {
+      var input = form.querySelector('[name="key"]');
+      var key = input && input.value.trim();
+      if (!key) { return; }
+      event.preventDefault();
+      staged[form.querySelector('[name="kind"]').value + ' ' + key] = {
+        kind: form.querySelector('[name="kind"]').value,
+        key: key,
+        action: 'upsert',
+        fields: {},
+      };
+      announce();
+      say('Added ' + key + '. Show it in the graph, or save and fill it in.');
+    });
+  });
+
+  // --------------------------------------------------------------------------- talking to it
+  function edits() {
+    return Object.keys(staged).map(function (id) { return staged[id]; });
+  }
+
+  function post(where, body) {
+    return fetch(where, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(function (answer) { return answer.json(); });
+  }
+
+  function swapDrawings(answer) {
+    if (!canvas) { return; }
+    var blocks = canvas.querySelector('[data-graph-view="blocks"]');
+    var detail = canvas.querySelector('[data-graph-view="detail"]');
+    if (detail) { detail.innerHTML = answer.graph_svg || ''; }
+    else { canvas.innerHTML = answer.graph_svg || ''; }
+    if (blocks) { blocks.innerHTML = answer.blocks_svg || ''; }
+    if (answer.highlights) { window.METRIC_HIGHLIGHTS = answer.highlights; }
+    // The counts under the drawing, or the page disagrees with itself: a graph redrawn with a new
+    // branch in it, under a line still reporting the old number of outcomes.
+    Object.keys(answer.facts || {}).forEach(function (name) {
+      var cell = document.querySelector('[data-fact="' + name + '"]');
+      if (cell && typeof answer.facts[name] !== 'object') {
+        cell.textContent = answer.facts[name];
+      }
+    });
+    canvas.dispatchEvent(new CustomEvent('metric:viewchanged'));
+  }
+
+  function report(answer) {
+    if (!reportBox) { return; }
+    var lines = [];
+    (answer.report && answer.report.refused ? answer.report.refused : []).forEach(function (line) {
+      lines.push(['bad', line]);
+    });
+    (answer.report && answer.report.dangling ? answer.report.dangling : []).forEach(
+      function (line) { lines.push(['warn', line]); });
+    if (answer.error) { lines.push(['bad', answer.error]); }
+    reportBox.textContent = '';
+    reportBox.hidden = !lines.length;
+    lines.forEach(function (pair) {
+      var line = document.createElement('p');
+      line.className = 'aside aside--' + pair[0];
+      line.textContent = pair[1];
+      reportBox.appendChild(line);
+    });
+  }
+
+  if (previewButton) {
+    previewButton.addEventListener('click', function () {
+      say('Working it out…');
+      post('/stage/intake/declaration/preview', { edits: edits() }).then(function (answer) {
+        report(answer);
+        if (answer.error) { say('That could not be drawn'); return; }
+        swapDrawings(answer);
+        previewing = true;
+        var count = countStaged();
+        say(count + (count === 1 ? ' unsaved change' : ' unsaved changes') + ', shown above');
+      }).catch(function () { say('Could not reach the tool'); });
+    });
+  }
+
+  if (saveButton) {
+    saveButton.addEventListener('click', function () {
+      say('Saving…');
+      post('/stage/intake/declaration/save', { edits: edits() }).then(function (answer) {
+        if (answer.error) { report(answer); say('That could not be saved'); return; }
+        // Reloaded rather than patched. Every row's fields, the count on every tab, the open
+        // questions and which later stages the save put out of date all change together, and
+        // rebuilding that from JSON is a second renderer that will disagree with the first.
+        window.location.reload();
+      }).catch(function () { say('Could not reach the tool'); });
+    });
+  }
+
+  if (refreshButton) {
+    refreshButton.addEventListener('click', function () {
+      if (countStaged() && !window.confirm(
+        'Refreshing drops ' + countStaged() + ' unsaved change(s). Continue?')) { return; }
+      window.location.reload();
+    });
+  }
+
+  // Without scripting, Remove posts straight through and cannot be taken back, so the form asks
+  // first. With scripting it is staged and reversible, so it does not -- a confirmation on
+  // something you can undo by clicking again is noise that teaches people to dismiss them.
+  Array.prototype.forEach.call(document.querySelectorAll('[data-confirm]'), function (button) {
+    button.removeAttribute('data-confirm');
+  });
+
+  announce();
+})();
