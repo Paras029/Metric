@@ -347,24 +347,59 @@ def build_layout(intake: IntakeData, pending_decisions: Sequence[str] = (),
     return layout
 
 
-def _endings_within(graph, capability, described) -> List[str]:
-    """A capability's exits, plus every ending a decision inside it can reach.
+def _leaves_at(graph, capability, decisions: Sequence[Decision]) -> List[str]:
+    """Every state a route through this capability can leave it at.
 
-    Ordered so the declared exits come first and the endings found by walking follow, which keeps
-    the drawing stable when somebody adds an exit that was already being reached.
+    Three kinds, and all three have to be drawn or the collapsed view is a lie about what the
+    block does:
+
+    - The **declared exits**, which is where somebody said the block hands on.
+    - Every **ending a decision inside it reaches**. An exit list says where a block hands on; a
+      decision inside it can also refuse, escalate or lock out, and those are endings the pack
+      tests. Drawn only from the exit list, a block with three ways to fail showed as having one.
+    - Every **state inside another capability** that a decision inside this one routes to. This is
+      the one that was missing, and it is not an edge case: verification deciding the cardmember
+      has to be identified again routes back into identification, and a collapsed view that drops
+      that arrow says the agent walks its blocks in a straight line when it does not. A route
+      going backwards through the blocks is usually the most interesting thing on the page.
+
+    Ordered declared-first so the drawing stays stable when somebody adds an exit that was already
+    being reached by the walk.
     """
     from ..core.graph import Span, _decisions_within
 
-    found = list(capability.exit_states)
-    span = Span(capability.id, capability.name or capability.id,
-                capability.entry_states[0], frozenset(capability.exit_states))
-    for decision_id in _decisions_within(graph, span):
+    if not capability.entry_states:
+        return []
+
+    # What the block owns, by the tag on each decision -- the same basis the drawing uses to
+    # decide which box belongs to which block, so the two cannot disagree. Reachability is *not*
+    # the basis: a walk from verification's entry that follows a route back into identification
+    # reaches identification's decisions too, and counting those as verification's would make the
+    # return look like ordinary internal branching and hide the arrow this exists to draw.
+    #
+    # Decisions belonging to no capability are the exception. They are reachable from here and
+    # tagged with nothing, so this block is the only claim anybody has made on them.
+    reachable = _decisions_within(graph, Span(
+        capability.id, capability.name or capability.id,
+        capability.entry_states[0], frozenset(capability.exit_states)))
+    tagged = {d.id for d in decisions if d.trigger_capability}
+    mine = {d for d in reachable if d not in tagged}
+    mine |= {d.id for d in decisions if d.trigger_capability == capability.id}
+
+    inside = set(capability.entry_states)
+    for decision_id in mine:
+        inside.update(graph.states_offering(decision_id))
+
+    found = [s for s in capability.exit_states]
+    for decision_id in sorted(mine):
         decision = graph.decision(decision_id)
         if decision is None:
             continue
         for variant in decision.variants:
             landing = graph.state(graph.successor(decision_id, variant))
-            if landing is not None and landing.is_terminal and landing.id not in found:
+            if landing is None or landing.id in found:
+                continue
+            if landing.is_terminal or landing.id not in inside:
                 found.append(landing.id)
     return found
 
@@ -400,6 +435,19 @@ def build_block_layout(intake: IntakeData) -> Layout:
         for state_id in capability.entry_states:
             entered_by.setdefault(state_id, capability.id)
 
+    # Which block a state belongs to, for a route that re-enters one part way through rather than
+    # at its declared entry. Verification deciding the cardmember must be identified again does not
+    # politely route to identification's entry state -- it routes to whichever state asks the
+    # question, which is somewhere in the middle. Entry states win, because those are what somebody
+    # declared; the rest is worked out from which capability's decisions each state offers.
+    owner_of: Dict[str, str] = dict(entered_by)
+    for capability in bounded:
+        for decision in intake.decisions:
+            if decision.trigger_capability != capability.id:
+                continue
+            for state_id in graph.states_offering(decision.id):
+                owner_of.setdefault(state_id, capability.id)
+
     starts = [s.id for s in intake.states if not parse_reached_via(s.reached_via)]
     opens = next((entered_by[s] for s in starts if s in entered_by), None)
 
@@ -431,20 +479,26 @@ def build_block_layout(intake: IntakeData) -> Layout:
     # with their labels colliding -- and the fact worth reading is that they join, with how many
     # ways as a detail on the arrow rather than as a second arrow underneath the first.
     handoffs: Dict[Tuple[str, str], List[State]] = {}
+    returns: Dict[Tuple[str, str], List[State]] = {}
     for capability in bounded:
-        # Every ending the block can actually reach, not only the ones somebody listed as exits.
-        # An exit list is where the block *hands on*; a decision inside it can also refuse, escalate
-        # or lock out, and those are endings the pack tests. Drawing only the listed ones showed a
-        # block as having one way to fail when it had three, which is exactly the thing a
-        # collapsed view must not lose -- how a capability goes wrong is most of what is tested
-        # about it.
-        for exit_id in _endings_within(graph, capability, described):
+        # Every way out of the block, not only the ones somebody listed as exits. See
+        # :func:`_leaves_at`: the declared hand-offs, the endings a decision inside can reach, and
+        # the routes back into another block that make the picture something other than a chain.
+        for exit_id in _leaves_at(graph, capability, intake.decisions):
             state = described.get(exit_id)
             if state is None:
                 continue
-            onward = entered_by.get(exit_id)
+            onward = owner_of.get(exit_id)
             if onward and onward != capability.id:
-                handoffs.setdefault((capability.id, onward), []).append(state)
+                # A declared boundary -- this block's exit is that block's entry -- is the ordinary
+                # forward hand-off. Anything else is a route back into a block, usually part way
+                # through it: verification deciding the cardmember has to be identified again lands
+                # on whichever state asks the question, not on identification's entry. Kept apart
+                # because they read differently and are drawn differently, and because a picture
+                # that calls a return a hand-off says the agent runs in a straight line.
+                declared = exit_id in capability.exit_states and exit_id in entered_by
+                where = handoffs if declared else returns
+                where.setdefault((capability.id, onward), []).append(state)
             elif state.is_terminal:
                 # Its own box rather than a line on the block, because how a block can end is the
                 # first thing lost when one is summarised, and it is what the pack tests.
@@ -457,14 +511,16 @@ def build_block_layout(intake: IntakeData) -> Layout:
                     source=capability.id, target=ending, outcome="ends",
                     state_label=state.description or exit_id, detail=_state_detail(state)))
 
-    for (source, target), positions in handoffs.items():
-        label = (positions[0].description or positions[0].id if len(positions) == 1
-                 else f"{len(positions)} ways")
-        named = layout.nodes[source].caption
-        layout.edges.append(Edge(
-            source=source, target=target, outcome="hands on", state_label=label,
-            detail=f"{named} hands on to {layout.nodes[target].caption} at "
-                   + "; ".join(f"{p.id} ({p.description})" for p in positions)))
+    for kind, joins in (("hands on", handoffs), ("returns to", returns)):
+        for (source, target), positions in joins.items():
+            label = (positions[0].description or positions[0].id if len(positions) == 1
+                     else f"{len(positions)} ways")
+            named = layout.nodes[source].caption
+            verb = "hands on to" if kind == "hands on" else "routes back into"
+            layout.edges.append(Edge(
+                source=source, target=target, outcome=kind, state_label=label,
+                detail=f"{named} {verb} {layout.nodes[target].caption} at "
+                       + "; ".join(f"{p.id} ({p.description})" for p in positions)))
 
     _assign_depths(layout)
     for edge in layout.edges:
@@ -808,7 +864,12 @@ def routes(intake: IntakeData, scenarios: Sequence) -> Dict[str, dict]:
         if not edges:
             continue
         nodes = list(dict.fromkeys([end for edge in edges for end in edge[:2]]))
-        found[scenario.id] = {"nodes": nodes, "edges": [list(edge) for edge in edges]}
+        # The block as well as the route. Which capability a scenario tests is the first thing a
+        # reader wants from the collapsed drawing, and without this, opening a scenario while the
+        # collapsed view is showing lights nothing at all -- which reads as the highlighting being
+        # broken rather than as the two views having different vocabularies.
+        found[scenario.id] = {"nodes": nodes, "edges": [list(edge) for edge in edges],
+                              "block": getattr(scenario, "capability_id", "") or ""}
     return found
 
 

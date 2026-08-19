@@ -16,7 +16,7 @@ the question is a page somebody eventually screenshots into an email to the mode
 """
 from __future__ import annotations
 
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from ..core.generation import required_variations
 from ..core.models import (MATERIALITY, ORIGIN_GRAPH, ORIGIN_PROBE, ORIGIN_PROPOSED,
@@ -142,10 +142,20 @@ def _flag_reason(scenario: Scenario) -> str:
     return "" if scenario.review_rationale == _reason(scenario) else scenario.review_rationale
 
 
-def to_row(scenario: Scenario) -> Dict[str, object]:
-    """One scenario as the page shows it."""
+def to_row(scenario: Scenario, capability_names: Optional[Dict[str, str]] = None
+           ) -> Dict[str, object]:
+    """One scenario as the page shows it.
+
+    ``capability_names`` maps a capability id to its name. Without it the block still shows, by
+    id -- which is worth having on its own, because the whole point of scoping the space by
+    capability is that a scenario tests one block of the agent and a reader cannot tell which
+    from the description alone.
+    """
+    named = (capability_names or {}).get(scenario.capability_id, "")
     return {
         "id": scenario.id,
+        "capability_id": scenario.capability_id,
+        "capability": named or scenario.capability_id,
         "origin": ORIGIN_LABELS.get(scenario.origin, scenario.origin),
         "is_probe": scenario.is_probe,
         "is_proposed": scenario.is_proposed,
@@ -182,7 +192,8 @@ def needs_attention(row: Dict[str, object]) -> bool:
     return bool(row["flag"] or row["is_proposed"] or row["coverage"] or row["category_changed"])
 
 
-def shape(scenarios: List[Scenario], stage: str = "summary") -> Dict[str, object]:
+def shape(scenarios: List[Scenario], stage: str = "summary",
+          capability_names: Optional[Dict[str, str]] = None) -> Dict[str, object]:
     """How the scenario space is distributed, for the side panel.
 
     Counted over every scenario rather than over the rows on screen. The list in the middle of
@@ -197,7 +208,7 @@ def shape(scenarios: List[Scenario], stage: str = "summary") -> Dict[str, object
     where the review put it.
     """
     shows = set(STAGE_COLUMNS.get(stage, STAGE_COLUMNS["summary"]))
-    rows = [to_row(s) for s in scenarios]
+    rows = [to_row(s, capability_names) for s in scenarios]
     tiers = []
     if MATERIALITY_COLUMNS in shows:
         for tier in reversed(MATERIALITY):
@@ -318,8 +329,8 @@ def _cell_label(category: str, tier: str) -> str:
 
 
 def build_rows(scenarios: List[Scenario], stage: str = "summary",
-               cells: Sequence[Tuple[str, str]] = (), limit: int = PAGE_SIZE
-               ) -> Dict[str, object]:
+               cells: Sequence[Tuple[str, str]] = (), limit: int = PAGE_SIZE,
+               capability_names: Optional[Dict[str, str]] = None) -> Dict[str, object]:
     """The rows to show, the grid that selects them, and what was left out.
 
     **The grid is the only selector.** It replaced three view tabs and five dropdowns, and it does
@@ -336,7 +347,7 @@ def build_rows(scenarios: List[Scenario], stage: str = "summary",
     narrowed is a list that quietly loses scenarios.
     """
     shows = set(STAGE_COLUMNS.get(stage, STAGE_COLUMNS["summary"]))
-    rows = [to_row(s) for s in scenarios]
+    rows = [to_row(s, capability_names) for s in scenarios]
 
     # Ordering by tier only says something once a tier has been assigned. Before that every
     # scenario carries the same default and the sort is an illusion of ranking, so they stay in

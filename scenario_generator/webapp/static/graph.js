@@ -13,25 +13,47 @@
   var readout = document.querySelector('[data-zoom-level]');
   if (!frame || !canvas) { return; }
 
-  var svg = canvas.querySelector('svg');
-  var natural = svg ? svg.getAttribute('width') : 0;
+  // Every drawing in the canvas, not the first one. There are two -- capabilities collapsed, and
+  // every decision -- and binding to whichever came first left the other with no zoom, no pan and
+  // no hover at all. It read as the graph going dead the moment the view was switched.
+  function drawings() {
+    return Array.prototype.slice.call(canvas.querySelectorAll('svg'));
+  }
+
+  function showing() {
+    var found = null;
+    drawings().forEach(function (candidate) {
+      // A view is hidden by the [hidden] attribute on its wrapper rather than by anything on the
+      // drawing itself, so measuring it is what actually answers "is this the one on screen".
+      if (!found && candidate.getBoundingClientRect().width > 0) { found = candidate; }
+    });
+    return found || drawings()[0] || null;
+  }
+
   var scale = 1;
 
   function apply() {
+    var svg = showing();
     canvas.style.transform = 'scale(' + scale + ')';
     canvas.style.transformOrigin = '0 0';
     if (svg) {
       // The wrapper has to grow with the drawing or the frame scrolls over empty space.
-      canvas.style.width = (natural * scale) + 'px';
+      canvas.style.width = (svg.getAttribute('width') * scale) + 'px';
       canvas.style.height = (svg.getAttribute('height') * scale) + 'px';
     }
     if (readout) { readout.textContent = Math.round(scale * 100) + '%'; }
   }
 
   function fit() {
+    var svg = showing();
+    var natural = svg ? svg.getAttribute('width') : 0;
     scale = natural ? Math.min(1, (frame.clientWidth - 24) / natural) : 1;
     apply();
   }
+
+  // The two drawings are different sizes, so a view switch has to refit or the frame scrolls over
+  // empty space on the smaller one and clips the larger.
+  canvas.addEventListener('metric:viewchanged', fit);
 
   Array.prototype.forEach.call(document.querySelectorAll('[data-zoom]'), function (button) {
     button.addEventListener('click', function () {
@@ -66,14 +88,15 @@
   });
 
   fit();
+  window.addEventListener('resize', fit);
 
-  if (!svg) { return; }
+  if (!drawings().length) { return; }
 
   // Paint order in SVG is document order, and a crowded row can leave a box or an edge label
   // sitting underneath a neighbour with nothing to click to fix it. Moving the hovered element to
   // the end of its parent's children is enough to bring it to the front for as long as the
   // pointer is over it -- no state to track, and the next thing hovered does the same.
-  svg.addEventListener('mouseover', function (event) {
+  canvas.addEventListener('mouseover', function (event) {
     var el = event.target.closest &&
       event.target.closest('.graph__node, .graph__edge, .graph__label');
     if (el && el.parentNode) { el.parentNode.appendChild(el); }
@@ -115,7 +138,7 @@
   }
 
   function darken() {
-    svg.classList.remove('graph--focused');
+    drawings().forEach(function (one) { one.classList.remove('graph--focused'); });
     lit.forEach(function (el) {
       el.classList.remove('is-lit');
       el.classList.remove('is-lit--source');
@@ -123,10 +146,29 @@
     lit = [];
   }
 
-  function node(id) { return svg.querySelector('[data-node="' + id + '"]'); }
+  // Every lookup runs across both drawings. A route lit only in the one that happens to be on
+  // screen goes dark the moment the view is switched, which is the opposite of what the two views
+  // are for: the whole point of switching is to see the same thing at a different altitude.
+  function all(selector) {
+    var found = [];
+    drawings().forEach(function (one) {
+      Array.prototype.push.apply(found, one.querySelectorAll(selector));
+    });
+    return found;
+  }
+
+  // Quoted attribute values, so the only characters that need escaping are the quote and the
+  // backslash. Not CSS.escape: that escapes for *identifiers*, and would turn the colon in an
+  // ending's id (CAP-01:S-04) into something that matches nothing.
+  function quoted(value) {
+    return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  }
+
+  function node(id) { return all('[data-node="' + quoted(id) + '"]'); }
 
   function joining(id) {
-    return svg.querySelectorAll('[data-source="' + id + '"], [data-target="' + id + '"]');
+    var safe = quoted(id);
+    return all('[data-source="' + safe + '"], [data-target="' + safe + '"]');
   }
 
   function parts(from, to, outcome) {
@@ -134,31 +176,35 @@
     // together or a lit route is drawn with unlit words on it. The outcome narrows it further
     // where it is known: two outcomes of one decision routinely land on the same next decision,
     // and lighting both would say a scenario took a branch it did not take.
-    var selector = '[data-source="' + from + '"][data-target="' + to + '"]';
+    var selector = '[data-source="' + quoted(from) + '"][data-target="' + quoted(to) + '"]';
     if (outcome !== undefined && outcome !== null) {
-      selector += '[data-outcome="' + outcome + '"]';
+      selector += '[data-outcome="' + quoted(outcome) + '"]';
     }
-    return svg.querySelectorAll(selector);
+    return all(selector);
+  }
+
+  function lightAll(elements, source) {
+    elements.forEach(function (el) { light(el, source); });
   }
 
   function focusNode(el) {
     var id = el.getAttribute('data-node');
     light(el, true);
-    Array.prototype.forEach.call(joining(id), function (line) {
+    joining(id).forEach(function (line) {
       light(line, false);
       // The box at the far end of each arrow, so this answers "from where, to where" rather than
       // only "which arrows touch this".
       var other = line.getAttribute('data-source') === id
         ? line.getAttribute('data-target') : line.getAttribute('data-source');
-      light(node(other), false);
+      lightAll(node(other), false);
     });
   }
 
   function focusEdge(el) {
     var from = el.getAttribute('data-source'), to = el.getAttribute('data-target');
-    Array.prototype.forEach.call(parts(from, to), function (part) { light(part, part === el); });
-    light(node(from), false);
-    light(node(to), false);
+    parts(from, to).forEach(function (part) { light(part, part === el); });
+    lightAll(node(from), false);
+    lightAll(node(to), false);
   }
 
   function route(card) {
@@ -171,16 +217,27 @@
     // share a prefix -- and they nearly always share a prefix.
     darken();
     if (!open.length) { return; }
-    svg.classList.add('graph--focused');
+    drawings().forEach(function (one) { one.classList.add('graph--focused'); });
     open.forEach(function (card) {
       var walked = route(card);
       if (!walked) { return; }
       walked.edges.forEach(function (edge) {
-        Array.prototype.forEach.call(parts(edge[0], edge[1], edge[2]), function (part) {
-          light(part, true);
-        });
+        parts(edge[0], edge[1], edge[2]).forEach(function (part) { light(part, true); });
       });
-      walked.nodes.forEach(function (id) { light(node(id), true); });
+      walked.nodes.forEach(function (id) { lightAll(node(id), true); });
+      // And the capability block, in the collapsed drawing. A scenario walks one block, and
+      // without this, opening a card while the collapsed view is showing lights nothing -- which
+      // reads as the highlighting being broken rather than as the two drawings speaking different
+      // languages. The block's own endings light with it, so what is lit is the whole of what the
+      // scenario can reach.
+      if (walked.block) {
+        lightAll(node(walked.block), true);
+        joining(walked.block).forEach(function (line) {
+          if (line.getAttribute('data-outcome') !== 'ends') { return; }
+          light(line, true);
+          lightAll(node(line.getAttribute('data-target')), true);
+        });
+      }
     });
   }
 
@@ -212,17 +269,21 @@
     refresh();
   }, true);
 
-  svg.addEventListener('mouseover', function (event) {
+  // Bound to the canvas rather than to one drawing, so following a thread works in the collapsed
+  // view exactly as it does in the detailed one. Hovering a capability block lights what hands on
+  // to it and what it hands on to, which is the question that view exists to answer.
+  canvas.addEventListener('mouseover', function (event) {
     if (open.length) { return; }               // a held route outranks whatever is under the
     var el = event.target.closest &&           // pointer, or moving to read it would lose it
       event.target.closest('.graph__node, .graph__edge, .graph__label');
     if (!el) { return; }
     darken();
-    svg.classList.add('graph--focused');
+    var within = el.closest('svg');
+    if (within) { within.classList.add('graph--focused'); }
     if (el.hasAttribute('data-node')) { focusNode(el); } else { focusEdge(el); }
   });
 
-  svg.addEventListener('mouseleave', function () {
+  canvas.addEventListener('mouseleave', function () {
     if (!open.length) { darken(); }
   });
 
@@ -270,6 +331,11 @@
       node.classList.toggle('graph__node--faded', !mine);
       if (mine && capability && !first) { first = node; }
     });
+
+    // The two drawings are different sizes, so whatever is holding the zoom has to refit. Sent
+    // as an event rather than called directly because the zoom lives in another closure, and the
+    // alternative is one of them reaching into the other.
+    canvas.dispatchEvent(new CustomEvent('metric:viewchanged'));
 
     // And brought into view. On a real graph the block just opened is usually below the fold, so
     // without this the click lands on a screen of faded boxes and reads as the drawing greying

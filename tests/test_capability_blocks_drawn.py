@@ -185,3 +185,78 @@ class TestTheSpanIsEditableWithoutDestroyingItself(unittest.TestCase):
         self.client.post("/stage/intake/capability/CAP-03/span", data={})
         page = self.client.get("/stage/intake").data.decode()
         self.assertIn("nothing is walked through this capability", page)
+
+
+class TestARouteBackIntoAnEarlierBlock(unittest.TestCase):
+    """A real agent does not run its blocks in a straight line.
+
+    Verification decides the cardmember has to be identified again, and routes back into
+    identification -- not politely to its entry state, but to whichever state asks the question,
+    which is somewhere in the middle of it. A collapsed drawing that loses that arrow says the
+    agent is a chain when it is a cycle, and the route going backwards is usually the most
+    interesting thing on the page.
+    """
+
+    def _intake(self):
+        from scenario_generator.core.models import Capability, Decision, IntakeData, State
+
+        return IntakeData(
+            use_case={"Use case name": "Disputes"}, personas=[],
+            capabilities=[
+                Capability(id="CAP-01", name="Identification", type="Gating",
+                           entry_states=("S-00",), exit_states=("S-02", "S-03")),
+                Capability(id="CAP-02", name="Verification", type="Gating",
+                           entry_states=("S-02",), exit_states=("S-05", "S-06"))],
+            decisions=[
+                Decision(id="DEC-01", name="Identify", trigger_capability="CAP-01", inputs="",
+                         variants=["Identified", "Not identified"]),
+                Decision(id="DEC-02", name="Verify", trigger_capability="CAP-02", inputs="",
+                         variants=["Verified", "Stale identity", "Failed"])],
+            states=[
+                State(id="S-00", reached_via="Start", description="The chat opens",
+                      next_decisions=["DEC-01"], is_terminal=False),
+                State(id="S-02", reached_via="DEC-01=Identified", description="Identified",
+                      next_decisions=["DEC-02"], is_terminal=False),
+                State(id="S-03", reached_via="DEC-01=Not identified", description="Chat ended",
+                      next_decisions=[], is_terminal=True, outcome_type="Termination"),
+                State(id="S-05", reached_via="DEC-02=Verified", description="Verified",
+                      next_decisions=[], is_terminal=True, outcome_type="Happy path"),
+                State(id="S-06", reached_via="DEC-02=Failed", description="To an adviser",
+                      next_decisions=[], is_terminal=True, outcome_type="Escalation"),
+                # The return. Verification sends the cardmember back to be identified again, and
+                # S-00 is identification's entry rather than one of verification's exits.
+                State(id="S-00b", reached_via="DEC-02=Stale identity",
+                      description="Identity is stale; identifying again",
+                      next_decisions=["DEC-01"], is_terminal=False)],
+            tools=[])
+
+    def test_the_arrow_back_is_drawn(self):
+        edges = build_block_layout(self._intake()).edges
+        back = [e for e in edges if (e.source, e.target) == ("CAP-02", "CAP-01")]
+        self.assertTrue(back, "the route back into identification was not drawn at all")
+
+    def test_it_is_not_called_a_handoff(self):
+        """A hand-off and a return read differently, and one drawn as the other is a picture that
+        says the agent runs forwards only."""
+        back = [e for e in build_block_layout(self._intake()).edges
+                if (e.source, e.target) == ("CAP-02", "CAP-01")][0]
+        self.assertEqual(back.outcome, "returns to")
+        self.assertIn("routes back into", back.detail)
+
+    def test_it_is_drawn_as_a_back_edge(self):
+        """Which is what puts it in the loop colour rather than in the ordinary edge colour."""
+        back = [e for e in build_block_layout(self._intake()).edges
+                if (e.source, e.target) == ("CAP-02", "CAP-01")][0]
+        self.assertTrue(back.is_back)
+        self.assertIn("graph__edge--loop", render_blocks_svg(self._intake()))
+
+    def test_the_forward_handoff_is_still_a_handoff(self):
+        forward = [e for e in build_block_layout(self._intake()).edges
+                   if (e.source, e.target) == ("CAP-01", "CAP-02")]
+        self.assertEqual([e.outcome for e in forward], ["hands on"])
+
+    def test_a_return_does_not_make_the_earlier_block_look_later(self):
+        """Depth is how far into the interaction a block is; an arrow pointing backwards must not
+        push its target down the page."""
+        layout = build_block_layout(self._intake())
+        self.assertLess(layout.nodes["CAP-01"].depth, layout.nodes["CAP-02"].depth)

@@ -253,7 +253,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             structure_review_available=(STRUCTURE_REVIEW_OFFERED and key == "intake"
                                         and intake is not None),
             groups=_group_rows(workspace, key),
-            space=_space_for(scenarios, key),
+            space=_space_for(scenarios, key, workspace),
             shape=_shape_for(scenarios, key),
             coverage=_coverage_for(workspace, key, intake),
             coverage_shape=_coverage_shape(workspace),
@@ -356,13 +356,25 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             logger.exception("Could not read the scenario space for display")
             return None
 
-    def _space_for(scenarios, key: str):
+    def _capability_names(workspace: Workspace) -> Dict[str, str]:
+        """Capability id to name, so a scenario can say which block of the agent it tests.
+
+        By id where the name is blank, and empty where the declaration cannot be read: naming the
+        block is worth having and is never worth failing a page over.
+        """
+        try:
+            return {c.id: c.name or c.id for c in _intake(workspace).capabilities}
+        except Exception:
+            return {}
+
+    def _space_for(scenarios, key: str, workspace: Optional[Workspace] = None):
         """The list in the middle of the page: this stage's scenarios, narrowed to the cells
         picked in the grid above it. ``?cell=`` repeats, one per selected cell."""
         if scenarios is None:
             return None
         return build_rows(scenarios, stage=key, cells=parse_cells(request.args.getlist("cell")),
-                          limit=_page_limit())
+                          limit=_page_limit(),
+                          capability_names=_capability_names(workspace) if workspace else None)
 
     def _shape_for(scenarios, key: str):
         """The tally in the side panel, from the same scenarios the list is drawn from.

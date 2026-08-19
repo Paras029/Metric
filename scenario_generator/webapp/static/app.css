@@ -823,6 +823,15 @@ ol, ul { list-style: none; padding: 0; }
 .tag--stale { background: var(--warn-tint); color: var(--warn); }
 .mark--flag { background: var(--warn-tint); color: var(--warn); }
 .mark--new { background: var(--blue-tint); color: var(--blue-dark); }
+/* Which capability a scenario tests. Outlined rather than filled: it is an identity, sitting in a
+   row of marks that are all verdicts, and a second filled chip beside a tier reads as a second
+   judgement about the scenario. */
+.mark--block {
+  background: none;
+  border: 1px solid var(--blue-edge);
+  color: var(--blue-dark);
+  font-weight: 600;
+}
 .mark--covered { background: var(--ok-tint); color: var(--ok); }
 /* Three tiers, so High is the top of the scale and carries the strongest colour. */
 .mark--tier-high { background: var(--bad-tint); color: var(--bad); }

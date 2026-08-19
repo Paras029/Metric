@@ -42,6 +42,7 @@ def render_graph_page(intake: IntakeData, scenarios: Optional[Sequence[Scenario]
                       title: str = "") -> str:
     """The whole page as a string: the drawing, its controls, and the scenarios that walk it."""
     walked = routes(intake, scenarios or [])
+    named = {c.id: c.name or c.id for c in intake.capabilities}
 
     # Only the scenarios whose route the drawing can place. One that cannot be placed would sit in
     # the list looking selectable and light nothing when opened, which reads as the page being
@@ -49,7 +50,7 @@ def render_graph_page(intake: IntakeData, scenarios: Optional[Sequence[Scenario]
     rows: List[dict] = []
     for scenario in (scenarios or []):
         if scenario.id in walked:
-            rows.append({**to_row(scenario), "route": walked[scenario.id]})
+            rows.append({**to_row(scenario, named), "route": walked[scenario.id]})
 
     return _environment().get_template(TEMPLATE).render(
         title=title or intake.name,

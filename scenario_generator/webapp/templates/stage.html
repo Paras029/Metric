@@ -936,6 +936,12 @@
                   </svg>
                   <span class="card__id mono">{{ row.id }}</span>
                   <span class="card__title">{{ row.title }}</span>
+                  {# Which block of the agent this tests. The whole reason the space is scoped by
+                     capability is that a scenario exercises one block, and nothing in a title or
+                     a description reliably says which. #}
+                  {% if row.capability %}
+                    <span class="mark mark--block">{{ row.capability }}</span>
+                  {% endif %}
                   <span class="card__marks">
                     {% if 'review' in space.shows %}
                       {% if row.flag %}
@@ -967,6 +973,10 @@
 
                   <p class="card__facts">
                     <span>{{ row.origin }}</span>
+                    {% if row.capability_id %}
+                      <span>Tests <span class="mono">{{ row.capability_id }}</span>
+                        — {{ row.capability }}</span>
+                    {% endif %}
                     <span>{{ row.persona }}</span>
                     <span>{{ row.turns }} turn{{ '' if row.turns == 1 else 's' }}</span>
                     {% if row.category %}<span>{{ row.category }}</span>{% endif %}
