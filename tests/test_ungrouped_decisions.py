@@ -154,18 +154,18 @@ class TestTheDefinitionReachesEveryPromptThatWritesAGraph(unittest.TestCase):
     MARK = "A capability is a group of decisions"
 
     def test_it_is_in_every_prompt_that_builds_or_restructures_a_declaration(self):
-        from scenario_generator.ingest.drafting import _cds
+        from scenario_generator.ingest.drafting import _cds, _wiring
         from scenario_generator.ingest.extraction import _vocabulary
         from scenario_generator.llm import prompt_loader
 
         rendered = {
             "intake.draft": prompt_loader.render("intake.draft", context="c", cds=_cds(),
-                                                 structure="s"),
+                                                 wiring=_wiring(), structure="s"),
             "intake.repair": prompt_loader.render("intake.repair", context="c", current="x",
-                                                  cds=_cds(), structure="s", enumeration="e",
-                                                  problems="p"),
+                                                  cds=_cds(), wiring=_wiring(), structure="s",
+                                                  enumeration="e", problems="p"),
             "intake.revise": prompt_loader.render("intake.revise", context="c", current="x",
-                                                  cds=_cds(), structure="s"),
+                                                  cds=_cds(), wiring=_wiring(), structure="s"),
             "structure_review.task": prompt_loader.render(
                 "structure_review.task", use_case="u", structure="s", cds=_cds(), hints="h",
                 context="c"),

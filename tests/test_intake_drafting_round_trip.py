@@ -131,6 +131,9 @@ class TestTheDraftIsCheckedAndPutBack(unittest.TestCase):
         self.output = self.work / "intake.xlsx"
         self.prompts = []
 
+    # ``reconcile=False`` throughout this class. It exercises the repair round specifically, and
+    # a third call answered by the same stub would put the broken draft back over the repair.
+
     def _complete(self, repaired=None):
         def complete(system, user, **kwargs):
             self.prompts.append(user)
@@ -140,7 +143,8 @@ class TestTheDraftIsCheckedAndPutBack(unittest.TestCase):
         return complete
 
     def test_a_broken_draft_is_put_back_to_the_model_with_its_own_failures_named(self):
-        draft_intake_workbook(str(self.context), str(self.output), complete=self._complete())
+        draft_intake_workbook(str(self.context), str(self.output), complete=self._complete(),
+                              reconcile=False)
 
         self.assertEqual(len(self.prompts), 2, "the draft was not checked and put back")
         repair = self.prompts[1]
@@ -151,14 +155,16 @@ class TestTheDraftIsCheckedAndPutBack(unittest.TestCase):
         self.assertIn("A lapsed policy cannot be claimed on", repair)
 
     def test_the_repaired_declaration_is_what_lands_on_disk(self):
-        draft_intake_workbook(str(self.context), str(self.output), complete=self._complete())
+        draft_intake_workbook(str(self.context), str(self.output), complete=self._complete(),
+                              reconcile=False)
 
         intake = read_intake(str(self.output))
         self.assertEqual(intake.decisions[0].variants, ["In force", "Lapsed"])
         self.assertEqual({s.id for s in intake.states}, {"S-00", "S-01", "S-02"})
 
     def test_it_leaves_the_declaration_better_than_it_found_it(self):
-        draft_intake_workbook(str(self.context), str(self.output), complete=self._complete())
+        draft_intake_workbook(str(self.context), str(self.output), complete=self._complete(),
+                              reconcile=False)
         after = len(structural_problems(read_intake(str(self.output))))
 
         self.prompts.clear()
@@ -173,7 +179,7 @@ class TestTheDraftIsCheckedAndPutBack(unittest.TestCase):
         """A second look may improve a declaration and must never damage one."""
         empty = {"use_case": _USE_CASE, "personas": [], "capabilities": [], "decisions": [],
                  "states": [], "tools": []}
-        draft_intake_workbook(str(self.context), str(self.output),
+        draft_intake_workbook(str(self.context), str(self.output), reconcile=False,
                               complete=self._complete(repaired=empty))
 
         intake = read_intake(str(self.output))
@@ -187,7 +193,8 @@ class TestTheDraftIsCheckedAndPutBack(unittest.TestCase):
                 raise RuntimeError("502 from the gateway")
             return json.dumps(_BROKEN)
 
-        draft_intake_workbook(str(self.context), str(self.output), complete=complete)
+        draft_intake_workbook(str(self.context), str(self.output), complete=complete,
+                              reconcile=False)
 
         intake = read_intake(str(self.output))
         self.assertEqual([d.id for d in intake.decisions], ["DEC-01"])
@@ -198,7 +205,8 @@ class TestTheDraftIsCheckedAndPutBack(unittest.TestCase):
             self.prompts.append(user)
             return json.dumps(_REPAIRED)
 
-        draft_intake_workbook(str(self.context), str(self.output), complete=complete)
+        draft_intake_workbook(str(self.context), str(self.output), complete=complete,
+                              reconcile=False)
         repairs = [p for p in self.prompts if "WHAT IS MISSING" in p]
         # _REPAIRED still leaves softer gaps, but the point is that a repair is only sent for
         # what the audit actually found -- never as a routine second call.

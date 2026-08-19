@@ -21,7 +21,8 @@ from .io import (read_space_metadata, read_scenarios, write_data_template, write
 from .ingest.extraction import SPLIT_ACROSS_IMAGES
 from .ingest import (DocumentExtractor, DraftedIntake, build_context_document, carry_forward,
                      draft_intake, open_questions, read_conversations, record_from_json,
-                     redact_conversations, rejection_summary, repair_intake, revise_intake,
+                     reconcile_intake, redact_conversations, rejection_summary, repair_intake,
+                     revise_intake,
                      write_drafted_intake)
 from .llm import (MaterialityAssessor, ScenarioReviewer, ScenarioWriter, describe_enumeration,
                   describe_graph, describe_use_case)
@@ -294,7 +295,8 @@ def structural_problems(intake: IntakeData) -> List[str]:
 def draft_intake_workbook(context_path: str, output_path: str,
                           complete: Optional[Callable[..., str]] = None,
                           evidence_path: Optional[str] = None,
-                          notes=None, progress=None, repair: bool = True) -> "DraftResult":
+                          notes=None, progress=None, repair: bool = True,
+                          reconcile: bool = True) -> "DraftResult":
     """Draft an intake workbook from an ingested context document.
 
     The result is a real intake in the shape ``init-template`` produces, plus a "Review This"
@@ -330,6 +332,8 @@ def draft_intake_workbook(context_path: str, output_path: str,
 
     if repair:
         draft = _repair_draft(output_path, context, structure, complete, draft, report)
+    if reconcile:
+        draft = _reconcile_draft(output_path, context, structure, complete, draft, report)
 
     report("Finished the intake", 2, 2)
     logger.info("%d point(s) flagged for review. Wrote %s",
@@ -376,6 +380,35 @@ def _repair_draft(output_path: str, context: str, structure, complete, draft, re
     return settled
 
 
+def _reconcile_draft(output_path: str, context: str, structure, complete, draft, report):
+    """Read the whole declaration back once more and correct what only the whole reveals.
+
+    The pass before this one fixes named gaps, and a declaration can pass every named gap and
+    still not describe one coherent agent -- which is what a person then spends their afternoon
+    untangling. This is the cheapest place to catch that: the documents are still in hand, the
+    routes have been walked, and nothing downstream has been built on the declaration yet.
+
+    Held to exactly the rules the repair is held to, because a last look carries the same risk of
+    doing harm: anything it drops is carried forward, and the result is audited against what is
+    already on disk and thrown away if it walks worse. See :func:`_accept_if_better`.
+    """
+    try:
+        current = read_intake(output_path)
+    except Exception as exc:
+        logger.warning("Could not read the declaration back to reconcile it: %s", exc)
+        return draft
+
+    report("Reading the declaration back as a whole", 1, 2)
+    rendered = f"{describe_use_case(current)}\n\n{describe_graph(current)}"
+    reconciled = reconcile_intake(context, rendered, complete=complete, structure=structure,
+                                  enumeration=describe_enumeration(current))
+    if reconciled is None:
+        return draft
+
+    merged = DraftedIntake(carry_forward(draft.data, reconciled.data))
+    return _accept_if_better(output_path, draft, merged, len(structural_problems(current)))
+
+
 def _accept_if_better(output_path: str, draft, candidate, before: int):
     """Write ``candidate`` only if it audits better than the draft already on disk.
 
@@ -406,7 +439,8 @@ def _accept_if_better(output_path: str, draft, candidate, before: int):
 def revise_intake_workbook(current_path: str, output_path: str, context_path: str = None,
                            complete: Optional[Callable[..., str]] = None,
                            evidence_path: Optional[str] = None, notes=None,
-                           progress=None, repair: bool = True) -> "DraftResult":
+                           progress=None, repair: bool = True,
+                           reconcile: bool = True) -> "DraftResult":
     """Revise an intake workbook in place, given what has been added since it was last written.
 
     The counterpart to :func:`draft_intake_workbook` for a declaration that already exists --
@@ -454,6 +488,8 @@ def revise_intake_workbook(current_path: str, output_path: str, context_path: st
 
     if repair:
         revision = _repair_draft(output_path, context, structure, complete, revision, report)
+    if reconcile:
+        revision = _reconcile_draft(output_path, context, structure, complete, revision, report)
 
     after = len(structural_problems(read_intake(output_path)))
     logger.info("%d structural gap(s) before, %d after. %d point(s) flagged for review. Wrote %s",

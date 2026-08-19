@@ -36,6 +36,7 @@ _SYSTEM_PROMPT = "ingest.system"
 _DRAFT_PROMPT = "intake.draft"
 _REVISE_PROMPT = "intake.revise"
 _REPAIR_PROMPT = "intake.repair"
+_RECONCILE_PROMPT = "intake.reconcile"
 
 CAPABILITY_TYPES = ("Lookup", "Transactional", "Gating", "Advisory", "PII-handling")
 INPUT_SOURCES = ("User", "Tool", "Memory-Session", "Memory-CrossSession", "System-Context",
@@ -48,6 +49,14 @@ def _cds() -> str:
     graph. Written once because three prompts describing the same three things in slightly
     different words is how two of them end up describing something else."""
     return prompt_loader.load("shared.cds")
+
+
+def _wiring() -> str:
+    """How reached_via and next_decisions connect the graph, shared by every prompt that writes
+    one. Kept out of the three prompts themselves because it is the section most often edited: a
+    draft whose wiring is wrong is unwalkable however good the prose in it is, and the people who
+    tune that instruction should not have to find and match three copies of it."""
+    return prompt_loader.load("shared.wiring")
 
 
 def _structure_block(structure: Optional[dict]) -> str:
@@ -133,7 +142,7 @@ def draft_intake(context: str, complete: Optional[Callable[..., str]] = None,
     from sentences describing it, and a diagram is frequently the only place a branch is drawn.
     """
     complete = complete or ask_llm
-    user = prompt_loader.render(_DRAFT_PROMPT, context=context, cds=_cds(),
+    user = prompt_loader.render(_DRAFT_PROMPT, context=context, cds=_cds(), wiring=_wiring(),
                                 structure=_structure_block(structure))
     system = prompt_loader.load(_SYSTEM_PROMPT)
 
@@ -340,7 +349,8 @@ def repair_intake(context: str, current: str, problems: List[str],
         return None
 
     complete = complete or ask_llm
-    user = prompt_loader.render(_REPAIR_PROMPT, context=context, current=current, cds=_cds(),
+    user = prompt_loader.render(_REPAIR_PROMPT, context=context, current=current,
+                                cds=_cds(), wiring=_wiring(),
                                 structure=_structure_block(structure),
                                 enumeration=enumeration or "Not available.",
                                 problems="\n".join(f"- {problem}" for problem in problems))
@@ -362,6 +372,48 @@ def repair_intake(context: str, current: str, problems: List[str],
     return repaired
 
 
+def reconcile_intake(context: str, current: str,
+                     complete: Optional[Callable[..., str]] = None,
+                     structure: Optional[dict] = None,
+                     enumeration: str = "") -> Optional[DraftedIntake]:
+    """Read the finished declaration whole, once, and correct what only reading it whole reveals.
+
+    Every pass before this one works from a question: draft this from the documents, fill in these
+    named gaps. That is the right shape for those jobs and it has a blind spot, because a
+    declaration where every row answers its own question can still be incoherent as a description
+    of one agent -- a decision duplicating one three rows above under another name, a hand-off
+    trigger with no escalation state, a retry limit on a decision nothing routes back into. None
+    of those is a gap :func:`core.gaps.find_gaps` can see, because each row is individually
+    complete.
+
+    It is given the enumeration for the same reason the repair is, and it matters more here: the
+    routes are what a tester is actually asked to run, and a route that reads as nonsense is how
+    an upstream wiring mistake becomes visible at all.
+
+    Returns ``None`` where nothing usable came back, on the same rule as the repair -- a last look
+    may improve the declaration and must never damage it.
+    """
+    complete = complete or ask_llm
+    user = prompt_loader.render(_RECONCILE_PROMPT, context=context, current=current,
+                                cds=_cds(), wiring=_wiring(),
+                                structure=_structure_block(structure),
+                                enumeration=enumeration or "Not available.")
+    system = prompt_loader.load(_SYSTEM_PROMPT)
+
+    try:
+        reply = council.deliberate(complete, system, user, stage="INTAKE_RECONCILE",
+                                   tier=config.stage_tier("INTAKE_RECONCILE", config.JUDGEMENT))
+        reconciled = DraftedIntake(_validate(parse_json_object(reply)))
+    except Exception as exc:
+        logger.warning("Could not reconcile the declaration: %s", exc)
+        return None
+
+    if not reconciled.data["decisions"] or not reconciled.data["states"]:
+        logger.warning("The reconciliation returned an empty graph; keeping what was there.")
+        return None
+    return reconciled
+
+
 def revise_intake(context: str, current: str, complete: Optional[Callable[..., str]] = None,
                   structure: Optional[dict] = None) -> DraftedIntake:
     """Ask for the intake revised in place, given what has been added since it was last written.
@@ -374,7 +426,8 @@ def revise_intake(context: str, current: str, complete: Optional[Callable[..., s
     for the intake stage's "Revise with these answers" action.
     """
     complete = complete or ask_llm
-    user = prompt_loader.render(_REVISE_PROMPT, context=context, current=current, cds=_cds(),
+    user = prompt_loader.render(_REVISE_PROMPT, context=context, current=current,
+                                cds=_cds(), wiring=_wiring(),
                                 structure=_structure_block(structure))
     system = prompt_loader.load(_SYSTEM_PROMPT)
 

@@ -69,33 +69,18 @@ The type is not cosmetic: it decides which adversarial probes are applied. A cap
 untyped silently drops the probes that would have tested it.
 
 **Decisions.** Every point where the agent branches, with an id like `DEC-01`, the capability it
-belongs to, and its **named outcomes**. Outcomes are the branch labels — `Pass / Fail`,
-`Found / Not found`, `Eligible / Not eligible` — and they must be the words the documentation
-uses. Each decision also carries:
-- `input_source`: `User`, `Tool`, `Memory-Session`, `Memory-CrossSession`, `System-Context` or
-  `Document`. **Only `User` steps become conversational turns**, so this is what tells the
-  scenario space whether a step is something a tester can drive or something that happens inside the
-  agent.
-- `max_attempts`: how many times this decision can be retried before the interaction moves on.
-  1 unless the evidence describes a retry.
-- `outcome_condition`: the threshold or rule that selects between outcomes, where one is stated.
+belongs to, and its named outcomes.
 
-**States.** Every position the interaction can occupy, with an id like `S-00`. Each carries:
-- `reached_via`: `Start` for the opening state, otherwise `DEC-xx=Outcome` — the exact decision
-  and outcome that leads to it. **This is what connects the graph.** A state whose `reached_via`
-  names an outcome no decision declares is unreachable, and the route through it is never tested.
-- `next_decisions`: which decisions are available from here, or empty if the interaction ends.
-- `is_terminal`: whether the interaction ends here. **Do not mark a state terminal just because
-  the evidence does not say what happens next.** An outcome of a decision that leads onward to
-  another branch is an intermediate state even where the next step is unclear -- that is a gap to
-  flag in `next_decisions` and the review notes, not a reason to call it an ending. Reserve
-  `is_terminal` for a state the evidence actually describes as finishing the interaction: a
-  hand-off, a rejection, a completed request.
-- `outcome_type`, on terminal states only: one of `Happy path`, `Retry`, `Fallback`,
-  `Escalation`, `Termination`.
+**States.** Every position the interaction can occupy, with an id like `S-00`.
+
+Decisions and states are what the graph is made of, and how they are wired to each other is set
+out in full below under HOW THE GRAPH IS WIRED. Read that section before writing either of them:
+it is where most of a draft's value is won or lost.
 
 **Tools.** The systems the agent calls, which capability each belongs to, and whether calling it
 changes stored data.
+
+{{wiring}}
 
 HOW TO BUILD IT
 
@@ -103,17 +88,12 @@ Work from the flow, not the form. Trace what happens from the moment a conversat
 what the agent establishes first, what it does with the answer, where it branches, what each
 branch leads to, and how each route ends. Then write that down as states and decisions.
 
-Make it connect. Every decision outcome should lead to a state, and every state other than the
-first should be reached by an outcome. Where you cannot see what an outcome leads to, still
-declare the outcome and note the gap — a declared branch with an unknown destination is far more
-useful than a branch nobody recorded.
-
-**Branches may rejoin.** Two outcomes can lead to the same state, and a state can name several of
-them in its `reached_via`, comma-separated: `DEC-02=Too old, DEC-05=Withdrawn`. Use that where the
-flow genuinely converges. Nothing here asks for a tree — a real agent loops back, hands several
-failures to the same person, and finishes several ways in the same place, and declaring that
-honestly is better than either inventing a separate state per outcome or flattening the branch
-away because it rejoins.
+**Check the wiring before you return it.** Go through the decisions one at a time and confirm
+each is named in some state's `next_decisions`, and that every outcome it declares is claimed by
+some state's `reached_via`. Then go through the states and confirm each one's `reached_via` is
+`Start` or names a real decision and a real outcome of it. This is a mechanical check and it
+takes a minute; it is also the single thing that most often separates a draft a person can
+correct in an afternoon from one they have to rebuild.
 
 Use the documentation's own words for outcomes, capabilities and states. The testers will be
 writing conversations in this domain's language.

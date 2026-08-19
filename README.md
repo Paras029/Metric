@@ -205,6 +205,20 @@ the same files these commands produce. A use case can move between the two freel
 
 Reading the documentation and drafting the intake are one stage because they are one job: the
 reading exists in order to be drafted from, and nothing happens between them that you decide.
+
+**Drafting is three passes, not one.** The draft is written from the documents. Then the
+declaration is audited against what the graph must have to be walked at all — a branch with fewer
+than two named outcomes, an outcome that leads nowhere, a decision no state routes into — and
+whatever the audit found is put back to the documents by name. Then the whole declaration is read
+back once: not row by row this time, but as a description of one agent, against the routes it
+actually enumerates to. That last pass is the only one that can see what two rows do to each
+other — a decision duplicating one three rows above under another name, a retry limit on a
+decision nothing loops back into, an escalation state no stated hand-off trigger accounts for.
+None of those is a gap in any single row, so nothing before it looks.
+
+All three are non-destructive by construction rather than by instruction. Anything a later pass
+drops is put back, and its result is audited against the declaration already on disk and discarded
+if it walks worse.
 Stages 4 and 7 are optional — the variation space is a placeholder that passes the scenario space
 through unchanged, and coverage is skipped where the model owner submitted no testing of their own.
 
@@ -404,8 +418,8 @@ not resolve it.
 the reading-and-drafting sequence at the intake stage rather than running after it.
 
 The sequence reads every document against three groups of questions, puts what is left open back
-to them twice more, drafts a declaration and repairs it once: seven to nine model calls in a fixed
-order, made whether or not each has anything to do. The loop decides what to open, writes a
+to them twice more, then drafts a declaration, repairs it and reads it back whole: eight to ten
+model calls in a fixed order, made whether or not each has anything to do. The loop decides what to open, writes a
 declaration, audits it, and goes back only for what is missing — an ordinary pack finishes in
 three or four calls, and a large one spends what it needs instead of what the sequence budgeted.
 

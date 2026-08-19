@@ -201,6 +201,15 @@ def _decision_gaps(intake: IntakeData, graph: DecisionGraph) -> List[Gap]:
                     "An outcome with no destination stops the route there whether or not that "
                     "was intended.",
                     example="S-07, the state where the user is asked to try again"))
+        if not graph.states_offering(decision.id):
+            gaps.append(Gap(
+                DECISION, decision.id, "reached_from",
+                f"How is {decision.id} ({decision.name}) arrived at? No state in the intake "
+                f"lists it under Valid Next Decisions, so no walk of the graph ever runs it.",
+                "A decision nothing routes into is not part of the graph at all -- it is drawn "
+                "as a fragment below the flow and contributes no scenarios, however completely "
+                "its outcomes are described.",
+                example="S-04, the state where identity has just been confirmed"))
         if not decision.trigger_capability:
             gaps.append(Gap(
                 DECISION, decision.id, "capability",

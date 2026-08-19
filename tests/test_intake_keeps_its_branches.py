@@ -226,12 +226,15 @@ class TestTheWholeDraftAndRepairRound(unittest.TestCase):
             self.calls.append("draft")
             return json.dumps(first)
 
+        # ``reconcile=False``: this file is about draft-and-repair keeping every branch, and a
+        # third call answered by the same stub would replay the draft over the repair.
         directory = Path(tempfile.mkdtemp())
         context = directory / "context.md"
         context.write_text("An agent that verifies a cardmember and files a dispute.",
                            encoding="utf-8")
         self.path = directory / "intake.xlsx"
-        draft_intake_workbook(str(context), str(self.path), complete=complete)
+        draft_intake_workbook(str(context), str(self.path), complete=complete,
+                              reconcile=False)
         return read_intake(str(self.path))
 
     def test_the_repair_fires_and_fills_the_hole(self):
@@ -270,7 +273,8 @@ class TestTheWholeDraftAndRepairRound(unittest.TestCase):
         context = directory / "context.md"
         context.write_text("An agent.", encoding="utf-8")
         path = directory / "intake.xlsx"
-        draft_intake_workbook(str(context), str(path), complete=complete)
+        draft_intake_workbook(str(context), str(path), complete=complete,
+                              reconcile=False)
 
         intake = read_intake(str(path))
         self.assertEqual(len(intake.states), 4)

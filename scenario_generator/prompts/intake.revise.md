@@ -60,6 +60,8 @@ exact `DEC-xx=Outcome` that leads here), `next_decisions`, `is_terminal`, and, o
 **Tools.** The systems the agent calls, which capability each belongs to, and whether calling it
 changes stored data.
 
+{{wiring}}
+
 HOW TO REVISE IT
 
 Go through the current declaration row by row. For each one: does anything below change it? If
@@ -75,6 +77,12 @@ that part's own numbering.
 Do not invent anything the evidence and the answers below do not support, and do not remove a row
 because you cannot see what it is for -- removing something a person may be relying on elsewhere
 is a worse mistake than leaving a weak row in place for them to reconsider.
+
+One thing to correct even where nothing below asks for it: **wiring that does not connect**. A
+decision no state offers, or a state whose `reached_via` names an outcome that does not exist, is
+not a matter of opinion the current declaration is entitled to -- it is a row that has fallen out
+of the graph and is testing nothing. Reconnect it where the declaration and the evidence make the
+connection plain, and flag it in the review notes where they do not.
 
 WHAT TO RETURN
 

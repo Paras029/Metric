@@ -19,6 +19,7 @@ from scenario_generator.llm.writer import ScenarioWriter
 _CONTRACT = {
     "shared.mission": set(),
     "shared.cds": set(),
+    "shared.wiring": set(),
     # The intake loop's goal prompt. No placeholders: what is wrong with the
     # declaration arrives as a message rather than baked into the system prompt,
     # because it changes on every sweep and the goal does not.
@@ -48,9 +49,11 @@ _CONTRACT = {
     "ingest.diagram_only": {"facets", "filename", "vocabulary"},
     "shared.diagram_vocabulary": set(),
     "ingest.diagram_repair": {"document", "structure", "problems"},
-    "intake.draft": {"context", "structure", "cds"},
-    "intake.revise": {"context", "current", "structure", "cds"},
-    "intake.repair": {"context", "current", "structure", "problems", "enumeration", "cds"},
+    "intake.draft": {"context", "structure", "cds", "wiring"},
+    "intake.revise": {"context", "current", "structure", "cds", "wiring"},
+    "intake.repair": {"context", "current", "structure", "problems", "enumeration",
+                      "cds", "wiring"},
+    "intake.reconcile": {"context", "current", "structure", "enumeration", "cds", "wiring"},
     "coverage.system": set(),
     "coverage.map": {"use_case", "scenarios", "conversations"},
     "coverage.migrate": {"origin", "sample"},

@@ -189,8 +189,21 @@ _GUIDE = [
                             "capability at a time, from each entry state to any exit state, so an "
                             "exit of one capability is usually an entry of the next. Leave both "
                             "blank on every capability to walk the whole graph end to end instead."),
+    ("What connects the graph", "Two columns, and only two. 'Reached Via' on a State says which "
+                                "decision outcome arrives there; 'Valid Next Decisions' says "
+                                "which decisions leave it. Every route the tool ever walks runs "
+                                "along those. A decision no state lists under Valid Next "
+                                "Decisions is never reached; a state no outcome names in Reached "
+                                "Via is never arrived at. Both are drawn as fragments below the "
+                                "graph rather than in it, and neither contributes a scenario."),
     ("Reached Via", "Use 'Start' for the opening state, or 'DEC-xx=Variant' for a state reached by a "
-                    "decision outcome. Two states may share the same value if an outcome recurs."),
+                    "decision outcome -- the variant spelled exactly as that decision spells it. "
+                    "Two states may share the same value if an outcome recurs, and one state may "
+                    "name several outcomes comma-separated where routes converge: "
+                    "'DEC-02=Too old, DEC-05=Withdrawn'."),
+    ("Valid Next Decisions", "Which decisions can be taken from this state, by id, "
+                             "comma-separated. Empty only where the interaction ends here -- an "
+                             "intermediate state with nothing next stops every route through it."),
     ("Possible Outputs", "Separate outcomes with '/'. Use plain words where they fit (Pass, Fail, "
                          "Escalate, Terminate, Retry) so scenarios are categorised correctly."),
     ("Input Source", "Where the decision's input arrives from: User, Tool, Memory-Session, "

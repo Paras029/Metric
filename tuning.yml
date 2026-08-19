@@ -96,6 +96,9 @@ stages:
   intake_repair:                  # filling in what the draft left structurally incomplete
     # model: a-smaller-model
     max_attempts: 4
+  intake_reconcile:               # the finished declaration read back whole, once
+    # model: a-smaller-model
+    max_attempts: 4
   structure_review:               # reconnection and consolidation proposals on the graph
     # model: a-smaller-model
     max_attempts: 4
@@ -169,6 +172,7 @@ council:
     ingest_diagram_repair: off
     intake_draft: off             # the declaration the whole scenario space is built from
     intake_repair: off            # filling in what that draft left structurally incomplete
+    intake_reconcile: off         # the finished declaration read back whole, once
     reviewer_assess: off          # materiality settled and weak scenarios flagged
     reviewer_propose: off         # what enumeration could not reach
     coverage_map: off             # the model owner's conversations, onto the scenario space

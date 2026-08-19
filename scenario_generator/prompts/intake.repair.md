@@ -56,10 +56,7 @@ requires**, and say in a review note that you inferred it. A branch declared wit
 untestable; the same branch with a named failure outcome is testable and can be corrected by a
 person in ten seconds. Leaving it blank is the only option that helps nobody.
 
-Outcomes are allowed to converge. Two outcomes of different decisions can both lead to the same
-state, and a state can name several of them in its `reached_via`, comma-separated: `DEC-02=Too
-old, DEC-05=Withdrawn`. A branch that rejoins the main flow is a normal shape and declaring it
-that way is better than inventing a separate state that describes the same position twice.
+{{wiring}}
 
 Two things you must not do. Do not remove a row because it is the easier way to make a point go
 away -- a decision deleted is a part of the agent nobody tests, and anything you drop is put back

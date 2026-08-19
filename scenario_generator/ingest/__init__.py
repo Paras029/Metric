@@ -12,8 +12,8 @@ from .context_document import (build_context_document, build_model_context,
                                open_questions, rejection_summary)
 from .conversations import (Conversation, Turn, UnreadableConversations,
                             read_conversations, redact_conversations)
-from .drafting import (DraftedIntake, carry_forward, draft_intake, repair_intake,
-                       revise_intake,
+from .drafting import (DraftedIntake, carry_forward, draft_intake, reconcile_intake,
+                       repair_intake, revise_intake,
                        write_drafted_intake)
 from .extraction import (DocumentExtractor, IngestionFailed, build_corpus,
                          extract_documents, record_from_json, record_to_json)
@@ -24,6 +24,7 @@ __all__ = ["DocumentExtractor", "extract_documents", "record_to_json", "record_f
            "rejection_summary", "IngestionFailed",
            "read_document", "UnreadableDocument", "SUPPORTED_EXTENSIONS",
            "build_corpus",
-           "draft_intake", "repair_intake", "revise_intake", "write_drafted_intake",
+           "draft_intake", "repair_intake", "reconcile_intake", "revise_intake",
+           "write_drafted_intake",
            "DraftedIntake", "carry_forward", "redact_conversations",
            "read_conversations", "UnreadableConversations", "Conversation", "Turn"]

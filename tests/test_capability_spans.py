@@ -295,3 +295,104 @@ class TestTheBlockSurvivesTheWorkbook(unittest.TestCase):
                          [s.capability_id for s in written])
         self.assertEqual([s.precondition for s in read_back],
                          [s.precondition for s in written])
+
+
+class TestTheHandDrawnSpanSurvivesTheSequentialPass(unittest.TestCase):
+    """A span is drawn once, by hand, and every re-run of the intake stage must leave it alone.
+
+    Nothing proposes a span: where a capability begins and ends is the validator's call, and it is
+    the one thing in the workbook a model never writes. Which makes it the one thing at risk --
+    drafting and revising both rewrite the workbook wholesale, so a span survives only because it
+    is read off the file before that happens and put back afterwards. A pass that quietly drops it
+    costs an afternoon of work and shows nothing on screen except a scenario count that changed.
+    """
+
+    _DRAWN = {
+        "use_case": {"name": "Disputes", "objective": "Handle a disputed charge",
+                     "agent_type": "Chat", "channel": "Web",
+                     "handoff_triggers": "The cardmember asks for a person",
+                     "safety_requirements": "No account detail before identification",
+                     "success_criteria": "The dispute is filed or refused with a reason"},
+        "personas": [{"id": "P-01", "name": "Cardmember", "applies_to": "Wants a reversal",
+                      "is_default": True},
+                     {"id": "P-ADV", "name": "Impostor", "applies_to": "Wants another account",
+                      "is_default": False}],
+        "capabilities": [{"id": "CAP-01", "name": "Identification", "type": "Gating"},
+                         {"id": "CAP-02", "name": "Charge handling", "type": "Transactional"}],
+        "decisions": [
+            {"id": "DEC-01", "name": "Identify", "capability_id": "CAP-01", "inputs": "Card",
+             "outcomes": ["Identified", "Not identified"], "input_source": "User",
+             "max_attempts": 1, "outcome_condition": ""},
+            {"id": "DEC-02", "name": "Assess the charge", "capability_id": "CAP-02",
+             "inputs": "Charge", "outcomes": ["Disputable", "Not disputable"],
+             "input_source": "Tool", "max_attempts": 1, "outcome_condition": ""}],
+        "states": [
+            {"id": "S-00", "reached_via": "Start", "description": "The chat opens",
+             "next_decisions": ["DEC-01"], "is_terminal": False, "outcome_type": ""},
+            {"id": "S-01", "reached_via": "DEC-01=Identified",
+             "description": "Identified; asking which charge", "next_decisions": ["DEC-02"],
+             "is_terminal": False, "outcome_type": ""},
+            {"id": "S-02", "reached_via": "DEC-01=Not identified",
+             "description": "Not identified; chat ended", "next_decisions": [],
+             "is_terminal": True, "outcome_type": "Termination"},
+            {"id": "S-03", "reached_via": "DEC-02=Disputable",
+             "description": "Dispute filed", "next_decisions": [], "is_terminal": True,
+             "outcome_type": "Happy path"},
+            {"id": "S-04", "reached_via": "DEC-02=Not disputable",
+             "description": "Refused with a reason", "next_decisions": [], "is_terminal": True,
+             "outcome_type": "Termination"}],
+        "tools": []}
+
+    def setUp(self):
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from scenario_generator.core.intake import set_capability_span
+        from scenario_generator.pipeline import draft_intake_workbook
+
+        self.work = Path(tempfile.mkdtemp())
+        self.context = self.work / "run_context.md"
+        self.context.write_text("Identification, then the charge is assessed.\n",
+                                encoding="utf-8")
+        self.path = self.work / "intake.xlsx"
+
+        payload = json.dumps(self._DRAWN)
+        self.complete = lambda system, user, **kwargs: payload
+        draft_intake_workbook(str(self.context), str(self.path), complete=self.complete)
+
+        # Drawn by hand afterwards, which is the only way a span is ever set.
+        set_capability_span(str(self.path), "CAP-01", ["S-00"], ["S-01", "S-02"])
+        set_capability_span(str(self.path), "CAP-02", ["S-01"], ["S-03", "S-04"])
+
+    def _spans(self):
+        from scenario_generator.core.intake import read_intake
+
+        return {c.id: (tuple(c.entry_states), tuple(c.exit_states))
+                for c in read_intake(str(self.path)).capabilities}
+
+    def test_the_span_is_there_to_begin_with(self):
+        self.assertEqual(self._spans()["CAP-02"], (("S-01",), ("S-03", "S-04")))
+
+    def test_redrafting_over_it_keeps_it(self):
+        from scenario_generator.pipeline import draft_intake_workbook
+
+        draft_intake_workbook(str(self.context), str(self.path), complete=self.complete)
+        self.assertEqual(self._spans()["CAP-01"], (("S-00",), ("S-01", "S-02")))
+        self.assertEqual(self._spans()["CAP-02"], (("S-01",), ("S-03", "S-04")))
+
+    def test_revising_it_keeps_it(self):
+        from scenario_generator.pipeline import revise_intake_workbook
+
+        revise_intake_workbook(str(self.path), str(self.path), context_path=str(self.context),
+                               complete=self.complete)
+        self.assertEqual(self._spans()["CAP-02"], (("S-01",), ("S-03", "S-04")))
+
+    def test_the_scenarios_are_walked_per_block_after_a_re_run(self):
+        """What the span is for. If it were lost, this would walk the whole graph instead."""
+        from scenario_generator.core.intake import read_intake
+        from scenario_generator.pipeline import build_scenario_space, draft_intake_workbook
+
+        draft_intake_workbook(str(self.context), str(self.path), complete=self.complete)
+        space = build_scenario_space(read_intake(str(self.path)), with_probes=False)
+        self.assertEqual({s.capability_id for s in space}, {"CAP-01", "CAP-02"})
