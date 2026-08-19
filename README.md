@@ -247,6 +247,14 @@ your head, but by seeing where the two paths part. Collapse a card and its route
 *Clear routes*, or Escape, closes them all. The graph starts folded away on those stages and
 unfolds itself the first time you open a card.
 
+**The graph gets the window when it needs it.** *Open full screen* on the graph's own header
+takes it out of the page into a view that fills the screen — the same drawing, the same zoom, the
+same lit routes, because the section is moved rather than redrawn. On a stage that has a scenario
+space the button reads *Open with the scenarios* and the list comes with it: the list down one
+side, the drawing down the other, and opening a card lights its route without anything scrolling.
+That is the point of the highlighting and it never quite paid off while the two were several
+screens apart. Escape, or *Close*, puts both back where they were with the open cards still open.
+
 The graph also leaves the tool. *Open the graph on its own* and *Download it as a page that still
 zooms* both produce the same self-contained file — same drawing, same zoom, same highlighting, and
 the scenario list with it, so opening a scenario lights its route offline exactly as it does here.

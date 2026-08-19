@@ -259,7 +259,12 @@
          stage whose job is the scenario list it folds away, because a full graph above three
          hundred cards pushes every one of them off the screen. Folded, it still opens itself the
          moment a scenario card is opened -- that is the whole point of the route lighting up. #}
-      <section class="block">
+      {# The graph and the scenario list are both moved -- not copied -- into the expanded view
+         below, and moved back when it closes. Moving keeps every event listener and every lit
+         element exactly as it was, which a copy would not: a second drawing on the page would
+         need its own bindings and would drift from this one the first time either changed. #}
+      <span data-anchor-for="graph" hidden></span>
+      <section class="block" data-movable="graph">
         <details class="graph__section" id="declared-graph"
                  {% if graph_open %}open{% endif %} data-graph-section>
           <summary class="graph__section-head">
@@ -267,6 +272,15 @@
             <span class="graph__section-note" data-graph-selection>
               {% if routes %}Open a scenario below to light its route{% endif %}
             </span>
+            {# In the header rather than with the zoom controls, because the controls are inside
+               the fold and being folded is exactly when somebody wants the bigger view. A forty-
+               box graph in a frame the height of a paragraph is a picture zoom cannot rescue --
+               what it needs is the window. Where the page has a scenario space the list goes with
+               it: the premise of the route highlighting is that a scenario *is* a path through
+               the drawing, and that only pays off with both in front of you. #}
+            <button class="button button--quiet graph__expand" type="button" data-expand-open>
+              {% if space %}Open with the scenarios{% else %}Open full screen{% endif %}
+            </button>
           </summary>
         <p class="block__body">
           Boxes are decisions, arrows the states between them, rounded boxes the endings.
@@ -794,7 +808,8 @@
        the model owner's conversations against each. Repeating the scenario space here would put
        the same rows on the same screen twice. #}
     {% if space and not (coverage and stage.key == 'coverage') %}
-      <section class="block">
+      <span data-anchor-for="space" hidden></span>
+      <section class="block" data-movable="space">
         <h2 class="block__title">The scenario space so far</h2>
         <p class="block__body">
           Routes and expected outcomes stay in the scenario space metadata.
@@ -1064,6 +1079,22 @@
       </section>
     {% endif %}
 
+
+    {# Empty until something is moved into it. It is a dialog rather than a page: Escape closes
+       it, the rest of the page stops scrolling underneath, and what was moved goes back where it
+       came from. #}
+    <div class="expand" data-expand hidden role="dialog" aria-modal="true"
+         aria-label="The declared graph">
+      <div class="expand__bar">
+        <span class="expand__title">The declared graph</span>
+        <span class="expand__note" data-expand-note></span>
+        <button class="button button--quiet" type="button" data-expand-close>Close</button>
+      </div>
+      <div class="expand__body">
+        <div class="expand__list" data-expand-slot="space"></div>
+        <div class="expand__graph" data-expand-slot="graph"></div>
+      </div>
+    </div>
 
     {% if state.artifacts and not groups %}
       <section class="block">

@@ -356,3 +356,104 @@
     });
   });
 })();
+
+/* The graph at the size it needs, with the scenarios beside it.
+ *
+ * A declaration of any size draws to a picture taller than the frame it sits in, and zoom does
+ * not fix that -- a graph scaled to fit a paragraph-high frame is unreadable at the scale that
+ * fits. What it needs is the window.
+ *
+ * And where the page has a scenario space, the list comes with it. The premise of the route
+ * highlighting is that a scenario *is* a path through the drawing, which only pays off if both
+ * are in front of you: on the stage, opening a card lights a route several screens away, so
+ * reading one scenario against the picture means scrolling up and back for every card.
+ *
+ * The sections are **moved** rather than copied. A copy would be a second drawing needing its own
+ * zoom, its own hover and its own route lighting, and the two would disagree the first time
+ * either was touched. Moving keeps every listener, every open card and every lit element exactly
+ * as they were, so the overlay is the same page at a different size rather than another one. */
+(function () {
+  var overlay = document.querySelector('[data-expand]');
+  var opener = document.querySelector('[data-expand-open]');
+  if (!overlay || !opener) { return; }
+
+  var closer = overlay.querySelector('[data-expand-close]');
+  var note = overlay.querySelector('[data-expand-note]');
+  var canvas = document.querySelector('[data-graph-canvas]');
+
+  function slot(name) { return overlay.querySelector('[data-expand-slot="' + name + '"]'); }
+  function anchor(name) { return document.querySelector('[data-anchor-for="' + name + '"]'); }
+  function section(name) { return document.querySelector('[data-movable="' + name + '"]'); }
+
+  function move(name, into) {
+    var moving = section(name);
+    if (moving && into) { into.appendChild(moving); }
+  }
+
+  function refit() {
+    // The frame changed size, so whatever is holding the zoom has to fit to it again. The same
+    // event the view switch sends, for the same reason.
+    if (canvas) { canvas.dispatchEvent(new CustomEvent('metric:viewchanged')); }
+  }
+
+  function open() {
+    overlay.hidden = false;
+    document.body.classList.add('is-expanded');
+    move('space', slot('space'));
+    move('graph', slot('graph'));
+
+    // Folded away, the graph would open to an empty pane. Whatever state the section was left in
+    // on the stage is not the state that makes sense here.
+    var folded = overlay.querySelector('[data-graph-section]');
+    if (folded) { folded.open = true; }
+
+    if (note) {
+      note.textContent = slot('space').firstElementChild
+        ? 'Open a scenario to light its route · Escape to close'
+        : 'Hover to follow one thread · drag to pan · Escape to close';
+    }
+    // The button rides inside the graph section, so it comes along. Hidden rather than left
+    // showing, because "open full screen" on a screen that is already full reads as a control
+    // that does nothing.
+    opener.hidden = true;
+    refit();
+    if (closer) { closer.focus(); }
+  }
+
+  function close() {
+    // Back where each came from, in the order the page had them. The anchors exist because a
+    // section put back at the end of the page would be in the wrong place and would stay there.
+    var graphAnchor = anchor('graph'), spaceAnchor = anchor('space');
+    var graph = section('graph'), space = section('space');
+    if (graph && graphAnchor && graphAnchor.parentNode) {
+      graphAnchor.parentNode.insertBefore(graph, graphAnchor.nextSibling);
+    }
+    if (space && spaceAnchor && spaceAnchor.parentNode) {
+      spaceAnchor.parentNode.insertBefore(space, spaceAnchor.nextSibling);
+    }
+    overlay.hidden = true;
+    opener.hidden = false;
+    document.body.classList.remove('is-expanded');
+    refit();
+    opener.focus();
+  }
+
+  opener.addEventListener('click', function (event) {
+    // The button sits inside the section's <summary>, so a click on it is also a click on the
+    // disclosure. Without this, expanding also folds the section away underneath -- and the fold
+    // is what is showing again the moment the overlay closes.
+    event.preventDefault();
+    event.stopPropagation();
+    open();
+  });
+  if (closer) { closer.addEventListener('click', close); }
+
+  // Escape closes the overlay, and only the overlay. The route highlighting also listens for it
+  // to clear open cards, which is the right thing on the stage and the wrong thing here -- one
+  // key press should not both drop the selection and put the window away.
+  document.addEventListener('keydown', function (event) {
+    if (event.key !== 'Escape' || overlay.hidden) { return; }
+    event.stopPropagation();
+    close();
+  }, true);
+})();

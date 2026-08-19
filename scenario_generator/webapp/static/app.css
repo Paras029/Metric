@@ -1854,3 +1854,94 @@ ol, ul { list-style: none; padding: 0; }
 .graph__node--block .graph__caption { font-weight: 600; }
 .graph__node--faded { opacity: 0.22; }
 .graph__zoom--view { margin-left: auto; }
+
+
+/* =================================================================== the expanded graph
+ *
+ * A forty-box graph inside a frame the height of a paragraph is a picture nobody can read, and
+ * zoom does not help -- what it needs is the window. So the graph section is *moved* into a
+ * fixed overlay and moved back on close: the same elements, the same listeners, the same lit
+ * route. A copy would need its own bindings and would drift from the original the first time
+ * either changed.
+ *
+ * Where the page has a scenario space, the list comes with it. Reading a scenario and finding
+ * its route in the drawing meant scrolling between the two, which is exactly the thing the
+ * highlighting exists to remove -- so side by side, list on the left, drawing on the right, and
+ * opening a card lights its route without anything moving.
+ */
+/* In the section header, after the selection note -- which already carries the auto margin that
+   pushes the pair to the far end. A second auto margin here would split the gap between them
+   instead of keeping them together. */
+.graph__expand { margin-left: var(--s3); flex: 0 0 auto; align-self: center; }
+
+.expand {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas);
+}
+.expand[hidden] { display: none; }
+
+.expand__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  padding: var(--s3) var(--s5);
+  background: var(--navy);
+  color: var(--on-navy);
+  border-bottom: 1px solid var(--navy-line);
+  flex: 0 0 auto;
+}
+.expand__title { font-weight: 650; font-size: var(--t-ui); }
+.expand__note { font-size: var(--t-meta); color: var(--on-navy-mid); }
+.expand__bar .button {
+  margin-left: auto;
+  background: transparent;
+  border-color: var(--navy-line);
+  color: var(--on-navy);
+}
+.expand__bar .button:hover { border-color: var(--on-navy-mid); }
+
+.expand__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  /* One column until something is moved into the list slot; the empty slot has display:none, so
+     the graph takes the whole width on a stage with no scenario space. */
+  grid-template-columns: minmax(22rem, 30rem) 1fr;
+}
+.expand__body:not(:has(.expand__list > *)) { grid-template-columns: 1fr; }
+.expand__list:empty { display: none; }
+
+.expand__list,
+.expand__graph {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--s4) var(--s5);
+}
+.expand__list { border-right: 1px solid var(--rule); background: var(--surface); }
+
+/* Inside the overlay the two sections are the whole page, so they lose the card they wear on the
+   stage -- a bordered panel inside a full-screen pane is a box drawn around the window. */
+.expand__list > .block,
+.expand__graph > .block { margin: 0; border: 0; padding: 0; background: none; }
+
+/* And the graph gets the height it was always short of. The frame is fixed on the stage so a
+   long declaration does not push the scenario list off the screen; here there is nothing below
+   it to protect. */
+.expand__graph .graph__frame { max-height: none; height: calc(100vh - 13rem); }
+.expand__graph .graph__section { border: 0; padding: 0; }
+
+/* The graph is the point of the overlay, so it is never folded away inside it. */
+.expand__graph .graph__section-head { display: none; }
+
+body.is-expanded { overflow: hidden; }
+
+@media (max-width: 60rem) {
+  .expand__body { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+  .expand__list { border-right: 0; border-bottom: 1px solid var(--rule); }
+  .expand__graph .graph__frame { height: 100%; }
+}
