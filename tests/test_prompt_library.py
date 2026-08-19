@@ -23,7 +23,7 @@ _CONTRACT = {
     # The intake loop's goal prompt. No placeholders: what is wrong with the
     # declaration arrives as a message rather than baked into the system prompt,
     # because it changes on every sweep and the goal does not.
-    "ingest.agent": set(),
+    "ingest.agent": {"wiring"},
     "shared.materiality_scale": set(),
     "shared.house_style": set(),
     "writer.system": set(),

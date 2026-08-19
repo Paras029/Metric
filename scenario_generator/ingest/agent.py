@@ -240,42 +240,27 @@ def build_tools(pack: "Pack", intake_path: str, read_once: Dict[str, object],
         return pack.text_of(key)
 
     def read_the_pack(**_) -> str:
-        """Read everything submitted, with the pipeline that was built to do it.
+        """What the submitted pack establishes, read with the pipeline built to do it.
 
-        The loop used to read documents one at a time as raw text and file free-form notes about
-        them, which threw away three things worth keeping. The facet reading puts every document
-        to the model *together*, so a threshold in an appendix and the process it governs in
-        section three are in front of it at once. Grounding checks every claim's verbatim quote
-        against the corpus and drops the ones that are not there. And diagrams go through the
-        three-pass reading -- per image, joined, then checked against the pictures again -- which
-        is the only correct way to read several.
+        The reading now happens before the loop's first turn, so in the ordinary case this returns
+        what the opening message already carried. It stays available because a long conversation
+        pushes the opening out of easy reach, and because a loop that asks for the reading should
+        get the reading rather than an error.
 
-        That last one was not merely weaker but wrong. Reading images one at a time always took
-        the single-image path, whose prompt says the image *is* the whole flow; three images each
-        got told that, each numbered its boxes from one, and the collisions were dropped on merge.
-        Whole pictures disappeared silently.
-
-        So this is one tool call that runs the real thing. It is the most expensive call the loop
-        can make and the one it should almost always make first.
+        The pipeline matters and is worth saying why. The facet reading puts every document to the
+        model *together*, so a threshold in an appendix and the process it governs in section three
+        are in front of it at once. Grounding checks every claim's verbatim quote against the
+        corpus and drops the ones that are not there. And diagrams go through the three-pass
+        reading -- per image, joined, then checked against the pictures again -- which is the only
+        correct way to read several. Reading images one at a time always took the single-image
+        path, whose prompt says the image *is* the whole flow; three images each got told that,
+        each numbered its boxes from one, and the collisions were dropped on merge. Whole pictures
+        disappeared silently.
         """
-        from .context_document import build_context_document
-        from .extraction import extract_documents
-
-        if read_once.get("record") is not None:
-            return ("The pack is already read; what it established is above. Use read_document "
-                    "for a specific file, or write_declaration.")
         if not pack.files:
             return "Nothing was submitted, so there is nothing to read."
-        try:
-            record = extract_documents(
-                list(pack.files.values()), should_redact=pack.should_redact,
-                describe_images=describe_images, diagram_mode=diagram_mode)
-        except Exception as exc:
-            return f"The pack could not be read: {exc}"
-
-        read_once["record"] = record
-        structure.update(record.structure or {})
-        return build_context_document(record)
+        return (_read_the_pack_once(pack, read_once, structure, describe_images, diagram_mode)
+                or "The pack could not be read.")
 
     def what_is_declared(**_) -> str:
         from ..llm.context import describe_graph, describe_use_case
@@ -315,6 +300,36 @@ def build_tools(pack: "Pack", intake_path: str, read_once: Dict[str, object],
                                   "what is there, so send the whole declaration every time, not "
                                   "a patch.", write),
     ]
+
+
+def _read_the_pack_once(pack: "Pack", read_once: Dict[str, object], structure: Dict[str, list],
+                        describe_images, diagram_mode: str) -> str:
+    """Run the reading pipeline over everything submitted, once, and return what it established.
+
+    Shared by the up-front call and by the ``read_the_pack`` tool, so a loop that asks for the
+    reading gets exactly what it was already given rather than a second, differently-shaped
+    version of it. ``read_once`` is what makes it once: the record is expensive, every later stage
+    is grounded on it, and reading the same pack twice would produce two records of which only one
+    could be written.
+    """
+    from .context_document import build_context_document
+    from .extraction import extract_documents
+
+    if read_once.get("record") is not None:
+        return build_context_document(read_once["record"])
+    if not pack.files:
+        return ""
+    try:
+        record = extract_documents(
+            list(pack.files.values()), should_redact=pack.should_redact,
+            describe_images=describe_images, diagram_mode=diagram_mode)
+    except Exception as exc:
+        logger.warning("The pack could not be read: %s", exc)
+        return ""
+
+    read_once["record"] = record
+    structure.update(record.structure or {})
+    return build_context_document(record)
 
 
 def _empty_record():
@@ -445,6 +460,19 @@ def run(workspace_root: Path, intake_path: str, converse=None, progress=None,
     structure: Dict[str, list] = {}
     questions: List[str] = []
 
+    # Read the pack before the loop is given a turn, rather than offering it as a tool and hoping
+    # it is called. Two things went wrong when it was optional. A loop that opened files one at a
+    # time with read_document never produced a record, so no context document was written -- and
+    # the context document is what every later stage is grounded on, since none of them see the
+    # documents. And the reading itself was worse, because reading documents together is what lets
+    # a threshold in an appendix meet the process it governs in section three.
+    #
+    # It also costs nothing to do here. The reading is the same call either way; making it
+    # unconditional only removes a turn the loop was spending to ask for it.
+    reading = _read_the_pack_once(pack, read_once, structure, describe_images, diagram_mode)
+    if read_once.get("record") is not None:
+        _write_evidence(Path(workspace_root), read_once["record"])
+
     problems = outstanding(intake_path)
     state = Progress(gaps_at_start=len(problems), gaps_now=len(problems))
     started_from_nothing = not Path(intake_path).exists()
@@ -460,8 +488,11 @@ def run(workspace_root: Path, intake_path: str, converse=None, progress=None,
 
     messages: List[dict] = [
         {"role": "system", "content": prompt_loader.load("shared.cds") + "\n\n"
-                                      + prompt_loader.load(_SYSTEM_PROMPT)},
-        {"role": "human", "content": _opening(pack, problems, started_from_nothing, notes)},
+                                      + prompt_loader.render(
+                                          _SYSTEM_PROMPT,
+                                          wiring=prompt_loader.load("shared.wiring"))},
+        {"role": "human", "content": _opening(pack, problems, started_from_nothing, notes,
+                                              reading)},
     ]
 
     repeated: Dict[str, object] = {}
@@ -571,15 +602,19 @@ _TOOL_LINES = {
 
 
 def _opening(pack: "Pack", problems: Sequence[str], from_nothing: bool,
-             notes: Sequence[str]) -> str:
-    """The first message: what was submitted, what exists, and what is wrong with it.
+             notes: Sequence[str], reading: str = "") -> str:
+    """The first message: what the documents established, what exists, and what is wrong with it.
 
-    Named files rather than a count, because the first thing the loop has to decide is what to
-    open, and a list it already has is a tool call it does not have to spend.
+    The reading is here rather than behind a tool call because it is needed on every run without
+    exception, and a turn spent asking for something that is always needed is a turn wasted. Named
+    files as well, because going back to one specific passage is a real thing the loop does and a
+    list it already has is another call it does not have to spend.
     """
     submitted = ("Submitted: "
                  + ", ".join(sorted(pack.files)) if pack.files else
                  "Nothing was submitted.")
+    if reading:
+        submitted = f"WHAT THE SUBMITTED PACK ESTABLISHES\n\n{reading}\n\n{submitted}"
     if from_nothing:
         state = ("There is no declaration yet. Read what was submitted and write one with "
                  "write_declaration.")

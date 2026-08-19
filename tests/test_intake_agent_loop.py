@@ -378,6 +378,50 @@ class TestItBuildsADeclarationFromNothing(unittest.TestCase):
         self.assertIn("resolves disputed card charges", context)
         self.assertTrue((self.root / "ingest_evidence.json").exists())
 
+    def test_the_reading_lands_even_when_the_loop_never_asks_for_it(self):
+        """The defect this guards. A loop that opened files one at a time with read_document
+        produced no record, so no context document was written -- and every stage after this one
+        is grounded on that file rather than on the documents, which they never see."""
+        import json as _json
+        from scenario_generator.core.evidence import EvidenceRecord, FacetAnswer
+
+        record = EvidenceRecord(answers=[FacetAnswer(
+            facet="use_case", answer="It resolves disputed card charges without a person.",
+            points=["It resolves disputed card charges without a person."],
+            confidence="High")])
+
+        with mock.patch("scenario_generator.ingest.extraction.extract_documents",
+                        lambda paths, **kwargs: record):
+            agent.run(self.root, str(self.intake), converse=_scripted(
+                _call("read_document", name="notes.md"),
+                _call("write_declaration", declaration=_json.dumps(_DECLARATION))))
+
+        self.assertIn("resolves disputed card charges",
+                      (self.root / "ingest_context.md").read_text())
+        self.assertTrue((self.root / "ingest_evidence.json").exists())
+
+    def test_the_reading_is_in_front_of_the_loop_before_its_first_turn(self):
+        """A turn spent asking for something needed on every run is a turn wasted."""
+        from scenario_generator.core.evidence import EvidenceRecord, FacetAnswer
+
+        record = EvidenceRecord(answers=[FacetAnswer(
+            facet="use_case", answer="It resolves disputed card charges without a person.",
+            points=["It resolves disputed card charges without a person."],
+            confidence="High")])
+        seen = {}
+
+        def converse(messages):
+            seen.setdefault("first", list(messages))
+            return {"content": "", "tool_calls": []}
+
+        with mock.patch("scenario_generator.ingest.extraction.extract_documents",
+                        lambda paths, **kwargs: record):
+            agent.run(self.root, str(self.intake), converse=converse)
+
+        opening = seen["first"][-1]["content"]
+        self.assertIn("resolves disputed card charges", opening)
+        self.assertIn("notes.md", opening, "the file list went missing with the reading added")
+
     def test_the_pack_is_read_with_the_pipeline_built_for_it(self):
         """Not re-implemented in the loop. Reading documents one at a time as raw text threw away
         the grounding, the facet coverage, and -- worst -- the multi-image diagram passes."""
@@ -398,17 +442,22 @@ class TestItBuildsADeclarationFromNothing(unittest.TestCase):
                          "the mode somebody chose for their images was not passed through")
         self.assertIn("should_redact", seen["kwargs"])
 
-    def test_reading_the_pack_twice_is_refused(self):
-        """The most expensive call available, and its result is already in the conversation."""
+    def test_the_pack_is_read_once_however_often_it_is_asked_for(self):
+        """The most expensive call available. Asking twice returns the reading, not a second one."""
+        calls = []
+
         def reads(paths, **kwargs):
             from scenario_generator.core.evidence import EvidenceRecord
+            calls.append(paths)
             return EvidenceRecord()
 
         with mock.patch("scenario_generator.ingest.extraction.extract_documents", reads):
+            read_once = {}
             tools = {t.name: t for t in agent.build_tools(
-                agent.Pack(self.root), str(self.intake), {}, {})}
-            tools["read_the_pack"].run()
-            self.assertIn("already read", tools["read_the_pack"].run())
+                agent.Pack(self.root), str(self.intake), read_once, {})}
+            first = tools["read_the_pack"].run()
+            self.assertEqual(tools["read_the_pack"].run(), first)
+            self.assertEqual(len(calls), 1, "the pack was read a second time")
 
 
 class TestWhatWriteDeclarationRefuses(unittest.TestCase):
