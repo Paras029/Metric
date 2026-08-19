@@ -635,6 +635,52 @@ class TestNothingIsDrawnOverAnythingElse(unittest.TestCase):
                                            f"each other")
                 placed.append((x, y, width, f"{edge.source} -> {edge.target}"))
 
+    def test_no_label_is_drawn_behind_a_box(self):
+        """The worst of the three, because it is the least obviously wrong: a label half behind a
+        box is still legible enough to be read as belonging to that box. It happens where a
+        decision has more outcomes than the row gap has room for label rows."""
+        from scenario_generator.webapp.graphview import (BOX_HEIGHT, BOX_WIDTH, _label_position,
+                                                         _label_width, _stagger)
+
+        for name, layout in self._drawings():
+            rank_of = _stagger(layout)
+            for edge in layout.edges:
+                source, target = layout.nodes.get(edge.source), layout.nodes.get(edge.target)
+                if not source or not target or edge.is_back:
+                    continue
+                x, y = _label_position(edge, source, target, rank_of.get(id(edge), 0))
+                half, top, bottom = _label_width(edge) / 2, y - 9, y + 8
+                for node in layout.nodes.values():
+                    clear = (bottom <= node.y or top >= node.y + BOX_HEIGHT
+                             or x + half <= node.x or x - half >= node.x + BOX_WIDTH)
+                    self.assertTrue(clear, f"{name}: the label on {edge.source} -> "
+                                           f"{edge.target} is drawn over {node.id}")
+
+    def test_a_row_is_given_the_room_its_labels_need(self):
+        """The gap is fixed at GAP_Y, which fits three rows of labels. Where a row needs four --
+        which the wide example does, at the depths where three continuing outcomes and a refusal
+        all leave one decision -- the row below is pushed down rather than drawn over."""
+        from scenario_generator.core.intake import read_intake
+        from scenario_generator.webapp.graphview import BOX_HEIGHT, GAP_Y, build_layout, _stagger
+
+        layout = build_layout(read_intake(str(self.EXAMPLES / "5_wide_chain_scale.xlsx")))
+        rank_of = _stagger(layout)
+        deepest = {}
+        for edge in layout.edges:
+            source = layout.nodes.get(edge.source)
+            if source is not None and id(edge) in rank_of:
+                deepest[source.y] = max(deepest.get(source.y, 0), rank_of[id(edge)])
+
+        crowded = [y for y, rank in deepest.items() if rank >= 3]
+        self.assertTrue(crowded, "the example no longer stacks four labels anywhere")
+
+        rows = sorted({node.y for node in layout.nodes.values()})
+        for y in crowded:
+            below = next((other for other in rows if other > y), None)
+            self.assertIsNotNone(below)
+            self.assertGreater(below - y - BOX_HEIGHT, GAP_Y,
+                               "a row with four rows of labels below it was not widened")
+
     def test_a_fan_whose_labels_do_not_touch_stays_on_one_line(self):
         """Every extra row puts a label further from the arrow it belongs to, so the stagger is
         packed rather than assigned by position."""

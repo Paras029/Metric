@@ -45,6 +45,7 @@ LOOP_LANE_GAP = 30
 
 # How far apart the labels of two edges leaving the same box are pushed. See _label_position.
 LABEL_STAGGER = 19
+LABEL_HEIGHT = 17
 LOOP_MARGIN = 34
 
 START = "start"
@@ -589,15 +590,45 @@ def _place(layout: Layout) -> None:
 
     widest = max((len(row) for row in rows.values()), default=1)
     content_width = MARGIN * 2 + widest * BOX_WIDTH + (widest - 1) * GAP_X
-    layout.height = MARGIN * 2 + len(rows) * BOX_HEIGHT + (len(rows) - 1) * GAP_Y
 
+    # Across before down. The stagger needs to know how wide each label is and where it sits
+    # horizontally; nothing about it depends on y, and computing it first is what lets each row's
+    # gap be sized to the labels that actually cross it.
     for depth, row in sorted(rows.items()):
         row.sort(key=lambda n: (n.kind == TERMINAL, n.id))
         span = len(row) * BOX_WIDTH + (len(row) - 1) * GAP_X
         left = (content_width - span) / 2
         for column, node in enumerate(row):
             node.x = left + column * (BOX_WIDTH + GAP_X)
-            node.y = MARGIN + depth * (BOX_HEIGHT + GAP_Y)
+            node.depth = depth
+
+    # How many rows of labels have to fit between each pair of rows of boxes. A fixed gap fits
+    # three; a decision with five outcomes needs five, and the fourth and fifth were being drawn
+    # underneath the boxes below -- a label a reader can see is behind a box is worse than one
+    # that is not there, because it is still legible enough to be read as belonging to it.
+    rank_of = _stagger(layout)
+    stacked: Dict[int, int] = {}
+    for edge in layout.edges:
+        source = layout.nodes.get(edge.source)
+        if source is None or id(edge) not in rank_of:
+            continue
+        stacked[source.depth] = max(stacked.get(source.depth, 1), rank_of[id(edge)] + 1)
+
+    # A label at rank r sits at the gap's midpoint plus r stagger steps, so the lowest one clears
+    # the row below only where gap/2 + r*LABEL_STAGGER + LABEL_HEIGHT/2 <= gap -- which works out
+    # as twice the stagger per rank, plus the label's own height. A fixed gap of GAP_Y fits three
+    # rows of labels; a decision with five outcomes needs five, and the fourth and fifth used to
+    # be drawn underneath the boxes below. A label a reader can see is behind a box is worse than
+    # one that is not there, because it is still legible enough to be read as belonging to it.
+    top = float(MARGIN)
+    bottom = top
+    for depth, row in sorted(rows.items()):
+        for node in row:
+            node.y = top
+        bottom = top + BOX_HEIGHT
+        needed = (stacked.get(depth, 1) - 1) * LABEL_STAGGER * 2 + LABEL_HEIGHT + 8
+        top += BOX_HEIGHT + max(GAP_Y, needed)
+    layout.height = bottom + MARGIN
 
     # Back edges get their own lane, in a strip appended to the right of the ordinary flow --
     # never inside it, so a loop can never run across a row it does not belong to. Longer loops
@@ -677,12 +708,15 @@ def _stagger(layout: Layout) -> Dict[int, int]:
     overlap anything already there. A fan whose labels do not touch stays on one line, which
     matters because every extra row pushes the label further from the arrow it belongs to.
     """
-    bands: Dict[int, List[Edge]] = {}
+    # Banded on the pair of rows an edge spans rather than on where its label lands, so this can
+    # be worked out before any y is assigned -- which is what lets :func:`_place` give a row enough
+    # vertical room for the labels crossing it instead of letting them run into the boxes below.
+    bands: Dict[Tuple[int, int], List[Edge]] = {}
     for edge in layout.edges:
         source, target = layout.nodes.get(edge.source), layout.nodes.get(edge.target)
         if edge.is_back or not source or not target:
             continue
-        bands.setdefault(round((source.y + BOX_HEIGHT + target.y) / 2), []).append(edge)
+        bands.setdefault((source.depth, target.depth), []).append(edge)
 
     rank_of: Dict[int, int] = {}
     for band in bands.values():
