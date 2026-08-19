@@ -1814,47 +1814,100 @@ ol, ul { list-style: none; padding: 0; }
 
 /* Setting a capability's span. Two columns of checkboxes, because the choice is "which of these
    states" twice over and the control has to look like something a person can change. */
+/* =================================================================== a capability's span
+ *
+ * Where a block of the agent begins and ends. This used to be two lists of every state in the
+ * graph, twice per capability -- 280 checkboxes on a real declaration, in ten identical scrolling
+ * boxes -- and the clutter was the symptom rather than the problem. The control asked "which of
+ * these twenty-eight, twice", when what a validator knows is "identification runs from the chat
+ * opening until it hands on".
+ *
+ * So the span reads as a span: entries, an arrow, endings. Editing it is behind a disclosure,
+ * both lists are cut to the states that could plausibly be a boundary of *this* capability, and
+ * the endings can be taken from the graph in one click, because they are arithmetic rather than
+ * a second judgement.
+ */
 .span {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1.25rem;
-  align-items: flex-start;
   margin-top: 0.85rem;
   padding-top: 0.85rem;
   border-top: 1px solid var(--rule);
 }
-.span__side { flex: 1 1 20rem; min-width: 17rem; }
-.span__label {
-  font-size: 0.78rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ink-dim);
-  margin: 0 0 0.4rem;
-}
-.span__list {
-  list-style: none;
+.span__reads {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
   margin: 0;
-  padding: 0.35rem 0.5rem;
-  max-height: 11rem;
-  overflow-y: auto;
-  border: 1px solid var(--rule);
-  border-radius: 6px;
+}
+.span__arrow { color: var(--ink-dim); font-size: var(--t-small); }
+
+/* Solid for the way in, dashed for the ways out -- the two are different kinds of boundary and
+   reading them as one list is what made the old control hard to check at a glance. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: .18rem .45rem;
+  border-radius: var(--r-sm);
+  border: 1px solid;
+  font-size: var(--t-small);
+  font-weight: 600;
+}
+.pill--in { border-color: var(--blue); color: var(--blue-dark); background: var(--surface); }
+.pill--out {
+  border-color: var(--rule-strong);
+  border-style: dashed;
+  color: var(--ink-mid);
   background: var(--surface);
 }
-.span__list li { margin: 0.1rem 0; }
-.span__list .check { display: flex; align-items: baseline; gap: 0.45rem; font-size: 0.86rem; }
-/* The id is one token; breaking "S-00" across two lines makes a list of them unreadable. */
-.span__list .mono { white-space: nowrap; }
-.span__save { display: flex; flex-direction: column; gap: 0.4rem; padding-top: 1.3rem; }
-.span__note { font-size: 0.78rem; color: var(--ink-dim); max-width: 12rem; }
 
-/* A collapsed capability: squarer than an ending, heavier than a decision, so the three kinds of
-   box in the two drawings stay tellable apart at a glance. */
-.graph__node--block rect { fill: var(--surface); stroke: var(--ink-mid); stroke-width: 2; }
-.graph__node--block .graph__caption { font-weight: 600; }
-.graph__node--faded { opacity: 0.22; }
-.graph__zoom--view { margin-left: auto; }
+.span__note { font-size: var(--t-meta); color: var(--ink-dim); margin: var(--s2) 0 0; }
+.span__note--none { color: var(--warn); }
 
+.span__edit { margin-top: var(--s3); }
+.span__editlink {
+  font-size: var(--t-meta);
+  color: var(--blue-dark);
+  cursor: pointer;
+  list-style: none;
+  display: inline-block;
+}
+.span__editlink::-webkit-details-marker { display: none; }
+.span__editlink:hover { text-decoration: underline; }
+
+.span__sides {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: var(--s5);
+  margin-top: var(--s3);
+}
+.span__side { min-width: 0; }
+.span__label {
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin: 0 0 var(--s2);
+}
+.span__list { list-style: none; margin: 0; padding: 0; }
+.span__list li { padding: .18rem 0; }
+/* The label wraps; the id must not. "S-\n00" reads as two things and is unfindable in the
+   drawing, which is the one place the reader is going to look it up. */
+.span__list .check { align-items: flex-start; }
+.span__list .check .mono { white-space: nowrap; }
+.span__list .check input { margin-top: .2rem; }
+
+/* On what basis the list was cut. A shortlist that does not say how it was chosen reads as an
+   arbitrary subset, and the first thing anybody does with one is distrust it. */
+.span__why { font-size: var(--t-meta); color: var(--ink-dim); margin: var(--s2) 0 0; }
+
+.span__save {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  margin-top: var(--s4);
+  flex-wrap: wrap;
+}
 
 /* =================================================================== the expanded graph
  *

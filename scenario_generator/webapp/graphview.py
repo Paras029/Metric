@@ -25,7 +25,7 @@ import html
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from ..core.graph import DecisionGraph
+from ..core.graph import DecisionGraph, entry_candidates, exits_for
 from ..utils.text import parse_reached_via
 from ..core.models import Decision, IntakeData, State
 
@@ -873,6 +873,17 @@ def routes(intake: IntakeData, scenarios: Sequence) -> Dict[str, dict]:
     return found
 
 
+def _described(states: Dict[str, State], ids: Sequence[str]) -> List[dict]:
+    """State ids with what each one is, for a picker. An id on its own is unreadable: the choice
+    is made by reading the drawing, and "S-04" says nothing about which box that is."""
+    return [{"id": state_id,
+             "label": (states[state_id].description or state_id) if state_id in states
+                      else "not in the graph",
+             "terminal": bool(state_id in states and states[state_id].is_terminal),
+             "missing": state_id not in states}
+            for state_id in ids]
+
+
 def declaration(intake: IntakeData) -> Tuple[List[dict], List[dict], List[dict], List[dict]]:
     """The intake as four readable lists: decisions with their states, capabilities, tools, and
     every state, for the pickers that set a capability's span.
@@ -926,6 +937,21 @@ def declaration(intake: IntakeData) -> Tuple[List[dict], List[dict], List[dict],
         "entry_states": list(capability.entry_states),
         "exit_states": list(capability.exit_states),
         "is_bounded": capability.is_bounded,
+        # Where a route entering here would leave, worked out from the graph. Offered rather than
+        # applied: a block whose decisions are reachable from outside it derives badly, and a
+        # validator may want a block to stop earlier than the graph implies. Both are real, so
+        # this is a proposal somebody accepts in one click and can then correct.
+        "derived_exits": _described(states, exits_for(
+            graph, capability.id, capability.entry_states or
+            entry_candidates(graph, capability.id, intake.decisions)[:1], intake.decisions)),
+        # The shortlists the pickers open on. On a real declaration this is the difference between
+        # three rows and twenty-eight, twice over, per capability.
+        "entry_options": _described(states, entry_candidates(
+            graph, capability.id, intake.decisions)),
+        "exit_options": _described(states, sorted(set(capability.exit_states) | set(exits_for(
+            graph, capability.id,
+            capability.entry_states or entry_candidates(
+                graph, capability.id, intake.decisions)[:1], intake.decisions)))),
     } for capability in intake.capabilities]
 
     # Every state, for the two pickers that set a span. Ordered as the intake declares them, so

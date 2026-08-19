@@ -30,6 +30,7 @@ from flask import (Flask, abort, jsonify, redirect, render_template, request, se
 from werkzeug.utils import secure_filename
 
 from ..core.gaps import CAPABILITY, DECISION, STATE, find_gaps
+from ..core.graph import DecisionGraph, exits_for
 from ..core.intake import (read_review_notes, set_capability_span, set_decision_scope,
                            write_template)
 from ..core.models import MATERIALITY
@@ -710,9 +711,16 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
     def set_span(capability_id: str):
         """Set which states one capability is entered in and which it hands on or finishes at.
 
-        This is the whole of how a capability gets a span: nothing proposes one, because where a
-        block of the agent ends is a judgement about the agent rather than something readable off
-        the graph. It is set here, against the drawing, and takes effect on the next run.
+        Where a block *starts* is a judgement about the agent and nothing proposes it. Where it
+        *ends* is arithmetic: walk what the block holds from that start, and every state one of
+        its decisions lands on that the block is no longer inside is a way out. So the form
+        carries a second submit that fills the endings in from the graph -- see
+        :func:`core.graph.exits_for`.
+
+        Offered on a button rather than applied on every save, deliberately. Two real cases derive
+        badly: a block whose decisions are also reachable from outside it, and a validator
+        deliberately drawing a block to stop earlier than the graph implies. Silently overwriting
+        either would take work away and show nothing.
         """
         workspace = _workspace()
         path = workspace.artifact_path("intake", "workbook")
@@ -720,6 +728,15 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             abort(404)
         entries = request.form.getlist("entry")
         exits = request.form.getlist("exit")
+        if request.form.get("derive"):
+            try:
+                intake = _intake(workspace)
+                graph = DecisionGraph(intake.decisions, intake.states)
+                exits = exits_for(graph, capability_id, entries, intake.decisions)
+            except Exception:
+                # The endings stay as they were rather than being emptied. A declaration that
+                # cannot be read is a problem to see on the page, not a reason to clear a span.
+                logger.exception("Could not work out where %s is left", capability_id)
         if set_capability_span(str(path), capability_id, entries, exits):
             invalidated = workspace.invalidate_from("intake")
             workspace.save()

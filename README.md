@@ -234,6 +234,20 @@ sending any further calls — whichever one is already in flight is left to fini
 off — and nothing that run would have produced is written, so the stage lands back exactly where
 it was before you ran it, ready to run again rather than stuck looking failed.
 
+**Drawing a capability's span.** Each capability reads as what it is — the states it is entered
+at, an arrow, the states it hands on or ends at. *Change the span* opens two lists, each cut to
+the states that could plausibly be a boundary of *that* capability and each saying on what basis
+it was cut; the full graph is never more than a save away, and anything already drawn stays in
+the list whether or not the shortlist would have suggested it.
+
+Where a block **starts** is a judgement about the agent, and nothing proposes it. Where it **ends**
+is arithmetic: walk what the block holds from that start, and every state one of its decisions
+lands on that the block is no longer inside is a way out. *Take the endings from the graph* fills
+those in, and it routinely finds endings nobody listed — a block hands on where somebody wrote it
+down and also refuses, escalates and locks out, and those endings are what the pack tests. It is
+offered on a button rather than applied on save, because two real cases derive badly: a block
+whose decisions are reachable from outside it, and a block deliberately drawn to stop early.
+
 **Reading the declared graph.** Boxes are decisions, arrows are the states between them, rounded
 boxes are the ways an interaction can end. Hovering anything holds that one thread at full strength
 and drops the rest back, which answers "where does this come from and where does it go" without

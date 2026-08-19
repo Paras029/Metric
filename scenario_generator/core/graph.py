@@ -312,6 +312,89 @@ def _decisions_within(graph: DecisionGraph, span: Span) -> Set[str]:
     return within
 
 
+def decisions_owned_by(graph: DecisionGraph, capability_id: str,
+                       entry_states: Sequence[str],
+                       decisions: Sequence[Decision]) -> Set[str]:
+    """Which decisions a capability holds: the ones tagged with it, plus the untagged ones it
+    reaches.
+
+    Tagging is the basis rather than reachability, and the difference matters. A walk from
+    verification's entry that follows a route back into identification reaches identification's
+    decisions too; counting those as verification's would make a return into another block look
+    like ordinary branching inside this one, and every span derived from it would be drawn too
+    wide. A decision tagged with nothing is the exception -- it is reachable from here and nobody
+    has claimed it, so this is the only claim anybody has made.
+    """
+    tagged = {d.id for d in decisions if d.trigger_capability}
+    mine = {d.id for d in decisions if d.trigger_capability == capability_id}
+    for entry in entry_states:
+        if entry not in graph.states:
+            continue
+        span = Span(capability_id, capability_id, entry, frozenset())
+        mine |= {d for d in _decisions_within(graph, span) if d not in tagged}
+    return mine
+
+
+def states_inside(graph: DecisionGraph, entry_states: Sequence[str], owned: Set[str]) -> Set[str]:
+    """The positions a route is still inside the block at: its entries, and anywhere its own
+    decisions can be taken from."""
+    inside = {s for s in entry_states if s in graph.states}
+    for decision_id in owned:
+        inside.update(graph.states_offering(decision_id))
+    return inside
+
+
+def exits_for(graph: DecisionGraph, capability_id: str, entry_states: Sequence[str],
+              decisions: Sequence[Decision]) -> List[str]:
+    """Where a route entering here leaves, worked out from the graph rather than asked for.
+
+    This is the arithmetic that makes a capability's exits something the tool can supply instead
+    of something a person types. Walk what the block owns; every state one of its decisions lands
+    on that the block is not still inside is a way out -- an ending, a hand-off to the next block,
+    or a route back into an earlier one.
+
+    It is a proposal, never an imposition. Two cases give a wrong answer and both are real: a
+    block whose decisions are also reachable from outside it, and a validator deliberately drawing
+    a block to stop earlier than the graph implies. So the interface shows what this returns and
+    lets it be overridden, rather than deriving silently on save.
+
+    Sorted, because it is offered to a person and an arbitrary order reads as a mistake.
+    """
+    # No entry, no span, nothing to derive. The tagged decisions are still there and would still
+    # produce a plausible-looking list, which is exactly the trap: a proposal for a block whose
+    # boundary nobody has drawn is a guess dressed as arithmetic.
+    if not [s for s in entry_states if s in graph.states]:
+        return []
+
+    owned = decisions_owned_by(graph, capability_id, entry_states, decisions)
+    inside = states_inside(graph, entry_states, owned)
+
+    found: Set[str] = set()
+    for decision_id in owned:
+        decision = graph.decision(decision_id)
+        if decision is None:
+            continue
+        for variant in decision.variants:
+            landing = graph.state(graph.successor(decision_id, variant))
+            if landing is not None and (landing.is_terminal or landing.id not in inside):
+                found.add(landing.id)
+    return sorted(found)
+
+
+def entry_candidates(graph: DecisionGraph, capability_id: str,
+                     decisions: Sequence[Decision]) -> List[str]:
+    """States a route could plausibly enter this capability at: the ones offering a decision it
+    is tagged with.
+
+    Not a restriction -- a span may legitimately start anywhere, and the interface keeps the full
+    list one click away. It is a shortlist, and on a real declaration that is the difference
+    between three rows and twenty-eight.
+    """
+    mine = [d.id for d in decisions if d.trigger_capability == capability_id]
+    found = {state for decision_id in mine for state in graph.states_offering(decision_id)}
+    return sorted(found)
+
+
 def _shortest_prefix_to(graph: DecisionGraph, decision_id: str, span: Span) -> Path:
     """BFS for the shortest path from the span's entry to any state offering `decision_id`."""
     targets = set(graph.states_offering(decision_id))

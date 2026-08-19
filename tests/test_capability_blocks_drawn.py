@@ -160,8 +160,47 @@ class TestTheSpanIsEditableWithoutDestroyingItself(unittest.TestCase):
         self.assertNotIn('name="entry" multiple', page)
 
     def test_what_is_already_set_comes_back_ticked(self):
+        """Matched on the pair rather than on exact whitespace: an indentation change in the
+        template is not a defect, and a test that fails on one hides the ones that are."""
+        import re
+
         page = self.client.get("/stage/intake").data.decode()
-        self.assertIn('name="entry" value="S-00"\n                                 checked', page)
+        ticked = re.search(r'name="entry" value="S-00"\s+checked', page)
+        self.assertIsNotNone(ticked, "the entry already drawn came back unticked")
+
+    def test_the_span_reads_as_a_span_before_it_is_edited(self):
+        """Two lists of every state in the graph, twice per capability, was 280 checkboxes on a
+        real declaration -- and the clutter was the symptom. The control asked "which of these
+        twenty-eight, twice" when what a validator knows is "identification runs from the chat
+        opening until it hands on"."""
+        page = self.client.get("/stage/intake").data.decode()
+        self.assertIn("span__reads", page)
+        self.assertIn("pill--in", page)
+        self.assertIn("pill--out", page)
+
+    def test_the_lists_are_cut_to_what_could_be_a_boundary_of_this_capability(self):
+        page = self.client.get("/stage/intake").data.decode()
+        offered = page.count('name="entry" value=')
+        self.assertLess(offered, len(read_intake(str(self.workbook)).states) * 3,
+                        "every state is still offered as an entry of every capability")
+        self.assertIn("States that offer", page, "the shortlist does not say how it was cut")
+
+    def test_the_endings_can_be_taken_from_the_graph(self):
+        """Where a block starts is a judgement. Where it ends is arithmetic, and typing it out is
+        doing by hand what the tool already knows."""
+        self.client.post("/stage/intake/capability/CAP-01/span",
+                         data={"entry": ["S-00"], "exit": [], "derive": "1"})
+        entries, exits = self._spans()["CAP-01"]
+        self.assertEqual(entries, ("S-00",))
+        self.assertTrue(exits, "the endings came back empty")
+        self.assertIn("S-09", exits, "an ending the declaration never listed was not found")
+
+    def test_deriving_needs_an_entry_rather_than_guessing_one(self):
+        """A proposal for a block whose boundary nobody has drawn is a guess dressed as
+        arithmetic."""
+        self.client.post("/stage/intake/capability/CAP-01/span",
+                         data={"entry": [], "exit": [], "derive": "1"})
+        self.assertEqual(self._spans()["CAP-01"], ((), ()))
 
     def test_saving_several_states_keeps_all_of_them(self):
         self.client.post("/stage/intake/capability/CAP-02/span",

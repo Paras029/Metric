@@ -396,3 +396,99 @@ class TestTheHandDrawnSpanSurvivesTheSequentialPass(unittest.TestCase):
         draft_intake_workbook(str(self.context), str(self.path), complete=self.complete)
         space = build_scenario_space(read_intake(str(self.path)), with_probes=False)
         self.assertEqual({s.capability_id for s in space}, {"CAP-01", "CAP-02"})
+
+
+class TestWhereABlockIsLeftIsArithmetic(unittest.TestCase):
+    """Where a block *starts* is a judgement about the agent. Where it *ends* is not.
+
+    Walk what the block holds from its entry, and every state one of its decisions lands on that
+    the block is no longer inside is a way out. Asking a person to type that is asking them to
+    compute something the tool already knows -- which is what made the span control two lists of
+    twenty-eight checkboxes when the question was "where does identification start".
+
+    Read off the example workbook rather than the small fixture above, because the cases that
+    matter are the ones a real declaration has: a block that ends several ways it never listed,
+    and a block entered from two positions.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from pathlib import Path
+
+        from scenario_generator.core.graph import DecisionGraph
+        from scenario_generator.core.intake import read_intake
+
+        example = (Path(__file__).resolve().parent.parent / "examples" / "intakes"
+                   / "1_disputes_three_blocks.xlsx")
+        cls.intake = read_intake(str(example))
+        cls.graph = DecisionGraph(cls.intake.decisions, cls.intake.states)
+        cls.bounded = [c for c in cls.intake.capabilities if c.is_bounded]
+
+    def _derived(self, capability):
+        from scenario_generator.core.graph import exits_for
+        return exits_for(self.graph, capability.id, capability.entry_states,
+                         self.intake.decisions)
+
+    def test_it_keeps_every_exit_somebody_declared(self):
+        """A proposal that quietly dropped a hand-drawn boundary would be worse than no proposal:
+        accepting it would undo the work it was offered to save."""
+        for capability in self.bounded:
+            lost = set(capability.exit_states) - set(self._derived(capability))
+            self.assertEqual(lost, set(), f"{capability.id} lost {lost}")
+
+    def test_it_finds_an_ending_nobody_listed(self):
+        """The reason to offer it at all. A block hands on at the states somebody wrote down and
+        *ends* at several more, and those endings are what the pack tests."""
+        extra = {c.id: set(self._derived(c)) - set(c.exit_states) for c in self.bounded}
+        self.assertTrue(any(extra.values()),
+                        "the derivation found nothing the declaration had not already listed")
+
+    def test_nothing_inside_a_block_is_offered_as_a_way_out(self):
+        from scenario_generator.core.graph import decisions_owned_by, states_inside
+
+        for capability in self.bounded:
+            owned = decisions_owned_by(self.graph, capability.id, capability.entry_states,
+                                       self.intake.decisions)
+            inside = states_inside(self.graph, capability.entry_states, owned)
+            for state_id in self._derived(capability):
+                state = self.graph.state(state_id)
+                self.assertTrue(state.is_terminal or state_id not in inside,
+                                f"{state_id} is inside {capability.id} and was called a way out")
+
+    def test_a_capability_entered_two_ways_derives_from_both(self):
+        """A block entered from two positions is walked from each, so its ways out are the union
+        -- deriving from the first entry alone would lose whatever only the second reaches."""
+        from scenario_generator.core.graph import exits_for
+
+        several = next((c for c in self.bounded if len(c.entry_states) > 1), None)
+        self.assertIsNotNone(several, "the example no longer has a block entered two ways")
+        both = set(self._derived(several))
+        for entry in several.entry_states:
+            one = set(exits_for(self.graph, several.id, [entry], self.intake.decisions))
+            self.assertTrue(one <= both, f"deriving from {entry} alone found something the pair "
+                                         f"did not: {one - both}")
+
+    def test_a_capability_with_no_entry_derives_nothing_rather_than_guessing(self):
+        from scenario_generator.core.graph import exits_for
+
+        self.assertEqual(exits_for(self.graph, "CAP-01", [], self.intake.decisions), [])
+
+    def test_the_shortlist_of_entries_is_where_its_own_decisions_can_be_taken_from(self):
+        from scenario_generator.core.graph import entry_candidates
+
+        mine = {d.id for d in self.intake.decisions if d.trigger_capability == "CAP-02"}
+        shortlist = entry_candidates(self.graph, "CAP-02", self.intake.decisions)
+        self.assertTrue(shortlist, "no entry candidates at all")
+        for state_id in shortlist:
+            offered = set(self.graph.state(state_id).next_decisions)
+            self.assertTrue(offered & mine, f"{state_id} offers nothing CAP-02 owns")
+
+    def test_the_shortlist_contains_what_is_already_drawn(self):
+        """Otherwise the form would open with a saved entry missing, and the next save would clear
+        it without anybody seeing it go."""
+        from scenario_generator.core.graph import entry_candidates
+
+        for capability in self.bounded:
+            shortlist = set(entry_candidates(self.graph, capability.id, self.intake.decisions))
+            self.assertTrue(set(capability.entry_states) <= shortlist,
+                            f"{capability.id}'s drawn entries are not all in its shortlist")
