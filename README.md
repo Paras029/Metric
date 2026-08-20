@@ -304,6 +304,19 @@ The staging, the preview and the highlighting are what scripting adds.
    and both keep **Every state** one click behind them — a span may legitimately begin or end
    anywhere, and a control offering only what it guessed at is a span nobody can correct.
 
+Ticking anywhere in either list rewrites the line above the row, so the span reads back as it is
+being drawn — and it says which half is still missing rather than only that the span is not
+finished. "No exit yet" is something to act on; "no span" printed over a state you have just
+ticked reads as the tick not having registered, which is exactly what it was taken to mean.
+
+The two lists fail differently, and that is worth knowing. *Entered at* is drawn from the states
+that **offer** a capability's decisions, and a decision no state offers — an orphan, which a first
+draft produces routinely — contributes nothing to it while contributing its full share to the
+exits. That left an empty entry control beside a full exit one, which reads as the entry being
+broken rather than as the graph being incomplete. So the entry list keeps whatever is already
+drawn, and where there is still nothing to propose it falls back to where the conversation starts
+and says why. A span has to be entered somewhere, and the opening is always a legitimate answer.
+
 The order matters and getting it wrong is what made this unusable before. Membership is recorded
 on the *decisions*, which is the right place for it — a decision belongs to one capability and the
 workbook says so where the decision is. It was the wrong place to *edit* from: the capability's

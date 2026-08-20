@@ -174,7 +174,9 @@
   // decision, which states its outcomes land on -- so it answers as fast as the ticking. What
   // counts as an *exit* is policy and stays in one language: "Show it in the graph" asks the tool
   // for that rather than working it out again here.
-  function adjacency() { return window.METRIC_GRAPH || { decisions: {}, states: {} }; }
+  function adjacency() {
+    return window.METRIC_GRAPH || { decisions: {}, states: {}, start_states: [] };
+  }
 
   // Two halves, not one set. A capability is entered at a state that *offers* one of its
   // decisions and left at a state one of them *routes to*, and those are different lists -- so
@@ -194,10 +196,17 @@
     var all = {};
     Object.keys(into).forEach(function (id) { all[id] = true; });
     Object.keys(outOf).forEach(function (id) { all[id] = true; });
+    // Where nothing offers this capability's decisions there is no entry to propose, and an
+    // empty picker reads as a broken one. The conversation's opening is always a legitimate
+    // entry, so that is the fallback -- the same one the server draws the list with, or the
+    // shortlist would rearrange itself under the first tick.
+    var entries = Object.keys(into).sort();
+    if (!entries.length) { entries = (adjacency().start_states || []).slice(); }
     return {
-      entry_states: Object.keys(into).sort(),
+      entry_states: entries,
       exit_states: Object.keys(outOf).sort(),
       all: Object.keys(all).sort(),
+      entry_is_fallback: !Object.keys(into).length,
     };
   }
 
@@ -215,7 +224,7 @@
   // ticked is kept even where it falls outside that set -- a span may legitimately begin or end
   // anywhere, and silently dropping a boundary because the membership changed would be an edit
   // nobody made.
-  function redrawBoundary(row, picker, folded) {
+  function redrawBoundary(row, picker, folded, fallback) {
     var name = picker.dataset.boundary;
     var list = picker.querySelector('[data-boundary-shortlist]');
     if (!list) { return; }
@@ -271,7 +280,10 @@
       why.textContent = !owned.length
         ? 'Tick the decisions above first — the boundary is picked from the states they fold in.'
         : (name === 'entry_states'
-            ? 'States that offer ' + owned.join(', ') + '.'
+            ? (fallback
+                ? 'Nothing offers ' + owned.join(', ') + ', so this falls back to where the ' +
+                  'conversation starts. Every state is below.'
+                : 'States that offer ' + owned.join(', ') + '.')
             : 'States that ' + owned.join(', ') + ' route to.');
     }
 
@@ -300,18 +312,85 @@
         : 'No decisions ticked, so this capability folds in nothing and is not walked.';
     }
     Array.prototype.forEach.call(row.querySelectorAll('[data-boundary]'), function (picker) {
-      redrawBoundary(row, picker, folded[picker.dataset.boundary] || []);
+      var name = picker.dataset.boundary;
+      redrawBoundary(row, picker, folded[name] || [],
+                     name === 'entry_states' && folded.entry_is_fallback);
+      // A shortlist that came back empty is the one moment the full list is certainly wanted, so
+      // it opens itself rather than waiting to be found. Closed above an empty box, it reads as
+      // there being nothing to pick.
+      var all = picker.querySelector('.span__all');
+      if (all && !all.dataset.offered &&
+          !picker.querySelectorAll('[data-boundary-shortlist] input').length) {
+        all.open = true;
+        all.dataset.offered = 'yes';
+      }
     });
+    redrawReads(row);
+  }
+
+  // What the row's own summary says about its span, rewritten as the boundary is ticked.
+  //
+  // This is the half that was missing, and it is why the entry control read as refusing to accept
+  // anything. Ticking a state changed the picker and nothing else: the line above it went on
+  // saying "No span" -- rendered once, by the server, from the workbook -- so the tick looked
+  // ignored even though it was staged and would have saved. Worse where the shortlist was empty
+  // and the only way in was the full list, which is exactly the case an orphaned decision creates
+  // and exactly where somebody is most likely to conclude the control does not work.
+  //
+  // It also says which half is still missing rather than only that the span is not drawn. "No
+  // exit yet" is actionable; "no span" after ticking an entry reads as the entry not having
+  // registered.
+  function redrawReads(row) {
+    var reads = row.querySelector('[data-span-reads]');
+    if (!reads) { return; }
+
+    function ticked(name) {
+      return Array.prototype.map.call(
+        row.querySelectorAll('[data-boundary="' + name + '"] input:checked'),
+        function (box) { return box.value; });
+    }
+    var entries = ticked('entry_states');
+    var exits = ticked('exit_states');
+
+    reads.textContent = '';
+    function pill(id, where) {
+      var span = document.createElement('span');
+      span.className = 'pill pill--' + where + ' mono';
+      span.textContent = id;
+      reads.appendChild(span);
+    }
+    function note(text, none) {
+      var span = document.createElement('span');
+      span.className = 'span__note' + (none ? ' span__note--none' : '');
+      span.textContent = text;
+      reads.appendChild(span);
+    }
+
+    if (entries.length && exits.length) {
+      entries.forEach(function (id) { pill(id, 'in'); });
+      var arrow = document.createElement('span');
+      arrow.className = 'span__arrow';
+      arrow.setAttribute('aria-label', 'leads to');
+      arrow.textContent = '\u2192';
+      reads.appendChild(arrow);
+      exits.forEach(function (id) { pill(id, 'out'); });
+      note(entries.length > 1
+        ? 'Entered ' + entries.length + ' ways, so it is walked ' + entries.length + ' times.'
+        : 'Walked as a block.');
+    } else if (entries.length) {
+      entries.forEach(function (id) { pill(id, 'in'); });
+      note('Entered here. No exit yet, so it is not walked as a block.', true);
+    } else if (exits.length) {
+      exits.forEach(function (id) { pill(id, 'out'); });
+      note('Leaves here. No entry yet, so it is not walked as a block.', true);
+    } else {
+      note('No span, so nothing is walked through this capability and it is not drawn in the '
+           + 'collapsed view.', true);
+    }
   }
 
   Array.prototype.forEach.call(editor.querySelectorAll('[data-row-kind="capability"]'),
                                function (row) { rebuild(row); });
-
-  editor.addEventListener('change', function (event) {
-    if (!event.target.hasAttribute || !event.target.hasAttribute('data-owns-decision')) { return; }
-    var row = event.target.closest('[data-row-kind="capability"]');
-    if (row) { rebuild(row); }
-  });
 
   // --------------------------------------------------------------------------- staging
   function collect(form) {
@@ -368,6 +447,20 @@
     var form = event.target.closest && event.target.closest('.erow__form');
     var row = form && form.closest('[data-row-kind]');
     if (row) { stage(row, form); }
+  });
+
+  // Every change inside a capability row, not only the decisions. Ticking a boundary state has to
+  // redraw as much as ticking a decision does: the state lifts out of the full list into the
+  // shortlist, the line explaining the shortlist follows the membership, and the row's summary
+  // says what the span now is. Listening only for the decisions is what made a boundary tick look
+  // like it had done nothing at all.
+  //
+  // Registered after the staging listeners and not before, because redrawing replaces the very
+  // checkbox that was clicked: run first, it would hand the stager a detached node with no form
+  // to read, and the edit that visibly happened would never be sent.
+  editor.addEventListener('change', function (event) {
+    var row = event.target.closest && event.target.closest('[data-row-kind="capability"]');
+    if (row) { rebuild(row); }
   });
 
   // Remove is staged like everything else, so a deletion can be previewed. Seeing what stops

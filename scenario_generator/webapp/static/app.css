@@ -2229,7 +2229,13 @@ body.is-expanded { overflow: hidden; }
 .declaration__moved { display: none; }
 
 
-/* A row with unsaved changes on it stops asserting what the saved span does. "No span" printed
-   above three ticked boxes reads as the ticks not having registered. */
-.erow--dirty .span__reads,
+/* The span summary stays up while a row is being edited, because it is rewritten as the boundary
+   is ticked -- see redrawReads(). It used to be hidden here instead, which was the wrong half of
+   the right observation: "No span" printed above three ticked boxes does read as the ticks not
+   having registered, but hiding the line leaves the ticks with no acknowledgement at all, and a
+   control that answers nothing is one people conclude has refused them. Saying what the span is
+   now, including which half of it is still missing, is the answer.
+
+   A row staged for removal is the one case where it still goes: what its span used to be is not
+   what somebody is being asked to look at. */
 .erow--removing .span__reads { display: none; }

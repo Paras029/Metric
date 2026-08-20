@@ -622,20 +622,40 @@
                         </ul>
                       {% endif %}
                       {% if tab.kind == 'capability' %}
-                        <p class="span__reads">
+                        {# What the span is, rewritten on the page as the boundary is ticked --
+                           see redrawReads(). Left as rendered it went on saying "No span" under a
+                           picker somebody had just ticked, which is the whole reason the entry
+                           control read as refusing to accept anything. Half a span says which
+                           half is missing: "no exit yet" is something to act on, where "no span"
+                           after ticking an entry reads as the entry not having registered. #}
+                        <p class="span__reads" data-span-reads>
                           {% if row.span.is_bounded %}
-                            {% for state in row.span.entry_states %}
+                            {% for state in row.fields.entry_states %}
                               <span class="pill pill--in mono">{{ state }}</span>
                             {% endfor %}
                             <span class="span__arrow" aria-label="leads to">&rarr;</span>
-                            {% for state in row.span.exit_states %}
+                            {% for state in row.fields.exit_states %}
                               <span class="pill pill--out mono">{{ state }}</span>
                             {% endfor %}
                             <span class="span__note">
-                              {% if row.span.entry_states | length > 1 %}
-                                Entered {{ row.span.entry_states | length }} ways, so it is walked
-                                {{ row.span.entry_states | length }} times.
+                              {% if row.fields.entry_states | length > 1 %}
+                                Entered {{ row.fields.entry_states | length }} ways, so it is
+                                walked {{ row.fields.entry_states | length }} times.
                               {% else %}Walked as a block.{% endif %}
+                            </span>
+                          {% elif row.fields.entry_states %}
+                            {% for state in row.fields.entry_states %}
+                              <span class="pill pill--in mono">{{ state }}</span>
+                            {% endfor %}
+                            <span class="span__note span__note--none">
+                              Entered here. No exit yet, so it is not walked as a block.
+                            </span>
+                          {% elif row.fields.exit_states %}
+                            {% for state in row.fields.exit_states %}
+                              <span class="pill pill--out mono">{{ state }}</span>
+                            {% endfor %}
+                            <span class="span__note span__note--none">
+                              Leaves here. No entry yet, so it is not walked as a block.
                             </span>
                           {% else %}
                             <span class="span__note span__note--none">

@@ -663,11 +663,23 @@ class TestWhatTheCapabilityControlIsGiven(unittest.TestCase):
 
     def test_it_carries_no_policy_only_adjacency(self):
         """What counts as an exit is a judgement -- see core.graph.exits_for -- and it stays in
-        one language. A second implementation on the page would disagree with the first."""
+        one language. A second implementation on the page would disagree with the first.
+
+        The start states are the one addition, and they are adjacency too: the states nothing
+        routes to. The entry picker falls back to them when a capability's decisions are offered
+        by nothing, and that fallback has to be identical on the page and on the server or the
+        shortlist would rearrange itself under a tick that did not ask it to.
+        """
         index = graph_index(self.intake)
-        self.assertEqual(set(index), {"decisions", "states"})
+        self.assertEqual(set(index), {"decisions", "states", "start_states"})
         self.assertEqual(set(index["decisions"]["DEC-03"]),
                          {"name", "capability", "offered_by", "lands_on"})
+
+    def test_the_start_states_match_the_graph(self):
+        """Same answer as the walk's, not a second guess at it."""
+        from scenario_generator.core.graph import DecisionGraph
+        graph = DecisionGraph(self.intake.decisions, self.intake.states)
+        self.assertEqual(graph_index(self.intake)["start_states"], list(graph.start_states))
 
 
 class TestNoStateCanBecomeUnpickable(unittest.TestCase):
@@ -734,6 +746,165 @@ class TestNoStateCanBecomeUnpickable(unittest.TestCase):
             item = re.search(r'<li([^>]*)>(?:(?!</li>).)*?value="' + state_id + '"', long, re.S)
             self.assertIsNotNone(item, f"{state_id} is missing from the long list entirely")
             self.assertIn("hidden", item.group(1))
+
+
+class TestTheEntryPickerIsNeverEmpty(unittest.TestCase):
+    """An empty picker reads as a disabled one, and that is what "it will not let me set the
+    starting state" turned out to mean.
+
+    The two boundary lists are drawn from different halves of the membership: *entered at* from the
+    states that offer this capability's decisions, *hands on or ends at* from the states they route
+    to. Those halves fail differently. A decision no state offers -- an orphan, which a first draft
+    produces routinely -- contributes nothing to the first list and its full share to the second,
+    so the entry control came back empty beside an exit control full of choices. The asymmetry read
+    as the entry being broken rather than as the graph being incomplete, which is the honest
+    reading and the one nobody reached.
+
+    Two fixes, and the second is the one that generalises: whatever is already drawn stays in the
+    list (which the exits always did and the entries did not), and where there is still nothing to
+    propose it falls back to where the conversation starts. A span has to be entered somewhere, and
+    the opening is always a legitimate answer.
+    """
+
+    def setUp(self):
+        from scenario_generator.core.intake import IntakeData
+        self.intake = read_intake(str(EXAMPLE))
+        self.assertIsInstance(self.intake, IntakeData)
+
+    def _options(self, intake, capability_id, field):
+        from scenario_generator.webapp.graphview import declaration
+        _, capabilities, _, _ = declaration(intake)
+        row = next(c for c in capabilities if c["id"] == capability_id)
+        return [option["id"] for option in row[field]]
+
+    def _orphan(self):
+        """The same intake with nothing offering CAP-02's decisions, and no span drawn on it yet.
+
+        Both halves matter: an orphaned decision is what empties the shortlist, and an undrawn
+        span is when somebody is looking at that shortlist. Together they are the state a first
+        draft arrives in, and the state the entry control could not be used from.
+        """
+        import dataclasses
+        owned = {d.id for d in self.intake.decisions if d.trigger_capability == "CAP-02"}
+        states = [dataclasses.replace(
+            s, next_decisions=tuple(d for d in s.next_decisions if d not in owned))
+            for s in self.intake.states]
+        capabilities = [dataclasses.replace(c, entry_states=(), exit_states=())
+                        if c.id == "CAP-02" else c for c in self.intake.capabilities]
+        return dataclasses.replace(self.intake, states=tuple(states),
+                                   capabilities=tuple(capabilities))
+
+    def test_an_orphaned_capability_still_gets_entries_to_pick_from(self):
+        orphan = self._orphan()
+        from scenario_generator.core.graph import DecisionGraph, entry_candidates
+        graph = DecisionGraph(orphan.decisions, orphan.states)
+        self.assertEqual(entry_candidates(graph, "CAP-02", orphan.decisions), [],
+                         "the case this is about did not arise")
+        self.assertTrue(self._options(orphan, "CAP-02", "entry_options"),
+                        "the entry picker came back empty, which reads as refusing to be set")
+
+    def test_the_fallback_is_where_the_conversation_starts(self):
+        from scenario_generator.core.graph import DecisionGraph
+        orphan = self._orphan()
+        graph = DecisionGraph(orphan.decisions, orphan.states)
+        self.assertEqual(self._options(orphan, "CAP-02", "entry_options"),
+                         list(graph.start_states))
+
+    def test_the_page_and_the_server_fall_back_to_the_same_states(self):
+        """The shortlist is drawn once by the server and redrawn on the page as decisions are
+        ticked. Two fallbacks would rearrange the list under a tick that did not ask it to."""
+        from scenario_generator.core.graph import DecisionGraph
+        orphan = self._orphan()
+        graph = DecisionGraph(orphan.decisions, orphan.states)
+        self.assertEqual(graph_index(orphan)["start_states"], list(graph.start_states))
+
+    def test_a_boundary_already_drawn_is_always_in_its_own_shortlist(self):
+        """True of the exits from the start and not of the entries, which is half of why the two
+        controls felt different to use."""
+        import dataclasses
+        odd = dataclasses.replace(self.intake, capabilities=tuple(
+            dataclasses.replace(c, entry_states=("S-14",), exit_states=("S-14",))
+            if c.id == "CAP-01" else c for c in self.intake.capabilities))
+        self.assertIn("S-14", self._options(odd, "CAP-01", "entry_options"))
+        self.assertIn("S-14", self._options(odd, "CAP-01", "exit_options"))
+
+    def test_the_fallback_stays_out_of_the_graph_itself(self):
+        """It is an affordance of a control, not a fact about the agent. Deriving the exits from a
+        start state the validator never chose would put a whole graph's endings on a capability
+        that holds none of them."""
+        from scenario_generator.core.graph import DecisionGraph, entry_candidates
+        orphan = self._orphan()
+        graph = DecisionGraph(orphan.decisions, orphan.states)
+        self.assertEqual(entry_candidates(graph, "CAP-02", orphan.decisions), [])
+        self.assertEqual(self._options(orphan, "CAP-02", "derived_exits"), [])
+
+
+class TestTheRowSaysWhatItsSpanIsNow(unittest.TestCase):
+    """Ticking a state has to change something the person is looking at.
+
+    It did not, and that is the defect underneath every report of the boundary "not letting" a
+    state be assigned. The tick registered, staged and would have saved -- but the line above the
+    picker went on saying "No span", because it was rendered once by the server from the workbook.
+    Nothing on screen acknowledged the tick until a save came back, so the reasonable conclusion
+    was that the control had refused it.
+
+    Half a span now says which half is missing. "No exit yet" is something to act on; "no span"
+    after ticking an entry reads as the entry not having registered.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.root = Path(tempfile.mkdtemp())
+        cls.client = create_app(cls.root).test_client()
+        cls.client.post("/workspaces", data={"name": "Reads"})
+        with open(EXAMPLE, "rb") as handle:
+            cls.client.post("/stage/intake/upload",
+                            data={"files": (handle, EXAMPLE.name), "group": "intake_workbook"},
+                            content_type="multipart/form-data")
+        cls.client.post("/stage/intake/run")
+        for _ in range(600):
+            if cls.client.get("/stage/intake/progress").get_json()["status"] != "running":
+                break
+            time.sleep(0.05)
+        cls.path = str(cls.root / "reads" / EXAMPLE.name)
+
+    def _reads(self, capability_id):
+        import re
+        page = self.client.get("/stage/intake").get_data(as_text=True)
+        row = re.search(r'data-row-key="' + capability_id + r'".*?</p>', page, re.S).group(0)
+        return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", row)).strip()
+
+    def test_the_summary_is_marked_for_redrawing(self):
+        """The page rewrites it as the boundary is ticked, so it has to be findable."""
+        page = self.client.get("/stage/intake").get_data(as_text=True)
+        self.assertIn("data-span-reads", page)
+
+    def test_an_entry_without_an_exit_says_the_exit_is_missing(self):
+        editing.apply_edits(self.path, [
+            {"kind": "capability", "key": "CAP-01", "action": "upsert",
+             "fields": {"entry_states": ["S-00"], "exit_states": []}}])
+        self.assertIn("No exit yet", self._reads("CAP-01"))
+
+    def test_an_exit_without_an_entry_says_the_entry_is_missing(self):
+        editing.apply_edits(self.path, [
+            {"kind": "capability", "key": "CAP-01", "action": "upsert",
+             "fields": {"entry_states": [], "exit_states": ["S-04"]}}])
+        self.assertIn("No entry yet", self._reads("CAP-01"))
+
+    def test_neither_half_still_says_no_span(self):
+        editing.apply_edits(self.path, [
+            {"kind": "capability", "key": "CAP-01", "action": "upsert",
+             "fields": {"entry_states": [], "exit_states": []}}])
+        self.assertIn("No span", self._reads("CAP-01"))
+
+    def test_both_halves_read_as_a_span(self):
+        editing.apply_edits(self.path, [
+            {"kind": "capability", "key": "CAP-01", "action": "upsert",
+             "fields": {"entry_states": ["S-00"], "exit_states": ["S-04"]}}])
+        reads = self._reads("CAP-01")
+        self.assertIn("S-00", reads)
+        self.assertIn("S-04", reads)
+        self.assertIn("Walked as a block", reads)
 
 
 class TestAGroupOfCheckboxesIsNotOneControl(unittest.TestCase):

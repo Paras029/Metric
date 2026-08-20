@@ -1024,6 +1024,24 @@ def _described(states: Dict[str, State], ids: Sequence[str]) -> List[dict]:
             for state_id in ids]
 
 
+def _entry_shortlist(graph: DecisionGraph, capability, intake: IntakeData) -> List[str]:
+    """What the *entered at* picker opens on.
+
+    Wider than :func:`core.graph.entry_candidates`, deliberately, and only here: that function
+    answers a question about the graph and is what the walk and the derived exits are built on,
+    where being precise matters. This answers a question about a control, where being empty is the
+    worse failure -- a picker with nothing in it reads as a disabled one, and the person concludes
+    the entry cannot be set at all rather than opening the full list behind it.
+
+    So it adds what is already drawn, and falls back to where the conversation starts when nothing
+    offers this capability's decisions. That last case is not exotic: a first draft routinely
+    leaves a decision no state offers, and the capability holding it got the empty picker.
+    """
+    found = sorted(set(capability.entry_states) |
+                   set(entry_candidates(graph, capability.id, intake.decisions)))
+    return found or list(graph.start_states)
+
+
 def highlights(intake: IntakeData) -> Dict[str, Dict[str, dict]]:
     """What each row of the declaration points at in the drawing, by kind and key.
 
@@ -1158,8 +1176,13 @@ def declaration(intake: IntakeData) -> Tuple[List[dict], List[dict], List[dict],
             entry_candidates(graph, capability.id, intake.decisions)[:1], intake.decisions)),
         # The shortlists the pickers open on. On a real declaration this is the difference between
         # three rows and twenty-eight, twice over, per capability.
-        "entry_options": _described(states, entry_candidates(
-            graph, capability.id, intake.decisions)),
+        #
+        # Whatever is already drawn belongs in it whether or not the shortlist would have
+        # suggested it -- a span may legitimately begin anywhere, and a boundary that has to be
+        # hunted for in the long list every time reads as one the control refuses to hold. The
+        # exits have always done this; the entries had not, which is half of why they felt
+        # different to use.
+        "entry_options": _described(states, _entry_shortlist(graph, capability, intake)),
         "exit_options": _described(states, sorted(set(capability.exit_states) | set(exits_for(
             graph, capability.id,
             capability.entry_states or entry_candidates(

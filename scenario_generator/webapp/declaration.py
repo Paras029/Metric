@@ -270,6 +270,10 @@ def graph_index(intake: IntakeData) -> dict:
             } for d in intake.decisions},
         "states": {s.id: {"label": s.description or s.id, "terminal": s.is_terminal}
                    for s in intake.states},
+        # Where the conversation opens. The entry picker falls back to it when nothing offers a
+        # capability's decisions, and the fallback has to be the same on the page as it is on the
+        # server or the shortlist would change under a tick that did not ask it to.
+        "start_states": list(graph.start_states),
     }
 
 
