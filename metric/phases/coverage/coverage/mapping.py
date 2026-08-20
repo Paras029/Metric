@@ -1,22 +1,4 @@
-"""Mapping the conversations the model owner actually ran onto the generated scenario space.
-
-The coverage question is "what does the model owner's testing already cover", and the honest way
-to answer it is from the transcripts rather than from whatever the transcripts were filed under.
-The model owner's scenario labels are frequently absent, and where present are frequently the
-thing being checked.
-
-One conversation maps to at most one scenario, and the discriminator is **where it ends**. A
-scenario is a complete route to a specific ending, and some routes are prefixes of
-others: a conversation that authenticates and stops is not the same test as one that authenticates
-and then goes on to verify a charge, even though the second contains the first. Matching on the
-route alone silently files the short one under the long one and reports coverage that does not
-exist. The prompt is explicit about this because it is the mistake that matters.
-
-"Nothing fits" is a first-class answer, not a failure. It means either the model owner is testing
-something the scenario space never enumerated -- worth knowing, and a candidate to add -- or that
-conversation is not a test of this agent. Either reading is more useful than a nearest-fit match
-nobody can trust.
-"""
+"""Mapping the conversations the model owner actually ran onto the generated scenario space."""
 from __future__ import annotations
 
 import json
@@ -82,12 +64,7 @@ class Mapping:
 
 
 def _transcript(conversation: Conversation) -> str:
-    """One conversation as text, trimmed from the middle rather than the end.
-
-    The ending is what the match turns on, so it is the one part that must survive truncation. A
-    transcript cut at the front loses how the user opened, which the intent can usually be
-    recovered from; cut at the back it loses the answer.
-    """
+    """One conversation as text, trimmed from the middle rather than the end."""
     text = conversation.transcript
     if len(text) <= MAX_TRANSCRIPT_CHARS:
         return text
@@ -97,11 +74,7 @@ def _transcript(conversation: Conversation) -> str:
 
 
 def describe_scenario_space(scenarios: List[ScenarioRow], texts: Dict[str, str] = None) -> str:
-    """The scenario space as the matcher sees it: one line per scenario, ending included.
-
-    The ending is spelled out rather than left implicit in the route, because it is the field the
-    match is decided on and a decision path alone does not say where it stops.
-    """
+    """The scenario space as the matcher sees it: one line per scenario, ending included."""
     texts = texts or {}
     lines = []
     for scenario in scenarios:
@@ -126,12 +99,7 @@ class ConversationMapper:
     def map(self, conversations: List[Conversation], scenarios: List[ScenarioRow],
             intake: IntakeData, texts: Dict[str, str] = None,
             issued: Optional[List[ScenarioRow]] = None) -> List[Mapping]:
-        """One mapping per conversation, in the order they were submitted.
-
-        ``scenarios`` is what coverage measures against; ``issued`` is everything that went out in
-        the data template, which also carries the probes. They differ only in that a stated id is
-        honoured against the wider set -- see :func:`pipeline.map_conversation_coverage`.
-        """
+        """One mapping per conversation, in the order they were submitted."""
         cancellation.check(self._cancel)
         if not conversations:
             return []
@@ -217,12 +185,7 @@ class ConversationMapper:
             conversations=json.dumps(payload, indent=2))
 
     def _apply(self, chunk: List[Conversation], reply, known: set) -> List[Mapping]:
-        """Read one chunk's reply, discarding a scenario id the scenario space does not have.
-
-        An unrecognised id is treated as no match rather than kept: coverage claimed against a
-        scenario that does not exist is worse than coverage not claimed, because it inflates the
-        figure the whole stage exists to report.
-        """
+        """Read one chunk's reply, discarding a scenario id the scenario space does not have."""
         parsed = parsed_reply(reply, "Coverage mapping call",
                               ", ".join(c.id for c in chunk))
         mappings = []
@@ -250,11 +213,7 @@ class ConversationMapper:
 
     def _map_one(self, conversation: Conversation, space: str, use_case: str,
                  known: set) -> Mapping:
-        """One conversation a batch dropped, asked about on its own.
-
-        Rare enough, and small enough, that batching the mop-up too would not be worth the
-        complexity -- most runs refill nothing at all.
-        """
+        """One conversation a batch dropped, asked about on its own."""
         chunk = [conversation]
         try:
             reply = call(self._complete, prompts.load(_SYSTEM_PROMPT),

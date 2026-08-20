@@ -1,14 +1,4 @@
-"""Descriptions of the use case under test, derived from the intake.
-
-Every LLM pass needs to know what the agent is before it can write about it, judge it, or review
-it. All of that description is built here from the intake alone, so a pass is never dependent on
-a supplementary context file being supplied. Where a context file *is* supplied it supplements
-this, never replaces it.
-
-This is deliberately separate from the prompt library. What lives here is logic -- text assembled
-from intake data, which changes only when the data model changes. The wording that surrounds it
-lives in ``scenario_generator/prompts`` where it can be edited without touching Python.
-"""
+"""Descriptions of the use case under test, derived from the intake."""
 from __future__ import annotations
 
 from collections import Counter
@@ -55,16 +45,7 @@ def describe_use_case(intake: IntakeData) -> str:
 
 
 def describe_graph(intake: IntakeData) -> str:
-    """The agent's declared structure: capabilities, decisions, states, personas and tools.
-
-    **The edges are part of the structure.** This used to render states as descriptions and a
-    terminal flag and nothing else, which meant the two calls whose entire job is the wiring --
-    the intake repair and the structure review -- were shown a bag of states with no wiring in it.
-    Asked "where does DEC-02's 'Too old' outcome lead?", the model had to reconstruct every edge
-    in the agent from the state descriptions, and a reconstruction that came back one branch short
-    was indistinguishable from the declaration it replaced. That is the intermittent failure this
-    line fixes: not a model that is bad at graphs, a prompt that withheld the graph.
-    """
+    """The agent's declared structure: capabilities, decisions, states, personas and tools."""
     # The span is part of what a capability *is* now: it is the block of the graph the scenario
     # space is enumerated over, so a call asked to reason about the structure -- to reconnect a
     # stray decision, or to judge whether two decisions are the same branch -- has to be able to
@@ -113,19 +94,7 @@ def describe_graph(intake: IntakeData) -> str:
 
 
 def describe_enumeration(intake: IntakeData) -> str:
-    """What the declared graph actually walks to, as arithmetic rather than as a verdict.
-
-    The repair call is asked to fix the wiring, and until now the only thing it could see about
-    the wiring was the wiring itself. This is the consequence: how many distinct routes the
-    declaration produces, where they end, and which declared outcomes stop the walk because
-    nothing says where they lead.
-
-    Deliberately not a judgement. An agent that genuinely does one thing enumerates to one route,
-    and a check that called that a fault would be wrong about a real agent and would teach anyone
-    reading it to ignore the next one. What is offered is the count and the endings; whether that
-    is the right shape for this agent is something only the documentation can settle, and the
-    model has the documentation.
-    """
+    """What the declared graph actually walks to, as arithmetic rather than as a verdict."""
     from metric.domain.graph import DecisionGraph, enumerate_paths
 
     graph = DecisionGraph(intake.decisions, intake.states)
@@ -163,12 +132,7 @@ def supplementary_context(text: str) -> str:
 
 
 def digest(scenarios: List[Scenario], description_chars: int = 160) -> str:
-    """One line per scenario — the whole scenario space in a form a single prompt can carry.
-
-    The block each one is scoped to is on the line, because since the space became
-    capability-scoped that is the single most important fact about a scenario for anything reading
-    the list: every entry covers one block, so what is *not* here is any route that crosses two.
-    """
+    """One line per scenario — the whole scenario space in a form a single prompt can carry."""
     lines = []
     for s in scenarios:
         parts = [s.id, f"[{s.origin}]", f"({s.category})",
@@ -183,13 +147,7 @@ def digest(scenarios: List[Scenario], description_chars: int = 160) -> str:
 
 
 def describe_blocks(intake: IntakeData) -> str:
-    """The agent as its chain of capabilities: which block hands on to which, and where each ends.
-
-    What a proposal pass needs in order to name a journey. The scenario space it is looking at is
-    scoped one block at a time, so the routes that run the whole way through are exactly the ones
-    it cannot see in the digest -- and it cannot propose one without knowing the order the blocks
-    run in and where they join.
-    """
+    """The agent as its chain of capabilities: which block hands on to which, and where each ends."""
     bounded = [c for c in intake.capabilities if c.is_bounded]
     if not bounded:
         return ("No capability has a span drawn, so the scenario space is walked whole and every "

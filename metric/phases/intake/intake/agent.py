@@ -1,43 +1,4 @@
-"""Reading a submitted pack and filling the intake, as one loop.
-
-This is the ingestion path, not a pass that runs after one. The sequence it replaces read every
-document against three groups of questions, put what was left open back to them twice more,
-drafted a declaration from the result and repaired it once -- seven to nine model calls in a fixed
-order, every one of them made whether or not it had anything to do. Running a loop *after* that
-spent them twice over, which is the reason this replaces the sequence rather than following it.
-
-What the sequence did well is kept, and most of it was never a model call to begin with. Files are
-still parsed and redacted deterministically before anything sees them, so no passage reaches a
-model that has not been through redaction. Diagrams are still read by the same tested vision pass,
-one call per image. The declaration is still validated against the intake's own vocabulary,
-consolidated, and written into a workbook of exactly the shape a person would have filled in.
-
-What changes is what decides the order and the number. The loop reads what it judges worth
-reading, writes a declaration, audits it, and goes back for what is missing -- so a two-page pack
-costs a fraction of a sixty-page one instead of the same fixed seven, and a declaration that is
-still incomplete after the first write gets another look instead of being handed on regardless.
-
-Three things make that safe to point at a model.
-
-**The termination oracle is deterministic.** Whether the declaration is finished is decided by
-:func:`core.gaps.find_gaps` and the graph audit, never by the model saying it is done. A loop that
-judges its own completion runs until it feels like stopping, which on a bad day is never and on a
-worse day is immediately.
-
-**Every tool is an existing, tested reader.** Nothing here parses a document or reads an image; it
-calls the code that already does, so the loop cannot be a second way of doing the same job that
-drifts from the first.
-
-**The budget is hard and the work is idempotent.** The declaration on disk is the state, so a run
-stopped at any point -- budget spent, gateway down, stage cancelled -- leaves a workbook exactly as
-good as the last thing written to it. There is no half-applied turn.
-
-Capability spans are the one thing the loop may not write. Where a block of the agent begins and
-ends is a judgement a person makes against the drawing, and it decides how the entire scenario
-space is enumerated; the loop fills in everything *else* about a capability -- its type, and what
-it does, from the decisions inside the span and the documents that describe them -- and carries
-the span across untouched.
-"""
+"""Reading a submitted pack and filling the intake, as one loop."""
 from __future__ import annotations
 
 import json
@@ -94,13 +55,7 @@ class Progress:
 
 
 def outstanding(intake_path: str) -> List[str]:
-    """Everything structurally wrong with the declaration on disk, as sentences.
-
-    The loop's termination oracle, and the filter every question it asks has to pass. Both read
-    the *declaration* rather than the documents, so what comes back names a row and a hole --
-    "DEC-03's outcome 'Timeout' leads to no declared state" -- rather than describing a topic the
-    documents covered thinly.
-    """
+    """Everything structurally wrong with the declaration on disk, as sentences."""
     try:
         intake = read_intake(intake_path)
     except Exception as exc:
@@ -124,14 +79,7 @@ def outstanding(intake_path: str) -> List[str]:
 
 
 def is_answerable_question(question: str, problems: Sequence[str]) -> bool:
-    """Whether a question the model wants to ask is one a person can actually act on.
-
-    Filtered in code rather than asked for in the prompt, because the failure is not that the
-    model asks too many questions -- it is that it asks unanswerable ones. "Is decision seven
-    clear?" cannot be answered: the person does not know what would make it clear, and a list of
-    forty such questions is a list nobody opens. A question earns its place by naming a row the
-    audit is already complaining about, which is the same test the loop uses to decide it is done.
-    """
+    """Whether a question the model wants to ask is one a person can actually act on."""
     text = str(question or "").strip()
     if len(text) < 15:
         return False
@@ -142,11 +90,7 @@ def is_answerable_question(question: str, problems: Sequence[str]) -> bool:
 
 @dataclass
 class Tool:
-    """One thing the loop can do, as a name, a description and a callable.
-
-    Held as data rather than as LangChain tool objects so the loop can be driven and tested
-    without a gateway. :func:`bind` turns them into whatever the model needs at the point of use.
-    """
+    """One thing the loop can do, as a name, a description and a callable."""
 
     name: str
     description: str
@@ -154,14 +98,7 @@ class Tool:
 
 
 class Pack:
-    """Everything submitted, parsed and redacted once, before any model sees it.
-
-    Deterministic and done up front, because it is not a model call and never was: parsing a PDF,
-    masking what redaction masks, and setting images aside for the vision pass cost nothing but
-    wall-clock, and doing them once means no tool call can reach a passage redaction has not been
-    through. Parsing is lazy per file -- a sixty-page appendix nobody opens is never parsed --
-    but redaction is not optional on anything that is.
-    """
+    """Everything submitted, parsed and redacted once, before any model sees it."""
 
     def __init__(self, root: Path, should_redact=None) -> None:
         from metric.phases.intake.intake.groups import evidence_files
@@ -178,13 +115,7 @@ class Pack:
         self._mapping = None
 
     def text_of(self, name: str) -> str:
-        """One document as locatable, redacted text. Parsed once and remembered.
-
-        The redaction mapping carries between documents, which is why they are masked here in one
-        place rather than per call: a substitution engine has to mask the same name the same way
-        everywhere it appears, and a per-call mask would give one person three different aliases
-        across three documents and make the pack unreadable as a whole.
-        """
+        """One document as locatable, redacted text. Parsed once and remembered."""
         from metric.phases.intake.intake.readers import UnreadableDocument, read_document
         from metric.phases.intake.intake.redaction import redact_segments
 
@@ -205,13 +136,7 @@ class Pack:
 def build_tools(pack: "Pack", intake_path: str, read_once: Dict[str, object],
                 structure: Dict[str, list], describe_images=None,
                 diagram_mode: str = "split") -> List[Tool]:
-    """The loop's whole surface: read what was submitted, write what it establishes, check itself.
-
-    Every one wraps a reader or writer that already exists and is already tested. Nothing here
-    parses a document, reads an image, or validates a declaration on its own account -- a second
-    implementation of any of those would be a second thing to keep in step with the first, and the
-    first is the one that has been through redaction, grounding and the intake's own vocabulary.
-    """
+    """The loop's whole surface: read what was submitted, write what it establishes, check itself."""
     from metric.phases.intake.intake.readers import is_image
 
     already_read: Set[str] = set()
@@ -240,23 +165,7 @@ def build_tools(pack: "Pack", intake_path: str, read_once: Dict[str, object],
         return pack.text_of(key)
 
     def read_the_pack(**_) -> str:
-        """What the submitted pack establishes, read with the pipeline built to do it.
-
-        The reading now happens before the loop's first turn, so in the ordinary case this returns
-        what the opening message already carried. It stays available because a long conversation
-        pushes the opening out of easy reach, and because a loop that asks for the reading should
-        get the reading rather than an error.
-
-        The pipeline matters and is worth saying why. The facet reading puts every document to the
-        model *together*, so a threshold in an appendix and the process it governs in section three
-        are in front of it at once. Grounding checks every claim's verbatim quote against the
-        corpus and drops the ones that are not there. And diagrams go through the three-pass
-        reading -- per image, joined, then checked against the pictures again -- which is the only
-        correct way to read several. Reading images one at a time always took the single-image
-        path, whose prompt says the image *is* the whole flow; three images each got told that,
-        each numbered its boxes from one, and the collisions were dropped on merge. Whole pictures
-        disappeared silently.
-        """
+        """What the submitted pack establishes, read with the pipeline built to do it."""
         if not pack.files:
             return "Nothing was submitted, so there is nothing to read."
         return (_read_the_pack_once(pack, read_once, structure, describe_images, diagram_mode)
@@ -304,14 +213,7 @@ def build_tools(pack: "Pack", intake_path: str, read_once: Dict[str, object],
 
 def _read_the_pack_once(pack: "Pack", read_once: Dict[str, object], structure: Dict[str, list],
                         describe_images, diagram_mode: str) -> str:
-    """Run the reading pipeline over everything submitted, once, and return what it established.
-
-    Shared by the up-front call and by the ``read_the_pack`` tool, so a loop that asks for the
-    reading gets exactly what it was already given rather than a second, differently-shaped
-    version of it. ``read_once`` is what makes it once: the record is expensive, every later stage
-    is grounded on it, and reading the same pack twice would produce two records of which only one
-    could be written.
-    """
+    """Run the reading pipeline over everything submitted, once, and return what it established."""
     from metric.phases.intake.intake.context_document import build_context_document
     from metric.phases.intake.intake.extraction import extract_documents
 
@@ -338,13 +240,7 @@ def _empty_record():
 
 
 def _write_declaration(declaration: str, intake_path: str, structure: Dict[str, list]) -> str:
-    """Validate a proposed declaration and write it, or say exactly why it was not written.
-
-    The one tool that changes anything, so it is the one that refuses. A reply that does not parse,
-    or that declares no graph at all, is rejected with the reason rather than written -- an empty
-    workbook overwriting a partial one is the single worst thing a loop could do with a turn, and
-    it is also the easiest for a model to produce by accident.
-    """
+    """Validate a proposed declaration and write it, or say exactly why it was not written."""
     from metric.shared import parse_json_object
     from metric.phases.intake.intake.drafting import DraftedIntake, _consolidated, _validate, carry_diagram_through
     from metric.phases.intake.intake.drafting import write_drafted_intake
@@ -371,12 +267,7 @@ def _write_declaration(declaration: str, intake_path: str, structure: Dict[str, 
 
 
 def build_question_tool(problems: Sequence[str], recorded: List[str]) -> Tool:
-    """A tool for the one thing the loop cannot do for itself: ask a person.
-
-    Filtered on the way in. The model is not asked to restrain itself -- it is allowed to try, and
-    a question that names nothing the audit is complaining about is refused with the reason, which
-    is both cheaper and more reliable than a paragraph of prompt about what makes a good question.
-    """
+    """A tool for the one thing the loop cannot do for itself: ask a person."""
     def ask(question: str = "", **_) -> str:
         text = str(question or "").strip()
         if not is_answerable_question(text, problems):
@@ -396,13 +287,7 @@ def build_question_tool(problems: Sequence[str], recorded: List[str]) -> Tool:
 
 
 class Conversation:
-    """One exchange with a tool-calling model, in a shape the loop can be tested without one.
-
-    The loop deals in plain dictionaries -- ``{"tool": name, "args": {...}, "id": ...}`` -- and
-    this adapts them to whatever the gateway hands back. Keeping the loop free of LangChain
-    message classes is what lets every one of its decisions be driven by a stub, and the decisions
-    are the part worth testing: a loop tested only against a live model is tested on a good day.
-    """
+    """One exchange with a tool-calling model, in a shape the loop can be tested without one."""
 
     def __init__(self, tools: Sequence[Tool], tier=None) -> None:
         self._tools = list(tools)
@@ -447,13 +332,7 @@ def run(workspace_root: Path, intake_path: str, converse=None, progress=None,
         max_turns: int = MAX_TURNS, sweeps: int = SWEEPS_BEFORE_PAUSE,
         should_redact=None, describe_images=None, notes: Sequence[str] = (),
         diagram_mode: str = "split") -> Progress:
-    """Read the pack and fill the declaration, and stop when it is complete or the budget is spent.
-
-    Returns what happened rather than the declaration: the declaration is the workbook at
-    ``intake_path``, which every tool reads and the caller already has. Nothing is left
-    half-applied -- a run stopped at any point leaves the workbook exactly as good as the last
-    thing written to it.
-    """
+    """Read the pack and fill the declaration, and stop when it is complete or the budget is spent."""
     report = progress or (lambda *args, **kwargs: None)
     pack = Pack(Path(workspace_root), should_redact=should_redact)
     read_once: Dict[str, object] = {}
@@ -466,9 +345,6 @@ def run(workspace_root: Path, intake_path: str, converse=None, progress=None,
     # the context document is what every later stage is grounded on, since none of them see the
     # documents. And the reading itself was worse, because reading documents together is what lets
     # a threshold in an appendix meet the process it governs in section three.
-    #
-    # It also costs nothing to do here. The reading is the same call either way; making it
-    # unconditional only removes a turn the loop was spending to ask for it.
     reading = _read_the_pack_once(pack, read_once, structure, describe_images, diagram_mode)
     if read_once.get("record") is not None:
         _write_evidence(Path(workspace_root), read_once["record"])
@@ -577,13 +453,7 @@ def run(workspace_root: Path, intake_path: str, converse=None, progress=None,
 
 
 def _doing(state: "Progress") -> str:
-    """What the loop is doing right now, in the words of what it last did.
-
-    A constant line here is why a working loop reads as a stuck one: every turn printed the same
-    sentence, so the only visible difference between reading three documents and going round in
-    circles was the number beside it. Naming the last tool is enough -- a person watching wants to
-    know it is moving, and which way.
-    """
+    """What the loop is doing right now, in the words of what it last did."""
     if not state.tools_run:
         return "Reading the pack and filling the declaration"
     return _TOOL_LINES.get(state.tools_run[-1], "Working through the declaration")
@@ -603,13 +473,7 @@ _TOOL_LINES = {
 
 def _opening(pack: "Pack", problems: Sequence[str], from_nothing: bool,
              notes: Sequence[str], reading: str = "") -> str:
-    """The first message: what the documents established, what exists, and what is wrong with it.
-
-    The reading is here rather than behind a tool call because it is needed on every run without
-    exception, and a turn spent asking for something that is always needed is a turn wasted. Named
-    files as well, because going back to one specific passage is a real thing the loop does and a
-    list it already has is another call it does not have to spend.
-    """
+    """The first message: what the documents established, what exists, and what is wrong with it."""
     submitted = ("Submitted: "
                  + ", ".join(sorted(pack.files)) if pack.files else
                  "Nothing was submitted.")
@@ -629,14 +493,7 @@ def _opening(pack: "Pack", problems: Sequence[str], from_nothing: bool,
 
 def _next_sweep(closed: Sequence[str], stuck: Sequence[str],
                 remaining: Sequence[str]) -> str:
-    """What to say at a sweep boundary, given what moved.
-
-    Repeating the outstanding list verbatim is what made the loop go round in circles: the model
-    was shown the same words it had already been shown, so it did the same thing it had already
-    done. What it needs instead is the difference -- what closed, and which of these it has now
-    failed to settle from the documents twice, because those are the ones to stop reading for and
-    ask about.
-    """
+    """What to say at a sweep boundary, given what moved."""
     said = [f"Since the last sweep, {len(closed)} settled: "
             + "; ".join(closed[:4]) + ("; …" if len(closed) > 4 else "")]
     if stuck:
@@ -670,14 +527,7 @@ def _finish(state: Progress, intake_path: str, questions: List[str],
 
 
 def _write_evidence(root: Path, record) -> None:
-    """The context every later stage is grounded on, and the record behind it.
-
-    Written straight from what :func:`extraction.extract_documents` produced rather than
-    reassembled from anything the loop said about it. That record carries the verbatim quote,
-    document and page behind every claim, each one already checked against the corpus -- provenance
-    a person auditing the run needs and no summary can reconstruct. The same two files, in the same
-    formats, as the sequence this replaces, so no later stage can tell which path produced the run.
-    """
+    """The context every later stage is grounded on, and the record behind it."""
     from metric.phases.intake.intake.context_document import build_context_document
     from metric.phases.intake.intake.extraction import record_to_json
 

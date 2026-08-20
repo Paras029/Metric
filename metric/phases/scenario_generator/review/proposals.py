@@ -1,12 +1,4 @@
-"""Turn the review pass's proposed scenarios into Scenario objects.
-
-Everything here is validation, not generation: a proposal may only reference decisions,
-outcomes, capabilities and personas the intake declares. Anything invented is discarded, and
-what was discarded is recorded on the scenario so a reviewer can see it.
-
-A proposal with no usable decision path is still kept — a perturbation or probe-like scenario
-legitimately has none. What it never gets is a fabricated one.
-"""
+"""Turn the review pass's proposed scenarios into Scenario objects."""
 from __future__ import annotations
 
 from typing import List, Tuple
@@ -83,8 +75,6 @@ def instantiate_proposal(entry: dict, index: int, intake: IntakeData) -> Scenari
     # end" either, since that label needs more than one block to name. The steps are ground truth
     # about which blocks a route crosses where the list is a claim about it, so the steps answer
     # first, and this is the one that matters most for the scenarios the review is now asked for:
-    # a cross-capability journey is *defined* by crossing, and it was the case most likely to
-    # arrive with the field blank.
     declared = [c for c in (entry.get("capabilities") or []) if c in capability_ids]
     touches = walked or declared
     if not block and len(touches) == 1:

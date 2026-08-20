@@ -1,8 +1,4 @@
-"""The stages a use case moves through, in the order they run.
-
-Each stage's own page says what it does and how; the list here is the order, the dependencies
-between them, and which ones can be skipped.
-"""
+"""The stages a use case moves through, in the order they run."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -31,58 +27,80 @@ STATUS_LABELS = {
 
 
 @dataclass(frozen=True)
+class Phase:
+    """A group of steps that produce one thing between them."""
+
+    key: str
+    title: str
+
+
+@dataclass(frozen=True)
 class Stage:
     """One step of the pipeline."""
 
     key: str
     title: str
     blurb: str
+    phase: str = ""
     optional: bool = False
 
     requires: Tuple[str, ...] = ()
     """What must have produced something before this stage can run.
 
-    Empty means every required stage before it, which is the ordinary case. Stated explicitly only
-    for the stages that break the chain: coverage needs the scenario space and nothing after it,
-    and gating it on the review would block transcripts behind the last model pass for no reason.
+    Empty means every required stage before it. Stated explicitly only where a stage breaks the
+    chain: coverage needs the scenario space and nothing after it, so gating it on the review
+    would hold transcripts behind the last model pass for no reason.
     """
 
 
-# The order here is the order of the pipeline, and the chain is linear except where a stage names
-# its own dependencies. Optional stages can be skipped without blocking what follows.
-#
-# One line each. A stage page has the run button, the inputs and the result on it; a paragraph
-# explaining the stage above all three pushes the work below the fold and is read once.
+# The five phases, in order. Evaluation has no steps yet.
+PHASES: Tuple[Phase, ...] = (
+    Phase("intake", "Intake"),
+    Phase("scenario_generator", "Scenario generator"),
+    Phase("variation_generator", "Variation generator"),
+    Phase("coverage", "Coverage"),
+    Phase("evaluation", "Evaluation"),
+)
+
+# Pipeline order, and the chain is linear except where a stage names its own dependencies.
+# Optional stages can be skipped without blocking what follows.
 STAGES: Tuple[Stage, ...] = (
     Stage("intake", "Intake",
-          "The agent as a decision graph, drafted from the submitted documentation."),
+          "The agent as a decision graph, drafted from the submitted documentation.",
+          phase="intake"),
 
     Stage("workflow", "Workflow",
-          "Every route through each capability, walked exhaustively, plus the probes that apply."),
+          "Every route through each capability, walked exhaustively, plus the probes that apply.",
+          phase="scenario_generator"),
 
     Stage("scenarios", "Scenario space",
-          "Each route written up for a tester: a name, what happens, and the turns to take."),
-
-    Stage("variations", "Variation space",
-          "Variants of each scenario worth running separately. Not built yet.",
-          optional=True),
+          "Each route written up for a tester: a name, what happens, and the turns to take.",
+          phase="scenario_generator"),
 
     Stage("materiality", "Materiality",
-          "What a mishandled scenario would cost, and how many runs that justifies."),
+          "What a mishandled scenario would cost, and how many runs that justifies.",
+          phase="scenario_generator"),
 
     Stage("review", "Review",
           "One pass over the whole space against the documentation: settles materiality, flags "
-          "weak scenarios, proposes what enumeration could not reach."),
+          "weak scenarios, proposes what enumeration could not reach.",
+          phase="scenario_generator"),
+
+    Stage("variations", "Variation space",
+          "Variants of each scenario worth running separately. Not built yet.",
+          phase="variation_generator", optional=True),
 
     Stage("coverage", "Coverage",
           "How much of the space the model owner's own testing already reaches.",
-          optional=True, requires=("intake", "workflow")),
+          phase="coverage", optional=True, requires=("intake", "workflow")),
 
     Stage("summary", "Summary",
-          "The data template to issue, and what still has to be asked for."),
+          "The data template to issue, and what still has to be asked for.",
+          phase="coverage"),
 )
 
 STAGE_BY_KEY: Dict[str, Stage] = {stage.key: stage for stage in STAGES}
+PHASE_BY_KEY: Dict[str, Phase] = {phase.key: phase for phase in PHASES}
 STAGE_KEYS: Tuple[str, ...] = tuple(stage.key for stage in STAGES)
 
 # What a stage used to be called, so a workspace recorded under the old names still opens.
@@ -111,17 +129,27 @@ def index_of(key: str) -> int:
 
 
 def required_before(key: str) -> List[Stage]:
-    """The stages that must have produced something before this one can run.
-
-    A stage naming its own dependencies is taken at its word; otherwise it is every required stage
-    ahead of it in the pipeline. Optional stages are never a prerequisite either way, which is what
-    lets a team that already has a completed intake workbook start at the intake stage and never
-    open the document stages at all.
-    """
+    """The stages that must have produced something before this one can run."""
     stage = STAGE_BY_KEY[key]
     if stage.requires:
         return [STAGE_BY_KEY[k] for k in stage.requires if not STAGE_BY_KEY[k].optional]
     return [earlier for earlier in STAGES[:index_of(key)] if not earlier.optional]
+
+
+def phase_of(key: str) -> Phase:
+    """The phase a stage belongs to."""
+    return PHASE_BY_KEY[STAGE_BY_KEY[key].phase]
+
+
+def stages_in(phase_key: str) -> List[Stage]:
+    """The steps of one phase, in pipeline order."""
+    return [stage for stage in STAGES if stage.phase == phase_key]
+
+
+def opens_a_phase(key: str) -> bool:
+    """Whether this stage is the first step of its phase, so the rail can space them apart."""
+    steps = stages_in(STAGE_BY_KEY[key].phase)
+    return bool(steps) and steps[0].key == key
 
 
 def downstream_of(key: str) -> List[Stage]:

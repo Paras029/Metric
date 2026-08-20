@@ -430,6 +430,10 @@ ol, ul { list-style: none; padding: 0; }
   left: 2.16rem;
 }
 
+/* A longer run of spine where a phase begins, so the five groups read apart without a heading
+   asking for the room a heading needs. */
+.steps__item--opens { margin-top: var(--s4); }
+
 /* A node on the spine. Square, because the thing it stands for is a step in a traversal rather
    than an avatar -- and because a page of circles is the look this design is trying not to have. */
 .steps__marker {

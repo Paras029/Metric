@@ -1,22 +1,4 @@
-"""The declared graph as one self-contained page, built from the workbooks.
-
-A graph gets quoted in a validation report and mailed to a model owner, and both of those are done
-today with a screenshot -- which loses the zoom at exactly the size that needs one. This produces
-the same drawing with the same reading controls, in a file that works with nothing running: the
-stylesheet and the script are inlined rather than fetched, so it survives being emailed, attached,
-or opened from a network share months later.
-
-**Built from the workbooks, not from a workspace.** Point it at an intake and it draws that intake;
-point it at a scenario space metadata workbook as well and the page gains the scenario list, where
-opening a scenario lights the route it walks. Correct a row in the intake, build it again, and the
-page is corrected -- which is what makes it something to keep rather than a picture that was true
-once. Nothing about it depends on the interface, so the same page comes out of the command line and
-out of a running workspace, and the two cannot drift.
-
-Rendered with Jinja against the same template and the same ``graph.js`` the interface serves, for
-the same reason: two copies of the drawing code is how the downloadable graph quietly stops
-matching the graph on screen.
-"""
+"""The declared graph as one self-contained page, built from the workbooks."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -65,11 +47,7 @@ def render_graph_page(intake: IntakeData, scenarios: Optional[Sequence[Scenario]
 
 def write_graph_page(intake_path: str, output_path: str,
                      scenarios_path: Optional[str] = None) -> str:
-    """Build the page from an intake workbook, optionally with its scenario space beside it.
-
-    Takes paths rather than objects so that the command line, the interface and a person with two
-    spreadsheets all reach it the same way. Returns the path written.
-    """
+    """Build the page from an intake workbook, optionally with its scenario space beside it."""
     from metric.domain.intake import read_intake
     from metric.domain import read_scenarios
 

@@ -1,9 +1,4 @@
-"""Turn enumerated paths into Scenario objects carrying their own metadata.
-
-Everything here is deterministic and derived from the intake. A later pass replaces only the
-placeholder description and turn plan; category comes from the declared Outcome Type of the
-state a path ends in, so it never depends on a model call.
-"""
+"""Turn enumerated paths into Scenario objects carrying their own metadata."""
 from __future__ import annotations
 
 import re
@@ -80,12 +75,7 @@ def build_turn_meta(path: Path, graph: DecisionGraph, tools: List[Tool]) -> List
 
 
 def fallback_name(category: str, turn_meta: List[TurnMeta]) -> str:
-    """A handle built from the route itself, for a scenario nothing has written yet.
-
-    Deterministic, like everything else in this module, and deliberately plain: it exists so that
-    a list of scenarios is scannable the moment the graph is walked, before any model has run.
-    The writer replaces it with something a person would have chosen.
-    """
+    """A handle built from the route itself, for a scenario nothing has written yet."""
     steps = [f"{t.decision_name}: {t.expected_variant}" for t in turn_meta if t.decision_name]
     if not steps:
         return category or "Scenario"
@@ -107,16 +97,7 @@ def _placeholder_turn_plan(turn_meta: List[TurnMeta]) -> str:
 
 
 def _started_at(path: Path, graph: DecisionGraph) -> str:
-    """Which start state this path actually opened from.
-
-    An agent can have more than one way in -- an inbound call and an inbound chat are two start
-    states over one graph -- and a path records where it went rather than where it began. Taking
-    the first start state regardless would have every scenario claim to be seeded from the same
-    place, and the seeded state is issued in the scenario space metadata and read by the writer.
-
-    The path's first decision is offered by the state it opened from, so that is what identifies
-    it. Where more than one start offers it, or the path is empty, the first is as good as any.
-    """
+    """Which start state this path actually opened from."""
     if not path:
         return graph.start_states[0]
     offering = set(graph.states_offering(path[0].decision_id))
@@ -166,13 +147,7 @@ def instantiate_path(path: Path, graph: DecisionGraph, personas: List[Persona],
 
 
 def _how_it_ends(state, graph: DecisionGraph) -> str:
-    """What the tester should expect at the last turn.
-
-    Ordinarily the ending state's own description. The exception is a route that stops at an
-    out-of-scope boundary: the state it stops at is not an ending at all, and its description
-    reads as though the conversation carries on -- which for a tester marking the transcript is
-    the difference between a pass and a bug report. So the hand-off is said outright.
-    """
+    """What the tester should expect at the last turn."""
     if state is None:
         return "Terminal state reached"
     if not state.is_terminal and state.next_decisions:
@@ -186,11 +161,7 @@ def _how_it_ends(state, graph: DecisionGraph) -> str:
 
 
 def _precondition(span: Optional[Span], start_state) -> str:
-    """What the tester has to arrange before the first turn, in their own terms.
-
-    Empty for a whole-graph walk, where the conversation genuinely starts at the start and saying
-    so would be noise on every scenario in the pack.
-    """
+    """What the tester has to arrange before the first turn, in their own terms."""
     if span is None or span.is_whole_graph or start_state is None:
         return ""
     return (f"Start with the interaction already at: {start_state.description}. "
@@ -206,12 +177,7 @@ def instantiate_span(span: Span, walked: List[Path], augmented: List[Path], grap
 
 
 def number_scenarios(scenarios: List[Scenario]) -> List[Scenario]:
-    """Order the set and assign stable SC-xxx ids.
-
-    Capability first, so the pack reads in the order the agent works: everything testing
-    identification, then everything testing verification. A tester works through one block at a
-    time, and a pack ordered by category interleaves them.
-    """
+    """Order the set and assign stable SC-xxx ids."""
     order = {ORIGIN_GRAPH: 0, ORIGIN_VARIANT_GAP: 1}
     scenarios.sort(key=lambda s: (s.capability_id, order.get(s.origin, 9), s.category,
                                   len(s.path)))
@@ -230,21 +196,7 @@ def instantiate_all(walked: List[Path], augmented: List[Path], graph: DecisionGr
 
 
 def peer_signals(scenarios: List[Scenario]) -> Dict[str, dict]:
-    """Redundancy and relative depth for each scenario, computed across the whole set.
-
-    Grouped by (capability, entry position, category); within a group, ranked by depth. Supplied
-    to the materiality judgement as evidence, so redundancy is measured rather than guessed at.
-
-    The block a scenario walks is what makes two scenarios comparable, and the position it is
-    entered from is part of that: verification-after-a-document-check and
-    verification-after-a-one-time-code are peers of their own siblings, not of each other, and
-    counting them together would report every scenario in a two-entry block as twice as redundant
-    as it is. Falls back to the set of capabilities the route touches, which is what an undivided
-    graph has.
-
-    Probes are excluded: with no decision path, depth and redundancy say nothing useful about
-    them, and each tests a distinct property.
-    """
+    """Redundancy and relative depth for each scenario, computed across the whole set."""
     groups: Dict[tuple, List[Scenario]] = {}
     for scenario in scenarios:
         if scenario.is_probe:

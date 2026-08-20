@@ -1,14 +1,4 @@
-"""Turning submitted files into locatable text.
-
-Every reader returns segments rather than one block of text, and every segment carries a locator
--- a page, a slide, a heading. That locator is what a citation points at later, so a reader that
-loses it makes the grounding check unable to say where anything came from.
-
-All readers sit behind :func:`read_document`. Adding a format means adding one function and one
-entry to the scenario space metadata; nothing else changes. Third-party parsers are imported inside the readers
-that need them, so a missing optional package disables one format rather than the whole tool --
-which matters where packages arrive through an internal mirror one approval at a time.
-"""
+"""Turning submitted files into locatable text."""
 from __future__ import annotations
 
 import logging
@@ -121,13 +111,7 @@ def _read_pptx(path: Path) -> List[Segment]:
 
 
 def _rows_to_segments(rows: List[List[str]], sheet: str, per_segment: int) -> List[Segment]:
-    """Turn rows into readable passages, keeping the header on each one.
-
-    A spreadsheet read row by row loses the only thing that makes a row mean anything, which is
-    the column it sits under. Repeating the header at the top of every passage costs a few lines
-    and keeps each passage self-describing, so a fact read out of row 400 still knows what its
-    third column was called.
-    """
+    """Turn rows into readable passages, keeping the header on each one."""
     rows = [[str(cell).strip() if cell is not None else "" for cell in row] for row in rows]
     rows = [row for row in rows if any(row)]
     if not rows:
@@ -154,13 +138,7 @@ ROWS_PER_SEGMENT = 40
 
 
 def _read_spreadsheet(path: Path) -> List[Segment]:
-    """Read a workbook sheet by sheet, or a delimited file as a single table.
-
-    Spreadsheets carry a lot of what a scenario space needs -- decision tables, routing rules, policy
-    matrices, term glossaries -- and a team that keeps its rules in one will send it. Reading the
-    values rather than the formulae is deliberate: the computed result is the behaviour, and the
-    formula is how it happens to be worked out.
-    """
+    """Read a workbook sheet by sheet, or a delimited file as a single table."""
     if path.suffix.lower() == ".csv":
         import csv
 
@@ -263,12 +241,7 @@ SUPPORTED_EXTENSIONS = tuple(sorted(READERS))
 
 
 def read_document(path: Path) -> Tuple[DocumentRef, List[Segment]]:
-    """Read one file into locatable segments, with a record of what it was.
-
-    Raises :class:`UnreadableDocument` with a reason the person who submitted the pack can act
-    on. Failing loudly is the point: a document that silently contributes nothing is worse than
-    one that is refused, because nobody finds out until the scenario space is thin.
-    """
+    """Read one file into locatable segments, with a record of what it was."""
     path = Path(path)
     entry = READERS.get(path.suffix.lower())
     if entry is None:

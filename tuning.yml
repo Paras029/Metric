@@ -1,26 +1,14 @@
 # How the work is run. Nothing here is secret and nothing here is machine-specific, so this file
 # is committed and shared: a change to it is reviewable like any other change, and a team agrees
-# it once rather than each person half-remembering it in their own .env.
-#
-# Credentials and which model to call live in .env instead, which is yours and is never committed.
-#
-# Everything below is optional. Delete a line and the built-in default applies; delete the whole
-# file and the tool runs exactly as it ships. An environment variable of the same name always wins
-# over the value here, which is how you override one setting for one run without editing this.
 
 defaults:
   temperature: 0.3
   # Retries for a gateway that is briefly busy. Anything the model rejects on its merits is
   # raised rather than repeated -- retrying a malformed request only wastes the time it takes to
-  # fail again.
   max_attempts: 4
 
 # Calls run on one of three tiers, because the work genuinely differs. Each falls back to the model
 # named in .env, so nothing changes until you name a smaller one here.
-#
-# max_tokens is the *output* cap, not the context window. Reasoning tokens come out of the same
-# budget as the reply, so a high effort against a small cap truncates the JSON rather than
-# shortening the answer -- which is why each tier sets both together.
 tiers:
   # Reading documents, drafting and revising the intake, the final review. These read a lot,
   # reason at length, and have to justify what they conclude.
@@ -30,8 +18,6 @@ tiers:
     # model: a-smaller-model
 
   # Weighing each scenario against its peers. Judgement-shaped, but every chunk of the scenario space
-  # is in flight against it at once, which is what makes it worth separating: point it somewhere
-  # smaller without touching document reading, and let it retry a busy gateway less hard.
   materiality:
     max_tokens: 32000
     reasoning_effort: medium
@@ -44,37 +30,16 @@ tiers:
 
 # How many of the batched calls are in flight at once. This caps overlap, not call count: a large
 # run cannot open more connections than the gateway is willing to hold. Raise it if yours
-# comfortably takes more; lower it if calls start failing under load.
 concurrency: 4
 
 # Per call site, one level finer than a tier. A tier is shared by every call doing the same *kind*
 # of work -- weighing materiality and checking the review's declared category are both
-# materiality-tier work, but they are two different calls a scenario space can want tuned differently.
-#
-# EVERY CALL THE TOOL MAKES IS LISTED BELOW, and every one of them takes the same six settings:
-#
-#   model:             which model to call. Must be a name your config.yml declares.
-#   max_tokens:        the output cap for this call.
-#   temperature:       0 for the most repeatable output, higher for more variety.
-#   reasoning_effort:  minimal | low | medium | high.
-#   max_attempts:      retries for a gateway that is briefly busy.
-#   batch_size:        how many rows go into one call (only where the call batches).
-#   concurrency:       how many of this call's batched calls run at once.
-#
-# Anything omitted falls back to the stage's tier, which falls back to the model in .env -- so an
-# empty entry below means "whatever the tier says", and setting one line changes one call and
-# nothing else. Uncomment a model line to point that single call somewhere smaller or larger.
-#
-# batch_size and concurrency are independent: smaller batches with higher concurrency means more,
-# smaller calls sent more in parallel, which is usually faster and always cheaper to retry.
 stages:
 
   # --- Ingestion. One call each; nothing here batches.
   ingest_read:                    # each group of questions, read from the whole corpus
     # model: a-smaller-model      # judgement tier unless you name one here
     # max_tokens: 65536
-    # temperature: 0.3
-    # reasoning_effort: high
     max_attempts: 4
   ingest_resolve:                 # the resolution sweep over what the first reading left open
     # model: a-smaller-model
@@ -105,8 +70,6 @@ stages:
 
   # --- The scenario space passes. These batch, so they also take batch_size and concurrency.
   #     batch_size is how many rows go into one call; concurrency is how many such calls run at
-  #     once. Smaller batches with higher concurrency means more, smaller calls sent more in
-  #     parallel, which is usually faster and always cheaper to retry.
   writer:                         # writing each scenario up for the model owner
     # model: a-smaller-model      # standard tier unless you name one here
     batch_size: 8
@@ -141,29 +104,11 @@ stages:
 
 # --- An LLM council: three models on one judgement, for the passes where a second opinion is
 #     worth what it costs. Off unless you switch it on and name the models.
-#
-# Two workers answer the same prompt independently and in parallel, knowing nothing of each other
-# -- two models shown each other's work agree, and that agreement means nothing. A reconciler then
-# answers the same prompt itself with both readings in view. It is not a vote and not a merge: a
-# vote over two answers cannot break a tie, and a merged JSON document is one neither model wrote
-# and neither would defend. The reconciler's answer is the one used.
-#
-# Only these five call sites can take one, and the reason is the same for each: it is one judgement
-# over a whole body of evidence that every later stage then takes as given, and nothing downstream
-# would catch it being wrong. Writing scenario text and assigning materiality are deliberately not
-# on the list -- those are made per scenario, hundreds of times, and a bad one is visible on the
-# page beside its neighbours.
-#
-# A council costs roughly three times the tokens of the pass it is turned on for, and about twice
-# its wall time: the two workers overlap, the reconciler waits for them.
 council:
   enabled: off                    # the master switch; every stage below needs it on
   # workers:                      # exactly two. Different models make a better council than one
   #   - a-model                   # model called twice, which mostly agrees with itself.
-  #   - another-model
-  # reconciler: a-strong-model    # answers the task itself, with both readings in view
 
-  # Per call site, so a council can be paid for where it earns its keep and not elsewhere.
   stages:
     ingest_read: off              # reading the documents -- the first judgement of the run, and
     ingest_resolve: off           # the one every later stage inherits without re-checking
@@ -180,51 +125,30 @@ council:
 ingestion:
   # Whether the intake stage reads the pack as a tool-calling loop instead of as a fixed
   # sequence of calls. Off by default.
-  #
-  # The sequence reads every document against three groups of questions, puts what is left open
-  # back to them twice more, drafts a declaration and repairs it once: seven to nine calls in a
-  # set order, made whether or not each has anything to do. The loop decides what to open, writes
-  # a declaration, audits it, and goes back only for what is missing -- an ordinary pack finishes
-  # in three or four calls. Whether it is finished is decided against the declaration on disk, not
-  # by the model.
-  #
-  # It needs a gateway that supports tool-calling, and not all do. Run
-  # `python tools/probe_agent_support.py` first; check 10 exercises exactly this path. A gateway
-  # that cannot run it falls back to the fixed sequence rather than failing the stage.
   intake_loop: off
 
   # How much submitted text goes into one reading call. Four characters to a token puts this near
   # 500k tokens, well inside a million-token window. A pack larger than this is split across
-  # calls, which reads worse than reading it whole, so the number is set to make that rare.
   max_corpus_chars: 2000000
 
   # How much supplementary context one later call carries: the reading of the documents plus
   # every note and answer. Generous on purpose -- roughly 100k tokens against models that hold a
-  # million -- because a cap a normal pack exceeds silently degrades every run. Going over it
-  # drops whole sections from the end and says so in the log, rather than cutting mid-sentence.
   max_context_chars: 400000
 
   # How many times a question the first reading left open is put back to the documents before a
   # person is asked. Each pass is one call over the whole corpus, and each question it settles is
-  # one the model owner never has to answer. 0 skips the sweep and asks considerably more.
   resolve_passes: 2
 
   # Whether the model accepts images alongside text. Off where the gateway rejects the multimodal
   # request shape: diagrams are then recorded as needing a written description rather than failing
-  # the run.
   vision: true
   max_image_bytes: 4000000
 
 # Redacting PII out of submitted documents before any of their text reaches a model call.
 # Off by default so the tool runs unmodified wherever the internal pii-redactor package has not
-# been installed. Once on, a passage that cannot be redacted stops the run rather than being sent
-# unredacted -- this is not a best-effort extra.
 redaction:
   enabled: false
   mode: masking
   replacement_text: "[REDACTED]"
   # strict | balanced | loose. Omit to take the engine's own default.
   # sensitivity: balanced
-  # exclude_entities: [PERSON, LOCATION]
-  # allow: [American Express, New York]
-  # thresholds: {secondary_pii_email: 0.7}

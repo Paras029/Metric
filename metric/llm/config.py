@@ -1,20 +1,4 @@
-"""Model configuration. Everything sensitive comes from the environment (.env).
-
-Calls go through SafeChain, which owns authentication, token refresh and the request shape each
-model expects. Nothing here mints a token or builds a payload: SafeChain reads its credentials
-from the environment and the per-model payload structures from the YAML at ``CONFIG_PATH``, and
-hands back a LangChain chat model. What is left for this file is which model each kind of work
-should use and how much room to give it.
-
-Calls are grouped into three tiers, and each tier picks its own model, output cap and reasoning
-effort. The tiers exist because the work is genuinely different, not to save money for its own
-sake: a pass that maps free text onto a fixed vocabulary is doing classification, and giving it
-the same model and reasoning budget as a pass that must read sixty pages and justify a verdict
-makes it slower without making it better.
-
-Every tier defaults to the main model, so nothing changes until a smaller one is configured. That
-matters where a new model has to clear an approval before it can be used.
-"""
+"""Model configuration. Everything sensitive comes from the environment (.env)."""
 import logging
 import os
 from dataclasses import dataclass
@@ -37,23 +21,13 @@ DEFAULT_CONFIG_PATH = "config.yml"
 
 
 def _pad_base64(secret: str) -> str:
-    """Restore the padding a base64 secret needs to decode.
-
-    The portal issues the consumer secret with its trailing ``=`` stripped, and the decoder will
-    not accept it in that state. Padding it back out to a multiple of four is the whole fix, and
-    doing it here means nobody has to remember to paste the padding in by hand -- a mistake that
-    surfaces as an authentication failure with nothing to suggest the cause.
-    """
+    """Restore the padding a base64 secret needs to decode."""
     secret = (secret or "").strip()
     return secret + "=" * (-len(secret) % 4) if secret else ""
 
 
 def prepare_environment() -> None:
-    """Put the credentials where SafeChain expects to find them.
-
-    Called before SafeChain is imported. It reads these straight out of the process environment,
-    so the padding fix has to land there rather than being passed as an argument.
-    """
+    """Put the credentials where SafeChain expects to find them."""
     secret = _pad_base64(os.getenv(CONSUMER_SECRET, ""))
     if secret:
         os.environ[CONSUMER_SECRET] = secret
@@ -72,15 +46,6 @@ def missing_credentials() -> list:
 #
 # ``.env`` holds what is yours and your machine's: credentials, which model to call, where
 # SafeChain is. It is never committed, differs per person, and is short enough to read at a glance.
-#
-# ``tuning.yml`` holds how the work is run: output caps, reasoning effort, batch sizes,
-# concurrency, how hard ingestion tries. None of it is secret, all of it is worth a team agreeing
-# on once, and as a table it is legible in a way forty ``KEY=value`` lines with comments between
-# them are not. It is committed, so a change to it is reviewable like any other change.
-#
-# An environment variable still wins over the file wherever both are set. That is what keeps an
-# existing ``.env`` working untouched, and leaves a way to override one setting on one machine for
-# one run without editing a shared file.
 DEFAULT_TUNING_PATH = "tuning.yml"
 
 # Cached against the file's own modification time and size, not merely its path. A cache keyed on
@@ -96,14 +61,7 @@ _announced: set = set()
 
 
 def tuning_path() -> str:
-    """Where the tuning file is, searched rather than assumed.
-
-    ``TUNING_PATH`` names it outright. Otherwise it is looked for in the working directory and
-    then upwards from it, and finally beside the installed package -- because the file is found
-    relative to *something*, and a bare relative path silently finds nothing whenever the tool is
-    launched from anywhere but the directory it happens to sit in. Silently: every setting in it
-    reverts to its built-in default and nothing says so.
-    """
+    """Where the tuning file is, searched rather than assumed."""
     named = os.getenv("TUNING_PATH", "").strip()
     if named:
         return named
@@ -148,19 +106,7 @@ def _parse(path: Path) -> dict:
 
 
 def tuning() -> dict:
-    """The tuning file as it is on disk right now. An absent file means built-in defaults.
-
-    A file that is *present and broken* is the case worth being careful about. Falling back to the
-    defaults there is the worst available behaviour: every value the file was setting silently
-    reverts, the run proceeds and produces plausible output, and the only sign is one warning in a
-    log nobody is reading. A batch size and a model choice both go quietly back to what they were.
-
-    So a broken file never degrades to defaults. On the first read -- startup -- it raises, and
-    :func:`check_tuning` turns that into a message and a refusal to start, which is cheap and
-    unmissable. On a later read, where an edit has broken a file that was working, the last good
-    values are kept and the problem is logged as an error: a run already under way should not
-    change what it is doing halfway through because somebody mistyped a line in another window.
-    """
+    """The tuning file as it is on disk right now. An absent file means built-in defaults."""
     name = tuning_path()
     path = Path(name)
     signature = _signature(path)
@@ -199,22 +145,12 @@ def tuning() -> dict:
 
 
 def check_tuning() -> None:
-    """Read the tuning file once at startup so a broken one stops the run before it starts.
-
-    Called by both front ends before anything else happens. A settings file that cannot be parsed
-    is a mistake somebody made seconds ago and can fix in seconds; the expensive version is the one
-    where the run goes ahead on defaults and the mistake is found in the output an hour later.
-    """
+    """Read the tuning file once at startup so a broken one stops the run before it starts."""
     tuning()
 
 
 def reload_tuning() -> None:
-    """Forget the cached tuning file.
-
-    Rarely needed: :func:`tuning` already re-reads the file whenever it has changed on disk, so an
-    edit takes effect on its own. This exists for a test that writes a file within the same clock
-    tick as the last read, and for forcing the announcement again.
-    """
+    """Forget the cached tuning file."""
     _tuning_cache.clear()
     _announced.clear()
 
@@ -234,11 +170,7 @@ def _truthy(value: object) -> bool:
 
 
 def setting(env: str, *path: str, default=None, cast=None):
-    """One setting: the environment first, then the tuning file, then the built-in default.
-
-    ``cast`` is applied to whichever of the first two supplied it, so a value typed as an int in
-    the YAML and the same value typed as a string in the environment arrive here the same way.
-    """
+    """One setting: the environment first, then the tuning file, then the built-in default."""
     raw = os.getenv(env)
     if raw is None or not str(raw).strip():
         raw = _from_file(*path)
@@ -259,15 +191,6 @@ def setting(env: str, *path: str, default=None, cast=None):
 # ``config.JUDGEMENT``, ``config.PII_REDACTION`` -- from those functions, via :func:`__getattr__`
 # at the foot of the file. A call site reads them as plain module attributes; each one is resolved
 # at the moment it is read.
-#
-# This is not a style preference. The interface runs for hours against one process, and a value
-# fixed at import cannot be changed without restarting it -- which would make ``reload_tuning`` a
-# half-truth, taking effect for the per-stage overrides and silently not for the model, the tiers,
-# the concurrency cap or whether redaction is on. Half a configuration reloading is worse than
-# none, because the half that does not is invisible.
-#
-# The ``_BUILTIN_*`` values are the genuine constants: what applies when nothing is configured
-# anywhere. Those are fixed at import because they are fixed, full stop.
 
 _BUILTIN_MODEL_ID = "gemini-2.5-pro"
 _BUILTIN_TEMPERATURE = 0.3
@@ -293,15 +216,7 @@ def llm_vision() -> bool:
 
 
 def intake_loop() -> bool:
-    """Whether the intake stage finishes its declaration with a tool-calling loop.
-
-    Off by default, and deliberately a switch rather than a replacement. The fixed sequence that
-    drafts an intake works, is what every test exercises, and needs nothing from the gateway
-    beyond an ordinary completion; the loop needs tool-calling, which not every gateway offers --
-    run tools/probe_agent_support.py to find out before turning this on. What it adds is the
-    thing a fixed sequence cannot do: read the audit, go back to the documents for what is still
-    missing, and stop when the declaration is complete rather than when the calls run out.
-    """
+    """Whether the intake stage finishes its declaration with a tool-calling loop."""
     return _truthy(setting("LLM_INTAKE_LOOP", "ingestion", "intake_loop", default="off"))
 
 
@@ -461,15 +376,6 @@ def standard() -> Tier:
 # different calls in two different passes, run at two different points in the pipeline, and a
 # scenario space can want them tuned differently -- a smaller model for the mechanical category check,
 # the full one for materiality itself.
-#
-# STAGE_KEYS names every individual call site this way, one level finer than the tier. Each is
-# overridden with ``LLM_STAGE_<key>_MODEL_ID`` / ``_MAX_TOKENS`` / ``_TEMPERATURE`` /
-# ``_REASONING_EFFORT`` / ``_MAX_ATTEMPTS`` / ``_BATCH_SIZE`` (batch size only where the call
-# actually batches), and every field defaults to its tier's own value where the stage does not set
-# one -- so setting nothing here changes nothing, and setting one field of one stage leaves the
-# rest of that stage, and every other stage, exactly on its tier's setting. That in turn falls
-# back to the master model (``LLM_MODEL_ID``) wherever the tier itself does not override it, which
-# is the three-level cascade this whole module builds: stage, then tier, then master.
 STAGE_KEYS = (
     "INGEST_READ", "INGEST_RESOLVE", "INGEST_DIAGRAM_READ", "INGEST_DIAGRAM_SYNTHESIZE",
     "INGEST_DIAGRAM_REPAIR", "INTAKE_DRAFT", "INTAKE_REPAIR", "INTAKE_RECONCILE",
@@ -481,12 +387,7 @@ STAGE_KEYS = (
 
 
 def stage_tier(stage: str, base: Tier) -> Tier:
-    """``base`` with any override for this one call site applied, field by field.
-
-    Read at the point of use rather than built once, the same reason :func:`max_corpus_chars` is
-    a function and not a constant: the interface runs for hours, and a value fixed at import
-    cannot be changed without restarting it.
-    """
+    """``base`` with any override for this one call site applied, field by field."""
     key, prefix = stage.lower(), f"LLM_STAGE_{stage.upper()}"
     return Tier(
         name=f"{base.name}:{key}",
@@ -513,11 +414,7 @@ def stage_batch_size(stage: str, default: int) -> int:
 # room for the prompt and the reply. A pack larger than this is split across calls, which reads
 # worse, so the number is set to make that rare.
 def max_corpus_chars() -> int:
-    """The corpus limit, read at the point of use.
-
-    A function rather than a constant because the interface runs for hours and a value fixed at
-    import cannot be changed without a restart.
-    """
+    """The corpus limit, read at the point of use."""
     return setting("LLM_MAX_CORPUS_CHARS", "ingestion", "max_corpus_chars",
                    default=_BUILTIN_MAX_CORPUS_CHARS, cast=int)
 
@@ -527,10 +424,6 @@ def max_corpus_chars() -> int:
 # saves the model owner a question. The last pass also triages what is left: a question only a
 # person can answer is worth asking, and one that does not change what gets tested is not worth
 # anyone's time.
-# How much supplementary context one call carries: the reading of the documents plus every note.
-# Generous on purpose -- roughly 100k tokens against models that hold a million -- because the
-# alternative to a cap that is never hit is a cap that quietly drops part of the reading on every
-# run. What happens when it *is* hit is in core.context: whole sections, from the end, said aloud.
 def max_context_chars() -> int:
     return setting("LLM_MAX_CONTEXT_CHARS", "ingestion", "max_context_chars",
                    default=_BUILTIN_MAX_CONTEXT_CHARS, cast=int)
@@ -553,13 +446,7 @@ def max_concurrency() -> int:
 
 
 def stage_concurrency(stage: str, default: int = None) -> int:
-    """How many of one stage's batched calls run at once, from ``LLM_STAGE_<stage>_CONCURRENCY``.
-
-    Falls back to ``default`` where the caller has one worth preferring over the global cap (a
-    pass with unusually large individual calls, say), and from there to ``LLM_MAX_CONCURRENCY`` --
-    the same stage-then-global shape as :func:`stage_tier`, minus the tier step, since concurrency
-    is not a property of a tier.
-    """
+    """How many of one stage's batched calls run at once, from ``LLM_STAGE_<stage>_CONCURRENCY``."""
     fallback = default if default is not None else max_concurrency()
     return setting(f"LLM_STAGE_{stage.upper()}_CONCURRENCY", "stages", stage.lower(),
                    "concurrency", default=fallback, cast=int)
@@ -572,10 +459,6 @@ def stage_concurrency(stage: str, default: int = None) -> int:
 # judgement tier as of whenever this module happened to be imported". Answering those names from
 # the resolvers above is what makes the second reading the true one, without a single call site
 # having to say so.
-#
-# Nothing in this package imports these names directly (``from .config import JUDGEMENT`` would
-# bind once and go stale, which is the very thing this exists to prevent); there is a test that
-# says so, in tests/test_settings_surface.py.
 _LIVE = {
     "LLM_MODEL_ID": llm_model_id,
     "LLM_VISION": llm_vision,

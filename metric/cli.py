@@ -277,12 +277,7 @@ def _run_command(args) -> int:
 
 
 def _collect_documents(sources: List[str]) -> List[str]:
-    """Expand whatever was named on the command line into a list of readable files.
-
-    A directory is read one level deep rather than recursively: a submitted pack is a folder of
-    documents, and walking into subdirectories tends to pick up archives and working copies the
-    sender did not mean to include.
-    """
+    """Expand whatever was named on the command line into a list of readable files."""
     found: List[str] = []
     for source in sources:
         path = Path(source)
@@ -297,9 +292,5 @@ def _collect_documents(sources: List[str]) -> List[str]:
 
 
 def _print_progress(message: str, done: int = 0, total: int = 0) -> None:
-    """Ingestion and coverage are slow enough that silence reads as a hang.
-
-    The counts are optional because not every pass knows how much work it has: ingestion reports
-    what it is doing, the batched passes report how far through they are.
-    """
+    """Ingestion and coverage are slow enough that silence reads as a hang."""
     print(f"  {message}")

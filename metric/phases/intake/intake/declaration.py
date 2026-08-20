@@ -1,16 +1,4 @@
-"""The declaration as an editable list, for the panel that sits beside the drawing.
-
-Everything downstream reads the intake workbook, and it stays the record. What this removes is the
-round trip to change one cell of it: download, find the row, edit, save, upload. The judgement
-being made in that loop -- "this outcome leads to the wrong state", "this capability is really two"
--- is made by looking at the graph, which is on screen the whole time, and putting a spreadsheet
-between the judgement and the picture it comes from is how a declaration ends up carrying rows
-somebody knew were wrong.
-
-Five kinds, one shape. Each row is a key, the fields that can be edited, and what is wrong with it
-if anything. The page renders them the same way and the save path applies them the same way, so
-adding a sixth kind is a row in :data:`KINDS` and a column map in :mod:`core.editing`.
-"""
+"""The declaration as an editable list, for the panel that sits beside the drawing."""
 from __future__ import annotations
 
 from typing import Dict, List, Optional, Sequence
@@ -112,12 +100,7 @@ FIELDS: Dict[str, List[dict]] = {
 
 
 def _problems(intake: IntakeData) -> Dict[str, Dict[str, List[str]]]:
-    """What the audit says about each row, addressed to the row rather than to a list.
-
-    The same questions the page already shows under "What the declaration still needs", put beside
-    the field that answers them. A question asked in one place and answerable in another is a
-    question nobody closes.
-    """
+    """What the audit says about each row, addressed to the row rather than to a list."""
     by_kind: Dict[str, Dict[str, List[str]]] = {kind: {} for kind, _, _ in ORDER}
     kinds = {gap_kind: kind for kind, _, gap_kind in ORDER}
     for gap in find_gaps(intake):
@@ -207,13 +190,7 @@ def _spans(intake: IntakeData) -> List[dict]:
 
 
 def editable(intake: IntakeData) -> dict:
-    """Everything the editing panel needs: the rows, what may go in each field, and the next id.
-
-    Built in one call rather than per kind, because the vocabularies cross: a decision's capability
-    has to be one of the declared capabilities, and a state's next decisions have to be declared
-    decisions. Assembling them separately is how a dropdown ends up offering an id that was
-    removed two edits ago.
-    """
+    """Everything the editing panel needs: the rows, what may go in each field, and the next id."""
     spans = {row["id"]: row for row in _spans(intake)}
     rows = _rows(intake, spans)
     return {
@@ -242,17 +219,7 @@ def editable(intake: IntakeData) -> dict:
 
 
 def graph_index(intake: IntakeData) -> dict:
-    """The adjacency the capability control needs to answer its own questions on the page.
-
-    Which states a capability folds in is set arithmetic over the decisions ticked -- the states
-    that offer them, and the states their outcomes land on -- and it has to answer as fast as the
-    ticking. A round trip per tick would make building a capability feel like filing a form, which
-    is the thing the whole panel exists not to be.
-
-    Deliberately adjacency and nothing else. What counts as an *exit* is policy -- see
-    :func:`core.graph.exits_for` -- and policy stays in one language: the interface asks for it
-    with a preview rather than working it out a second time in another.
-    """
+    """The adjacency the capability control needs to answer its own questions on the page."""
     from metric.domain.graph import DecisionGraph
 
     graph = DecisionGraph(intake.decisions, intake.states)

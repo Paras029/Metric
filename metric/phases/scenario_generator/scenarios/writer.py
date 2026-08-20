@@ -1,20 +1,4 @@
-"""Writes owner-facing scenario text, batched with a solo mop-up for any ID a batch drops.
-
-Description and turn plan are the only fields the model sets. Category comes from the intake's
-declared Outcome Type and materiality from its own later sweep, so neither depends on this call.
-
-Both fields are issued to the model owner, so neither may reveal the expected
-outcome. That is enforced here by what the model is given rather than only by what it is told:
-:meth:`ScenarioWriter._payload` withholds the scenario's terminal state entirely. Per-step
-outcomes are supplied, because the tester has to know which condition to induce, but the route's
-destination is never in the prompt and so cannot reach the data template through this call.
-
-A scenario space of any size is several chunks of scenarios, and every chunk needs its own call. Those
-calls go out together rather than one after another: nothing in one chunk's text depends on
-another's, so there is no reason the second should wait for the first to come back. What each
-chunk's reply settles is still applied one chunk at a time, in the order the chunks were made, so
-the result reads the same as it would have sequentially -- only the waiting is concurrent.
-"""
+"""Writes owner-facing scenario text, batched with a solo mop-up for any ID a batch drops."""
 from __future__ import annotations
 
 import json
@@ -54,12 +38,7 @@ _NAME_PREFIXES = ("test that ", "test ", "verify that ", "verify ", "check that 
 
 
 def _clean_name(raw: str) -> str:
-    """One line, no trailing stop, no throat-clearing, and short enough to sit in a column.
-
-    Every one of these is something the prompt already asks for and a model still occasionally
-    returns anyway. Fixing it here rather than re-asking is the right trade for a field this
-    small: the cost of a second call is real and the cost of trimming a prefix is nothing.
-    """
+    """One line, no trailing stop, no throat-clearing, and short enough to sit in a column."""
     name = " ".join(raw.split()).strip().strip('"')
     lowered = name.lower()
     for prefix in _NAME_PREFIXES:
@@ -90,17 +69,7 @@ class ScenarioWriter:
         self._cancel = cancel
 
     def write(self, scenarios: List[Scenario], intake: IntakeData) -> List[Scenario]:
-        """Write every scenario, in one flight of calls.
-
-        Graph scenarios and probes are written by different prompts, so they are chunked apart --
-        but they share a system prompt and nothing in either depends on the other, so all the
-        chunks go out together. Sending the two groups as separate flights made every probe wait
-        on the slowest graph chunk for no reason at all.
-
-        Replies are applied in the order the chunks were made regardless of which came back
-        first, so a scenario space written this way reads exactly as it would have one chunk at a
-        time -- only the waiting overlaps.
-        """
+        """Write every scenario, in one flight of calls."""
         cancellation.check(self._cancel)
         pending = [chunk
                    for group in ([s for s in scenarios if not s.is_probe],
@@ -139,19 +108,7 @@ class ScenarioWriter:
         return scenarios
 
     def _repair(self, scenarios: List[Scenario], intake: IntakeData) -> int:
-        """Audit what was written and put only the specific failures back. Returns how many.
-
-        The pattern the diagram reading and the intake draft already use, applied to the one pass
-        that did not have it and needs it most: produce, check with code, and re-ask about exactly
-        what failed. What makes it worth a call is that the fault is *named* -- "your description
-        states how the interaction ends" is something a model can act on, where "write it better"
-        returns something different rather than something better.
-
-        Once, not until clean. A second attempt fixes what a first got wrong; a third mostly
-        rewrites what the second decided, and every pass costs a call per scenario. Anything still
-        failing after this is left as it is and reported, because a scenario nobody looked at is
-        worse than a scenario somebody has been told about.
-        """
+        """Audit what was written and put only the specific failures back. Returns how many."""
         faults = [(s, quality.problems(s)) for s in scenarios]
         broken = [(s, problems) for s, problems in faults if problems]
         if not broken:
@@ -220,12 +177,7 @@ class ScenarioWriter:
         return fixed
 
     def _render_repair(self, chunk: List[tuple], intake: IntakeData) -> str:
-        """The prompt for one chunk being written again, each entry with its own faults named.
-
-        The faults travel *with* the scenario rather than in a list beside it, because a chunk of
-        eight rewrites under one shared list of problems is eight scenarios asked to fix each
-        other's faults.
-        """
+        """The prompt for one chunk being written again, each entry with its own faults named."""
         payload = [{
             "id": scenario.id,
             "wrote": {"name": scenario.name, "description": scenario.description,
@@ -284,12 +236,7 @@ class ScenarioWriter:
             scenarios=json.dumps([self._payload(s) for s in chunk], indent=2))
 
     def _apply(self, chunk: List[Scenario], reply) -> set:
-        """Write a chunk's reply onto its scenarios; return the IDs it actually filled.
-
-        ``reply`` is either the model's text or the exception raised getting it -- call_batch
-        reports a failed call this way rather than raising, so it is handled here exactly like a
-        reply that parsed but left some ids out: logged, and left for the individual refill.
-        """
+        """Write a chunk's reply onto its scenarios; return the IDs it actually filled."""
         parsed = parsed_reply(reply, "Writer call", ", ".join(s.id for s in chunk))
 
         filled = set()
@@ -307,11 +254,7 @@ class ScenarioWriter:
         return filled
 
     def _write_one(self, scenario: Scenario, intake: IntakeData) -> None:
-        """A single scenario a batch dropped, called and applied on its own.
-
-        Rare enough, and small enough, that batching the mop-up too would not be worth the
-        complexity -- most runs refill nothing at all.
-        """
+        """A single scenario a batch dropped, called and applied on its own."""
         chunk = [scenario]
         try:
             reply = self._call(prompts.load(_SYSTEM_PROMPT), self._render(chunk, intake))

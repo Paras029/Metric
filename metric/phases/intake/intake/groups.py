@@ -1,13 +1,4 @@
-"""The kinds of material a model owner submits, and where each lands.
-
-Everything arrives as "documents", but the pieces are not interchangeable. The model documentation
-describes the agent; the transcripts of the model owner's testing describe what has already
-been exercised; a workflow diagram states the branching that prose leaves implicit. Keeping them
-apart means each is read the right way, sent to the stage that needs it, and read in parallel with
-the others rather than after them.
-
-Adding a kind means adding one entry here. Nothing else needs to change.
-"""
+"""The kinds of material a model owner submits, and where each lands."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -105,11 +96,7 @@ def owner_scenario_file(root: Path) -> Path:
 
 
 def remove_file(root: Path, group_key: str, name: str) -> bool:
-    """Delete one submitted file. Returns whether there was one to delete.
-
-    The name is resolved inside the group's own folder and checked to be there afterwards, so a
-    name carrying a path cannot reach anything outside it.
-    """
+    """Delete one submitted file. Returns whether there was one to delete."""
     folder = folder_for(root, group_key).resolve()
     target = (folder / Path(name).name).resolve()
     if folder not in target.parents or not target.is_file():

@@ -38,12 +38,7 @@ logger = logging.getLogger("metric")
 
 
 def load_context(path: str = None, notes=None) -> str:
-    """The supplementary context every model-using pass takes, under the configured budget.
-
-    A thin wrapper so the budget is read where settings live rather than in ``core``, which does
-    not depend on the model layer. See :func:`core.context.load_context` for what happens when a
-    context document is larger than the budget -- whole sections, from the end, said aloud.
-    """
+    """The supplementary context every model-using pass takes, under the configured budget."""
     from metric.llm import config
 
     return _load_context(path, notes, max_chars=config.MAX_CONTEXT_CHARS)
@@ -51,11 +46,7 @@ def load_context(path: str = None, notes=None) -> str:
 
 def build_scenario_space(intake: IntakeData, with_probes: bool = False,
                          limits=None) -> List[Scenario]:
-    """Deterministic scenario set from an intake — no LLM.
-
-    ``limits`` is an optional :class:`core.graph.Limits` the walk fills in where a backstop bit,
-    so the caller can say the set is incomplete instead of leaving it to be noticed.
-    """
+    """Deterministic scenario set from an intake — no LLM."""
     graph = DecisionGraph(intake.decisions, intake.states)
     scenarios: List[Scenario] = []
     for span, walked, augmented in enumerate_by_span(graph, intake.capabilities, limits):
@@ -78,11 +69,7 @@ def build_graph(intake_path: str, graph_path: str, with_probes: bool = False) ->
 
 
 def build_probes_stage(intake_path: str, graph_path: str, output_path: str) -> List[Scenario]:
-    """Append applicable probes to an existing graph file. Deterministic, no LLM.
-
-    Pass the same path twice to update in place. Re-running replaces any probes already present
-    rather than duplicating them, so the command is safe to repeat.
-    """
+    """Append applicable probes to an existing graph file. Deterministic, no LLM."""
     intake = read_intake(intake_path)
     existing = [s for s in read_scenarios(graph_path, intake) if not s.is_probe]
     probes = build_probes(intake)
@@ -94,18 +81,7 @@ def build_probes_stage(intake_path: str, graph_path: str, output_path: str) -> L
 
 def refine(intake_path: str, graph_path: str, output_prefix: str, writer=None,
            context_path: str = None, notes=None) -> List[Scenario]:
-    """Stage 2: graph file -> LLM description and turn plan -> the metadata workbook.
-
-    Category and persona are already fixed deterministically by build-graph; materiality is not
-    assessed here -- run ``assess_materiality`` next, then ``review``, then ``build_pack``.
-
-    No data template is written here, deliberately. The template's requested variation counts come from
-    materiality, which at this point is the untouched default on every scenario, so a pack written
-    here would say "run each of these three times" and be superseded by the next command in the
-    sequence. A workbook that is stale the moment it is written is worse than one that does not
-    exist, because only the second is obviously missing. The pack is built from the scenario space metadata's
-    final state -- see :func:`build_pack`, which exists for exactly this.
-    """
+    """Stage 2: graph file -> LLM description and turn plan -> the metadata workbook."""
     intake = read_intake(intake_path)
     scenarios = read_scenarios(graph_path, intake)
 
@@ -157,17 +133,7 @@ def generate(intake_path: str, output_prefix: str, writer=None,
 def review(intake_path: str, registry_in_path: str, registry_out_path: str,
            reviewer=None, context_path: str = None, notes=None, proposal_limit: int = None,
            owner_scenarios_path: str = None, pack_path: str = None) -> List[Scenario]:
-    """Final stage: a whole-space LLM sweep that may revise materiality and propose additions.
-
-    Runs last, once every other pass has populated the scenario space metadata — it is the only pass that sees
-    the complete picture, so it settles materiality with the whole set and the deterministic
-    redundancy evidence in view. Its verdict lands in its own columns rather than overwriting an
-    earlier assessment, and proposals arrive with origin "llm-proposed" so they are never mistaken
-    for graph-derived scenarios. Pass the same path twice to update in place.
-
-    Supplying the model owner's scenario list is optional; where given, it is shown as context
-    so the review can see where the owner's attention already went.
-    """
+    """Final stage: a whole-space LLM sweep that may revise materiality and propose additions."""
     intake = read_intake(intake_path)
     scenarios = read_scenarios(registry_in_path, intake)
     existing = [s for s in scenarios if not s.is_proposed]
@@ -200,12 +166,7 @@ def review(intake_path: str, registry_in_path: str, registry_out_path: str,
 
 
 def build_pack(intake_path: str, metadata_path: str, pack_path: str) -> List[Scenario]:
-    """Write the data template from a metadata workbook. No LLM.
-
-    Kept separate because the pack depends on the scenario space metadata's final state: materiality drives the
-    requested variation count, and the review pass can change it or add scenarios. Rebuilding after
-    every change to the metadata workbook is what keeps the issued workbook and the answer key in step.
-    """
+    """Write the data template from a metadata workbook. No LLM."""
     intake = read_intake(intake_path)
     scenarios = read_scenarios(metadata_path, intake)
     write_data_template(pack_path, intake, scenarios)
@@ -239,18 +200,7 @@ def ingest_documents(source_paths: Sequence[str], output_prefix: str,
                      resolve_passes: Optional[int] = None, cancel=None,
                      should_redact: Optional[Callable[[str], bool]] = None,
                      diagram_mode: str = SPLIT_ACROSS_IMAGES) -> IngestResult:
-    """Stage 0: read submitted documents into verified evidence, context and open questions.
-
-    Writes three files under ``output_prefix``: the evidence record, the cited context document
-    that later stages take through ``--context``, and the questions nobody's documents answered.
-    Every claim in the record was checked against the passage it cites; anything unsupported was
-    discarded before it got here. Nothing is written if ``cancel`` interrupts the read: a stopped
-    stage leaves the workspace exactly where it was before this run started.
-
-    ``should_redact`` names which submitted files must be redacted regardless of the global
-    ``PII_REDACTION`` setting -- the interface's per-file toggle, threaded down to where the
-    documents are actually read. See :mod:`scenario_generator.ingest.redaction`.
-    """
+    """Stage 0: read submitted documents into verified evidence, context and open questions."""
     extractor = extractor or DocumentExtractor(progress=progress, resolve_passes=resolve_passes,
                                                cancel=cancel, should_redact=should_redact,
                                                diagram_mode=diagram_mode)
@@ -293,12 +243,7 @@ def render_questions(questions: List[dict]) -> str:
 
 
 def structural_problems(intake: IntakeData) -> List[str]:
-    """What the declaration is missing, as lines a repair pass can be given.
-
-    The same reading :mod:`core.gaps` puts in front of a person, phrased for a model instead: the
-    question says what is wrong with the row and the reason says what it costs, and both are worth
-    sending because the second is what stops the fix being a blank string.
-    """
+    """What the declaration is missing, as lines a repair pass can be given."""
     return [f"{gap.heading}: {gap.question} ({gap.why})" for gap in find_gaps(intake)]
 
 
@@ -307,25 +252,7 @@ def draft_intake_workbook(context_path: str, output_path: str,
                           evidence_path: Optional[str] = None,
                           notes=None, progress=None, repair: bool = True,
                           reconcile: bool = True) -> "DraftResult":
-    """Draft an intake workbook from an ingested context document.
-
-    The result is a real intake in the shape ``init-template`` produces, plus a "Review This"
-    sheet saying where the draft is weak. It is a starting point for a person to correct, not an
-    authority -- but correcting a draft is an afternoon and writing one is a week.
-
-    ``evidence_path`` is the record ingestion wrote beside the context document. It is read for
-    one thing: the decision graph pulled out of any submitted workflow diagrams, which is handed
-    to the drafter as structure rather than only as the prose rendering in the context file. A
-    diagram is often the only place a branch is drawn, and confirming a graph is a far more
-    reliable job than rebuilding one from sentences about a graph.
-
-    ``notes`` is anything typed alongside the documents -- a correction, an answer to one of the
-    open questions the first reading left, a constraint nobody wrote down. Every other pass this
-    tool makes takes the same kind of input (see :func:`.core.context.load_context`), and the
-    draft is the one pass a gap here would hurt most: it is the one call that decides the whole
-    shape of the intake, and an answer given after ingestion but never passed to this one call
-    would otherwise be redrafted every time this step re-runs.
-    """
+    """Draft an intake workbook from an ingested context document."""
     report = progress or (lambda *args, **kwargs: None)
     context = load_context(context_path, notes)
     structure = _diagram_structure(evidence_path or _evidence_beside(context_path))
@@ -352,19 +279,7 @@ def draft_intake_workbook(context_path: str, output_path: str,
 
 
 def _repair_draft(output_path: str, context: str, structure, complete, draft, report):
-    """Read the draft back, and put whatever it left structurally incomplete to the model once.
-
-    Read *back* rather than checked in memory, deliberately: what matters is whether the workbook
-    on disk can be walked, and the reader is the thing that decides that. A draft that survives
-    the reader and fails the audit is the case this exists for.
-
-    Never destructive, and that is enforced twice over rather than asked for. Anything the repair
-    dropped is carried forward -- see :func:`ingest.drafting.carry_forward` -- and the result is
-    then audited against the draft it would replace and thrown away if it is worse. A repair used
-    to be written to disk before anything checked whether it had helped, so a second look that
-    answered its gap and lost a branch on the way past was kept, and the only trace was a log line
-    reporting a negative number of gaps filled.
-    """
+    """Read the draft back, and put whatever it left structurally incomplete to the model once."""
     try:
         current = read_intake(output_path)
     except Exception as exc:                               # an unreadable draft is its own problem
@@ -391,17 +306,7 @@ def _repair_draft(output_path: str, context: str, structure, complete, draft, re
 
 
 def _reconcile_draft(output_path: str, context: str, structure, complete, draft, report):
-    """Read the whole declaration back once more and correct what only the whole reveals.
-
-    The pass before this one fixes named gaps, and a declaration can pass every named gap and
-    still not describe one coherent agent -- which is what a person then spends their afternoon
-    untangling. This is the cheapest place to catch that: the documents are still in hand, the
-    routes have been walked, and nothing downstream has been built on the declaration yet.
-
-    Held to exactly the rules the repair is held to, because a last look carries the same risk of
-    doing harm: anything it drops is carried forward, and the result is audited against what is
-    already on disk and thrown away if it walks worse. See :func:`_accept_if_better`.
-    """
+    """Read the whole declaration back once more and correct what only the whole reveals."""
     try:
         current = read_intake(output_path)
     except Exception as exc:
@@ -420,12 +325,7 @@ def _reconcile_draft(output_path: str, context: str, structure, complete, draft,
 
 
 def _accept_if_better(output_path: str, draft, candidate, before: int):
-    """Write ``candidate`` only if it audits better than the draft already on disk.
-
-    Written to a scratch path first, because the audit that decides this reads a workbook: what
-    matters is whether the *file* can be walked, and putting the candidate at the real path to
-    find that out is what made a bad repair unrecoverable.
-    """
+    """Write ``candidate`` only if it audits better than the draft already on disk."""
     scratch = Path(output_path).with_suffix(".candidate.xlsx")
     try:
         write_drafted_intake(scratch, candidate)
@@ -451,18 +351,7 @@ def revise_intake_workbook(current_path: str, output_path: str, context_path: st
                            evidence_path: Optional[str] = None, notes=None,
                            progress=None, repair: bool = True,
                            reconcile: bool = True) -> "DraftResult":
-    """Revise an intake workbook in place, given what has been added since it was last written.
-
-    The counterpart to :func:`draft_intake_workbook` for a declaration that already exists --
-    drafted earlier, corrected by hand, or both. Re-running ``draft_intake_workbook`` would
-    silently discard any hand correction, because a fresh draft has no way to know one was ever
-    made; this reads ``current_path`` and hands the whole declaration to the model as what to
-    revise rather than what to replace, with instructions to change only what the new context and
-    notes actually require. See :func:`ingest.drafting.revise_intake`.
-
-    ``output_path`` may be the same file as ``current_path`` -- the usual case, an intake revised
-    where it stands -- or a different one, for a caller that wants to keep the prior version.
-    """
+    """Revise an intake workbook in place, given what has been added since it was last written."""
     report = progress or (lambda *args, **kwargs: None)
     current = read_intake(current_path)
     rendered = f"{describe_use_case(current)}\n\n{describe_graph(current)}"
@@ -524,11 +413,7 @@ def _is_thinner(revision, current: IntakeData) -> bool:
 
 
 def _evidence_beside(context_path: str) -> Optional[str]:
-    """The evidence record ingest wrote alongside this context document, if it is still there.
-
-    ``ingest`` writes ``<prefix>_context.md`` and ``<prefix>_evidence.json`` together, so the one
-    can be found from the other and nobody has to pass both on the command line.
-    """
+    """The evidence record ingest wrote alongside this context document, if it is still there."""
     context = Path(context_path)
     if not context.name.endswith("_context.md"):
         return None
@@ -576,25 +461,7 @@ def map_conversation_coverage(intake_path: str, metadata_path: str, conversation
                               threshold: int = DEFAULT_THRESHOLD, annotate_registry: bool = True,
                               redact: bool = False, complete=None,
                               progress=None, cancel=None) -> ConversationCoverageResult:
-    """Stage: map submitted conversations onto the scenario space and count what they cover.
-
-    The scenario space is read from the scenario space metadata, so each scenario's category and materiality are
-    whatever the earlier stages assigned -- this never recomputes them. What it adds is volume:
-    how many of the team's conversations landed on each scenario, which of them landed on nothing,
-    and whether any grouping the team applied agrees with where the conversations actually went.
-
-    ``threshold`` is the line between represented and under-represented. It is a caller's
-    judgement rather than a property of the data -- see :mod:`.core.representation`.
-
-    ``complete`` is handed to the reader so it can spend one call working out which column of a
-    submission is which -- see :mod:`ingest.conversation_migration`. Passing ``None`` reads by
-    headings alone, which is what every test that does not care about the layout wants.
-
-    ``redact`` runs the transcripts through the redactor even where ``PII_REDACTION`` is off
-    globally, for the submission somebody has marked on the upload page. Redaction happens here,
-    before the mapper, because this is the last point at which every utterance is in one place --
-    the consistency mapping that keeps one customer to one placeholder needs the whole file.
-    """
+    """Stage: map submitted conversations onto the scenario space and count what they cover."""
     intake = read_intake(intake_path)
     space = read_space_metadata(metadata_path)
     texts = {s.id: s.description for s in read_scenarios(metadata_path, intake)}
@@ -626,18 +493,7 @@ def map_conversation_coverage(intake_path: str, metadata_path: str, conversation
 
 
 def annotate_coverage(metadata_path: str, intake: IntakeData, report) -> int:
-    """Record against each scenario how much of the model owner's testing landed on it.
-
-    An annotation, not a filter. A well-covered scenario stays in the scenario space metadata and, unless someone
-    asks otherwise, in the pack: whether running it again is duplicated effort or independent
-    confirmation depends on how far their testing is trusted, and that is a judgement for the
-    person issuing the pack rather than for this tool. What the tool can do is put the count in
-    front of them.
-
-    The columns never reach the data template -- see :func:`io.write_data_template`. Telling the
-    model owner which scenarios the validator already considers answered would tell them
-    exactly which ones to concentrate on.
-    """
+    """Record against each scenario how much of the model owner's testing landed on it."""
     scenarios = read_scenarios(metadata_path, intake)
     counts = {entry.scenario.id: entry for entry in report.scenarios}
 

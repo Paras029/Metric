@@ -1,23 +1,4 @@
-"""What the declared intake still needs, as questions scoped to the row that needs them.
-
-A question is only worth asking if the person reading it can answer it. Questions scoped to the
-*evidence* -- broad facets like "capabilities" or "risk areas" -- say which document section is
-thin, never which capability, decision or state the intake needs filled in, and "what does the
-agent do about risk?" has no single right length of answer and no obvious place to put one. A
-person can answer "what should DEC-05's second outcome be called, and what decides between the
-two?" in a sentence, because the question already says exactly what row of the intake it is going
-to fill in.
-
-So this module reads the *intake itself* -- whatever is currently declared, drafted or hand-edited
--- for the places it is structurally thin, and returns one question per gap, addressed to the
-specific capability, decision, state, tool or persona it concerns. Nothing here calls a model:
-every check is a property a well-formed intake needs in order to be walked at all, or a field the
-rest of the pipeline reads and a blank value silently degrades (a capability with no type drops
-the probes that would have tested it; a terminal state with no outcome type cannot be categorised).
-A softer, better-informed reading of what is *weak* rather than strictly missing comes from the
-drafter's own review notes -- see :func:`core.intake.read_review_notes` -- which this does not
-duplicate.
-"""
+"""What the declared intake still needs, as questions scoped to the row that needs them."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -139,12 +120,6 @@ def _capability_gaps(intake: IntakeData) -> List[Gap]:
     # whole graph and is complete as it stands, so asking this of every capability on a first run
     # would put a question against every row of a sheet nobody has got to -- which is how a list
     # of real gaps stops being read.
-    # Documentation written at capability level and read as though it were at decision level.
-    # A capability with exactly one decision, named the same thing, is almost always "the agent
-    # identifies the customer" turned into a decision because a decision was what the form asked
-    # for -- and its outcomes are then whatever the reading supposed they were rather than what
-    # the agent does. That is worse than a thin declaration: a thin one can be asked about, and
-    # scenarios built on supposed outcomes cannot be told from real ones by anybody downstream.
     by_capability: Dict[str, List] = {}
     for decision in intake.decisions:
         by_capability.setdefault(decision.trigger_capability, []).append(decision)
@@ -272,12 +247,7 @@ def _tool_gaps(intake: IntakeData) -> List[Gap]:
 
 
 def find_gaps(intake: IntakeData) -> List[Gap]:
-    """Every gap the current declaration has, row by row, most structurally important first.
-
-    Order is deliberate: a decision that names no outcomes blocks enumeration entirely, so it is
-    worth seeing before a persona's phrasing. Nothing here is a call a person cannot make in a
-    sentence -- see the module docstring for why that bar matters.
-    """
+    """Every gap the current declaration has, row by row, most structurally important first."""
     graph = DecisionGraph(intake.decisions, intake.states)
     reachable = _reachable_states(graph)
 

@@ -1,18 +1,4 @@
-"""The workbooks the generator writes.
-
-    Scenario Graph   Internal, pre-LLM. Deterministic metadata and per-turn expected outcomes
-                     straight off the decision graph. Output of `build-graph`, input to `refine`.
-    Data Template   Issued to the model owner and returned filled in. Every scenario, and no
-                     expected outcomes of any kind — no decision path, expected variant,
-                     expected tool call, category or materiality. Two reference sheets state
-                     what to run; two response sheets are pre-populated with one row per
-                     scenario, variation and turn.
-    Scenario space metadata         Internal. Full metadata, per-turn expected outcomes, and the text as
-                     issued. The canonical index coverage matches against.
-    Coverage Report  Internal. How many of the model owner's conversations landed on each
-                     scenario, the per-conversation working behind those counts, and
-                     whether the model owner's grouping agrees with the space.
-"""
+"""The workbooks the generator writes."""
 from __future__ import annotations
 
 from typing import List
@@ -103,10 +89,6 @@ def _write_turn_sheet(workbook, scenarios: List[Scenario]) -> None:
 def write_scenario_graph(path: str, intake: IntakeData, scenarios: List[Scenario]) -> None:
     """Pre-LLM internal workbook: deterministic metadata, per-turn expected outcomes, and any
     text already written.
-
-    Probes arrive from the library with a real description and script, so the text sheet is
-    written here too — without it that text would be lost on the next read and replaced by
-    placeholder wording.
     """
     workbook = Workbook()
     workbook.remove(workbook.active)
@@ -209,11 +191,7 @@ def read_scenarios(path: str, intake: IntakeData) -> List[Scenario]:
 
 
 def _capability_name(intake: IntakeData, capability_id: str) -> str:
-    """A capability's name for a sheet somebody reads, falling back to its id.
-
-    Names rather than ids on anything issued: "CAP-02" is a key into a workbook the model owner
-    was never given, and a pack that groups by it groups by nothing they can see.
-    """
+    """A capability's name for a sheet somebody reads, falling back to its id."""
     if not capability_id:
         return "Whole journey"
     match = next((c for c in intake.capabilities if c.id == capability_id), None)
@@ -222,12 +200,7 @@ def _capability_name(intake: IntakeData, capability_id: str) -> str:
 
 def write_data_template(path: str, intake: IntakeData, scenarios: List[Scenario],
                          variations_mapping: dict = None) -> int:
-    """Modeling-team-facing workbook, issued blank and returned filled. Returns scenario count.
-
-    Two reference sheets (what to run) and two response sheets (what to fill in). Variation_Log and
-    Variation_Summary are pre-populated down to one row per scenario/variation/turn so the requested number
-    of variations is a fixed contract rather than something the team has to construct.
-    """
+    """Modeling-team-facing workbook, issued blank and returned filled. Returns scenario count."""
     workbook = Workbook()
     workbook.remove(workbook.active)
 
@@ -298,12 +271,7 @@ def write_space_metadata(path: str, intake: IntakeData, scenarios: List[Scenario
 
 
 def read_space_metadata(path: str, functional_only: bool = True) -> List[ScenarioRow]:
-    """Load a generated metadata workbook back as the space, keeping its category and materiality.
-
-    Coverage is a statement about the functional space, so probes are excluded by default —
-    filtered on `Origin`, not on having an empty decision path, since other scenario kinds may
-    legitimately share a path with a graph scenario.
-    """
+    """Load a generated metadata workbook back as the space, keeping its category and materiality."""
     with sheets.open_for_reading(path, "a scenario space workbook") as workbook:
         header, rows = sheets.read_table(workbook["Scenario_Metadata"])
 
@@ -330,15 +298,7 @@ def read_space_metadata(path: str, functional_only: bool = True) -> List[Scenari
 
 
 def write_coverage_report(path: str, report, mappings, texts: dict = None) -> None:
-    """What the model owner's conversations cover, as a workbook.
-
-    Three sheets, in the order the questions get asked. *Scenarios* is the answer -- every
-    scenario with how many conversations landed on it, least covered first, because the
-    thin end of that list is what goes back to the model owner. *Conversations* is the working:
-    one row per transcript with the scenario it was matched to and how sure the match was, so a
-    figure on the first sheet can be traced to the exchanges behind it. *Owner Grouping* appears
-    only where the model owner supplied one, and says whether it agrees with the space.
-    """
+    """What the model owner's conversations cover, as a workbook."""
     texts = texts or {}
     workbook = Workbook()
     workbook.remove(workbook.active)

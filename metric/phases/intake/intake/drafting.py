@@ -1,20 +1,4 @@
-"""Drafting the intake workbook from the evidence.
-
-The intake is the boundary of what can be tested, and filling it in by hand from a sixty-page
-document is the slowest part of the whole exercise. This drafts it instead, so the work becomes
-correction rather than transcription.
-
-Two things make that safe to do.
-
-The draft is written into the same workbook shape a person would have filled in themselves, so
-nothing downstream can tell the difference and nothing needs a separate approval path. And it is
-never authoritative: the intake stage exists precisely so a person reads it, fixes it, and says
-so. What the draft owes them in return is honesty about itself, which is why every part carries a
-confidence and why the review notes are written into the workbook beside the cells they concern.
-
-It is deliberately willing to commit. A draft that declines to fill anything it is not certain of
-is a blank form with extra steps, and leaves the reader exactly where they started.
-"""
+"""Drafting the intake workbook from the evidence."""
 from __future__ import annotations
 
 import logging
@@ -133,14 +117,7 @@ class DraftedIntake:
 
 def draft_intake(context: str, complete: Optional[Callable[..., str]] = None,
                  structure: Optional[dict] = None) -> DraftedIntake:
-    """Ask for a filled intake, given everything the documents established.
-
-    ``structure`` is the decision graph read out of any submitted workflow diagrams, in the
-    intake's own vocabulary. It is passed separately from the prose context rather than only
-    rendered into it, because it is the one part of the reading that already has the shape being
-    asked for -- confirming and completing a graph is a far more reliable job than rebuilding one
-    from sentences describing it, and a diagram is frequently the only place a branch is drawn.
-    """
+    """Ask for a filled intake, given everything the documents established."""
     complete = complete or ask_llm
     user = prompts.render(_DRAFT_PROMPT, context=context, cds=_cds(), wiring=_wiring(),
                                 structure=_structure_block(structure))
@@ -153,13 +130,7 @@ def draft_intake(context: str, complete: Optional[Callable[..., str]] = None,
 
 
 def _consolidated(data: dict) -> dict:
-    """The declaration with its duplicates folded together, and a review note saying which.
-
-    Run on every draft rather than offered as a step. The duplication is not occasional -- the
-    model is filling six sheets that reference each other by id, from prose that references
-    nothing by id -- and the cost of leaving it lands on the scenario space rather than on the
-    workbook: two capabilities that are one capability are two blocks where there is one.
-    """
+    """The declaration with its duplicates folded together, and a review note saying which."""
     from metric.phases.scenario_generator.review.consolidate import consolidate
 
     folded, notes = consolidate(data)
@@ -175,26 +146,7 @@ _ROW_KEY = {"personas": "id", "capabilities": "id", "decisions": "id", "states":
 
 
 def carry_diagram_through(data: dict, structure: Optional[dict]) -> dict:
-    """The draft, with every box the diagram declared and the draft dropped put back.
-
-    A diagram is read deterministically -- box by box, into the intake's own vocabulary, audited
-    and repaired against its own picture -- and then, until this existed, the *only* thing that
-    carried that graph into the workbook was one model call being asked nicely to start from it.
-    When that call underperformed, a workflow that had been read correctly off the image arrived
-    as an empty declaration, and nothing anywhere said a graph had been lost. A pack of nothing
-    but diagrams could therefore produce a blank intake and read as though the tool required a
-    written document, which it does not: any combination of documents and pictures is a pack.
-
-    So the instruction is enforced rather than requested, on the same principle as
-    :func:`carry_forward`. The draft still wins wherever the two describe the same row -- correcting
-    the diagram against the prose is exactly what the drafting call is for -- and it still adds
-    everything the picture does not cover. What it cannot do is silently drop a branch somebody
-    drew.
-
-    Draft only, never revision. A revision starts from a workbook a person may have corrected by
-    hand, and a state deleted there was deleted on purpose; putting it back from the picture every
-    run would make the correction impossible to keep.
-    """
+    """The draft, with every box the diagram declared and the draft dropped put back."""
     from metric.phases.intake.intake import diagram_structure
 
     if not structure or diagram_structure.is_empty(structure):
@@ -252,23 +204,7 @@ def carry_diagram_through(data: dict, structure: Optional[dict]) -> dict:
 
 
 def carry_forward(first: dict, repaired: dict) -> dict:
-    """The repair, with anything it silently dropped put back. Returns a new declaration.
-
-    The repair prompt asks for the named gaps to be filled in and *nothing else changed*, and a
-    model mostly does that. What it occasionally does instead is answer the gap and lose something
-    on the way past -- an outcome it decided was redundant, a state it merged, a branch it did not
-    re-derive from the description it was given. Every one of those is a part of the agent that
-    stops being tested, and none of them is visible in the reply: a shorter declaration parses
-    exactly as well as a longer one.
-
-    So the instruction is enforced rather than requested. Every row the first draft declared and
-    the repair does not is carried forward, and so is every outcome of a decision the repair kept.
-    A repair may still *correct* a row -- where both declare the same id, the repair's version
-    wins, which is the whole point of asking. It simply cannot delete one.
-
-    Deliberately not a merge of field values: a repair that rewrites a description is doing its
-    job, and second-guessing that would leave a declaration neither call actually wrote.
-    """
+    """The repair, with anything it silently dropped put back. Returns a new declaration."""
     merged = dict(repaired)
     superseded = _states_taken_over(first, repaired)
     for part, key in _ROW_KEY.items():
@@ -293,19 +229,7 @@ def carry_forward(first: dict, repaired: dict) -> dict:
 
 
 def _states_taken_over(first: dict, repaired: dict) -> Set[str]:
-    """States the repair dropped because another state now claims every route into them.
-
-    The one thing that must not be carried forward. A repair that folds two states describing the
-    same position into one rewrites the survivor's `reached_via` to name both outcomes -- and
-    putting the folded-away state back then leaves two states claiming the same arrow. The walk
-    takes the first, so the restored one is reached by nothing: an orphan the declaration cannot
-    account for, which surfaces as a question asking what leads to a state somebody deliberately
-    merged away. Restoring it does not preserve the branch; the branch is already on the survivor.
-
-    Deliberately narrow. Only a state whose routes are *all* claimed elsewhere is left out --
-    anything with a route of its own is a state the repair lost rather than folded, and that is
-    what this function exists to put back.
-    """
+    """States the repair dropped because another state now claims every route into them."""
     claimed: Set[str] = set()
     for state in (repaired.get("states") or []):
         claimed.update(parse_reached_via(str(state.get("reached_via", ""))))
@@ -324,27 +248,7 @@ def repair_intake(context: str, current: str, problems: List[str],
                   complete: Optional[Callable[..., str]] = None,
                   structure: Optional[dict] = None,
                   enumeration: str = "") -> Optional[DraftedIntake]:
-    """Put the draft's own structural failures back to the model, with the documents still in hand.
-
-    The first draft is one call over a long context, and the things it most often leaves out are
-    the small structural ones: a branch with a single named outcome, an outcome that leads to no
-    declared state, a state nothing reaches. None of those are matters of opinion -- the graph
-    cannot be walked without them, so whatever they concern is silently never tested -- and the
-    answer is usually a paragraph away in the documentation the first pass had already read.
-
-    Which is why this exists and why it is worth a second call. ``problems`` comes from
-    :func:`core.gaps.find_gaps`, which reads the *declaration* rather than the documents, so the
-    model is told exactly what is wrong rather than asked to look again in general.
-
-    ``enumeration`` is what the declaration currently walks to -- the route count and where those
-    routes end. It is supplied rather than judged: the model is asked to fix named gaps in a graph
-    and is otherwise shown only the graph, never the consequence of it, and the consequence is the
-    thing the whole exercise is about.
-
-    Returns ``None`` where nothing usable came back. A second look may improve the declaration and
-    must never damage it, so the caller keeps the first draft in that case -- the same rule the
-    diagram reading follows when its own repair pass finds nothing.
-    """
+    """Put the draft's own structural failures back to the model, with the documents still in hand."""
     if not problems:
         return None
 
@@ -376,23 +280,7 @@ def reconcile_intake(context: str, current: str,
                      complete: Optional[Callable[..., str]] = None,
                      structure: Optional[dict] = None,
                      enumeration: str = "") -> Optional[DraftedIntake]:
-    """Read the finished declaration whole, once, and correct what only reading it whole reveals.
-
-    Every pass before this one works from a question: draft this from the documents, fill in these
-    named gaps. That is the right shape for those jobs and it has a blind spot, because a
-    declaration where every row answers its own question can still be incoherent as a description
-    of one agent -- a decision duplicating one three rows above under another name, a hand-off
-    trigger with no escalation state, a retry limit on a decision nothing routes back into. None
-    of those is a gap :func:`core.gaps.find_gaps` can see, because each row is individually
-    complete.
-
-    It is given the enumeration for the same reason the repair is, and it matters more here: the
-    routes are what a tester is actually asked to run, and a route that reads as nonsense is how
-    an upstream wiring mistake becomes visible at all.
-
-    Returns ``None`` where nothing usable came back, on the same rule as the repair -- a last look
-    may improve the declaration and must never damage it.
-    """
+    """Read the finished declaration whole, once, and correct what only reading it whole reveals."""
     complete = complete or ask_llm
     user = prompts.render(_RECONCILE_PROMPT, context=context, current=current,
                                 cds=_cds(), wiring=_wiring(),
@@ -416,15 +304,7 @@ def reconcile_intake(context: str, current: str,
 
 def revise_intake(context: str, current: str, complete: Optional[Callable[..., str]] = None,
                   structure: Optional[dict] = None) -> DraftedIntake:
-    """Ask for the intake revised in place, given what has been added since it was last written.
-
-    The distinction from :func:`draft_intake` is the whole point of this function: a draft starts
-    from nothing, and a revision starts from ``current`` -- whatever is declared right now,
-    whether that is an earlier draft, a hand correction, or both -- and is explicitly told to
-    change only what the new evidence and answers actually require. Calling ``draft_intake`` again
-    on a corrected workbook would silently discard the correction; this is what exists instead,
-    for the intake stage's "Revise with these answers" action.
-    """
+    """Ask for the intake revised in place, given what has been added since it was last written."""
     complete = complete or ask_llm
     user = prompts.render(_REVISE_PROMPT, context=context, current=current,
                                 cds=_cds(), wiring=_wiring(),
@@ -467,12 +347,7 @@ def _is_adversarial(persona: dict) -> bool:
 
 
 def _earns_its_place(persona: dict) -> bool:
-    """Whether an extra persona describes a different objective rather than a different manner.
-
-    An extra persona has to say what the agent does differently for it. One that says nothing, or
-    that is named only for a manner of speaking, is a variation on a persona already present --
-    and every one of those multiplies the scenario space without widening it.
-    """
+    """Whether an extra persona describes a different objective rather than a different manner."""
     difference = persona["applies_to"].strip()
     if len(difference) < 12:
         return False
@@ -481,13 +356,7 @@ def _earns_its_place(persona: dict) -> bool:
 
 
 def _personas(data: dict) -> List[dict]:
-    """The people who arrive, as objectives rather than temperaments.
-
-    Two are guaranteed because two objectives are always in play: someone using the service as
-    intended, and someone trying to turn it against its owner. The rest are admitted only where
-    the draft says what the agent itself does differently, and never more than a handful -- every
-    persona multiplies the whole scenario space, so a loose one costs a run of the entire pack.
-    """
+    """The people who arrive, as objectives rather than temperaments."""
     drafted = []
     for entry in _objects(data, "personas"):
         identifier = _text(entry, "id") or f"P{len(drafted) + 1}"
@@ -517,13 +386,7 @@ def _personas(data: dict) -> List[dict]:
 
 
 def _validate(data: dict) -> dict:
-    """Keep the parts that fit the intake's vocabulary and drop what does not.
-
-    A capability type or outcome type outside the declared list is not a harmless variation --
-    the type decides which probes apply and the outcome type decides a scenario's category, so an
-    invented value silently changes what gets tested. Dropping it leaves a blank cell a reviewer
-    can see, which is the failure worth having.
-    """
+    """Keep the parts that fit the intake's vocabulary and drop what does not."""
     use_case = data.get("use_case") if isinstance(data.get("use_case"), dict) else {}
 
     personas = _personas(data)
@@ -571,17 +434,7 @@ def _validate(data: dict) -> dict:
 
 
 def _spans_already_drawn(path: Path) -> Dict[str, Tuple[str, str]]:
-    """Each capability's entry and exit cells, read off the workbook about to be overwritten.
-
-    Writing a draft replaces the file, and a capability's span is the one thing in it that no
-    model produces: it is drawn by hand, against the graph, and it decides how the entire scenario
-    space is enumerated. Rewriting the workbook without carrying it over silently threw that work
-    away on every re-run -- and a re-run is exactly what somebody does after drawing spans, so the
-    loss was guaranteed rather than unlucky.
-
-    Read as the raw cell text rather than as parsed ids, so whatever a person typed comes back
-    exactly as they typed it.
-    """
+    """Each capability's entry and exit cells, read off the workbook about to be overwritten."""
     if not path.exists():
         return {}
     try:
@@ -605,16 +458,7 @@ def _spans_already_drawn(path: Path) -> Dict[str, Tuple[str, str]]:
 
 
 def write_drafted_intake(path: Path, draft: DraftedIntake) -> None:
-    """Write the draft into a workbook of exactly the shape ``init-template`` produces.
-
-    The provenance goes on its own sheet rather than into the declared columns. ``read_intake``
-    looks sheets up by name and reads cells positionally, so an extra sheet is invisible to it and
-    the file works as a ``build-graph`` input whether or not anyone edits it.
-
-    Capability spans already drawn on this file are carried across -- see
-    :func:`_spans_already_drawn`. Nothing else in the workbook is preserved, because everything
-    else here is something the draft is entitled to have an opinion about and a span is not.
-    """
+    """Write the draft into a workbook of exactly the shape ``init-template`` produces."""
     path = Path(path)
     drawn = _spans_already_drawn(path)
     write_template(str(path))

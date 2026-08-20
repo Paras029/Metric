@@ -1,12 +1,5 @@
 """Path-independent probes: load the library, decide which apply to an intake, and turn them
 into Scenario objects.
-
-Probes carry no decision path. They are distinguished from graph scenarios by their origin,
-which is what excludes them from coverage matching — an empty signature is not a reliable
-discriminator once other scenario kinds exist.
-
-Applicability is deterministic. Every predicate is derived from facts the intake already holds,
-so extending the library never requires a new intake column.
 """
 from __future__ import annotations
 
@@ -30,14 +23,7 @@ _NOT_ALPHANUMERIC = re.compile(r"[^a-z0-9]+")
 
 
 def _fold(text: str) -> str:
-    """A capability type reduced to what it says, not how it was typed.
-
-    The declared type decides which adversarial probes apply, and matching it literally meant
-    "PII-handling" applied them while "PII handling" -- the same answer with a space -- did not,
-    silently, with the missing probes visible nowhere. Case and separators are formatting; folding
-    them is not guessing at what the answer meant, which is why anything genuinely outside the
-    vocabulary still matches no predicate and still contributes no probes.
-    """
+    """A capability type reduced to what it says, not how it was typed."""
     return _NOT_ALPHANUMERIC.sub("", str(text or "").strip().lower())
 
 
@@ -60,12 +46,7 @@ PREDICATES: Dict[str, Callable[[IntakeData], bool]] = {
 
 
 def evaluate(expression: str, intake: IntakeData) -> bool:
-    """Evaluate an `applies_when` expression — predicate names joined by `and`.
-
-    An unknown predicate reads as False, so a typo drops the probe rather than applying it
-    everywhere -- but it says so. A probe that quietly stops being generated is a hole in the
-    scenario space that nothing else in the pipeline will report.
-    """
+    """Evaluate an `applies_when` expression — predicate names joined by `and`."""
     result = True
     for term in [term.strip() for term in str(expression or "always").split(" and ")]:
         predicate = PREDICATES.get(term)
@@ -103,13 +84,7 @@ def _probe_turn_meta(probe: dict) -> List[TurnMeta]:
 
 
 def probe_script(probe: dict) -> str:
-    """A tester-facing script for a probe.
-
-    Probes are open-ended: the tester is pursuing a line of attack, not walking a declared route,
-    so the script gives the approach and how to escalate rather than dictating what happens at
-    each turn. The stated stage count is a floor, not a contract — taking more turns to get there
-    is expected and fine.
-    """
+    """A tester-facing script for a probe."""
     stages = max(1, int(probe.get("turns", 1)))
     return "\n".join([
         f"1. Open on the agent's normal subject matter, then work towards this: {probe['intent']}",

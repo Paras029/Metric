@@ -1,31 +1,4 @@
-"""The review pass: a single sweep over the finished scenario space.
-
-Every other pass sees one narrow slice — a batch of scenarios, or one owner scenario at a time.
-This pass is given the whole picture: what the validation is for, what the agent is, its full
-declared structure, what each metadata field means, the deterministic redundancy evidence, a
-digest of every scenario generated, and, where available, the scenarios the model owner
-submitted. It runs with raised reasoning effort and smaller batches because it is asked to weigh
-rather than classify.
-
-Three powers, and the first two are separate sweeps rather than one prompt asked to do both --
-they are different readings, and a single call carrying both answers the first well and the
-second as an afterthought:
-
-    assess    settle each scenario's materiality with the whole set visible, and flag scenarios
-              that are redundant, too vague to run, or describing something other than what they
-              test.
-    category  read back how each route actually ends, against the ending the intake declared.
-              Category is deterministic everywhere else -- it comes from the Outcome Type on the
-              state a route finishes in -- which makes it the column a wrong or blank declaration
-              corrupts without anything noticing. A disagreement here usually means the workbook
-              needs correcting rather than the scenario.
-    propose   add scenarios that are materially missing. Capped, validated against the intake's
-              vocabulary, and marked with origin "llm-proposed".
-
-Every verdict is written to its own column beside the value it disagrees with, never over it, so
-both readings stay visible and a person rules. It cannot remove anything: flagging a scenario as
-redundant is a recommendation for a human.
-"""
+"""The review pass: a single sweep over the finished scenario space."""
 from __future__ import annotations
 
 import json
@@ -80,12 +53,7 @@ def _owner_block(owner_scenarios: Optional[List[OwnerScenario]]) -> str:
 
 
 def _tiers_apart(scenario: Scenario) -> int:
-    """How far the two materiality readings are from each other, in tiers.
-
-    Zero where the review did not set one, which is the ordinary case for a scenario the review
-    agreed with: nothing was written to the review's column, so there is no second reading to
-    disagree with the first.
-    """
+    """How far the two materiality readings are from each other, in tiers."""
     if not scenario.review_materiality or not scenario.materiality:
         return 0
     try:
@@ -142,19 +110,7 @@ class ScenarioReviewer:
     def review(self, scenarios: List[Scenario], intake: IntakeData,
                owner_scenarios: Optional[List[OwnerScenario]] = None
                ) -> Tuple[List[Scenario], List[Scenario]]:
-        """Settle each judged column in place and return (scenarios, proposals).
-
-        One sweep per column rather than one sweep asked to settle everything at once. The two
-        are genuinely different readings -- materiality asks what failure would cost, category
-        asks how the interaction ends -- and a single prompt carrying both tends to answer the
-        first well and the second as an afterthought.
-
-        The sweeps run one after another rather than together. Each already sends all of its own
-        chunks concurrently, and running two at once would put twice ``LLM_MAX_CONCURRENCY``
-        connections in flight, which is the number that cap exists to hold down. The cost of the
-        second column is modest because it needs a much coarser batch: a seventy-scenario
-        scenario space is twelve materiality calls and four category ones.
-        """
+        """Settle each judged column in place and return (scenarios, proposals)."""
         cancellation.check(self._cancel)
         preamble = self._preamble(intake)
         signals = peer_signals(scenarios)
@@ -196,25 +152,7 @@ class ScenarioReviewer:
         return scenarios, proposals
 
     def _adjudicate(self, scenarios: List[Scenario], preamble: str, shared: dict) -> int:
-        """Settle the scenarios the two materiality readings disagree about. Returns how many.
-
-        A third opinion, but only where one is worth paying for. Every scenario in this scenario space
-        is weighed twice already -- once by the materiality pass, against its immediate peers with
-        the redundancy signals in hand, and once by the review, against the whole scenario space -- and
-        those two readings are given genuinely different things to look at. Where they land in the
-        same place or one tier apart, that is two readings agreeing to within the precision the
-        scale has. Where they land two or more apart, one of them is missing something, and the
-        tier decides how many runs the model owner is asked for.
-
-        Asking a third time about *everything* would be the expensive version of this and would
-        mostly re-litigate agreement. Asking only about the conflicts costs one call on a typical
-        scenario space and nothing at all on a scenario space that has none, and the call is a better call
-        for it: both rationales are in front of it, so it is adjudicating an argument rather than
-        forming a fresh opinion in isolation.
-
-        The verdict lands in the review's own column, beside the first assessment rather than over
-        it -- the same rule every other verdict in this pass follows.
-        """
+        """Settle the scenarios the two materiality readings disagree about. Returns how many."""
         conflicts = [s for s in scenarios if _tiers_apart(s) >= ADJUDICATE_GAP]
         if not conflicts:
             return 0
@@ -251,11 +189,7 @@ class ScenarioReviewer:
         return settled
 
     def _render_adjudication(self, chunk: List[Scenario], preamble: str, shared: dict) -> str:
-        """The prompt for one chunk of disagreements, with both readings side by side.
-
-        Only the slots this prompt has. The owner's scenarios are context for proposing
-        something new; this is settling an argument about a scenario that already exists.
-        """
+        """The prompt for one chunk of disagreements, with both readings side by side."""
         return f"{preamble}\n\n" + prompts.render(
             _ADJUDICATE_PROMPT, total=shared["total"], digest=shared["digest"],
             materiality=prompts.load("shared.materiality_scale"),
@@ -274,12 +208,7 @@ class ScenarioReviewer:
                concurrency: int, done: int, total: int, subject_count: int,
                render: Callable[[List[Scenario]], str],
                apply_reply: Callable[[List[Scenario], object], None]) -> int:
-        """One column judged across the whole scenario space. Returns the running progress count.
-
-        Every chunk's call goes out together: each judges its own scenarios against the
-        whole-set digest built once above, so none of them waits on another's reply. Replies are
-        applied in the order the chunks were made regardless of which came back first.
-        """
+        """One column judged across the whole scenario space. Returns the running progress count."""
         if not pending:
             return done
         # Reported as replies land, not as they are applied. Every chunk is in flight at once, so
@@ -354,12 +283,7 @@ class ScenarioReviewer:
             scenario.review_flag = one_of(entry.get("flag"), REVIEW_FLAGS)
 
     def _apply_category(self, chunk: List[Scenario], reply) -> None:
-        """Record where the review reads a scenario's ending differently from the intake.
-
-        Only a disagreement is stored. Agreement is the expected result for most scenarios, and
-        writing it down anyway would fill the scenario space metadata's review columns with restatements of the
-        declared value and bury the handful of rows that actually want a second look.
-        """
+        """Record where the review reads a scenario's ending differently from the intake."""
         parsed = parsed_reply(reply, "Review call", ", ".join(s.id for s in chunk))
         for scenario in chunk:
             entry = parsed.get(scenario.id)

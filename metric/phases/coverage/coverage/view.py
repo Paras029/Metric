@@ -1,15 +1,4 @@
-"""What the coverage stage shows on the page, rebuilt from the mappings rather than re-run.
-
-Mapping conversations onto the scenario space is the expensive half of the stage -- one model call per
-handful of transcripts -- and counting them is free. So the mappings are what the workspace keeps,
-and everything here is derived from them each time the page is drawn.
-
-That split is what makes the representation threshold usable. Moving the line between represented
-and under-represented is a judgement about how much of the model owner's evidence is enough, and
-a person
-arrives at it by trying a number and looking at the result. If changing it re-ran the model,
-nobody would try a second number.
-"""
+"""What the coverage stage shows on the page, rebuilt from the mappings rather than re-run."""
 from __future__ import annotations
 
 from typing import Dict, List, Optional
@@ -40,13 +29,7 @@ def stored_report(workspace: Workspace, space) -> Optional[CoverageReport]:
 
 def coverage_view(workspace: Workspace, report: CoverageReport,
                   texts: Dict[str, str] = None) -> dict:
-    """Everything the coverage panel renders, assembled here rather than in the markup.
-
-    The counts and the confidences are shown side by side and never combined. Five conversations
-    the matcher was sure about and five it was guessing at both count as five, because whether a
-    weak match is evidence of coverage is a judgement about the matcher, and the person reading
-    this page is in a far better position to make it than the matcher is.
-    """
+    """Everything the coverage panel renders, assembled here rather than in the markup."""
     texts = texts or {}
     by_id = {m.conversation_id: m for m in stored_mappings(workspace)}
 

@@ -1,14 +1,4 @@
-"""Reading what a model returned, safely.
-
-A reply is JSON the model was asked to produce, not JSON anything guarantees. Every pass that
-reads one needs the same four things -- a string that is really a string, a list that is really a
-list, the entries of a list that are really objects, and a bounded integer -- and each was
-reimplementing them privately, identically, in two places at once.
-
-Nothing here validates *meaning*; a closed vocabulary is checked by :func:`utils.text.one_of` and
-a structural rule by the pass that owns it. This only makes sure the shape is what the code below
-it is about to assume.
-"""
+"""Reading what a model returned, safely."""
 from __future__ import annotations
 
 from typing import List
@@ -28,15 +18,7 @@ def string_list(entry: dict, key: str) -> List[str]:
 
 
 def prose(entry: dict, key: str) -> str:
-    """A block of written text, whether the model sent it as one string or as a list of lines.
-
-    Use this for anything a person reads -- a description, a turn plan, a rationale -- rather than
-    :func:`text`. A prompt that asks for numbered turns on separate lines is answered with a JSON
-    array often enough to matter, and ``str()`` on a list yields its Python repr: the scenario space metadata and
-    the page end up carrying ``['Open by naming the charge.', 'Answer the question.']``, brackets
-    and quotes and all, which nobody notices until a tester is handed it. Joining on newlines is
-    what the prompt asked for in the first place.
-    """
+    """A block of written text, whether the model sent it as one string or as a list of lines."""
     raw = entry.get(key)
     if isinstance(raw, (list, tuple)):
         return "\n".join(str(item).strip() for item in raw if str(item).strip())
@@ -49,11 +31,7 @@ def objects(data: dict, key: str) -> List[dict]:
 
 
 def at_least_one(value: object, default: int = 1) -> int:
-    """A count that has to be positive -- a retry bound, usually.
-
-    Anything unreadable falls back to ``default`` rather than to zero: a decision that may be
-    attempted no times at all is not a weaker claim than the default, it is an unwalkable graph.
-    """
+    """A count that has to be positive -- a retry bound, usually."""
     try:
         number = int(float(str(value).strip()))
     except (TypeError, ValueError):

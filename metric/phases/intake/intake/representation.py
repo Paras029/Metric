@@ -1,19 +1,4 @@
-"""How much of the scenario space the model owner's conversations actually exercise.
-
-Coverage is measured as a count, not as a yes/no per scenario. One conversation against a scenario
-and forty against it are not the same evidence, and the question the validator is actually
-answering -- what does the model owner still need to run? -- is answered by the count.
-
-So this counts. Every mapped conversation lands in exactly one scenario's bucket, the buckets are
-reported whole, and *represented* is a line drawn through them at a threshold the person using the
-tool sets. Nothing here decides that number: how much evidence is enough depends on how far the
-model owner's testing is trusted, which is a judgement this has no basis for making.
-
-Confidence is carried alongside rather than folded in. A scenario with five low-confidence
-mappings and one with five high-confidence mappings both have five, and which of those is
-convincing is exactly the sort of thing worth putting in front of a person rather than resolving
-behind them.
-"""
+"""How much of the scenario space the model owner's conversations actually exercise."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -52,13 +37,7 @@ class ScenarioCoverage:
 
 @dataclass
 class GroupAssessment:
-    """One group the model owner filed conversations under, judged against where they landed.
-
-    A model owner who groups their testing is making a claim -- these conversations are the same
-    test -- and that claim is checkable. Where every conversation in a group maps to one scenario,
-    the model owner's grouping and the validator's agree. Where they split, one of the two is
-    wrong, and which one is worth a person's attention rather than a silent reconciliation.
-    """
+    """One group the model owner filed conversations under, judged against where they landed."""
 
     group: str
     scenario_counts: Dict[str, int] = field(default_factory=dict)
@@ -160,15 +139,7 @@ class CoverageReport:
 
 def build_report(mappings, scenarios: List[ScenarioRow],
                  threshold: int = DEFAULT_THRESHOLD) -> CoverageReport:
-    """Turn per-conversation mappings into per-scenario counts and per-group verdicts.
-
-    Every scenario appears, including the ones nothing landed on -- those are the point. A report
-    that listed only what was covered would answer the easy half of the question and leave the
-    half that decides what gets sent back.
-
-    A mapping onto an id this space does not measure is a probe run, not a miss -- see
-    :attr:`CoverageReport.outside`.
-    """
+    """Turn per-conversation mappings into per-scenario counts and per-group verdicts."""
     buckets = {s.id: ScenarioCoverage(scenario=s, by_confidence={}) for s in scenarios}
     groups: Dict[str, GroupAssessment] = {}
     unmatched: List[str] = []

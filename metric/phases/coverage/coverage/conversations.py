@@ -1,25 +1,4 @@
-"""Reading the conversations a model owner actually ran, out of whatever they sent.
-
-This is the coverage stage's input, and it is deliberately a different thing from a scenario
-library. A team that has tested an agent has *transcripts* -- what a user said, what the agent
-said back, how it ended. Some of them have gone on to group those transcripts under scenario
-labels of their own; many have not, and asking for that grouping as a precondition would put the
-measurement out of reach of the submissions that need it most.
-
-So what is read here is conversations, and any grouping the team happens to have applied is
-carried along as one more column to be *assessed* rather than trusted. Three layouts turn up:
-
-    turn per row          a conversation id repeated down the sheet, one row per utterance, with
-                          a speaker column. The most common export from a real logging system.
-    conversation per row  one row per conversation with the whole transcript in a single cell,
-                          usually with "User:" / "Agent:" markers inside it.
-    prose                 no table at all -- a document with conversations separated by headings
-                          or blank lines, speaker prefixes on each line.
-
-The reader recognises rather than requires, and records how it read the file. A team whose format
-was not understood must never be reported as having tested nothing -- that is the failure mode
-this whole module is shaped around.
-"""
+"""Reading the conversations a model owner actually ran, out of whatever they sent."""
 from __future__ import annotations
 
 import csv
@@ -125,11 +104,7 @@ def _speaker(raw: str) -> str:
 
 
 def _split_prefixed(text: str) -> List[Turn]:
-    """A block of text with "User:"/"Agent:" prefixes, as turns.
-
-    A line with no prefix continues the turn above it rather than starting a new one -- a wrapped
-    utterance is one thing said, not two.
-    """
+    """A block of text with "User:"/"Agent:" prefixes, as turns."""
     turns: List[Turn] = []
     for line in str(text or "").splitlines():
         if not line.strip():
@@ -179,12 +154,6 @@ def _cell(row: List[str], index: int) -> str:
 # Variation_Log the team fills in one row per scenario, variation and turn. When it comes back
 # filled in, it is the best submission there is -- every conversation already carries the id of
 # the scenario it was run against, which is the exact thing the mapping call exists to work out.
-#
-# It also happens to be the shape the generic reader handles worst. There is no speaker column,
-# because a turn is a *pair* of columns rather than a row per utterance, so the reader fell
-# through to one-conversation-per-row and turned a forty-row log into forty single-utterance
-# "conversations" whose text was whichever column happened to be widest. Recognising the sheet is
-# what stops the tool's own template being the format it reads least well.
 _LOG_SHEET = "Variation_Log"
 _LOG_COLUMNS = ("SC ID", "Variation", "Turn", "User Input (Actual)", "Agent Response")
 
@@ -200,17 +169,7 @@ def _is_returned_template(header: List[str]) -> bool:
 
 
 def _from_returned_template(rows: List[List[str]], origin: str) -> Tuple[List[Conversation], str]:
-    """The issued log, filled in: one conversation per (scenario, variation), turns in file order.
-
-    A turn is one row and carries both sides of it, so the two columns are read as two utterances
-    rather than one -- a row with only the agent's half is still a turn, and a row with neither is
-    one the team did not get to.
-
-    The scenario id is carried through as ``scenario_id`` rather than as a group. It is not a
-    claim about what the conversation resembles; it is the row the team was asked to fill in, and
-    treating it as evidence to be re-derived by a model would be paying to rediscover something
-    already written down.
-    """
+    """The issued log, filled in: one conversation per (scenario, variation), turns in file order."""
     # Normalised here rather than relying on the caller: this is reached both from _from_rows,
     # which has already stringified, and straight off the workbook, where Variation and Turn are
     # still integers.
@@ -296,12 +255,7 @@ def _from_rows(rows: List[List[str]], origin: str) -> Tuple[List[Conversation], 
 
 def _turn_per_row(body: List[List[str]], origin: str, id_col: int, speaker_col: int,
                   text_col: int, group_col: int) -> Tuple[List[Conversation], str]:
-    """One row per utterance, grouped by the conversation id repeated down the sheet.
-
-    Rows are taken in file order rather than sorted by any turn-number column: a transcript that
-    has been exported is already in order, and a turn number that disagrees with the file order is
-    more likely to be a spreadsheet artefact than a real resequencing.
-    """
+    """One row per utterance, grouped by the conversation id repeated down the sheet."""
     found: Dict[str, Conversation] = {}
     for row in body:
         identifier = _cell(row, id_col) or f"C-{len(found) + 1:03d}"
@@ -411,13 +365,7 @@ def _from_csv(path: Path, complete=None) -> Tuple[List[Conversation], str]:
 
 def _read_table(rows: List[List[str]], origin: str, complete=None
                 ) -> Tuple[List[Conversation], str]:
-    """One sheet or one CSV: our template, then an asked-for mapping, then headings.
-
-    The fallback is unconditional on purpose. Every way the migration call can fail -- no gateway,
-    a reply that will not parse, a column named that the file does not have -- ends with a reading
-    rather than with an error, because a heading-matched figure a person can see the provenance of
-    beats no figure at all.
-    """
+    """One sheet or one CSV: our template, then an asked-for mapping, then headings."""
     normalised = [[str(cell if cell is not None else "").strip() for cell in row] for row in rows]
     normalised = [row for row in normalised if any(row)]
     if normalised and _is_returned_template(normalised[_header_index(normalised)]):
@@ -506,23 +454,7 @@ def _from_pdf(path: Path) -> Tuple[List[Conversation], str]:
 
 
 def redact_conversations(conversations: List[Conversation], force: bool = False) -> List[Conversation]:
-    """Every utterance through the redactor, in one pass over the whole submission.
-
-    This is the group that most needs it and was the only one not getting it. A model owner's
-    transcripts are real conversations with real customers -- names, card numbers, addresses,
-    whatever the customer typed -- where the documentation is a description of an agent. The
-    documents were redactable from the upload page and these were not, and nothing on the coverage
-    path redacted anything at all, so the one submission certain to carry live customer data was
-    the one that reached a model untouched.
-
-    One call for the whole submission rather than one per conversation: the redactor's own
-    consistency mapping is what keeps the same person the same placeholder across a file, and
-    calling it per conversation would give the same customer a different name in every exchange
-    they had.
-
-    A no-op wherever redaction is off globally and ``force`` is not set -- see
-    :func:`ingest.redaction.redact_segments`.
-    """
+    """Every utterance through the redactor, in one pass over the whole submission."""
     from metric.phases.intake.intake.readers import Segment
     from metric.phases.intake.intake.redaction import redact_segments
 
@@ -540,11 +472,7 @@ def redact_conversations(conversations: List[Conversation], force: bool = False)
 
 def _from_mapping(rows: List[List[str]], origin: str, mapping: dict
                   ) -> Tuple[List[Conversation], str]:
-    """Read every row using the column mapping a migration call settled.
-
-    Deterministic from here on: the call named the columns once, and this walks the whole file
-    with them, which is why one call reads a submission of any size.
-    """
+    """Read every row using the column mapping a migration call settled."""
     columns = mapping["columns"]
     # The file's own spelling of each side, where the migration named it. Checked before the word
     # list, because a one-letter code is exactly what the word list cannot know.
@@ -602,21 +530,7 @@ def _from_mapping(rows: List[List[str]], origin: str, mapping: dict
 
 def read_conversations(path: Path, complete: Optional[Callable[..., str]] = None,
                        migrate: bool = True) -> Tuple[List[Conversation], str]:
-    """Read submitted conversations. Returns them and a note of how the file was read.
-
-    The note is not decoration: a misread column quietly halves a coverage figure, and the person
-    reading the result needs to be able to see what the reader thought it was looking at.
-
-    Three readings are tried, in order of how much they know. Our own data template, returned
-    filled in, is recognised outright and is the only one that can say which scenario each
-    conversation was run against. Anything else tabular gets one call asking which column is
-    which -- see :mod:`ingest.conversation_migration` for why that beats matching headings.
-    Heading matching is what happens when that call cannot be made or does not describe the file,
-    and prose with no table at all never needed either.
-
-    ``migrate=False`` turns the call off and reads by headings alone, for a caller with no
-    gateway or one that has decided not to spend a call on a file it already trusts.
-    """
+    """Read submitted conversations. Returns them and a note of how the file was read."""
     path = Path(path)
     suffix = path.suffix.lower()
 

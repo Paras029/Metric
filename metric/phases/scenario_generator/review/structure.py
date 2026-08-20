@@ -1,22 +1,5 @@
 """One call that looks at the whole declared graph and proposes how to make it sounder before it
 is walked into a scenario space.
-
-Two different problems, both caught here because both are cheapest to fix before the scenario space
-exists rather than after:
-
-    reconnections   a decision or state that is declared but does not connect to the rest of the
-                    graph -- nothing leads to it, or it leads nowhere.
-    consolidations  two or more decisions that are alternate ways of establishing the same fact
-                    rather than genuinely different branches. Separately, they multiply the
-                    scenario space by every combination without testing anything additional past the
-                    point where they converge; merged into one decision, the same downstream
-                    behaviour is tested at a fraction of the cost.
-
-Deliberately one call. The declared graph is a small fraction of the size of the scenario space it
-produces, so the whole of it fits in one prompt, and a pass that only ever proposes -- never
-writes -- is the one place a structural judgement this consequential is allowed to be wrong
-without cost: every proposal is applied by a person, one at a time, from the intake stage. See
-:mod:`scenario_generator.core.intake` for what applying one actually does to the workbook.
 """
 from __future__ import annotations
 
@@ -43,12 +26,7 @@ CompletionFn = Callable[..., str]
 
 @dataclass
 class Reconnection:
-    """One orphaned or misrouted piece of the graph, with a mechanical fix.
-
-    ``kind`` decides which fix applies: a ``"decision"`` is attached to a state that should lead
-    to it, a ``"state"`` has its own Reached Via corrected. Never both -- the two are different
-    edits to different columns.
-    """
+    """One orphaned or misrouted piece of the graph, with a mechanical fix."""
 
     kind: str
     id: str
@@ -168,12 +146,7 @@ def _validate_consolidations(entries, decision_ids, block_of=None) -> List[Conso
 
 def review_structure(intake: IntakeData, complete: Optional[CompletionFn] = None,
                      context: str = "") -> StructureReview:
-    """One call: proposals only, applied later and individually from the intake stage.
-
-    Returns an empty review, logged rather than raised, where the call fails or the intake has
-    nothing to look at -- a structure review is an optional extra pass, and a person looking for
-    it to appear is a better failure than the intake stage itself breaking because of it.
-    """
+    """One call: proposals only, applied later and individually from the intake stage."""
     if not intake.decisions and not intake.states:
         return StructureReview()
 

@@ -1,18 +1,4 @@
-"""Decision graph (L3 joined to L4) and exhaustive path enumeration over it.
-
-Nodes are states; an edge is a (decision, variant) pair moving from one state to the
-next. A variant with no declared destination state simply ends the path there.
-
-Enumeration is two passes: a DFS from every start state, then a focused path for any
-declared (decision, variant) the DFS never exercised.
-
-Loops are bounded by each decision's own declared `Max Attempts`, not by a global revisit cap,
-so a decision that genuinely allows three tries produces three-try paths. A route that *returns*
-to a decision after going elsewhere is deliberately not enumerated here and belongs in the
-variation space -- see the note above MIN_DEPTH. The depth backstop is derived from the
-declaration rather than fixed, and the path cap remains as a backstop only; hitting either is
-reported rather than silent.
-"""
+"""Decision graph (L3 joined to L4) and exhaustive path enumeration over it."""
 from __future__ import annotations
 
 import logging
@@ -26,46 +12,20 @@ from metric.domain.models import Capability, Decision, State, Step
 
 logger = logging.getLogger(__name__)
 
-# A route that leaves a decision and comes back to it is **not enumerated**, and that is a choice
-# rather than an oversight.
-#
-# It is a different thing from a retry. Max Attempts says how often the agent may try one decision
-# on the spot -- three goes at an identity check -- and the walk honours that. A *return* is the
-# flow genuinely going elsewhere and coming back: a fallback that could not understand the request
-# and routes to the start of the block, a verification step that sends the conversation back to be
-# identified again. The intake says nothing about how often that may happen, so any bound on it
-# would be this tool's invention rather than the declaration's.
-#
-# Walking them multiplies the space by every loop in the graph, and what the extra routes test is
-# the same behaviour a second time from a different distance. That is a *variation* on a scenario,
-# not a scenario, and it belongs in the variation space where the number of laps is a knob rather
-# than in the base space where it is a combinatorial explosion nobody asked for.
-#
-# Backstops, and neither is meant to shape the walk.
-#
-# Depth is *derived* rather than fixed -- see :func:`depth_limit`. Every decision can fire a
-# bounded number of times per route, so the longest route a declaration allows is arithmetic over
-# the declaration, and a constant put a number under that arithmetic and silently cut whatever
-# was past it. A derived limit cannot cut a route the loop rules would have allowed, which is the
-# only thing a depth limit was ever wanted for: guaranteeing the walk ends.
-#
-# Paths remains a constant, and remains for one reason: a declaration can ask for more routes than
-# a person can read or a run can afford, and an interface that hangs is worse than one that says
-# it stopped. It is far above anything a real declaration produces, and hitting it is reported --
-# see :class:`Limits`.
+# A route that returns to a decision after going elsewhere is deliberately not enumerated: the
+# intake bounds retries (Max Attempts) but says nothing about laps, so any bound would be this
+# tool's invention. Going round belongs to the variation space.
+
+# Backstops only. Depth is derived per declaration -- see depth_limit -- so it cannot cut a route
+# the rules allow; MIN_DEPTH is its floor. MAX_PATHS stops a pathological graph hanging the
+# interface, and hitting either is reported through Limits.
 MIN_DEPTH = 24
 MAX_PATHS = 25000
 
 
 @dataclass
 class Limits:
-    """Whether a backstop bit, filled in by the walk for a caller that wants to say so.
-
-    Mutable and passed in rather than returned, because the walk is called from several places
-    with three different return shapes and threading a fourth value through all of them to be
-    dropped by most callers is how a report stops being kept up to date. A caller that does not
-    care passes nothing.
-    """
+    """Whether a backstop bit, filled in by the walk for a caller that wants to say so."""
 
     paths: bool = False
     depth: bool = False
@@ -76,12 +36,7 @@ class Limits:
 
 
 def depth_limit(graph: DecisionGraph) -> int:
-    """The longest route this declaration can produce, so the backstop never cuts a real one.
-
-    Each decision may fire at most its declared Max Attempts times on one route, so their sum is
-    the longest route the rules allow. Bounded below so a two-decision graph still has room for the
-    augmentation pass to work in.
-    """
+    """The longest route this declaration can produce, so the backstop never cuts a real one."""
     return max(MIN_DEPTH, sum(d.max_attempts for d in graph.decisions.values()))
 
 # What an opening state says in its "Reached Via" cell when it is not reached by a decision at all.
@@ -129,13 +84,7 @@ class DecisionGraph:
 # --------------------------------------------------------------------------- spans
 @dataclass(frozen=True)
 class Span:
-    """One block of the graph to enumerate over, entered one way.
-
-    A span is a capability and a single entry state, so a capability that can be entered two ways
-    produces two spans -- which is what makes "after identification by document" and "after
-    identification by one-time code" two scenario sets rather than one set that quietly assumes
-    the first. See :func:`spans_for`.
-    """
+    """One block of the graph to enumerate over, entered one way."""
 
     capability_id: str
     name: str
@@ -157,18 +106,7 @@ class Span:
 
 
 def spans_for(graph: DecisionGraph, capabilities: Sequence[Capability]) -> List[Span]:
-    """What to walk: one span per capability entry state, or the whole graph if none are drawn.
-
-    The fallback matters as much as the feature. An intake nobody has divided into capabilities
-    yet is the ordinary state of a use case on its first run, and a scenario space of nothing at
-    all would read as the tool being broken rather than as a step not yet taken. So an undivided
-    graph walks exactly as it always did, start to ending, and dividing it is what makes the
-    enumeration smaller.
-
-    Entry and exit states that name nothing in the graph are dropped rather than honoured: a span
-    hanging off a state id somebody mistyped would silently enumerate nothing, and a capability
-    that contributes no scenarios is the failure this is most likely to produce by accident.
-    """
+    """What to walk: one span per capability entry state, or the whole graph if none are drawn."""
     spans: List[Span] = []
     for capability in capabilities:
         entries = [s for s in capability.entry_states if s in graph.states]
@@ -204,19 +142,7 @@ got round to filing it under a heading.
 
 
 def _spans_for_the_gaps(graph: DecisionGraph, drawn: Sequence[Span]) -> List[Span]:
-    """Spans covering the decisions no capability's span reaches.
-
-    Capabilities are drawn by hand, so between two of them there is usually something nobody
-    filed: a consent gate, a channel check, a step that belongs to the flow rather than to any one
-    block. Those decisions are declared, their outcomes are real, and without this they are walked
-    by nothing at all -- the quietest possible failure, since the declaration looks complete and
-    the scenario space simply has a hole in it.
-
-    Each gap span starts where the uncovered region is entered from -- a capability's exit, or the
-    graph's own start -- and ends where the flow rejoins a capability or stops. That is the same
-    rule the drawn spans follow, so a scenario out of a gap reads like any other: it starts
-    somewhere stated and ends somewhere declared.
-    """
+    """Spans covering the decisions no capability's span reaches."""
     covered: Set[str] = set()
     for span in drawn:
         covered |= _decisions_within(graph, span)
@@ -255,31 +181,7 @@ def _spans_for_the_gaps(graph: DecisionGraph, drawn: Sequence[Span]) -> List[Spa
 # --------------------------------------------------------------------------- enumeration
 def walk_paths(graph: DecisionGraph, span: Optional[Span] = None,
                limits: Optional["Limits"] = None) -> List[Path]:
-    """DFS across one span, keeping only the routes that reach one of its exits.
-
-    A route finishes when it arrives at a state the span names as an exit, or at a state the
-    intake marks as ending the interaction -- an ending inside a block is an ending, whether or
-    not somebody remembered to list it. Every other way a walk can come to a halt is the
-    declaration running out rather than the agent finishing:
-
-    * the outcome taken names a destination no state declares (``OUT:DEC-02=Odd``);
-    * the state reached leads nowhere and is neither an exit nor an ending;
-    * every decision the state offers has used up its ``Max Attempts``.
-
-    All three used to be recorded as paths, and became scenarios. None of them can be one: a
-    scenario is a conversation issued to the model owner with an expected outcome behind it, and a
-    route the declaration stops short of has no expected outcome to have -- so the metadata
-    workbook carried an ending of nothing at all, and the pack asked for a conversation nobody
-    could mark. They are dropped here, which is what keeps that out of everything downstream.
-
-    **An out-of-scope decision is not one of those.** It is a boundary somebody drew deliberately
-    -- a sub-system reviewed under a separate engagement -- so a route arriving at one has an
-    expected outcome: the agent hands off. Those routes finish there and are kept, which is what
-    makes the flag mean "do not test past here" rather than "do not test anything that leads
-    here".
-
-    Called with no span, this walks the whole graph exactly as it did before spans existed.
-    """
+    """DFS across one span, keeping only the routes that reach one of its exits."""
     if span is None:
         endings = frozenset(s.id for s in graph.states.values() if s.is_terminal)
         return [p for start in graph.start_states
@@ -311,9 +213,6 @@ def walk_paths(graph: DecisionGraph, span: Optional[Span] = None,
         # separate engagement, whose behaviour is not being tested but whose *hand-off* is. Left
         # unrecorded, everything on the way to that boundary went untested too, which is the
         # opposite of what the flag is for.
-        #
-        # Retry exhaustion is deliberately not this case. There the intake genuinely has not said
-        # what the agent does next, so there is no expected outcome to issue.
         offered = [graph.decision(d) for d in state.next_decisions]
         if any(d is not None for d in offered) and all(
                 d is None or d.out_of_scope for d in offered):
@@ -369,14 +268,7 @@ def _belongs_to(graph: DecisionGraph, decision: Decision, span: Span, within: Se
 
 
 def _decisions_within(graph: DecisionGraph, span: Span) -> Set[str]:
-    """Every decision the span can reach, stopping where the block hands on.
-
-    What makes a decision part of a block is that a route through the block can fire it, and the
-    walk itself is not enough to tell: a decision behind a retry limit is inside the block and
-    never appears in a walked path, which is exactly the case the augmentation pass exists for.
-    Reachability ignores attempt counts for that reason -- it answers "does this belong here",
-    not "was this walked".
-    """
+    """Every decision the span can reach, stopping where the block hands on."""
     within: Set[str] = set()
     seen = {span.entry_state}
     queue = deque([span.entry_state])
@@ -403,13 +295,6 @@ def decisions_owned_by(graph: DecisionGraph, capability_id: str,
                        decisions: Sequence[Decision]) -> Set[str]:
     """Which decisions a capability holds: the ones tagged with it, plus the untagged ones it
     reaches.
-
-    Tagging is the basis rather than reachability, and the difference matters. A walk from
-    verification's entry that follows a route back into identification reaches identification's
-    decisions too; counting those as verification's would make a return into another block look
-    like ordinary branching inside this one, and every span derived from it would be drawn too
-    wide. A decision tagged with nothing is the exception -- it is reachable from here and nobody
-    has claimed it, so this is the only claim anybody has made.
     """
     tagged = {d.id for d in decisions if d.trigger_capability}
     mine = {d.id for d in decisions if d.trigger_capability == capability_id}
@@ -432,20 +317,7 @@ def states_inside(graph: DecisionGraph, entry_states: Sequence[str], owned: Set[
 
 def exits_for(graph: DecisionGraph, capability_id: str, entry_states: Sequence[str],
               decisions: Sequence[Decision]) -> List[str]:
-    """Where a route entering here leaves, worked out from the graph rather than asked for.
-
-    This is the arithmetic that makes a capability's exits something the tool can supply instead
-    of something a person types. Walk what the block owns; every state one of its decisions lands
-    on that the block is not still inside is a way out -- an ending, a hand-off to the next block,
-    or a route back into an earlier one.
-
-    It is a proposal, never an imposition. Two cases give a wrong answer and both are real: a
-    block whose decisions are also reachable from outside it, and a validator deliberately drawing
-    a block to stop earlier than the graph implies. So the interface shows what this returns and
-    lets it be overridden, rather than deriving silently on save.
-
-    Sorted, because it is offered to a person and an arbitrary order reads as a mistake.
-    """
+    """Where a route entering here leaves, worked out from the graph rather than asked for."""
     # No entry, no span, nothing to derive. The tagged decisions are still there and would still
     # produce a plausible-looking list, which is exactly the trap: a proposal for a block whose
     # boundary nobody has drawn is a guess dressed as arithmetic.
@@ -477,13 +349,7 @@ class Unreached:
 
 
 def _reachable(graph: DecisionGraph, entry: str, stop_at: FrozenSet[str]) -> Dict[str, int]:
-    """States reachable from one entry, with the fewest decisions it takes to get to each.
-
-    Attempt limits are ignored on purpose. This answers "can a route get there at all", and a
-    decision behind a retry bound is still somewhere a route can arrive -- the augmentation pass
-    exists to reach exactly those. What is *not* ignored is where the block hands on, which is the
-    difference the caller reads.
-    """
+    """States reachable from one entry, with the fewest decisions it takes to get to each."""
     seen = {entry: 0}
     queue = deque([entry])
     while queue:
@@ -507,28 +373,7 @@ def _reachable(graph: DecisionGraph, entry: str, stop_at: FrozenSet[str]) -> Dic
 
 def endings_not_reached(graph: DecisionGraph, capabilities: Sequence[Capability],
                         decisions: Sequence[Decision]) -> List[Unreached]:
-    """Endings a block's own decisions can produce that no route through the block ends at.
-
-    Enumeration is silent about what it could not reach, and that silence is the problem this
-    answers. A pack that is missing the ending nobody could get to looks exactly like a pack that
-    is complete, and the person reading it has no way to tell whether the declaration is wrong,
-    the span is drawn wrong, or the walk is. Naming the ending and the reason turns a suspicion
-    into something to act on.
-
-    Three reasons, and they want different fixes:
-
-    - **The decision that produces it cannot be reached from where the block is entered.** The
-      declaration is incomplete, or the block is entered somewhere other than where it starts.
-    - **The block is declared to hand on before it gets there.** The span is drawn too narrow:
-      an exit sits on the way to the ending, and the walk stops at an exit by definition.
-    - **The route to it is longer than the depth backstop.** Nothing is wrong with the
-      declaration; the enumeration is genuinely incomplete and says so.
-
-    Answered by reachability rather than by enumerating, so it costs two searches per block and
-    can be shown on a page that redraws. Retry bounds are ignored for the same reason they are
-    ignored in :func:`_decisions_within`: an ending only reachable past one is reached by the
-    augmentation pass, so reporting it here would be reporting a route that does get walked.
-    """
+    """Endings a block's own decisions can produce that no route through the block ends at."""
     found: List[Unreached] = []
     deepest = depth_limit(graph)
     by_capability: Dict[str, List[Span]] = {}
@@ -579,10 +424,6 @@ def entry_candidates(graph: DecisionGraph, capability_id: str,
                      decisions: Sequence[Decision]) -> List[str]:
     """States a route could plausibly enter this capability at: the ones offering a decision it
     is tagged with.
-
-    Not a restriction -- a span may legitimately start anywhere, and the interface keeps the full
-    list one click away. It is a shortlist, and on a real declaration that is the difference
-    between three rows and twenty-eight.
     """
     mine = [d.id for d in decisions if d.trigger_capability == capability_id]
     found = {state for decision_id in mine for state in graph.states_offering(decision_id)}
@@ -623,15 +464,7 @@ def _shortest_prefix_to(graph: DecisionGraph, decision_id: str, span: Span) -> P
 def _shortest_suffix_to_ending(graph: DecisionGraph, state_id: str,
                                fired: Dict[str, int], taken: int,
                                span: Span) -> Optional[Path]:
-    """BFS onward from `state_id` to the end of the span, or ``None`` if it cannot be reached.
-
-    The end of the span is either an exit it declares or a state the intake marks as ending the
-    interaction, exactly as in :func:`walk_paths` -- the two have to agree about where a route
-    finishes, or an augmented route would run past the block it belongs to.
-
-    Attempt counts are carried in rather than restarted, because they are what makes the rest of
-    the route legal: a suffix that fires a decision a fourth time is not a route the agent has.
-    """
+    """BFS onward from `state_id` to the end of the span, or ``None`` if it cannot be reached."""
     def finished(candidate: str) -> bool:
         state = graph.state(candidate)
         return candidate in span.exit_states or (state is not None and state.is_terminal)
@@ -670,14 +503,7 @@ def _shortest_suffix_to_ending(graph: DecisionGraph, state_id: str,
 
 def augment_variants(graph: DecisionGraph, paths: List[Path],
                      span: Optional[Span] = None) -> List[Path]:
-    """A focused route for every declared (decision, variant) the DFS missed.
-
-    Carried on to an ending rather than stopped at the outcome being reached for. These exist to
-    exercise an outcome the exhaustive walk could not get to -- usually one behind a retry limit --
-    and stopping the moment it fires made every one of them a route with no declared ending, which
-    is the one thing a scenario cannot be. An outcome whose continuation dead-ends is dropped: it
-    is unreachable in a complete route, so there is no conversation to ask anybody to run.
-    """
+    """A focused route for every declared (decision, variant) the DFS missed."""
     if span is None:
         endings = frozenset(s.id for s in graph.states.values() if s.is_terminal)
         span = Span("", "", graph.start_states[0] if graph.start_states else "", endings)
@@ -731,26 +557,14 @@ def enumerate_paths(graph: DecisionGraph, span: Optional[Span] = None,
 def enumerate_by_span(graph: DecisionGraph, capabilities: Sequence[Capability],
                       limits: Optional[Limits] = None) -> List[Tuple[Span, List[Path],
                                                                      List[Path]]]:
-    """Every span, with the routes through it. The whole enumeration, in one call.
-
-    De-duplication is per span rather than across the set. Two capabilities sharing a decision
-    would otherwise have the second one silently lose the routes the first had already claimed --
-    and the point of walking blocks separately is that each block is tested on its own terms.
-    """
+    """Every span, with the routes through it. The whole enumeration, in one call."""
     return [(span,) + enumerate_paths(graph, span, limits)
             for span in spans_for(graph, capabilities)]
 
 
 # --------------------------------------------------------------------------- structural hints
 def _landing(graph: DecisionGraph, decision: Decision, variant: str) -> tuple:
-    """Where one outcome of one decision ends up, as a value two decisions can be compared by.
-
-    A terminal landing is its outcome type; a continuing one is the set of decisions reachable
-    from there. Either way, two outcomes with the same landing put the interaction in the same
-    place afterwards regardless of which one was taken -- which is the one fact that makes a pair
-    of decisions a *candidate* for :func:`convergence_candidates`, not a judgement that they
-    should merge.
-    """
+    """Where one outcome of one decision ends up, as a value two decisions can be compared by."""
     state = graph.state(graph.successor(decision.id, variant))
     if state is None:
         return ("undeclared",)
@@ -760,15 +574,7 @@ def _landing(graph: DecisionGraph, decision: Decision, variant: str) -> tuple:
 
 
 def convergence_candidates(graph: DecisionGraph) -> List[List[str]]:
-    """Decisions whose every outcome lands on the same downstream point(s) as each other's.
-
-    Purely structural, and deliberately not a recommendation: it says that after taking any
-    outcome of any decision in a group, the interaction continues (or ends) identically regardless
-    of which decision or outcome produced it -- which is the shape a "different routes to the same
-    fact" consolidation needs, not proof that collapsing the group is a good idea. A decision that
-    declares no outcomes, or whose destination was never declared, is excluded: nothing about an
-    undeclared landing can be compared.
-    """
+    """Decisions whose every outcome lands on the same downstream point(s) as each other's."""
     signatures: Dict[str, frozenset] = {}
     for decision in graph.decisions.values():
         if not decision.variants or decision.out_of_scope:

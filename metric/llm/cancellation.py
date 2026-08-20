@@ -1,18 +1,4 @@
-"""Cooperative cancellation for a stage in progress.
-
-A stage runs on a background thread and makes anywhere from one to several hundred model calls.
-Python cannot safely kill a thread mid network call, and does not need to: what "stop" has to
-mean is that no further call is *started* once asked, not that an in-flight one is torn down. A
-person who changes their mind should not sit through calls they no longer want, but a call
-already sent is left to finish rather than abandoned -- that keeps the connection well-behaved
-and, just as importantly, means nothing here ever writes a workspace file half-built from a run
-that did not finish.
-
-Every pass that makes more than one call accepts an optional ``threading.Event`` and checks it
-between calls with :func:`check`, which raises :class:`Stopped` the moment it is set. The event is
-optional throughout: a caller that passes nothing -- the command line, or a test -- checks nothing
-and never stops early, which is why cancellation costs those callers no ceremony at all.
-"""
+"""Cooperative cancellation for a stage in progress."""
 from __future__ import annotations
 
 import threading

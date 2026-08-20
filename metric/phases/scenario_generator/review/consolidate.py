@@ -1,22 +1,4 @@
-"""Folding a declaration's duplicates together, deterministically.
-
-A drafted intake arrives with the same thing said more than once and said differently each time.
-The model is filling six sheets that reference each other by id, from prose that references
-nothing by id, and the failure is consistent: "Identity check" as a capability and "Identity
-verification" as another; a tool called "Identity service" and a capability called "Identity
-service"; the same persona under two ids because two documents described it in different words.
-
-That was untidy when a capability was a label. It is expensive now that a capability is the block
-the scenario space is enumerated over: two capabilities that are one capability produce two blocks
-where there is one, each walked separately, each entered from wherever the split left it. A
-duplicate persona multiplies the whole space.
-
-Nothing here calls a model. Duplicates of this kind are a matching problem -- the same words in a
-different order, a synonym, a plural -- and a deterministic pass that says exactly what it merged
-is worth more than a call that might also decide two genuinely different things are the same. What
-it cannot settle it leaves alone and says so, which is what the questions to the model owner are
-for.
-"""
+"""Folding a declaration's duplicates together, deterministically."""
 from __future__ import annotations
 
 import logging
@@ -32,13 +14,7 @@ _key = name_key
 def _merge_rows(rows: List[dict], key_field: str, id_field: str = "id") -> Tuple[List[dict],
                                                                                 Dict[str, str],
                                                                                 List[str]]:
-    """Fold rows whose names reduce to the same key. Returns (kept, renames, what was merged).
-
-    The first row of each group wins its id, and every later one is remapped onto it, because the
-    first is the one the rest of the declaration is most likely to already reference. Fields are
-    filled in from the losers where the winner left them blank -- two half-filled duplicates
-    should produce one filled row, not one half-filled row and a note about the other.
-    """
+    """Fold rows whose names reduce to the same key. Returns (kept, renames, what was merged)."""
     groups: Dict[str, List[dict]] = {}
     for row in rows:
         groups.setdefault(_key(row.get(key_field, "")) or str(row.get(id_field, "")),
@@ -61,11 +37,7 @@ def _merge_rows(rows: List[dict], key_field: str, id_field: str = "id") -> Tuple
 
 
 def consolidate(data: dict) -> Tuple[dict, List[str]]:
-    """The declaration with its duplicates folded together. Returns (declaration, what changed).
-
-    Order matters: capabilities are folded first, because decisions and tools point at them and
-    both have to be repointed onto whichever id survived.
-    """
+    """The declaration with its duplicates folded together. Returns (declaration, what changed)."""
     out = dict(data)
     notes: List[str] = []
 
@@ -108,13 +80,7 @@ def consolidate(data: dict) -> Tuple[dict, List[str]]:
 
 
 def _report_crossovers(data: dict) -> List[str]:
-    """Where a tool and a capability say the same thing, and where a link points at nothing.
-
-    Reported rather than merged. A tool and a capability sharing a name is usually one modelled
-    twice -- "Identity service" as the thing the agent can do and as the thing it calls -- but
-    which of the two it should have been is a judgement about the agent, and guessing it would
-    silently delete either a block of the scenario space or the record of a system being called.
-    """
+    """Where a tool and a capability say the same thing, and where a link points at nothing."""
     notes: List[str] = []
     capabilities = {c.get("id", ""): c for c in (data.get("capabilities") or [])}
     by_name = {_key(c.get("name", "")): c for c in capabilities.values()}

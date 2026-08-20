@@ -1,23 +1,4 @@
-"""The evidence record: what the submitted documents were found to say, and where.
-
-Two layers, and the distinction between them is the point.
-
-A **claim** is one observation read out of one passage: a statement, the excerpt supporting it,
-and the document and locator it came from. Claims are checked against their source, so a claim is
-something the documentation demonstrably says.
-
-A **facet answer** is the synthesis of every claim bearing on one of the questions this pipeline
-needs answered. Real documentation does not answer those questions in one place -- what the agent
-decides, and where it branches, is spread over pages that each describe a fragment. An answer is
-therefore allowed to collect and restructure, which a claim is not, and it records which claims it
-rests on so the restructuring can be traced back.
-
-Keeping the two apart is what lets the context document say more than any single sentence of the
-source while still being auditable to the page.
-
-Nothing here reads a file or calls a model. Parsing lives behind the document reader interface;
-extraction and synthesis are model calls; this module only defines what the results are.
-"""
+"""The evidence record: what the submitted documents were found to say, and where."""
 from __future__ import annotations
 
 from collections import OrderedDict
@@ -79,12 +60,7 @@ class SourceRef:
 
 @dataclass
 class Claim:
-    """One observation read out of one place in one document.
-
-    ``statement`` is the fact in the extractor's words; ``quote`` is the span of source text it
-    came from. The two are separate so the second can be checked against the document -- a
-    statement with no locatable quote is not evidence, whatever it says.
-    """
+    """One observation read out of one place in one document."""
 
     id: str = ""
     facet: str = ""
@@ -108,13 +84,7 @@ class Claim:
 
 @dataclass
 class FacetAnswer:
-    """What the documents, taken together, establish about one question.
-
-    ``answer`` and ``points`` may restructure and combine what several claims say -- that is the
-    reason this layer exists. ``sources`` names the claims it was built from, and ``unknowns``
-    records what the documents did not settle, stated openly rather than left as an absence
-    nobody notices.
-    """
+    """What the documents, taken together, establish about one question."""
 
     facet: str = ""
     answer: str = ""
@@ -148,13 +118,7 @@ class FacetAnswer:
 
     @property
     def is_answered(self) -> bool:
-        """Whether this question was actually answered.
-
-        A synthesis that failed keeps the raw observations under ``points`` so the material is not
-        lost, but it is not an answer and must not be counted as one. Reporting a failed run as
-        complete is worse than the failure: the failure is visible and fixable, and the false
-        success is neither.
-        """
+        """Whether this question was actually answered."""
         return not self.failed and bool(self.answer.strip() or self.points)
 
 
@@ -221,15 +185,7 @@ class EvidenceRecord:
         return [c for c in self.usable() if c.needs_confirmation]
 
     def empty_facets(self) -> List[str]:
-        """Questions the documents did not answer.
-
-        This is the gap report's backbone. A question with no answer is not an extraction failure
-        to be worked around -- it means the submitted pack does not describe something the
-        scenario space needs, and the person who submitted it is the one who can fix that.
-
-        Judged on the synthesised answer where synthesis has run, because scattered observations
-        that were never assembled into an answer are not, in any useful sense, an answer.
-        """
+        """Questions the documents did not answer."""
         if self.answers:
             return [facet for facet in FACETS
                     if not (self.answer_for(facet) and self.answer_for(facet).is_answered)]
@@ -241,13 +197,7 @@ class EvidenceRecord:
                 for answer in self.answers for unknown in answer.unknowns]
 
     def questions_for_people(self) -> List[Tuple[str, str]]:
-        """The unknowns worth putting to a person, as (facet, question).
-
-        Everything the resolution sweep could not settle from the documents. Whether one of these
-        actually blocks a part of the intake is not decided here: the intake stage reads that off
-        the declaration directly -- see :mod:`scenario_generator.core.gaps` -- and these are shown
-        alongside as the cross-cutting remainder.
-        """
+        """The unknowns worth putting to a person, as (facet, question)."""
         questions = []
         for answer in self.answers:
             questions += [(answer.facet, q)

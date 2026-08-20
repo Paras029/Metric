@@ -1,13 +1,4 @@
-"""Loading and rendering the prompt library.
-
-Prompt text lives in ``prompts/`` beside the step that sends it, one plain file per prompt, so
-wording can be changed without touching Python. This module is the only place they are read.
-
-Placeholders are ``{{name}}`` rather than :meth:`str.format`, because prompts embed JSON examples
-and every literal brace in those would otherwise need doubling. Rendering is strict both ways: a
-placeholder the caller did not supply, and a value with no slot, are both errors that name the
-file.
-"""
+"""Loading and rendering the prompt library."""
 from __future__ import annotations
 
 import re

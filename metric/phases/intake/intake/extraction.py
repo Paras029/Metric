@@ -1,32 +1,4 @@
-"""Reading a pack of submitted documents into a verified evidence record.
-
-The documents are read **whole**. Every submitted file is turned into text with its locators
-intact, joined into one corpus, and put to the model in a handful of calls that each answer a
-group of related questions across all of it at once.
-
-Reading whole is what makes the reading good. The alternative -- surveying a passage at a time and
-synthesising per question -- is a workaround for a context window too small to hold a document,
-and it costs roughly thirty calls for a sixty-page pack: thirty chances to fail, thirty waits, and
-thirty readings each blind to the rest of the document. The models this runs against hold a
-million tokens and a sixty-page document is about forty thousand, so there is no window to work
-around. A threshold in an appendix and the process it governs in section three are in front of the
-model together rather than in two calls that never meet.
-
-Three things guard that reading.
-
-Grounding. Every answer cites verbatim quotes, and each is checked against the corpus. A quote
-that cannot be found is dropped, and an answer that loses all of its evidence is marked for
-confirmation rather than trusted.
-
-The resolution sweep. Questions the first reading left open are put back to the documents,
-directly, more than once. A question asked directly is often answered by material a general
-reading had no reason to connect, and every question that survives to the model owner costs
-days. Whatever the documents still do not settle is carried to the intake stage, which decides
-what is actually blocking from the declaration itself rather than by asking a model to guess.
-
-Splitting, but only as a fallback. A corpus past ``config.max_corpus_chars()`` is divided and the
-parts merged, with a warning. That is the exception rather than the rule.
-"""
+"""Reading a pack of submitted documents into a verified evidence record."""
 from __future__ import annotations
 
 import json
@@ -71,16 +43,6 @@ _DIAGRAM_REPAIR_PROMPT = "ingest.diagram_repair"
 # flow and wrong for pieces, where it would fold the end of the first picture into the start of
 # the second as "the same step under a different label". Neither reading can tell which it is
 # looking at from the pictures alone with any reliability, and whoever uploaded them knows.
-# What a person watching is told is happening. Two activities, because two are what a person is
-# waiting for: the documents being read, and the diagrams being read.
-#
-# The passes underneath are not among them. Reading a pack is a first sweep over three groups of
-# questions, then a sweep or two putting what is still open back to the documents; reading diagrams
-# is one call per image, one to put them together, and one checking the result against the pictures
-# again. Naming each of those on screen described the machinery to somebody who cannot act on any
-# of it -- "Looking again at what is unanswered (1 of 2)" invites the reader to wonder what went
-# wrong the first time, and nothing did. The bar already answers how far along; this answers what
-# is being waited on, and those are the only two questions a progress line has.
 READING_DOCUMENTS = "Reading the submitted documents"
 READING_DIAGRAMS = "Reading the workflow diagrams"
 
@@ -135,28 +97,7 @@ def _read_one(path: Path, progress: ProgressFn) -> Tuple[Path, object, object]:
 def build_corpus(paths: Sequence[Path], progress: ProgressFn = None,
                  redact: Callable[..., Tuple[List, Optional[dict]]] = None,
                  should_redact: Callable[[Path], bool] = None) -> Corpus:
-    """Read every submitted file into one corpus. Deterministic; no model involved.
-
-    Each passage keeps the marker that says where it came from, so a quote can be traced to a
-    page after the fact. Images are set aside for the vision pass, which cannot read text.
-
-    Every document's segments are redacted immediately after they are read and before anything
-    is joined into the corpus this returns -- see :mod:`.redaction`. That is what makes it true
-    that nothing downstream, including every model call ingestion makes, ever sees a passage this
-    step has not already been through, regardless of which facet reads it next.
-
-    ``should_redact``, given a path, says whether *this* document must be redacted regardless of
-    the global ``PII_REDACTION`` setting -- the interface's per-file toggle is what sets this.
-    Nothing here decides the global default; that stays entirely in :func:`.redaction.redact_segments`.
-
-    Parsing each file is independent of every other and is where a large pack actually spends its
-    time -- a sixty-page PDF and a dense workbook both take real wall-clock to turn into text, and
-    nothing about that work touches another file. It runs in a thread pool for that reason.
-    Redaction does not: a substitution-mode engine has to mask the same name the same way
-    everywhere it appears, which means the mapping it builds while reading one document has to
-    carry into the next, so that part stays a single sequential pass over the parsed results, in
-    submission order, after every file has been parsed.
-    """
+    """Read every submitted file into one corpus. Deterministic; no model involved."""
     progress = progress or (lambda *a, **k: None)
     redact = redact or redact_segments
     should_redact = should_redact or (lambda path: False)
@@ -347,12 +288,7 @@ class DocumentExtractor:
             self._drawn_on.update(str(n).strip().lower() for n in names if str(n).strip())
 
     def _mark_documents_drawn_on(self, record: EvidenceRecord) -> None:
-        """Flag each document as used or not.
-
-        A citation that survived verification is the stronger signal, because it was checked; what
-        the reading *said* it used is taken as well, since a document can inform an answer without
-        being the source of the sentence quoted from it.
-        """
+        """Flag each document as used or not."""
         cited = {claim.source.document.strip().lower() for claim in record.claims
                  if claim.source.document}
         for document in record.documents:
@@ -361,35 +297,7 @@ class DocumentExtractor:
                 name in mentioned for mentioned in cited | self._drawn_on)
 
     def _read_diagrams(self, paths: List[Path], record: EvidenceRecord) -> None:
-        """Read submitted diagrams into the workflow they describe, in three passes.
-
-        A workflow diagram *is* the intake's decision and state sheets: a box with branching
-        arrows is a decision, an arrow's label is an outcome, the box it lands in is a state. So
-        the reading keeps that structure all the way through rather than flattening it to prose
-        and asking something later to rebuild a graph out of the prose.
-
-        Each image is read on its own first, into an explicit list of boxes and arrows -- one
-        picture at a time, the way a person would, and enumerated rather than described so that a
-        box which was missed shows up as an arrow pointing at nothing instead of vanishing
-        silently. A second pass is given every image's reading together and puts them into one
-        graph. A third looks again, with the images still attached, at whatever that graph cannot
-        account for -- see :meth:`_repair_structure`.
-
-        **One image skips the middle pass entirely.** There is nothing to join it to, so it is read
-        straight into the intake's vocabulary in a single call -- one call rather than two, and
-        without a prompt that talks about arrows running off the page into other pictures, which
-        for a single submitted diagram describes a situation that does not exist.
-
-        **Several images are put together in one of two ways, and which one is not guessed at.**
-        Pieces of one cut-up picture are stitched: an arrow leaving the edge of one image is
-        followed into whatever picks it up in another. Separate drawings of the same flow are
-        reconciled instead: the same step drawn twice is one step, and the images are not chained
-        end to end. Applying either to the other's input goes wrong quietly -- stitching two
-        drawings of one flow welds the end of the first onto the start of the second and invents
-        routes the agent does not have. See :data:`DIAGRAM_MODES`.
-
-        An image that fails on its own is dropped and the rest still go through.
-        """
+        """Read submitted diagrams into the workflow they describe, in three passes."""
         loaded: List[Tuple[Path, Tuple[str, bytes]]] = []
         for path in paths:
             try:
@@ -437,14 +345,7 @@ class DocumentExtractor:
 
     def _read_only_diagram(self, entry: Tuple[Path, Tuple[str, bytes]],
                            record: EvidenceRecord, names: str) -> None:
-        """The single-image path: one call, straight into the intake's vocabulary.
-
-        The three-pass reading exists because several pictures have to be reconciled with one
-        another, and none of that applies to one. Reading it into boxes and arrows and then asking
-        a second call to translate those boxes and arrows spends a call to arrive where the first
-        one could have finished, and does it through a prompt that spends its opening paragraphs on
-        images that are not there.
-        """
+        """The single-image path: one call, straight into the intake's vocabulary."""
         path, image = entry
         self._say(READING_DIAGRAMS)
         user = prompts.render(_DIAGRAM_ONLY_PROMPT, filename=path.name,
@@ -468,11 +369,7 @@ class DocumentExtractor:
 
     def _settle(self, record: EvidenceRecord, reply: dict,
                 loaded: List[Tuple[Path, Tuple[str, bytes]]], names: str) -> None:
-        """Clean the workflow, check it against the images once, and record it.
-
-        Shared by both paths so that what happens to a workflow after it is read does not depend on
-        how many pictures it came from.
-        """
+        """Clean the workflow, check it against the images once, and record it."""
         structure = diagram_structure.clean(reply)
         structure = self._repair_structure(structure, [image for _, image in loaded], names)
         record.structure = structure
@@ -502,11 +399,7 @@ class DocumentExtractor:
                 DocumentRef(name=path.name, kind="unreadable", note=note, is_image=True))
 
     def _claim_observations(self, record: EvidenceRecord, observations, names: str) -> None:
-        """What the diagrams establish in prose, alongside the graph they establish in structure.
-
-        Nothing read from a picture can be checked against a span of text, so these are always
-        recorded unverifiable and always surface for confirmation.
-        """
+        """What the diagrams establish in prose, alongside the graph they establish in structure."""
         for entry in observations or []:
             if not isinstance(entry, dict):
                 continue
@@ -548,18 +441,7 @@ class DocumentExtractor:
 
     def _synthesize_diagrams(self, readings: List[Tuple[str, dict]],
                              names: str) -> Optional[dict]:
-        """Put every image's own reading into one graph, in the intake's own vocabulary.
-
-        Two ways of doing that, and which one runs is what somebody said the images are -- pieces
-        of one cut-up picture, or separate drawings of the same flow. The prompts differ in the one
-        thing that matters and would be wrong to guess at: whether a box appearing in two images is
-        two steps to be chained or one step drawn twice.
-
-        Text only: everything visual was already pulled out into the node and edge lists this is
-        given, so there is nothing left for this call to look at a picture for. Node references
-        are namespaced by image first, since each image numbers its own boxes from one and this
-        pass sees them all at once.
-        """
+        """Put every image's own reading into one graph, in the intake's own vocabulary."""
         namespaced = diagram_structure.namespaced([reading for _, reading in readings])
         blocks = "\n\n".join(
             f"=== IMAGE {index} of {len(readings)}: {name} ===\n"
@@ -584,18 +466,7 @@ class DocumentExtractor:
 
     def _repair_structure(self, structure: dict, images: List[Tuple[str, bytes]],
                           names: str) -> dict:
-        """Put whatever the joined graph cannot account for back to the images, once.
-
-        The graph has properties it must have to be walkable at all -- every outcome leads
-        somewhere, every state is reached by an outcome that exists, a branch has more than one
-        branch. Where it does not, the reading is demonstrably incomplete, and the useful thing is
-        that the audit says *which* points. That turns "read it again, more carefully" -- which a
-        model cannot act on -- into a short list of specific arrows to go and follow, which it can.
-
-        Once, not until clean. A second look settles the holes a first reading left; a third
-        mostly re-litigates what the second decided, and each pass is a call against the largest
-        tier with every image attached.
-        """
+        """Put whatever the joined graph cannot account for back to the images, once."""
         problems = diagram_structure.audit(structure)
         if not problems or not config.LLM_VISION:
             return structure
@@ -636,11 +507,7 @@ class DocumentExtractor:
 
     # ------------------------------------------------------------------ grounding
     def _attach_evidence(self, record: EvidenceRecord, corpus: str) -> None:
-        """Turn each answer's citations into checked claims, and drop the ones that are not there.
-
-        An answer whose every citation fails is not necessarily false, but nothing supports it, so
-        it is marked for confirmation rather than presented as established.
-        """
+        """Turn each answer's citations into checked claims, and drop the ones that are not there."""
         checked = 0
         # Prepared once for the whole pass rather than per citation: see core.grounding.Source.
         prepared = Source(corpus)
@@ -673,13 +540,7 @@ class DocumentExtractor:
 
     # ------------------------------------------------------------------ resolution sweep
     def _resolve_unknowns(self, record: EvidenceRecord, corpus: str) -> None:
-        """Put what is still open back to the documents, pass after pass.
-
-        Each pass takes only what the pass before it left open, so the questions narrow and the
-        prompt shortens. The final pass is told to rule on anything it still cannot answer:
-        whether a person has to settle it, or whether it would not change which scenarios exist.
-        That ruling is what keeps the list at the end of this short enough to be worked through.
-        """
+        """Put what is still open back to the documents, pass after pass."""
         for number in range(1, self._passes + 1):
             cancellation.check(self._cancel)
             outstanding = self._outstanding(record)
@@ -696,15 +557,7 @@ class DocumentExtractor:
                 answer.triaged = True
 
     def _outstanding(self, record: EvidenceRecord) -> List[Tuple[Tuple[str, ...], str]]:
-        """What is still open: every unsettled point, plus every question with no answer at all.
-
-        Asked once each, but carrying *every* question it belongs to. Two questions can arrive at
-        the same wording -- what a state is and what a decision leads to are asked in similar words
-        -- and asking the same thing twice in one prompt wastes the call and invites two different
-        answers. Keeping only the first question's facet was the other half of that, though: the
-        answer was written back to one of them and the rest carried the point as open into the next
-        pass, so it was asked again having already been settled.
-        """
+        """What is still open: every unsettled point, plus every question with no answer at all."""
         outstanding = list(record.open_unknowns())
         for facet in record.empty_facets():
             outstanding.append((facet, FACET_QUESTIONS.get(facet, "")))
@@ -722,16 +575,7 @@ class DocumentExtractor:
 
     @staticmethod
     def _match_replies(resolved, tagged: Dict[str, Tuple[str, str]]) -> Dict[str, dict]:
-        """Each reply put back against the question it answers, by tag first and wording second.
-
-        The tag is what makes this reliable, and the wording is what keeps it working when a reply
-        omits the tag: an answer matched to nothing is discarded in silence, and the question it
-        settled is then put to the model owner as though the documents had never addressed it.
-
-        Wording is compared with punctuation, case and spacing removed, because those are exactly
-        what a model changes when it retypes a question -- a straight quote for a curly one, a
-        dropped question mark -- and none of them change which question is being answered.
-        """
+        """Each reply put back against the question it answers, by tag first and wording second."""
         def normalised(text: str) -> str:
             return "".join(c for c in str(text).lower() if c.isalnum())
 
@@ -828,14 +672,7 @@ class DocumentExtractor:
 
     # ------------------------------------------------------------------ shared
     def _estimate_units(self, paths: Sequence[Path]) -> int:
-        """How many things will happen, in the units the bar counts.
-
-        A unit is one file parsed or one model call made. They are not the same size -- a model
-        call takes longer than parsing a short document -- but they are the same *kind* of thing
-        to a person watching: a discrete step that either has or has not happened. Weighting them
-        against each other would need a model of how long each takes, which varies by document
-        and by gateway, and would be wrong more often than this is uneven.
-        """
+        """How many things will happen, in the units the bar counts."""
         images = [p for p in paths if is_image(p)]
         sweeps = self._passes if self._resolve else 0
         # One call per diagram read on its own, and one to put them together into a workflow. A
@@ -843,20 +680,13 @@ class DocumentExtractor:
         # is deliberately not counted: it happens only where the joined graph cannot account for
         # itself, which nothing knows until the reading is done, and counting a call that usually
         # does not happen leaves the bar stopped short of its own end on every clean reading.
-        # It adds itself to the total at the point it commits -- see :meth:`_repair_structure`.
         diagram_calls = (1 if len(images) == 1 else len(images) + 1) if images else 0
         # An image is never a parse step: it goes whole to the vision pass, so nothing here turns
         # it into text and the bar would wait forever for a step that is not coming.
         return len(paths) - len(images) + len(FACET_GROUPS) + diagram_calls + sweeps
 
     def _say(self, message: str) -> None:
-        """What is happening right now, without claiming it has happened.
-
-        The bar and the line above it answer different questions -- how much is done, and what is
-        being waited on -- and only the second can be known before a call returns. Advancing the
-        first on starting is what makes a bar leap and then stall: three facet groups go out
-        together, and counting them as sent puts it a quarter along in the first second.
-        """
+        """What is happening right now, without claiming it has happened."""
         with self._lock:
             done = self._parsed + self._done
         self._progress(message, done, self._total)
@@ -869,25 +699,14 @@ class DocumentExtractor:
         self._progress(message, done, self._total)
 
     def _step(self, message: str) -> None:
-        """One unit finished. Reported on completion, never on starting.
-
-        The distinction is the whole difference between a bar that means something and one that
-        does not: three facet groups go out at once, so counting them as they are sent puts the
-        bar a quarter of the way along in the first second and then leaves it there for the
-        length of the longest call.
-        """
+        """One unit finished. Reported on completion, never on starting."""
         with self._lock:
             self._done += 1
             done = self._parsed + self._done
         self._progress(message, done, self._total)
 
     def _ask(self, prompt: str, stage: str, **values) -> Optional[dict]:
-        """One judgement-budget call, returning None rather than raising when it fails.
-
-        ``stage`` names the call site for :func:`config.stage_tier` -- the facet-group reading and
-        the resolution sweep are both JUDGEMENT-tier work but different calls a scenario space can want
-        tuned independently, which a shared tier alone cannot express.
-        """
+        """One judgement-budget call, returning None rather than raising when it fails."""
         user = prompts.render(prompt, **values)
         system = prompts.load(_SYSTEM_PROMPT)
         try:
@@ -913,18 +732,7 @@ class DocumentExtractor:
 
 
 def _fold_diagram_observations(record: EvidenceRecord) -> None:
-    """Attach what the diagrams established to the answers they inform.
-
-    Without this a diagram is read, its observations are stored, and then nothing downstream ever
-    looks at them: the context document renders only the claims an *answer* names as its sources,
-    and the intake is drafted from the context document alone. A workflow diagram is frequently
-    the only place a branch is written down at all, so the effect was a context file reporting
-    "where it branches -- not covered by the submitted documents" while the evidence record sat
-    there holding the branches.
-
-    Run after :meth:`DocumentExtractor._attach_evidence`, which assigns ``sources`` wholesale from
-    the verified text citations and would otherwise overwrite what this adds.
-    """
+    """Attach what the diagrams established to the answers they inform."""
     for index, claim in enumerate(record.claims, start=1):
         if claim.source.kind != KIND_IMAGE or claim.id:
             continue
@@ -947,13 +755,7 @@ def _fold_diagram_observations(record: EvidenceRecord) -> None:
 
 
 def _vocabulary() -> str:
-    """The intake's own vocabulary, as one block shared by every prompt that writes in it.
-
-    Written out in each of them until now. It is the schema everything downstream hangs on, so
-    five copies of it is five places to change together and five chances for one to be left
-    behind -- and a diagram prompt describing `is_terminal` differently from the one beside it
-    produces two declarations that disagree about what an ending is.
-    """
+    """The intake's own vocabulary, as one block shared by every prompt that writes in it."""
     return (prompts.load("shared.cds") + "\n\n"
             + prompts.load("shared.diagram_vocabulary"))
 
@@ -963,12 +765,7 @@ def _facet_guide() -> str:
 
 
 def _inventory(corpus: Corpus) -> str:
-    """The submitted pack listed by name, for the reading prompt.
-
-    Naming them makes the reading accountable for each one. A pack is otherwise read as a single
-    wall of text in which the longest document answers everything, and a vendor appendix that
-    contradicts the main document contributes nothing because nothing drew attention to it.
-    """
+    """The submitted pack listed by name, for the reading prompt."""
     lines = [f"- {d.name} ({d.kind}, {d.units} sections)" if d.units else f"- {d.name} ({d.kind})"
              for d in corpus.documents if d.kind != "unreadable"]
     lines += [f"- {p.name} (diagram, read separately)" for p in corpus.diagrams]
@@ -1017,14 +814,7 @@ def extract_documents(paths: Sequence[Path], complete: Optional[CompletionFn] = 
                       resolve_passes: Optional[int] = None, cancel=None,
                       diagram_mode: str = SPLIT_ACROSS_IMAGES,
                       should_redact: Optional[Callable[[Path], bool]] = None) -> EvidenceRecord:
-    """Read a submitted pack into a verified evidence record.
-
-    ``should_redact`` is the per-file redaction toggle: given a path, whether *this* document must
-    be masked regardless of the global setting. :class:`DocumentExtractor` has always taken it,
-    and this convenience wrapper did not pass it on -- harmless while the only callers were tests
-    and the command line, and a silent loss of the interface's per-file choice the moment anything
-    reading a real submitted pack came through here.
-    """
+    """Read a submitted pack into a verified evidence record."""
     return DocumentExtractor(complete=complete, progress=progress, resolve=resolve,
                              describe_images=describe_images, resolve_passes=resolve_passes,
                              cancel=cancel, diagram_mode=diagram_mode,

@@ -1,21 +1,4 @@
-"""The local web interface: routes, and the wiring between a stage and the pipeline behind it.
-
-This layer holds no pipeline logic of its own. Each stage delegates to the same functions the
-command line calls, so the two front ends cannot drift apart, and a workspace part-finished here
-can be finished there.
-
-Run it with::
-
-    python -m scenario_generator.webapp
-
-It binds to localhost only. Nothing here is written for a shared deployment: there is no
-authentication, and workspaces are readable by anyone who can reach the port.
-
-Routes are declared with ``app.route(..., methods=[...])`` rather than the ``app.get`` and
-``app.post`` shortcuts, and files are sent by string path rather than by ``Path``. Both are
-Flask 2.0 conveniences, and the version installed here is whatever an internal mirror last
-approved -- writing to the older interface costs nothing and removes a dependency on that.
-"""
+"""The local web interface: routes, and the wiring between a stage and the pipeline behind it."""
 from __future__ import annotations
 
 import logging
@@ -63,8 +46,6 @@ SCENARIO_STAGES = ("scenarios", "variations", "materiality", "review", "coverage
 #
 # Every stage that lists scenarios draws it too, because a scenario *is* a route through it and
 # opening a card lights that route -- which needs a picture big enough to read, not the thumbnail.
-# Those stages start it folded away: the list is what somebody came to the materiality stage for,
-# and a full graph above three hundred cards pushes all of them off the screen.
 GRAPH_STAGES = ("intake", "workflow") + SCENARIO_STAGES
 GRAPH_OPEN_STAGES = ("intake", "workflow")
 
@@ -85,27 +66,14 @@ LOAD_STAGES = ("materiality", "review", "summary")
 # customers in them.
 REDACTABLE_GROUPS = (MODEL_DOC, SUPPORTING, OWNER_SCENARIOS)
 
-# Which stage actually reads each kind of submission, and therefore which one a file arriving in
-# it makes stale.
-#
-# Only the model owner's conversations differ from the default, and they differ for a reason that
-# is load-bearing: they are deliberately kept out of the evidence corpus -- see
-# ``ingest.groups.EVIDENCE_GROUPS`` -- because reading the model owner's testing as evidence about
-# the agent would let their blind spots into the scenario space by the back door. Nothing before
-# coverage reads them, so nothing before coverage can be out of date because one arrived. Treating
-# every upload as intake evidence meant dropping in a transcript at the coverage stage marked six
-# finished stages stale, to re-derive a byte-identical result.
+# Which stage reads each kind of submission, and so which one a new file makes stale. Only the
+# owner's conversations differ: they are kept out of the evidence corpus on purpose, so nothing
+# before coverage reads them and nothing before coverage goes stale when one arrives.
 STAGE_THAT_READS: Dict[str, str] = {OWNER_SCENARIOS: "coverage"}
 
-# How several submitted workflow images relate, and how each choice reads on the page. Asked only
-# where there is more than one image: with one there is nothing to relate, and the reading takes a
-# shorter path that never consults this.
-#
-# It is asked rather than inferred because getting it wrong is quiet and expensive. Stitching two
-# drawings of one flow welds the end of the first onto the start of the second and enumerates
-# routes the agent does not have; reconciling genuine pieces folds the end of one picture into the
-# start of the next as "the same step under a different label". Neither is visible in the result
-# without reading the whole graph against the pictures, and the person who uploaded them knows.
+# How several submitted workflow images relate. Asked rather than inferred: stitching two drawings
+# of one flow invents routes the agent does not have, and reconciling genuine pieces merges two
+# real steps into one. Neither is visible without reading the whole graph against the pictures.
 DIAGRAM_MODE_LABELS = {
     SPLIT_ACROSS_IMAGES: "One workflow, split across these images",
     SAME_FLOW_EACH: "Each image shows the same workflow",
@@ -180,17 +148,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/workspaces/<slug>/delete", methods=["POST"])
     def delete_workspace(slug: str):
-        """Remove a workspace and everything in it.
-
-        A workspace is a directory and nothing else, so this is one recursive delete -- and that is
-        exactly why it is worth being careful about the path. The slug is resolved against the
-        workspace root and refused if it lands anywhere else, so a crafted slug cannot reach out
-        of it.
-
-        There is no undo and none is offered. A confirmation people have learned to click through
-        is not a safeguard; what makes this safe to have is that it is the only destructive control
-        in the tool and it names what it is about to remove.
-        """
+        """Remove a workspace and everything in it."""
         import shutil
 
         base = Path(app.config["WORKSPACE_ROOT"]).resolve()
@@ -311,12 +269,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         )
 
     def _notes_with_origin(workspace: Workspace):
-        """Every note, newest first, each saying which stage it was added at.
-
-        The stage matters because it dates the note against the work: a correction typed while
-        reading the documents and one typed after seeing the scenario space are different kinds of
-        remark, and both are handed to every stage that follows.
-        """
+        """Every note, newest first, each saying which stage it was added at."""
         rows = []
         for note in reversed(workspace.notes):
             stage = STAGE_BY_KEY.get(note.get("stage", ""))
@@ -324,13 +277,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         return rows
 
     def _submitted_files(workspace: Workspace):
-        """Everything submitted so far, by heading, for the side panel.
-
-        A read-only tally rather than the uploader: what it answers is "did that vendor document
-        ever get added?", which is worth being able to check from stage six without walking back
-        to stage one. Adding and removing stay on the documents stage, where the drop targets say
-        what each heading is for.
-        """
+        """Everything submitted so far, by heading, for the side panel."""
         rows = []
         for group in GROUPS:
             files = files_in(workspace.root, group.key)
@@ -340,11 +287,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         return rows
 
     def _group_rows(workspace: Workspace, key: str):
-        """What has been submitted under each heading, so gaps in the pack are visible.
-
-        The coverage stage shows only the model owner's scenarios: it is the one thing that
-        stage consumes, and the rest of the pack is not its business.
-        """
+        """What has been submitted under each heading, so gaps in the pack are visible."""
         if key == "intake":
             wanted = GROUPS
         elif key == "coverage":
@@ -380,13 +323,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         return rows
 
     def _stage_scenarios(workspace: Workspace, key: str, intake):
-        """The scenarios as this stage left them, once there are any.
-
-        A stage reads its own snapshot rather than the live metadata workbook, so coming back to the
-        scenario-text page after materiality has run shows the text as it was written, not the
-        text with tiers assigned afterwards beside it. Falling back to the live metadata workbook covers
-        a workspace built before snapshots existed, and the stage that has not run yet.
-        """
+        """The scenarios as this stage left them, once there are any."""
         if key not in SCENARIO_STAGES or intake is None:
             return None
         path = workspace.root / _snapshot(key)
@@ -404,11 +341,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             return None
 
     def _capability_names(workspace: Workspace) -> Dict[str, str]:
-        """Capability id to name, so a scenario can say which block of the agent it tests.
-
-        By id where the name is blank, and empty where the declaration cannot be read: naming the
-        block is worth having and is never worth failing a page over.
-        """
+        """Capability id to name, so a scenario can say which block of the agent it tests."""
         try:
             return {c.id: c.name or c.id for c in _intake(workspace).capabilities}
         except Exception:
@@ -424,28 +357,13 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
                           capability_names=_capability_names(workspace) if workspace else None)
 
     def _shape_for(scenarios, key: str):
-        """The tally in the side panel, from the same scenarios the list is drawn from.
-
-        Reading both off one snapshot is the point: a panel that counted the live metadata workbook while
-        the list showed a stage's own snapshot would put two different totals on the same screen
-        and leave no way to tell which was the scenario space.
-        """
+        """The tally in the side panel, from the same scenarios the list is drawn from."""
         if not scenarios:
             return None
         return shape(scenarios, stage=key)
 
     def _coverage_shape(workspace: Workspace) -> Optional[Dict[str, object]]:
-        """What the coverage stage found, small enough for the panel and shown on every stage.
-
-        Only the counts that change a decision: how much of the model owner's evidence landed
-        anywhere, and how much of the scenario space it reached. It stays in the panel after the
-        coverage stage has been navigated away from because it is the one thing that says how
-        much of this scenario space the model owner has already exercised, and that bears on every
-        judgement made about the scenario space, not only on the stage that measured it.
-
-        Counted from the stored mappings at whatever threshold is set now, the same as the stage's
-        own page, so the two never disagree.
-        """
+        """What the coverage stage found, small enough for the panel and shown on every stage."""
         path = workspace.root / METADATA
         if not path.exists() or not workspace.coverage_mappings():
             return None
@@ -469,12 +387,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         }
 
     def _coverage_for(workspace: Workspace, key: str, intake):
-        """What the model owner's conversations covered, at the threshold currently set.
-
-        Recounted on every page view from the stored mappings rather than read back from the run's
-        own summary, so moving the threshold changes what is shown immediately. See
-        :mod:`.coverageview`.
-        """
+        """What the model owner's conversations covered, at the threshold currently set."""
         if key not in ("coverage", "summary") or intake is None:
             return None
         path = workspace.root / METADATA
@@ -489,13 +402,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         return coverage_view(workspace, report, texts) if report else None
 
     def _routes(intake, scenarios) -> dict:
-        """Where each scenario runs in the drawing, for the card that opens it to light it up.
-
-        Never allowed to take the page down with it. A scenario whose route the drawing cannot
-        place is a real disagreement worth knowing about, but the list and the graph are both
-        still worth reading without it, and a stack trace where a page should be is not how to
-        report a mismatch between two views of the same declaration.
-        """
+        """Where each scenario runs in the drawing, for the card that opens it to light it up."""
         if intake is None or not scenarios:
             return {}
         try:
@@ -514,25 +421,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         return PAGE_SIZE
 
     def _declaration_questions(workspace: Workspace, intake) -> list:
-        """What the declared graph still needs, asked of the row that needs it.
-
-        Deliberately only the three kinds of row the graph is made of: a capability, a decision,
-        a state. Everything the reading left open used to be here too -- what the documents never
-        said about policy, about how the model owner tested, about domain vocabulary -- and it
-        buried the handful of questions that actually stop a branch being walked under a much
-        longer list nobody could finish. Those readings are not lost: they are in the context
-        document and the evidence file, where they are a remark on how complete the pack is rather
-        than a task with somebody's name on it.
-
-        The questions here all share one property, and it is the reason they are the ones worth a
-        person's time: unanswered, a part of the graph cannot be built, so a branch goes untested
-        and nothing downstream says so. A decision naming no outcomes enumerates nothing. A state
-        nothing reaches is a route that stops. An untyped capability drops its probes silently.
-
-        Answers become notes carrying their question -- see :meth:`Workspace.add_notes` -- so a
-        re-run reads them as answers rather than as loose remarks, and nothing has to be re-typed
-        into the workbook by hand.
-        """
+        """What the declared graph still needs, asked of the row that needs it."""
         if intake is None:
             return []
 
@@ -575,24 +464,14 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/<key>/note", methods=["POST"])
     def add_note(key: str):
-        """Record something the user knows that the documents did not say.
-
-        The stage does not need re-running for this to count: the note joins the context every
-        following stage receives, and is attributed to the stage it was written at.
-        """
+        """Record something the user knows that the documents did not say."""
         workspace = _workspace()
         workspace.add_note(key, request.form.get("note", ""))
         return redirect(url_for("stage", key=key))
 
     @app.route("/stage/<key>/answers", methods=["POST"])
     def save_answers(key: str):
-        """Save several answers at once, and accept a partial pass.
-
-        The questions are a list, and a list answered one item at a time is a page reload per
-        item. Everything filled in is saved together; everything left blank is left open, so a
-        person can settle what they know now and come back for the rest. What has been answered
-        stays editable -- a second thought about an answer is worth more than the first one.
-        """
+        """Save several answers at once, and accept a partial pass."""
         workspace = _workspace()
         entries = []
         for field in request.form:
@@ -607,18 +486,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/<key>/upload", methods=["POST"])
     def upload(key: str):
-        """Attach files to a stage.
-
-        Everything the model owner sent lands in ``sources/<group>/``, whichever stage it was
-        added from, so reading the pack later means reading a directory rather than guessing which
-        of the workspace's files were source material. A file submitted without a stated kind goes
-        to supporting material: the alternative was dropping it in the workspace root, where
-        nothing ever looked for it again.
-
-        Uploading is never the same as having produced a result. The stage stays ready and its
-        runner is what completes it -- for the intake that means the workbook is read and its
-        shape reported, and for coverage it means the match has actually run.
-        """
+        """Attach files to a stage."""
         workspace = _workspace()
         uploads = [f for f in request.files.getlist("files") if f and f.filename]
         if not uploads:
@@ -684,11 +552,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/<key>/remove", methods=["POST"])
     def remove_upload(key: str):
-        """Take a submitted file back out of the pack.
-
-        A file uploaded to the wrong group, or superseded by a corrected copy, otherwise stays in
-        the corpus for the rest of the workspace's life with no way to withdraw it.
-        """
+        """Take a submitted file back out of the pack."""
         workspace = _workspace()
         group, name = request.form.get("group", ""), request.form.get("name", "")
         if group in GROUP_BY_KEY and remove_file(workspace.root, group, name):
@@ -701,12 +565,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/<key>/diagrams", methods=["POST"])
     def set_diagram_mode(key: str):
-        """Say how the submitted workflow images relate to one another.
-
-        Invalidates the intake only when it changes: it is an input to the reading, so it makes a
-        completed reading out of date the same way a new file would, and choosing what was already
-        chosen has changed nothing.
-        """
+        """Say how the submitted workflow images relate to one another."""
         workspace = _workspace()
         chosen = request.form.get("mode", "")
         chosen = chosen if chosen in DIAGRAM_MODE_LABELS else SPLIT_ACROSS_IMAGES
@@ -718,13 +577,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/<key>/redact", methods=["POST"])
     def toggle_redact(key: str):
-        """Mark or unmark one uploaded file to be redacted ahead of the global setting.
-
-        Takes effect the next time the stage that reads the file runs -- this only records the
-        choice. Changing it invalidates that stage the same way adding a file does: what it will be
-        given is different now, whether or not the file itself changed. Only that stage onward,
-        since a file no earlier stage reads cannot have made any of them wrong.
-        """
+        """Mark or unmark one uploaded file to be redacted ahead of the global setting."""
         workspace = _workspace()
         group, name = request.form.get("group", ""), request.form.get("name", "")
         if group in REDACTABLE_GROUPS and name:
@@ -735,13 +588,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/intake/decision/<decision_id>/scope", methods=["POST"])
     def toggle_scope(decision_id: str):
-        """Mark or unmark one already-declared decision as out of scope.
-
-        A narrow exception to "edit the workbook and upload it again" -- see
-        :func:`core.intake.set_decision_scope`. Writes straight to the workbook rather than the
-        sketch buffer, because this changes something already declared rather than proposing
-        something new, and it takes effect immediately the same way a corrected upload would.
-        """
+        """Mark or unmark one already-declared decision as out of scope."""
         workspace = _workspace()
         path = workspace.artifact_path("intake", "workbook")
         if not path:
@@ -753,19 +600,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/intake/capability/<capability_id>/span", methods=["POST"])
     def set_span(capability_id: str):
-        """Set which states one capability is entered in and which it hands on or finishes at.
-
-        Where a block *starts* is a judgement about the agent and nothing proposes it. Where it
-        *ends* is arithmetic: walk what the block holds from that start, and every state one of
-        its decisions lands on that the block is no longer inside is a way out. So the form
-        carries a second submit that fills the endings in from the graph -- see
-        :func:`core.graph.exits_for`.
-
-        Offered on a button rather than applied on every save, deliberately. Two real cases derive
-        badly: a block whose decisions are also reachable from outside it, and a validator
-        deliberately drawing a block to stop earlier than the graph implies. Silently overwriting
-        either would take work away and show nothing.
-        """
+        """Set which states one capability is entered in and which it hands on or finishes at."""
         workspace = _workspace()
         path = workspace.artifact_path("intake", "workbook")
         if not path:
@@ -795,19 +630,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
     # a form and a picture that happen to be adjacent.
 
     def _declaration_changed(workspace: Workspace) -> List[str]:
-        """Bring the intake stage's own report up to date, and mark the later stages stale.
-
-        The distinction that was wrong before. Editing a row does not make the *intake* out of
-        date: the declaration is the workbook, the workbook has just been written, and the page is
-        rendered from it -- so the stage showing "out of date" was telling somebody to re-run the
-        one thing that is already current. What the edit does make stale is everything built from
-        the declaration, which is a real and expensive difference.
-
-        What genuinely does go stale on the intake is its stored summary -- adding a decision
-        changes "6 decision points" -- so that is refreshed rather than invalidated. A count is a
-        fact about the file and it is cheap to recompute; asking for a model call to correct it
-        would be absurd.
-        """
+        """Bring the intake stage's own report up to date, and mark the later stages stale."""
         state = workspace.state("intake")
         if state.status == COMPLETE and state.summary:
             try:
@@ -827,12 +650,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         return invalidated
 
     def _declaration_state(intake, report=None) -> Dict[str, object]:
-        """Everything the editing panel needs after any change, in one answer.
-
-        The drawings go back with the rows deliberately. An editor that returns "saved" and leaves
-        the picture as it was makes the reader check whether it worked, and checking means
-        reloading, which is the round trip this whole feature exists to remove.
-        """
+        """Everything the editing panel needs after any change, in one answer."""
         return {
             "declaration": editable(intake),
             "highlights": highlights(intake),
@@ -855,17 +673,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         return edits if isinstance(edits, list) else []
 
     def _apply(path: str, edits: list, dry_run: bool = False):
-        """Apply a batch, taking the two edits that are not ordinary row writes out of it first.
-
-        The use case is written by field name because its sheet is two columns rather than a table
-        of rows, and a rename has to repoint everything that named the old id. Both go through
-        their own function in :mod:`core.editing`; what is left is ordinary and goes through
-        :func:`core.editing.apply_edits` with everything else.
-
-        ``dry_run`` runs the whole thing against a copy, for the preview -- including the renames,
-        because a rename is exactly the edit somebody wants to see the consequences of before
-        committing to it.
-        """
+        """Apply a batch, taking the two edits that are not ordinary row writes out of it first."""
         import shutil
         import tempfile
 
@@ -922,13 +730,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/intake/declaration/preview", methods=["POST"])
     def preview_declaration():
-        """What the declaration would be with these edits, without writing them.
-
-        Applied to a copy of the workbook rather than to the model in memory, on purpose: what is
-        wanted is what the *file* becomes, because that is what every stage after this one reads,
-        and the two differ exactly where an edit is malformed -- which is the case a preview is
-        for. See :func:`core.editing.preview`.
-        """
+        """What the declaration would be with these edits, without writing them."""
         workspace = _workspace()
         path = workspace.artifact_path("intake", "workbook")
         if not path:
@@ -942,13 +744,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/intake/declaration/save", methods=["POST"])
     def save_declaration():
-        """Write the edits to the workbook, and mark everything built from it out of date.
-
-        The invalidation is the part that matters and the part that is easy to leave out. A
-        corrected branch changes which routes exist, so a scenario space built before it is a
-        space for a different agent -- and a page that showed it as finished afterwards would be
-        the most expensive kind of wrong.
-        """
+        """Write the edits to the workbook, and mark everything built from it out of date."""
         workspace = _workspace()
         path = workspace.artifact_path("intake", "workbook")
         if not path:
@@ -966,14 +762,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/intake/declaration/row", methods=["POST"])
     def edit_row():
-        """One row, posted as an ordinary form. The path that works with scripting off.
-
-        Everything else in this interface works without scripting and this is no exception, but it
-        is the one place where the enhancement is most of the value: staged edits, a preview
-        before saving, and a row lighting its part of the graph as it is selected all need it. So
-        the form is real and posts here, and the script intercepts it. Without the script it is a
-        row at a time and a page reload, which is still far better than a spreadsheet round trip.
-        """
+        """One row, posted as an ordinary form. The path that works with scripting off."""
         workspace = _workspace()
         path = workspace.artifact_path("intake", "workbook")
         if not path:
@@ -1009,15 +798,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/intake/revise", methods=["POST"])
     def revise_intake():
-        """Revise the current declaration with every note and answer given so far.
-
-        Explicit rather than automatic -- nothing here runs the moment a question is answered,
-        because a redraft has to be given the current declaration as what to revise or it would
-        silently discard anything corrected by hand since the last one. See
-        :func:`pipeline.revise_intake_workbook`. What is passed as ``notes`` is every note the
-        workspace has ever recorded, old and new alike, the same accumulation every other pass
-        already reads through :func:`_context`.
-        """
+        """Revise the current declaration with every note and answer given so far."""
         workspace = _workspace()
         path = workspace.artifact_path("intake", "workbook")
         if not path:
@@ -1045,12 +826,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/intake/structure-review", methods=["POST"])
     def run_structure_review():
-        """One call: look for decisions and states worth reconnecting or consolidating.
-
-        Synchronous rather than the background-thread machinery the pipeline stages use -- this is
-        one call, not the dozens a document pack or a whole scenario space can take, so there is
-        nothing here for a progress bar to usefully report on.
-        """
+        """One call: look for decisions and states worth reconnecting or consolidating."""
         if not STRUCTURE_REVIEW_OFFERED:
             abort(404)
         workspace = _workspace()
@@ -1070,13 +846,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/intake/structure-review/<proposal_id>/apply", methods=["POST"])
     def apply_structure_proposal(proposal_id: str):
-        """Write one accepted proposal straight into the intake workbook.
-
-        Unlike the sketch pad, there is no separate commit step: a structure review's proposal is
-        a change to something already declared, not a new addition waiting on somewhere to attach,
-        so accepting it behaves like the scope toggle -- immediate, and invalidating downstream
-        the same way a corrected upload would.
-        """
+        """Write one accepted proposal straight into the intake workbook."""
         if not STRUCTURE_REVIEW_OFFERED:
             abort(404)
         workspace = _workspace()
@@ -1106,13 +876,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/coverage/threshold", methods=["POST"])
     def set_coverage_threshold():
-        """Move the line between represented and under-represented, and re-report on the spot.
-
-        Deliberately not a re-run. The mappings are what the model produced and they do not change
-        with the threshold -- only the verdict drawn through them does -- so this recounts what is
-        already stored and rewrites the workbook from it. Answering "what if we asked for three
-        conversations each?" should cost a page load, not another pass over every transcript.
-        """
+        """Move the line between represented and under-represented, and re-report on the spot."""
         workspace = _workspace()
         raw = (request.form.get("threshold") or "").strip()
         if raw.isdigit():
@@ -1136,14 +900,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/summary/scope", methods=["POST"])
     def set_pack_scope():
-        """Choose whether the data template carries the whole scenario space or only the gaps.
-
-        Off by default. Every other stage widens what the model owner is asked to run, and this is
-        the one control that narrows it: leaving a scenario out says the model owner's
-        conversations are evidence enough for it. That is a judgement about how far the model
-        owner's testing is trusted, so it is asked for explicitly rather than applied because
-        coverage happens to have run.
-        """
+        """Choose whether the data template carries the whole scenario space or only the gaps."""
         workspace = _workspace()
         workspace.pack_gaps_only = bool(request.form.get("on"))
         invalidated = workspace.invalidate_from("summary")
@@ -1153,13 +910,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/<key>/scenario/<scenario_id>", methods=["POST"])
     def rule_on_scenario(key: str, scenario_id: str):
-        """Record the reviewer's ruling on one scenario, straight into the scenario space metadata.
-
-        Two rulings, both already columns the scenario space metadata carries. An override sets materiality and
-        outranks every model pass, which is what makes the tiers a recommendation rather than a
-        verdict. Clearing a flag says the review's concern has been considered and dismissed --
-        the concern was never able to remove anything, so dismissing it removes only the marker.
-        """
+        """Record the reviewer's ruling on one scenario, straight into the scenario space metadata."""
         workspace = _workspace()
         intake = _intake(workspace)
         scenarios = _scenarios(workspace, intake)
@@ -1186,13 +937,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/<key>/run", methods=["POST"])
     def run_stage(key: str):
-        """Start a stage. Work happens on a background thread and the page polls for progress.
-
-        Reading a sixty-page document is hundreds of model calls over several minutes. Running
-        that inside the request would leave the browser on a blank tab with no way to tell a slow
-        run from a dead one, which is the single worst thing this interface could do with the time
-        it takes.
-        """
+        """Start a stage. Work happens on a background thread and the page polls for progress."""
         workspace = _workspace()
         if RUNNERS.get(key) is None:
             abort(404)
@@ -1210,16 +955,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/<key>/stop", methods=["POST"])
     def stop_stage(key: str):
-        """Ask a running stage to stop. Calls already sent finish; nothing further is sent.
-
-        The stage is left exactly as it was before this run -- nothing partial is written -- so
-        it comes back as ready to run again rather than as failed.
-
-        Where nothing is listening, the stage is marked stopped here instead. That is not a
-        failure to stop: it means the thread that was running it is already gone, so there is
-        nothing left to signal and the record is simply out of date. Without this a stage left
-        running by an interrupted process could be clicked at forever with no effect.
-        """
+        """Ask a running stage to stop. Calls already sent finish; nothing further is sent."""
         workspace = _workspace()
         if not stagecancel.stop(workspace.root, key):
             if workspace.state(key).status == RUNNING:
@@ -1237,13 +973,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/stage/<key>/reset", methods=["POST"])
     def reset_stage(key: str):
-        """Clear a stage and everything after it, optionally deleting what they produced.
-
-        Two behaviours because there are two intentions. Clearing the status alone keeps the old
-        workbooks readable, which is what you want when comparing a rerun against what came
-        before. Starting from scratch has to delete them, because several stages read what they
-        need straight off disk and a status-only reset leaves the old work to come straight back.
-        """
+        """Clear a stage and everything after it, optionally deleting what they produced."""
         workspace = _workspace()
         purge = bool(request.form.get("purge"))
         submissions = bool(request.form.get("submissions"))
@@ -1267,18 +997,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.route("/graph", methods=["GET"])
     def graph_page():
-        """The declared graph on its own, as one self-contained file.
-
-        A validation report has to carry the graph, and so does any conversation with the model
-        owner about a branch nobody declared -- and neither of those can be had over a screenshot,
-        which loses the zoom the moment a graph is large enough to need one. This is the same
-        drawing with the same reading controls, in a file that works with nothing running: the
-        stylesheet and the script are inlined rather than fetched, so it survives being emailed,
-        attached, or opened from a share months later.
-
-        ``?download=1`` sends it as an attachment. Without it the page opens in the browser, which
-        is what somebody who only wants a bigger view of it is asking for.
-        """
+        """The declared graph on its own, as one self-contained file."""
         workspace = _workspace()
         if not workspace.artifact_path("intake", "workbook"):
             abort(404)
@@ -1318,15 +1037,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     @app.template_filter("when")
     def when(stamp: str) -> str:
-        """A stored timestamp as something a person reads without decoding it.
-
-        Timestamps are recorded as UTC in ISO form, which is the right thing to store -- sortable,
-        unambiguous, and the same string on every machine -- and the wrong thing to show:
-        ``2026-08-08T14:23:11+00:00`` is a value, not a time of day. This is the fallback text,
-        rendered server-side so the page is readable with no script at all. The script in
-        stage.html then re-renders it in whatever timezone the browser is actually in, which is
-        the one the reader thinks in.
-        """
+        """A stored timestamp as something a person reads without decoding it."""
         try:
             moment = datetime.fromisoformat(str(stamp))
         except (TypeError, ValueError):
@@ -1359,23 +1070,7 @@ if __name__ == "__main__":
 
 
 def _execute(root: Path, key: str, cancel, run_id: str = None) -> None:
-    """Run one stage on a background thread, reporting progress as it goes.
-
-    The workspace is re-read here rather than handed across the thread boundary, so the record on
-    disk stays the one source of truth for what has happened -- the same record the polling
-    request reads, and the same one the command line would read.
-
-    ``run_id`` identifies this run, and every verdict below carries it. A thread unwinding is not
-    always faster than the person watching: stop a long run, see it stop, press Run again, and
-    this thread's "stopped" could otherwise land on top of the run that had already started. See
-    :meth:`Workspace.owns`.
-
-    ``cancel`` is the stop signal ``run_stage`` registered before this thread was started, and
-    *every* runner takes it -- not only the ones that make many model calls. Handing it to all of
-    them is what makes stopping mean the same thing everywhere: a stage with nothing long to
-    interrupt simply finds it unset, which costs nothing and is a great deal easier to reason
-    about than a list of which stages honour it.
-    """
+    """Run one stage on a background thread, reporting progress as it goes."""
     workspace = Workspace.load(root)
 
     def report(message: str, done: int = 0, total: int = 0) -> None:
@@ -1408,12 +1103,7 @@ def _execute(root: Path, key: str, cancel, run_id: str = None) -> None:
 
 
 def _refusal(names, accepted=None, heading: str = "") -> str:
-    """Why nothing was stored, named precisely enough to act on.
-
-    Says what *this heading* takes rather than what the tool takes, since that is the choice in
-    front of the person: a PDF refused by the workflow-diagrams card belongs under a different
-    heading, not in a different format.
-    """
+    """Why nothing was stored, named precisely enough to act on."""
     if not names:
         return "No file was uploaded."
     supported = ", ".join(sorted(accepted or UPLOAD_EXTENSIONS))

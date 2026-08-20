@@ -1,14 +1,4 @@
-"""Materiality assessment.
-
-Run as its own sweep rather than alongside the description, because the tier depends on
-comparison: whether a scenario matters is partly a question of what else the scenario space already
-contains. Redundancy and relative depth are computed deterministically across the whole set
-first, then attached to every batched call as evidence.
-
-Every chunk's call goes out together rather than one after another -- nothing in one chunk's
-verdict depends on another's chunk having been sent yet, only on the peer signals computed
-upfront, so there is no reason the second call should wait for the first to come back.
-"""
+"""Materiality assessment."""
 from __future__ import annotations
 
 import json
@@ -120,12 +110,7 @@ class MaterialityAssessor:
             scenarios=json.dumps(payload, indent=2))
 
     def _apply(self, chunk: List[Scenario], reply) -> set:
-        """Write a chunk's reply onto its scenarios; return the IDs it actually filled.
-
-        ``reply`` is either the model's text or the exception raised getting it -- call_batch
-        reports a failed call this way rather than raising, so a batch failure and a reply that
-        parsed but left some ids out are handled by the same path here.
-        """
+        """Write a chunk's reply onto its scenarios; return the IDs it actually filled."""
         parsed = parsed_reply(reply, "Materiality call", ", ".join(s.id for s in chunk))
 
         filled = set()

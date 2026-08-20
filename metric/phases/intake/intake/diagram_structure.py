@@ -1,24 +1,4 @@
-"""The workflow a set of diagrams describes, as a graph rather than as prose about one.
-
-A workflow diagram *is* the intake's L3 and L4 sheets. A box with branching arrows is a decision;
-the label on an arrow leaving it is an outcome; the box that arrow lands in is a state. Reading
-one into prose and asking a later pass to rebuild a graph out of that prose loses the structure
-twice over, and loses it silently -- a dropped box in a paragraph is invisible, where a dropped
-box in a node list shows up immediately as an edge pointing at nothing.
-
-So the reading passes return structure, and this module is what holds it, checks it and repairs
-against it:
-
-    :func:`clean`   take whatever the model returned and keep the part that is well-formed,
-                    discarding entries that name nothing and normalising the rest.
-    :func:`audit`   list what is structurally wrong with the result. Every check here is a
-                    property the graph must have to be walkable at all, which is what makes them
-                    worth putting back to the model: they are not opinions about the drawing.
-    :func:`merge`   fold a repair pass's answer into the structure it was asked to fix.
-
-Nothing here calls a model or reads a file. It is the shape and the rules; :mod:`.extraction`
-does the calling.
-"""
+"""The workflow a set of diagrams describes, as a graph rather than as prose about one."""
 from __future__ import annotations
 
 import re
@@ -48,13 +28,7 @@ def is_empty(structure: dict) -> bool:
 
 
 def clean(data: dict) -> dict:
-    """Keep the well-formed part of what a reading returned, and normalise it.
-
-    Ids are required and are what everything else is keyed on, so an entry without one is dropped
-    rather than given a generated id -- an invented ``DEC-07`` would be indistinguishable from a
-    real one in the workbook a person then reviews. Everything else is filled in with a defensible
-    default, because a decision with an unreadable input source is still a decision.
-    """
+    """Keep the well-formed part of what a reading returned, and normalise it."""
     cleaned = empty()
 
     for entry in _objects(data, "capabilities"):
@@ -109,15 +83,7 @@ def _edges(structure: dict) -> Dict[str, str]:
 
 
 def audit(structure: dict) -> List[str]:
-    """What is structurally wrong with this graph, as things a second look could settle.
-
-    Every check is a property the graph needs in order to be walked at all, which is what makes
-    these worth putting back to the model with the images still in hand: none of them is an
-    opinion about how the workflow should have been drawn. They are the places the reading is
-    demonstrably incomplete -- an arrow whose destination went unrecorded, a box nothing leads to
-    -- and naming them individually turns "read it again, better" into a list of specific holes,
-    which is a far easier thing to act on.
-    """
+    """What is structurally wrong with this graph, as things a second look could settle."""
     problems: List[str] = []
     if is_empty(structure):
         return ["Nothing was read from the diagrams at all: no decisions and no states."]
@@ -183,17 +149,7 @@ def audit(structure: dict) -> List[str]:
 
 
 def merge(structure: dict, repair: dict) -> dict:
-    """Fold a repair pass's answer into the structure it was asked to fix.
-
-    Keyed on id: an entry the repair returns for an id already present replaces it, and one for a
-    new id is added. Replacing rather than patching field by field is deliberate -- the repair is
-    given the original and asked to return the corrected whole, so a field it left out is a field
-    it decided against, not one it forgot to mention.
-
-    A repair that returns nothing at all leaves the structure exactly as it was, which is the
-    behaviour that matters most: a failed or unusable second look must never be able to make the
-    reading worse than the first one.
-    """
+    """Fold a repair pass's answer into the structure it was asked to fix."""
     repaired = clean(repair)
     if is_empty(repaired):
         return structure
@@ -208,12 +164,7 @@ def merge(structure: dict, repair: dict) -> dict:
 
 
 def render(structure: dict) -> str:
-    """The graph as text, for a prompt or for the context document.
-
-    Written out as the intake's own vocabulary rather than as JSON, because both readers of this
-    are being asked to produce or check an intake and the closer the two look, the less there is
-    to translate.
-    """
+    """The graph as text, for a prompt or for the context document."""
     if is_empty(structure):
         return ""
 
@@ -261,13 +212,7 @@ def counts(structure: dict) -> Dict[str, int]:
 
 
 def namespaced(readings: Sequence[dict]) -> List[dict]:
-    """Per-image node references made unique across images.
-
-    Each image is read on its own and numbers its own boxes from one, so ``n1`` in the second
-    image is a different box from ``n1`` in the first. The synthesis pass sees them all at once
-    and would otherwise have no way to tell -- prefixing with the image number is what lets it
-    say "this arrow from image 1 lands on that box in image 2" at all.
-    """
+    """Per-image node references made unique across images."""
     out = []
     for index, reading in enumerate(readings, start=1):
         prefix = f"i{index}."

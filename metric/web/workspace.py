@@ -1,16 +1,4 @@
-"""A workspace: one use case being taken through the pipeline, and the state of each stage.
-
-Everything lives on disk. Stage outputs are the same workbooks the command line produces, and
-the record of what has run is a single JSON file beside them. Two things follow, both
-deliberate: closing the browser loses nothing, and anything done here can be finished from the
-command line or the other way round.
-
-The rule this module exists to enforce is that changing something early does not silently leave
-stale work downstream. When a stage's inputs change, every completed stage after it is marked
-out of date rather than quietly left looking finished. Their outputs are kept -- they are still
-readable, and throwing away work the user might want to compare against would be its own kind of
-data loss -- but the interface stops presenting them as current.
-"""
+"""A workspace: one use case being taken through the pipeline, and the state of each stage."""
 from __future__ import annotations
 
 import json
@@ -27,7 +15,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 from metric.phases.intake.intake.representation import DEFAULT_THRESHOLD
 from metric.phases.intake.intake.extraction import DIAGRAM_MODES, SPLIT_ACROSS_IMAGES
-from metric.web.stages import COMPLETE, FAILED, LOCKED, READY, RENAMED, RUNNING, STAGE_BY_KEY, STAGE_KEYS, STALE, STAGES, STOPPED, Stage, current_key, downstream_of, index_of, required_before
+from metric.web.stages import opens_a_phase, phase_of, COMPLETE, FAILED, LOCKED, READY, RENAMED, RUNNING, STAGE_BY_KEY, STAGE_KEYS, STALE, STAGES, STOPPED, Stage, current_key, downstream_of, index_of, required_before
 
 logger = logging.getLogger(__name__)
 
@@ -61,11 +49,6 @@ def _lock_for(path: Path) -> threading.Lock:
 # it is empty, which is precisely correct -- every run that was in flight died with the process
 # hosting it. Deliberately not persisted, for the same reason the stop signals in
 # :mod:`.stagecancel` are not.
-#
-# It holds the run id rather than only the key because a run ending has to forget *itself*: a
-# thread unwinding after the stage was started again would otherwise remove the marker the newer
-# run had just installed, and :meth:`Workspace._settle` would then read a genuinely running stage
-# as one that died with an interrupted process.
 _live_runs: Dict[Tuple[str, str], str] = {}
 _live_guard = threading.Lock()
 
@@ -85,11 +68,7 @@ def _is_live(root: Path, stage_key: str) -> bool:
 
 
 def forget_run(root: Path, stage_key: str, run_id: str = None) -> None:
-    """Drop a run from the live set once it has ended, however it ended.
-
-    Only its own: a run with no id is from before ids existed and clears the entry outright, but
-    one that knows which run it is leaves a newer run's marker alone.
-    """
+    """Drop a run from the live set once it has ended, however it ended."""
     key = _run_key(root, stage_key)
     with _live_guard:
         if run_id is None or _live_runs.get(key) in (None, "", run_id):
@@ -107,13 +86,7 @@ _REPLACE_BACKOFF = 0.05
 
 
 def _replace(source: Path, destination: Path) -> None:
-    """os.replace, tolerant of a destination something outside Python is briefly holding open.
-
-    POSIX rename is atomic and a concurrent reader never blocks it. Windows is not: a sync client,
-    an antivirus scanner, or even another process's own read can hold a file open for a moment and
-    turn the replace into a PermissionError that has nothing to do with who is allowed to write
-    it. Retrying briefly is the standard answer, because the hold clears on its own.
-    """
+    """os.replace, tolerant of a destination something outside Python is briefly holding open."""
     last_error = None
     for attempt in range(_REPLACE_ATTEMPTS):
         try:
@@ -238,29 +211,11 @@ class Workspace:
 
     # ----------------------------------------------------------------- added context
     def add_note(self, stage_key: str, text: str, question: str = "") -> bool:
-        """Record something the user knows that the documents did not say.
-
-        Notes accumulate rather than replace, and each carries the stage it was added at. Every
-        later stage that consults context sees all of them: a correction made while reading the
-        evidence is just as relevant to the final review, and asking the user to repeat it there
-        would be a good way to lose it.
-
-        A note answering a question carries the question with it, so a later stage reads "the
-        outcomes of DEC-04 are Approved and Referred" as the answer it is rather than as a remark
-        that happens to mention DEC-04.
-
-        A blank submission is not a note. Returns whether one was actually recorded.
-        """
+        """Record something the user knows that the documents did not say."""
         return bool(self.add_notes([(question, text)], stage_key))
 
     def add_notes(self, entries: List[tuple], stage_key: str) -> int:
-        """Record several answers at once, as (question, text) pairs. Returns how many landed.
-
-        Answering questions one at a time meant a page reload between each, which turns a list of
-        six into six round trips. Nothing here requires the whole list: blanks are skipped, so a
-        person can settle what they know now, come back, and settle the rest later, and each pass
-        registers what it carried.
-        """
+        """Record several answers at once, as (question, text) pairs. Returns how many landed."""
         added = 0
         for question, text in entries:
             text = (text or "").strip()
@@ -274,12 +229,7 @@ class Workspace:
         return added
 
     def answered_questions(self) -> Dict[str, str]:
-        """Every question a person has answered, newest answer winning.
-
-        Keyed by the question rather than by the row it concerns: the questions are regenerated
-        from the declaration on every page load, so a row id is only stable until somebody
-        renumbers the workbook, and the question text is what a person recognises anyway.
-        """
+        """Every question a person has answered, newest answer winning."""
         return {note["question"]: note["text"]
                 for note in self.notes if note.get("question")}
 
@@ -287,12 +237,7 @@ class Workspace:
         return [note for note in self.notes if current_key(note["stage"]) == stage_key]
 
     def note_lines(self) -> List[str]:
-        """Every note as one line each, attributed to the stage it was added at.
-
-        Shared by :meth:`context_text`, which wraps these into the block the mid-pipeline passes
-        take, and by anything -- like drafting the intake -- that takes notes as a list of strings
-        in its own right rather than one pre-assembled block.
-        """
+        """Every note as one line each, attributed to the stage it was added at."""
         lines = []
         for note in self.notes:
             stage_key = current_key(note["stage"])
@@ -304,12 +249,7 @@ class Workspace:
         return lines
 
     def context_text(self) -> str:
-        """Everything the user has added, as one block for the passes that take context.
-
-        Each note is attributed to the stage it was added at, so a model reading this can tell a
-        note written while looking at raw documents from one written while reading the finished
-        scenario space.
-        """
+        """Everything the user has added, as one block for the passes that take context."""
         if not self.notes:
             return ""
         return "\n".join(["NOTES ADDED BY THE VALIDATOR", ""]
@@ -324,12 +264,7 @@ class Workspace:
         return self._redact_key(group, name) in self.redact_files
 
     def set_redact(self, group: str, name: str, on: bool) -> None:
-        """Mark or unmark one uploaded file for redaction ahead of the global setting.
-
-        Does not save -- callers that change this alongside other state (invalidating a stage,
-        removing the file itself) write it all in one save, the same as everywhere else a route
-        makes more than one change.
-        """
+        """Mark or unmark one uploaded file for redaction ahead of the global setting."""
         key = self._redact_key(group, name)
         if on:
             self.redact_files.add(key)
@@ -338,12 +273,7 @@ class Workspace:
 
     # ----------------------------------------------------------------- coverage
     def save_coverage(self, mappings, how_read: str = "") -> None:
-        """Keep what the last coverage run found, flat enough to re-read without the model.
-
-        Only the mappings are expensive to produce -- everything the page shows is counted from
-        them. Storing them rather than the counts is what lets the representation threshold be
-        moved and the answer recomputed instantly, which is the whole reason it is a setting.
-        """
+        """Keep what the last coverage run found, flat enough to re-read without the model."""
         self.coverage = {
             "how_read": how_read,
             "mappings": [{"conversation_id": m.conversation_id, "scenario_id": m.scenario_id,
@@ -362,22 +292,12 @@ class Workspace:
 
     # ----------------------------------------------------------------- structure review
     def set_structure_proposals(self, proposals: List[dict]) -> None:
-        """Replace the open proposals with a freshly run structure review's results.
-
-        Each is given an id of its own here, distinct from any id the proposal names (a decision
-        or state id) -- a reconnection and a consolidation can both concern the same decision, and
-        a page needs one unambiguous handle per row to apply or dismiss.
-        """
+        """Replace the open proposals with a freshly run structure review's results."""
         self.structure_proposals = [dict(entry, id=f"sr-{index}")
                                     for index, entry in enumerate(proposals, start=1)]
 
     def pop_structure_proposal(self, proposal_id: str) -> Optional[dict]:
-        """Remove and return one proposal by its id, or None if it is not there.
-
-        Removed whether it is applied or dismissed: an applied proposal is now reflected in the
-        workbook and would otherwise offer to be applied again, and a dismissed one has nothing
-        further to say.
-        """
+        """Remove and return one proposal by its id, or None if it is not there."""
         for entry in self.structure_proposals:
             if entry.get("id") == proposal_id:
                 self.structure_proposals = [e for e in self.structure_proposals
@@ -391,18 +311,7 @@ class Workspace:
         return self.root / STATE_FILE
 
     def save(self) -> None:
-        """Write the record, atomically and one writer at a time.
-
-        A running stage saves its progress from several threads at once -- ingesting a document
-        pack reads three groups of questions in parallel, each reporting its own progress -- while
-        a request handling a click can write from yet another. Writing in place means truncating
-        the file first, and a reader arriving in that instant gets an empty file and a workspace
-        that appears not to exist; writing beside it and renaming means a reader always sees either
-        the old record or the new one. The lock is what stops two writers from racing that rename
-        against each other regardless of which Workspace instance they came through, and
-        :func:`_replace` covers the moment something outside Python -- a sync client, a virus
-        scanner -- is holding the destination open at the same instant.
-        """
+        """Write the record, atomically and one writer at a time."""
         with _lock_for(self.state_path):
             self._write()
 
@@ -429,13 +338,7 @@ class Workspace:
                 pending.unlink()
 
     def _commit(self, key: str, run_id: Optional[str], change) -> bool:
-        """Apply a run's verdict, but only if the stage has not moved on. Returns whether it did.
-
-        Read, check and write happen together under the file lock. Checking this instance's copy
-        instead would leave a window between loading the record and saving it in which another run
-        could start -- and the write that followed would not merely be out of date, it would put
-        the whole record back to what it was when this run loaded it, run id included.
-        """
+        """Apply a run's verdict, but only if the stage has not moved on. Returns whether it did."""
         with _lock_for(self.state_path):
             if run_id and self.state_path.exists():
                 try:
@@ -504,23 +407,7 @@ class Workspace:
         return self.stages[key]
 
     def _settle(self) -> bool:
-        """Recompute which stages are reachable. Returns whether anything had to be reconciled.
-
-        Only locked and ready are derived; anything that has actually run keeps the status it
-        earned. A stage is ready once every *required* stage before it has produced something.
-        Complete and out of date both count, since an out-of-date input is still an input and
-        refusing to proceed on one would strand the workspace rather than protect it.
-
-        Optional stages do not gate anything. That is what lets a team that already has a
-        completed intake workbook open the intake stage on a fresh workspace and work forward
-        from there, without pretending to read documents they were never sent.
-
-        A stage recorded as running that this process never started is an *interrupted* run --
-        see :data:`_live_runs`. Its thread died with whatever process was hosting it, so nothing
-        is going to finish it or write its result, and leaving the record saying "running" strands
-        the stage forever: the page polls something that will never move, and the stop button has
-        no thread left to signal. It is reset here to stopped, which is exactly what it is.
-        """
+        """Recompute which stages are reachable. Returns whether anything had to be reconciled."""
         reconciled = False
         for stage in STAGES:
             current = self.stages[stage.key]
@@ -539,11 +426,7 @@ class Workspace:
         return reconciled
 
     def mark_running(self, key: str) -> str:
-        """A stage has started. Returns the id of this run, which its verdict must carry back.
-
-        Progress is written to disk so the page can read it, and so can the thread doing the work:
-        the record is the one source of truth for what has happened, not anything held in memory.
-        """
+        """A stage has started. Returns the id of this run, which its verdict must carry back."""
         state = self.stages[key]
         state.status, state.updated_at = RUNNING, _now()
         state.note = ""
@@ -554,12 +437,7 @@ class Workspace:
         return state.run_id
 
     def owns(self, key: str, run_id: Optional[str]) -> bool:
-        """Whether a run's verdict is still the one this stage is waiting for.
-
-        Read from the record rather than from this instance, which may have been loaded before
-        another run started. A run with no id predates this and is trusted, so nothing that used
-        to write a status has to be changed for it to keep working.
-        """
+        """Whether a run's verdict is still the one this stage is waiting for."""
         if not run_id or not self.state_path.exists():
             return True
         try:
@@ -570,12 +448,7 @@ class Workspace:
         return not recorded or recorded == run_id
 
     def report_progress(self, key: str, message: str, done: int = 0, total: int = 0) -> None:
-        """Record where a running stage has got to.
-
-        Written straight to disk rather than held in memory, because the page that displays it is
-        a different request -- often a different process after a restart -- and a progress bar
-        nobody can read is the same as no progress bar.
-        """
+        """Record where a running stage has got to."""
         state = self.stages[key]
         state.progress = {"message": message, "done": done, "total": total}
         self.save()
@@ -590,11 +463,7 @@ class Workspace:
             forget_run(self.root, key, run_id)
 
     def mark_stopped(self, key: str, run_id: str = None) -> None:
-        """A stage was asked to stop and unwound before finishing.
-
-        Nothing it would have written was, so the stage sits exactly where it was before this run
-        started -- distinct from a failure, and just as ready to be run again.
-        """
+        """A stage was asked to stop and unwound before finishing."""
         def change():
             state = self.stages[key]
             state.status, state.updated_at = STOPPED, _now()
@@ -606,11 +475,7 @@ class Workspace:
     def complete(self, key: str, artifacts: Optional[Dict[str, str]] = None,
                  summary: Optional[Dict[str, object]] = None, note: str = "",
                  run_id: str = None) -> List[Stage]:
-        """Record a stage as done and mark everything downstream of it out of date.
-
-        Returns the stages that were invalidated, so the interface can say what just happened
-        rather than leaving the user to notice on their own.
-        """
+        """Record a stage as done and mark everything downstream of it out of date."""
         invalidated: List[Stage] = []
 
         def change():
@@ -637,15 +502,7 @@ class Workspace:
         return self._invalidate(downstream_of(key))
 
     def invalidate_from(self, key: str) -> List[Stage]:
-        """Mark this stage and everything after it out of date. Outputs are kept.
-
-        For a change to a stage's own *input* rather than to something upstream of it. Uploading
-        a corrected intake workbook is the case that matters: the scenario space built from the old one
-        is out of date, which :meth:`invalidate_after` already said, but so is the intake stage's
-        own report of what the workbook declares -- and leaving that showing "5 decision points"
-        beside a workbook that now declares seven is the more misleading of the two, because it
-        reads as a fact about the file rather than as a stale figure.
-        """
+        """Mark this stage and everything after it out of date. Outputs are kept."""
         return self._invalidate([STAGE_BY_KEY[key]] + downstream_of(key))
 
     def _invalidate(self, stages: List[Stage]) -> List[Stage]:
@@ -659,21 +516,7 @@ class Workspace:
 
     def reset_from(self, key: str, delete: Optional[List[str]] = None,
                    submissions: bool = False) -> List[str]:
-        """Clear this stage and everything after it, for starting a branch of work again.
-
-        Clearing the status is not the same as clearing the work. Several stages read what they
-        need straight off disk rather than through the record, so a reset that only forgets the
-        status leaves the old metadata workbook, evidence and questions where they were and they come
-        straight back on the next run. Pass ``delete`` to remove them as well.
-
-        ``submissions`` clears what the model owner sent as well -- the documents, diagrams and
-        transcripts under ``sources/``, and any intake workbook provided. Off by default, because
-        a submitted file is input rather than output and starting a stage again is usually about
-        the work rather than the material. On, it is what "start from nothing" has to mean: a
-        reset that left the old documentation in place produced a next run built from a pack
-        nobody remembered uploading, which is the most confusing possible state for a tool whose
-        whole output is traceable to its inputs.
-        """
+        """Clear this stage and everything after it, for starting a branch of work again."""
         # What was submitted, read *before* the stage states are cleared: the artifacts are where
         # each file is recorded, and resetting the state throws that record away. Collected here
         # and deleted below, so the order of the two operations cannot silently strand the files.
@@ -697,12 +540,7 @@ class Workspace:
         return removed
 
     def _submitted_from(self, key: str) -> List[str]:
-        """Everything the model owner sent that this stage or a later one reads.
-
-        Scoped to the stage rather than emptying ``sources/`` wholesale: resetting the coverage
-        stage should not throw away the model documentation the intake was built from. Which stage
-        reads a file is already recorded against it as an artifact, so that is what decides it.
-        """
+        """Everything the model owner sent that this stage or a later one reads."""
         return [str(stored)
                 for stage in [STAGE_BY_KEY[key]] + downstream_of(key)
                 for stored in self.stages[stage.key].artifacts.values()]
@@ -780,4 +618,6 @@ def stage_view(workspace: Workspace, stage: Stage) -> dict:
         "state": state,
         "is_current": workspace.current_stage().key == stage.key,
         "has_output": workspace.has_output(stage.key),
+        "opens_a_phase": opens_a_phase(stage.key),
+        "phase": phase_of(stage.key),
     }

@@ -1,19 +1,4 @@
-"""The scenario space as something a person can read on screen.
-
-The scenario space metadata holds everything: decision paths, per-turn expected outcomes, probe provenance,
-signatures. Almost none of that belongs on a page. What a reviewer is doing here is deciding
-whether a scenario is worth issuing, and that question is answered by the scenario's own words,
-what it is judged to be worth, and whether anything has been flagged about it -- not by the route
-it walks through the graph.
-
-So this module deliberately narrows. The route, the seeded state, the expected outcome and the
-internal identifiers stay in the workbook, which is where someone auditing the scenario space will
-look for them. The screen carries the reading, and the workbook carries the record.
-
-One consequence worth stating: the expected outcome is withheld here as well. It is not secret
-from the validator -- it is in their own metadata workbook -- but a page that puts the answer beside
-the question is a page somebody eventually screenshots into an email to the model owner.
-"""
+"""The scenario space as something a person can read on screen."""
 from __future__ import annotations
 
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -26,10 +11,6 @@ from metric.domain.models import MATERIALITY, ORIGIN_GRAPH, ORIGIN_PROBE, ORIGIN
 # fields have a *default* -- every scenario carries "Medium" from the moment it is built -- and a
 # tier shown on the scenario-text page reads as a judgement when it is only an unset field. The
 # same goes for a variation count derived from it, and for review columns nothing has filled in yet.
-#
-# Going back to an earlier stage therefore shows that stage's own reading rather than the current
-# state of the scenario space metadata, which is the other half of the same idea: what you are looking at is what
-# that stage produced, not what later stages have since made of it.
 TEXT, MATERIALITY_COLUMNS, REVIEW, COVERAGE = "text", "materiality", "review", "coverage"
 
 STAGE_COLUMNS = {
@@ -62,11 +43,7 @@ ANY = "*"
 
 
 def parse_cells(raw: Sequence[str]) -> List[Tuple[str, str]]:
-    """``["Happy Path|High", "*|Low"]`` as (category, tier) pairs, deduplicated, in order given.
-
-    Order is kept because the chips that show what is selected read better in the order they were
-    clicked than in any sort this could impose.
-    """
+    """``["Happy Path|High", "*|Low"]`` as (category, tier) pairs, deduplicated, in order given."""
     out: List[Tuple[str, str]] = []
     for item in raw or ():
         category, _, tier = str(item).partition("|")
@@ -90,14 +67,7 @@ def _matches(row: Dict[str, object], cells: Sequence[Tuple[str, str]]) -> bool:
 
 
 def _title(scenario: Scenario) -> str:
-    """The handle a reader scans by: the scenario's own name where it has one.
-
-    The name is written for exactly this -- short, distinguishable from its neighbours, and about
-    the situation rather than the expected behaviour. Falling back to the first sentence of the
-    description is what a scenario space written before names existed has, and it is a worse handle
-    for the reason the name exists: three hundred first sentences that all begin "The cardmember"
-    are not scannable.
-    """
+    """The handle a reader scans by: the scenario's own name where it has one."""
     name = (scenario.name or "").strip()
     if name:
         return name
@@ -113,13 +83,7 @@ def _title(scenario: Scenario) -> str:
 
 
 def _reason(scenario: Scenario) -> str:
-    """The rationale behind the tier that is actually in force.
-
-    Which pass produced it is deliberately not carried alongside. A reviewer reading a card wants
-    to know why this scenario is Critical, and "from the materiality pass" answers a question
-    nobody asked while pushing the answer they did ask for further down the card. The workbook
-    keeps every pass's column separately for anyone auditing how the tier was reached.
-    """
+    """The rationale behind the tier that is actually in force."""
     if scenario.materiality_override:
         return ""
     if scenario.review_materiality:
@@ -128,14 +92,7 @@ def _reason(scenario: Scenario) -> str:
 
 
 def _flag_reason(scenario: Scenario) -> str:
-    """What the flag adds beyond the reason already given for the tier, or nothing.
-
-    The review settles the tier and raises the flag in one reading and returns one rationale for
-    both, so on a flagged scenario the two are usually the same sentence. Printed twice it reads
-    as a rendering fault rather than as agreement, so the flag is folded onto the tier's own note
-    -- see ``flag_shares_reason`` -- and only gets a note of its own where it genuinely says
-    something the tier's does not.
-    """
+    """What the flag adds beyond the reason already given for the tier, or nothing."""
     if not scenario.review_flag:
         return ""
     return "" if scenario.review_rationale == _reason(scenario) else scenario.review_rationale
@@ -143,13 +100,7 @@ def _flag_reason(scenario: Scenario) -> str:
 
 def to_row(scenario: Scenario, capability_names: Optional[Dict[str, str]] = None
            ) -> Dict[str, object]:
-    """One scenario as the page shows it.
-
-    ``capability_names`` maps a capability id to its name. Without it the block still shows, by
-    id -- which is worth having on its own, because the whole point of scoping the space by
-    capability is that a scenario tests one block of the agent and a reader cannot tell which
-    from the description alone.
-    """
+    """One scenario as the page shows it."""
     named = (capability_names or {}).get(scenario.capability_id, "")
     # A scenario with no block is one of two things, and they read very differently. Either the
     # declaration draws no blocks at all -- in which case every scenario runs whole and saying so
@@ -203,30 +154,13 @@ def _group_of(row: Dict[str, object]) -> int:
 
 
 def needs_attention(row: Dict[str, object]) -> bool:
-    """Whether this scenario is asking the reviewer for something.
-
-    A flag is a recommendation waiting on a decision, a proposal is a scenario nothing enumerated,
-    a re-read category is a declaration that looks wrong, and a covered scenario is a candidate to
-    drop. All four are things only a person can settle.
-    """
+    """Whether this scenario is asking the reviewer for something."""
     return bool(row["flag"] or row["is_proposed"] or row["coverage"] or row["category_changed"])
 
 
 def shape(scenarios: List[Scenario], stage: str = "summary",
           capability_names: Optional[Dict[str, str]] = None) -> Dict[str, object]:
-    """How the scenario space is distributed, for the side panel.
-
-    Counted over every scenario rather than over the rows on screen. The list in the middle of
-    the page is a view -- narrowed to what needs attention, filtered, and cut off at a page
-    length -- and a tally taken from it would answer "what am I looking at" when the question the
-    panel exists to answer is "what is in the scenario space".
-
-    Tiers appear only once the stage has actually produced them, for the reason given on
-    :data:`STAGE_COLUMNS`: every scenario carries Medium from the moment it is built, and a
-    distribution drawn before the materiality pass would be a chart of a default. From the review
-    stage onwards the tiers here are the effective ones, so a tier the review moved is counted
-    where the review put it.
-    """
+    """How the scenario space is distributed, for the side panel."""
     shows = set(STAGE_COLUMNS.get(stage, STAGE_COLUMNS["summary"]))
     rows = [to_row(s, capability_names) for s in scenarios]
     tiers = []
@@ -255,23 +189,7 @@ _FLAT_DENSITY = 2
 
 def matrix(rows: List[Dict[str, object]],
            cells: Sequence[Tuple[str, str]] = ()) -> Dict[str, object]:
-    """The scenario space as a grid: what kind of situation, against what it is worth.
-
-    A list of three hundred scenarios sorted by tier answers "what is most material" and nothing
-    else. The two questions actually being asked at this point in a validation are *where is the
-    mass* -- is this a scenario space of eighty happy paths and four terminations? -- and, more
-    sharply, *which cells are empty*. An empty Critical/Termination cell is a hole in the exercise,
-    and no ranked list will ever show it, because a hole has no row.
-
-    Counted over the whole space rather than over what is currently selected. The grid is the
-    only selector on the page now, so it has to keep showing the cells that are *not* chosen -- a
-    grid that narrowed to the selection would leave nothing to click next, and would answer "what
-    did I pick" rather than "what is here".
-
-    ``cells`` is what is selected, as (category, tier) pairs where either may be ``*`` for a whole
-    row or column. Each cell carries the selection that clicking it would produce, so a click adds
-    a cell and a second click on the same one takes it away.
-    """
+    """The scenario space as a grid: what kind of situation, against what it is worth."""
     chosen = list(cells or ())
     tiers = [t for t in reversed(MATERIALITY) if any(r["materiality"] == t for r in rows)]
     categories = sorted({str(r["category"]) for r in rows if r.get("category")})
@@ -327,12 +245,7 @@ def matrix(rows: List[Dict[str, object]],
 
 
 def _toggled(chosen: Sequence[Tuple[str, str]], cell: Tuple[str, str]) -> List[str]:
-    """The selection that clicking ``cell`` would produce: added if absent, removed if present.
-
-    Returned as the encoded strings a link carries, so every cell in the grid stays an ordinary
-    href and the whole thing works with scripting off. It also means the browser's back button
-    walks back through the selections, which no click handler would have given for free.
-    """
+    """The selection that clicking ``cell`` would produce: added if absent, removed if present."""
     kept = [c for c in chosen if c != cell]
     if len(kept) == len(chosen):
         kept = list(chosen) + [cell]
@@ -351,21 +264,7 @@ def _cell_label(category: str, tier: str) -> str:
 def build_rows(scenarios: List[Scenario], stage: str = "summary",
                cells: Sequence[Tuple[str, str]] = (), limit: int = PAGE_SIZE,
                capability_names: Optional[Dict[str, str]] = None) -> Dict[str, object]:
-    """The rows to show, the grid that selects them, and what was left out.
-
-    **The grid is the only selector.** It replaced three view tabs and five dropdowns, and it does
-    more than all of them did: the tabs offered three fixed slices of the space, the dropdowns
-    narrowed one column at a time, and neither could express "the two cells I actually care
-    about". Picking cells can, and picking none shows everything -- which is what the "all" tab
-    was for.
-
-    ``cells`` is (category, tier) pairs, either of which may be ``*`` for a whole row or column.
-    Several are a union rather than an intersection: two cells show the scenarios in both, which
-    is the only reading of "I clicked two things" that anybody means.
-
-    Returns the counts as well as the rows, because a narrowed list that does not say what it
-    narrowed is a list that quietly loses scenarios.
-    """
+    """The rows to show, the grid that selects them, and what was left out."""
     shows = set(STAGE_COLUMNS.get(stage, STAGE_COLUMNS["summary"]))
     rows = [to_row(s, capability_names) for s in scenarios]
 
@@ -374,10 +273,6 @@ def build_rows(scenarios: List[Scenario], stage: str = "summary",
     # of it: the routes through the declared graph are what the exercise is about, and a list
     # opening with forty probes buries them. Ids sort probes first on their own (NF- before SC-),
     # which is how they came to lead.
-    #
-    # Ordering by tier only says something once a tier has been assigned. Before that every
-    # scenario carries the same default and the sort is an illusion of ranking, so within a group
-    # they stay in the order the scenario space built them.
     if MATERIALITY_COLUMNS in shows:
         ordering = {tier: index for index, tier in enumerate(reversed(MATERIALITY))}
         rows.sort(key=lambda r: (_group_of(r), ordering.get(r["materiality"], len(MATERIALITY)),

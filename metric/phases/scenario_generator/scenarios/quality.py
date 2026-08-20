@@ -1,30 +1,4 @@
-"""Deterministic checks on what a generative pass produced, and what to say when it failed.
-
-Three passes in this package already work the same way and it is worth naming: produce something,
-**audit it with code**, and put only the specific failures back to the model. The diagram reading
-does it, the intake draft does it, and neither of them asks the model to look again *in general* --
-they say "DEC-03 outcome Timeout leads nowhere; follow that arrow", which is something a model can
-act on where "read it again, more carefully" is not.
-
-This module is that audit for the scenario writer, which did not have one. It matters more here
-than anywhere else in the pipeline, because this is the pass whose output is **issued to the model
-owner**. Everything else the tool gets wrong is a quality problem a validator will notice. Text
-that states how the interaction ends is an answer key, and it fails silently: the template looks
-complete, the model owner runs it, and the exercise measured nothing.
-
-The checks are deliberately cheap and deliberately conservative. Every one of them is a fact
-about the text -- is there a name, does the plan have lines, does the description repeat a phrase
-from the expected outcome -- rather than a judgement about how good it is. A check that needed
-judgement would need a model, and a model checking a model's work on every scenario is the
-expensive way to be no more certain.
-Where the line sits is worth stating, because it moved once and moving it the wrong way is
-expensive. "This description is one sentence where the prompt asked for two or three" is a fact,
-and it is still not a check here: a single sentence naming the position, the condition and the
-subject matter is a good description, so the check would fire on sound text and buy a repair call
-per scenario to change nothing. "This turn plan says to provide the relevant details" is a fact
-*and* names something unrunnable whatever else is around it. Only the second kind belongs here.
-The rest is the review's, which reads for judgement and has a flag for it.
-"""
+"""Deterministic checks on what a generative pass produced, and what to say when it failed."""
 from __future__ import annotations
 
 import re
@@ -62,9 +36,6 @@ MIN_TURN_WORDS = 5
 # somebody who has never seen this agent, and "provide the relevant details" leaves them to invent
 # the test -- at which point two testers run two different tests and the transcripts cannot be
 # compared, which is the failure this whole exercise is built to avoid.
-#
-# Checked in the turn plan only. A description may honestly say a condition is "appropriate to the
-# account", where an instruction to *do* something appropriate is an instruction to guess.
 _VAGUE = (
     "relevant details", "relevant information", "appropriate details", "appropriate information",
     "necessary details", "necessary information", "required details", "required information",
@@ -89,19 +60,7 @@ def _shingles(words: Sequence[str], width: int = SHINGLE) -> set:
 
 
 def repeats_the_ending(text: str, ending: str) -> bool:
-    """Whether ``text`` carries a distinctive phrase out of ``ending``.
-
-    This is the answer-key check. The writer is never shown a scenario's terminal state -- see
-    :meth:`ScenarioWriter._payload`, which withholds it -- but it *is* shown the outcome of every
-    step on the route, and a route whose last step is "Identity check = Fail" can be written up as
-    "and the account is locked" without the model ever having been told where the route ends. The
-    prompt forbids it; this catches it when the prompt does not hold.
-
-    Matched on runs of consecutive distinctive words rather than on word overlap. A description of
-    a dispute and an ending about a dispute share the word "dispute" honestly, and a check that
-    fired on that would flag most of the scenario space; three consecutive content words in the same
-    order is a phrase that was carried across.
-    """
+    """Whether ``text`` carries a distinctive phrase out of ``ending``."""
     if not text or not ending:
         return False
     return bool(_shingles(_distinctive(text)) & _shingles(_distinctive(ending)))
@@ -114,12 +73,7 @@ def _vague_in(text: str) -> str:
 
 
 def problems(scenario: Scenario) -> List[str]:
-    """What is wrong with this scenario's written text, phrased for the model to act on.
-
-    Empty for the ordinary case. Each entry names the field and the fault, because that is what
-    makes a repair call worth making: a model asked to "improve this" returns something different
-    rather than something better.
-    """
+    """What is wrong with this scenario's written text, phrased for the model to act on."""
     found: List[str] = []
 
     if not (scenario.name or "").strip():

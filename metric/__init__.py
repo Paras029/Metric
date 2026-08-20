@@ -1,15 +1,5 @@
 """METRIC - build an independent test benchmark for a conversational agent, and measure what
 the agent's owner already tests.
-
-Five phases, each a package under ``metric.phases``:
-
-    intake              the agent as a declared decision graph
-    scenario_generator  every route through it, written up and weighed
-    variation_generator variants worth running separately
-    coverage            what the owner's own testing already reaches
-    evaluation          scoring the transcripts they return
-
-Programmatic entry points are re-exported here; the pipeline functions run a phase end to end.
 """
 from metric.phases.scenario_generator.materiality.assess import (MaterialityAssessor,
                                                                  NullMaterialityAssessor)

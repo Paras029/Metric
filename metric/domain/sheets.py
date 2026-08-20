@@ -1,8 +1,4 @@
-"""Minimal spreadsheet helpers: a bold header row, column widths, plain data rows.
-
-Unstyled beyond a bold header and a frozen top row, keeping templates and outputs
-easy to read and to edit by hand.
-"""
+"""Minimal spreadsheet helpers: a bold header row, column widths, plain data rows."""
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -19,19 +15,7 @@ _BOLD = Font(bold=True)
 
 @contextmanager
 def open_for_reading(path: str, description: str = "workbook") -> Iterator:
-    """A workbook opened to be read and nothing else, and reliably closed afterwards.
-
-    ``read_only`` puts openpyxl into its streaming reader rather than building a cell object for
-    every cell in the file up front, which is most of the cost of opening a large metadata workbook -- a
-    three-hundred-scenario one takes about a fifth as long this way, and that read happens on
-    every page load of every scenario stage.
-
-    It also holds the file open until told otherwise, which matters more here than the speed
-    does: this tool is routinely run against a OneDrive-synced folder on Windows, where a handle
-    left open is what turns the next write into a permission error. Hence a context manager
-    rather than a bare loader -- there is no path out of this, including an exception mid-read,
-    that leaves the file held.
-    """
+    """A workbook opened to be read and nothing else, and reliably closed afterwards."""
     try:
         workbook = load_workbook(str(path), data_only=True, read_only=True)
     except Exception as exc:
@@ -72,14 +56,7 @@ def read_rows(sheet: Worksheet) -> List[List[str]]:
 
 
 def read_table(sheet: Worksheet) -> "tuple[List[str], List[List[str]]]":
-    """The header row and the data rows, in one pass over the sheet.
-
-    One pass because a read-only workbook streams: asking for the header and then the rows would
-    mean opening the sheet twice. Returning the header at all is what lets a reader address
-    columns by the name printed in the file rather than by counting them -- see
-    :mod:`scenario_generator.io.workbooks`, where a metadata workbook has twenty-six of them and hand-
-    counted indices had to be kept in step with the writer by eye.
-    """
+    """The header row and the data rows, in one pass over the sheet."""
     header: List[str] = []
     rows: List[List[str]] = []
     for number, values in enumerate(sheet.iter_rows(values_only=True), start=1):

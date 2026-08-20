@@ -1,10 +1,4 @@
-"""Robust parsing of a JSON object out of an LLM reply.
-
-Models routinely wrap JSON in markdown fences, add surrounding prose, or (rarely) truncate a
-reply mid-object. `parse_json_object` tolerates all three: it strips fences, parses leniently
-(literal newlines inside string values are allowed), and if the whole blob still won't parse,
-salvages whichever individual `"id": {...}` objects are intact rather than losing the batch.
-"""
+"""Robust parsing of a JSON object out of an LLM reply."""
 from __future__ import annotations
 
 import json

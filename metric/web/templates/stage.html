@@ -229,6 +229,7 @@
     <ol class="steps">
       {% for item in rail %}
         <li class="steps__item steps__item--{{ item.status }}
+                   {% if item.opens_a_phase and not loop.first %}steps__item--opens{% endif %}
                    {% if item.stage.key == stage.key %}steps__item--active{% endif %}">
           <a class="steps__link" href="{{ url_for('stage', key=item.stage.key) }}"
              title="{{ item.stage.blurb }}"

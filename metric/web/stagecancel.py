@@ -1,15 +1,4 @@
-"""In-memory stop signals for stages running on a background thread.
-
-A stage's work only ever happens inside this process, on the thread ``run_stage`` starts for it,
-so the signal that stops it only ever needs to reach that thread -- there is nothing to persist.
-Keeping it on disk alongside the rest of a workspace's state would in fact be wrong: a signal that
-survived a restart would outlive the very thread it was meant to stop, and could be found "still
-set" against a stage that was never actually asked to stop this time.
-
-One event per (workspace, stage) that is currently running. :func:`start` is called from the
-request that launches the background thread, before the thread exists, so a stop clicked in the
-instant after that request returns is never lost waiting for the thread to register itself.
-"""
+"""In-memory stop signals for stages running on a background thread."""
 from __future__ import annotations
 
 import threading
@@ -43,14 +32,7 @@ def stop(root: Path, stage_key: str) -> bool:
 
 
 def clear(root: Path, stage_key: str, event: threading.Event = None) -> None:
-    """Drop a stage's signal once its run has ended, however it ended.
-
-    Pass the event that run was given. A stage that fails is marked failed *before* its thread
-    reaches this, which leaves a window in which the stage reads as runnable again and a second
-    run can register a signal of its own -- and clearing by key alone would then throw away the
-    new run's signal instead of the old one's, leaving a stage that is genuinely running with
-    nothing listening for a stop. Clearing only what this run registered cannot do that.
-    """
+    """Drop a stage's signal once its run has ended, however it ended."""
     key = _key(root, stage_key)
     with _guard:
         if event is None or _events.get(key) is event:

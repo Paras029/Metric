@@ -23,14 +23,7 @@ _REQUIRED_SHEETS = ("L1 Use Case", "Personas", "L2 Capabilities", "L3 Decisions"
 
 
 def _open_for_editing(path: str):
-    """Open a workbook that is about to be written back to.
-
-    Reading goes through :func:`sheets.open_for_reading`, which is faster and closes the file
-    behind it; this is the one path that cannot use it, because a streaming read-only workbook
-    cannot be saved. The error handling is the same either way: a .xlsx is a zip archive, and
-    anything else carrying that extension fails with a message naming the container format rather
-    than the fix.
-    """
+    """Open a workbook that is about to be written back to."""
     try:
         return load_workbook(path)
     except Exception as exc:
@@ -47,22 +40,7 @@ def _cell(row: List[str], index: int) -> str:
 
 
 def _named(cell: str, declared: List[str], shape) -> tuple:
-    """The ids a cell names, in the order they are written.
-
-    Scraped rather than split, because these cells are filled in by hand and the separator varies:
-    "S-00, S-03", "S-00 and S-03", and a list down the cell all mean the same thing, and a span
-    that silently covers half the block it names is the failure worth avoiding.
-
-    What is scraped *for* is the ids that were actually declared, and only then anything of the
-    right general shape. Matching a shape alone is what broke on a declaration that numbered its
-    states any way other than this tool's own: a state called ``S-START`` is not "S- and a number",
-    so a span naming it was written to the workbook and read back empty, which is
-    indistinguishable from the save having failed. The shape stays as a fallback so a reference to a state that does not exist is
-    still read, and then reported as dangling, rather than disappearing without trace.
-
-    Matches keep the declared spelling. An id written ``s-start`` in one cell and ``S-START`` in
-    another is one id, and which of the two the walk keys on cannot depend on which cell was read.
-    """
+    """The ids a cell names, in the order they are written."""
     text = str(cell or "")
     if not text.strip():
         return ()
@@ -102,12 +80,7 @@ def _outcome_type(raw: str) -> str:
 
 # --------------------------------------------------------------------------- readers
 def _sheet(workbook, name: str, path: str) -> list:
-    """One sheet's data rows, or a message naming the sheet that is not there.
-
-    A workbook that has been through Google Sheets, or been rebuilt by hand from a copy, loses or
-    renames tabs surprisingly often. openpyxl reports that as a bare KeyError on the sheet name,
-    which does not say what the file was expected to contain or where to get one that does.
-    """
+    """One sheet's data rows, or a message naming the sheet that is not there."""
     if name not in workbook.sheetnames:
         raise ValueError(
             f"'{Path(path).name}' has no '{name}' sheet, so it is not an intake workbook this "
@@ -165,15 +138,7 @@ def read_intake(path: str) -> IntakeData:
 
 
 def read_review_notes(path: str) -> List[dict]:
-    """The drafter's own review notes, read back from the "Review This" sheet it wrote.
-
-    Nothing else persists a draft's self-assessment -- the workbook is the one place it lives,
-    the same as everything else this tool declares about the agent -- so recovering it later (to
-    fold into the intake stage's gap questions) means reading this sheet back rather than keeping
-    a second copy of it anywhere. Absent, unreadable, or from a hand-built workbook with no such
-    sheet, this returns no notes rather than raising: a missing self-assessment is not a reason to
-    keep the rest of the intake from being read.
-    """
+    """The drafter's own review notes, read back from the "Review This" sheet it wrote."""
     try:
         with sheets.open_for_reading(path, "an intake workbook") as workbook:
             if "Review This" not in workbook.sheetnames:
@@ -198,12 +163,7 @@ def read_review_notes(path: str) -> List[dict]:
 
 
 def read_owner_scenarios(path: str, sheet_name: str = "Scenarios") -> List[OwnerScenario]:
-    """Read a model owner's declared scenario list: ID, Description, optional Decision Path.
-
-    Not the coverage stage's input -- that reads transcripts, since a list of scenario titles is a
-    claim about their testing rather than the testing itself. This is the optional context handed
-    to the final review, where knowing what they say they cover can inform what it proposes.
-    """
+    """Read a model owner's declared scenario list: ID, Description, optional Decision Path."""
     with sheets.open_for_reading(path, "a scenario library") as workbook:
         if sheet_name not in workbook.sheetnames:
             raise ValueError(
@@ -287,15 +247,7 @@ _NEXT_DECISIONS_COLUMN = 4                                 # "Valid Next Decisio
 
 
 def set_decision_scope(path: str, decision_id: str, out_of_scope: bool) -> bool:
-    """Flip one decision's Out of Scope column in place. Returns whether a row was found.
-
-    A narrow exception to "edit the workbook and upload it again": scope is a single yes/no a
-    person is expected to flip while looking at the graph rather than while looking at a
-    spreadsheet, so the interface writes it directly instead of making a full workbook round trip
-    the only way to set it. ``sheet.cell(...)`` rather than indexing the row tuple, because a
-    workbook that omits this column has fewer than nine columns and indexing past the end of a
-    short row raises; writing by row and column number extends the sheet instead.
-    """
+    """Flip one decision's Out of Scope column in place. Returns whether a row was found."""
     workbook = _open_for_editing(path)
     if "L3 Decisions" not in workbook.sheetnames:
         return False
@@ -310,17 +262,7 @@ def set_decision_scope(path: str, decision_id: str, out_of_scope: bool) -> bool:
 
 def set_capability_span(path: str, capability_id: str, entry_states: List[str],
                         exit_states: List[str]) -> bool:
-    """Set one capability's entry and exit states in place. Returns whether a row was found.
-
-    The same narrow exception :func:`set_decision_scope` makes, for the same reason and more so.
-    Where one block of the agent ends and the next begins is decided by looking at the drawing --
-    following the arrows out of identification and seeing which box the flow hands on at -- and
-    routing that through "edit the L2 sheet, save, upload again" would put a spreadsheet between
-    the judgement and the picture it is made from.
-
-    Written as a comma-separated list because that is what the reader parses out of the cell, and
-    what a person typing into the sheet by hand would most likely write.
-    """
+    """Set one capability's entry and exit states in place. Returns whether a row was found."""
     workbook = _open_for_editing(path)
     if "L2 Capabilities" not in workbook.sheetnames:
         return False
@@ -335,12 +277,7 @@ def set_capability_span(path: str, capability_id: str, entry_states: List[str],
 
 
 def set_state_reached_via(path: str, state_id: str, reached_via: str) -> bool:
-    """Correct one state's Reached Via column in place. Returns whether a row was found.
-
-    The same narrow exception as :func:`set_decision_scope`, for the other half of a structure
-    review's reconnection proposals: a state the declared graph does not actually connect, fixed
-    by naming the decision outcome that reaches it, without a full workbook round trip.
-    """
+    """Correct one state's Reached Via column in place. Returns whether a row was found."""
     workbook = _open_for_editing(path)
     if "L4 States" not in workbook.sheetnames:
         return False
@@ -354,12 +291,7 @@ def set_state_reached_via(path: str, state_id: str, reached_via: str) -> bool:
 
 
 def attach_decision_to_state(path: str, state_id: str, decision_id: str) -> bool:
-    """Add ``decision_id`` to a state's Valid Next Decisions. Returns whether anything changed.
-
-    Amended in place rather than the workbook rewritten, so every other sheet -- and anything a
-    person has put in the file by hand -- survives untouched. A decision the state already names
-    is left alone rather than repeated.
-    """
+    """Add ``decision_id`` to a state's Valid Next Decisions. Returns whether anything changed."""
     workbook = _open_for_editing(path)
     if "L4 States" not in workbook.sheetnames:
         return False
@@ -382,39 +314,14 @@ _REACHED_VIA_KEY = re.compile(r"^\s*([A-Za-z]+-" + ID_BODY + r")\s*=\s*(.+?)\s*$
 
 
 def _outcome_key(decision_id: str, outcome: str) -> str:
-    """A ``DEC-xx=Outcome`` pair as a lookup key, tolerant of case and spacing.
-
-    Whatever wrote the workbook and whatever proposed a merge may not agree on either -- the
-    workbook's own text is whatever a person or an earlier draft happened to type, and the model
-    was never shown it directly, only the intake's rendered description of it.
-    """
+    """A ``DEC-xx=Outcome`` pair as a lookup key, tolerant of case and spacing."""
     return f"{decision_id.strip().upper()}={outcome.strip().lower()}"
 
 
 def merge_decisions(path: str, decision_ids: List[str], new_id: str, new_name: str,
                     new_outcomes: List[str], outcome_map: Dict[str, str],
                     primary_capability: str = "") -> bool:
-    """Collapse several decisions into one, remapping every state that pointed at any of them.
-
-    ``new_id`` must be one of ``decision_ids`` -- that row is rewritten in place with the new
-    name and outcomes rather than replaced, so nothing that already pointed at it (a state's
-    Reached Via, another state's Valid Next Decisions) has to change to keep pointing at the right
-    row. Every *other* named decision's row is deleted.
-
-    ``outcome_map`` gives, for each ``DECID=OldOutcome`` combination across every merged decision,
-    which of ``new_outcomes`` it becomes. Every L4 state whose Reached Via names one of the merged
-    decisions is rewritten to ``new_id`` and the mapped outcome; every state whose Valid Next
-    Decisions named one of the *other* merged decisions is rewritten to name ``new_id`` instead. A
-    pair with no entry in ``outcome_map`` is left exactly as it was, on the id it already named --
-    better an orphaned reference to a decision that still exists in spirit under a new id than a
-    silently invented mapping.
-
-    Capabilities are not rewritten: the merged decision keeps whichever single capability
-    ``primary_capability`` names (or its own, where none is given), and a decision that drew on
-    more than one keeps the others only as a note a person can see, not as a structural link --
-    the workbook's Triggering Capability column holds one id, and forcing several into it would be
-    inventing a shape the sheet does not have rather than merging within the one it does.
-    """
+    """Collapse several decisions into one, remapping every state that pointed at any of them."""
     decision_ids = [str(d).strip().upper() for d in decision_ids]
     new_id = str(new_id).strip().upper()
     if new_id not in decision_ids or len(decision_ids) < 2 or len(new_outcomes) < 2:

@@ -1,19 +1,4 @@
-"""Building the context document and the open questions from a synthesised evidence record.
-
-The context document is what every later stage reads to understand the agent, and what the intake
-is drafted from. It is organised as answers to the questions the scenario space depends on, because
-that is the form the work downstream actually needs — not a list of the sentences that happened
-to appear in the source.
-
-Assembly here is deterministic. The synthesis pass did the combining and restructuring, under
-instruction to rest only on verified observations and to cite them; this module lays that out and
-attaches the citations. No model call happens at this point, so the file can be handed on as a
-record of what was established rather than as another opinion to weigh.
-
-The supporting observations are printed beneath each answer with their document and page. That is
-what makes the restructuring auditable: a reader who doubts a sentence can follow it to the pages
-it was built from.
-"""
+"""Building the context document and the open questions from a synthesised evidence record."""
 from __future__ import annotations
 
 from collections import OrderedDict
@@ -134,22 +119,7 @@ def build_context_document(record: EvidenceRecord, use_case_name: str = "") -> s
 
 
 def build_model_context(record: EvidenceRecord, use_case_name: str = "") -> str:
-    """The same reading, rendered for a model call rather than for a person.
-
-    The context document and this are two renderings of one record, and they are different because
-    they are read for different things. A person reading the document is auditing it: they need the
-    quote, the document it came from and the page, because the question they are answering is
-    "can I believe this". A model taking the same reading as grounding is not auditing anything --
-    it needs what the agent *is*, and provenance it cannot check costs it context it could have
-    spent on the substance.
-
-    Dropping the supporting observations is most of the difference in size, and none of the
-    difference in information: every claim under them is already stated in the answer or its
-    specifics, which is what the answer was synthesised from. The workflow read off the diagrams
-    stays, because it is structure rather than provenance, and what the documents did *not* settle
-    stays, because a model that cannot tell a gap in the documentation from an absence in the agent
-    will fill it in.
-    """
+    """The same reading, rendered for a model call rather than for a person."""
     lines: List[str] = []
     title = use_case_name.strip() or "the agent under validation"
     lines += [f"# What the submitted documentation establishes about {title}", ""]
@@ -201,14 +171,7 @@ FACET_STAKES = {
 
 
 def _confirmation_groups(record: EvidenceRecord) -> List[dict]:
-    """Claims needing confirmation, one entry per facet rather than one per claim.
-
-    A single workflow diagram routinely reads out several dozen individual observations, and none
-    of them changes what the intake needs to declare -- each one needs the same thing, a person's
-    glance to say it was read right. Listing every one as its own question turns one diagram into
-    a wall of near-identical rows; grouping them by the part of the intake they inform is the same
-    review; with a fraction of the scrolling.
-    """
+    """Claims needing confirmation, one entry per facet rather than one per claim."""
     grouped: "OrderedDict[str, list]" = OrderedDict()
     for claim in record.needing_confirmation():
         grouped.setdefault(claim.facet, []).append(claim)
@@ -230,22 +193,7 @@ def _confirmation_groups(record: EvidenceRecord) -> List[dict]:
 
 
 def open_questions(record: EvidenceRecord) -> List[dict]:
-    """What still needs answering, as a list a person can work through, most blocking first.
-
-    Three kinds, deliberately in one list because they block the same thing — an intake that can
-    be trusted. A question nothing addressed is a gap in the submitted pack. A specific point an
-    answer could not settle is a gap inside an otherwise good answer, and is usually the more
-    useful of the two, since it is precise enough to be answered in a sentence. A statement that
-    could not be checked against text needs confirming before anything rests on it -- these are
-    grouped one entry per facet rather than one per statement, since a diagram alone can produce
-    dozens and every one of them asks the same thing of the reader.
-
-    Only the unknowns the resolution sweep judged to stop the intake being filled in appear here.
-    Everything else stays in the evidence record and in the context document, where it is a note
-    on how complete the documentation is rather than a task for anybody. Documentation is always
-    incomplete; the questions worth a model owner's time are the ones without which a part of
-    the intake cannot be written at all.
-    """
+    """What still needs answering, as a list a person can work through, most blocking first."""
     questions: List[dict] = []
     unanswered = set(record.empty_facets())
 

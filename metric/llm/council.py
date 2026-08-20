@@ -1,28 +1,4 @@
-"""Three models on one judgement, where a second opinion is worth what it costs.
-
-The three passes this can be turned on for -- reading the documents into an intake, reviewing the
-whole scenario space, and mapping a model owner's conversations onto it -- have a property the
-others do not. Each is a *judgement over a whole body of evidence*, made once, that everything
-downstream is then built on. A worse intake is a worse scenario space, permanently. A worse review
-is a materiality tier nobody revisits. There is no later stage that would catch either, because
-every later stage takes them as given.
-
-Compare that with writing a scenario up, or assigning it a tier. Those are made per scenario,
-hundreds of times, over a small and legible input, and a bad one is visible on the page next to
-its neighbours. Paying three times for those would triple the bill of the whole run to improve
-the part of it a person can already see and fix. So a council is deliberately not available there.
-
-**How it runs.** Two workers answer the same prompt independently, in parallel, knowing nothing
-of each other -- which is the point: two models shown each other's work agree with each other,
-and the agreement means nothing. Then a reconciler answers the same prompt *itself* and is shown
-both workers' replies as material. It is not a vote and not a merge. A vote over two answers
-cannot break a tie, and a merge of two JSON documents is a document neither model wrote and
-neither would defend. What the reconciler produces is a third answer, made with two others in
-view, and it is the one that is used.
-
-**Everything is off by default.** A council names its models in ``tuning.yml``; naming none means
-one model does the work exactly as it did before, and no code path changes.
-"""
+"""Three models on one judgement, where a second opinion is worth what it costs."""
 from __future__ import annotations
 
 import logging
@@ -94,12 +70,7 @@ class Council:
 
 
 def for_stage(stage: str) -> Optional[Council]:
-    """The council configured for this call site, or ``None`` for the ordinary single call.
-
-    Read at the point of use rather than built once, for the same reason every other setting here
-    is a function: the interface runs for hours and a value fixed at import cannot be changed
-    without restarting it.
-    """
+    """The council configured for this call site, or ``None`` for the ordinary single call."""
     if stage.upper() not in COUNCIL_STAGES:
         return None
 
@@ -136,16 +107,7 @@ def _truthy(value) -> bool:
 
 def deliberate(complete: Callable[..., str], system: str, user: str, *, stage: str, tier,
                cancel=None, **extra) -> str:
-    """Two workers in parallel, then a reconciler that answers with both in view.
-
-    Returns the reconciler's reply, which the caller parses exactly as it parses a single call --
-    a council changes who answers, never the shape of the answer.
-
-    Degrades rather than fails, at every step. One worker that does not come back leaves the
-    reconciler with one reading, which is still better than none. Both failing, or the reconciler
-    failing, falls back to the ordinary single call on the stage's own model, so switching a
-    council on can slow a run down and cannot break one.
-    """
+    """Two workers in parallel, then a reconciler that answers with both in view."""
     council = for_stage(stage)
     if council is None:
         return call(complete, system, user, tier=tier, **extra)
@@ -173,16 +135,7 @@ def deliberate(complete: Callable[..., str], system: str, user: str, *, stage: s
 
 def _workers(complete, system: str, user: str, council: Council, tier, cancel,
              extra: Optional[dict] = None) -> List[str]:
-    """Both workers' replies, in the order the models are named, skipping any that failed.
-
-    ``extra`` carries anything the call site adds beyond the prompt -- the images a diagram pass
-    sends, most of all. Without it a council over those passes would ask two models to read a
-    picture and send neither of them the picture.
-
-    Concurrent because they are genuinely independent -- neither sees the other, which is the
-    whole reason two of them are worth having -- so a council costs one worker's latency plus the
-    reconciler's rather than three calls end to end.
-    """
+    """Both workers' replies, in the order the models are named, skipping any that failed."""
     def ask(model: str) -> Optional[str]:
         try:
             return call(complete, system, user,
@@ -201,19 +154,7 @@ def _workers(complete, system: str, user: str, council: Council, tier, cancel,
 def deliberate_batch(complete: Callable[..., str], system: str, user_messages: Sequence[str], *,
                      stage: str, tier, cancel=None, on_progress=None,
                      **extra) -> List[Union[str, BaseException]]:
-    """A council over a batched pass. Same contract as :func:`calling.call_batch`.
-
-    Three flights rather than three calls per chunk. Each worker takes the *whole* batch in one
-    flight, and the two flights overlap; the reconciler then takes one flight carrying every
-    chunk with its two readings attached. So a council over a batched pass costs three flights
-    however many chunks there are, and takes about twice the wall time of one -- the workers
-    overlap with each other, and the reconciler waits for both.
-
-    A chunk one worker failed on still reaches the reconciler with the other worker's reading. A
-    chunk both failed on is passed through as the failure, which every caller of ``call_batch``
-    already handles: :func:`calling.parsed_reply` reports it and leaves that chunk as the passes
-    before it set it.
-    """
+    """A council over a batched pass. Same contract as :func:`calling.call_batch`."""
     council = for_stage(stage)
     if council is None or not user_messages:
         return call_batch(complete, system, user_messages, tier=tier, cancel=cancel,

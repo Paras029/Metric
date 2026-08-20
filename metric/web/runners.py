@@ -1,17 +1,4 @@
-"""What each stage of the pipeline actually does, and where it puts the result.
-
-One runner per stage. None of them contain pipeline logic: they read what the previous stage left
-on disk, call the same functions the command line calls, and write their own output back. That is
-what keeps the two front ends capable of the same things -- a workspace part-finished in the
-interface can be finished from the command line, and the reverse.
-
-Every runner has the same signature, ``(workspace, progress, cancel)``, whether or not it has
-anything long to report or interrupt. A stage with nothing to interrupt finds the signal unset,
-which costs nothing and is far easier to reason about than a list of which stages honour it.
-
-Anything a runner raises is shown in that stage's panel rather than swallowed; anything it returns
-is the set of figures shown beside it when it finishes.
-"""
+"""What each stage of the pipeline actually does, and where it puts the result."""
 from __future__ import annotations
 
 import logging
@@ -82,14 +69,7 @@ def _snapshot(key: str) -> str:
 
 
 def _save_metadata(workspace: Workspace, key: str, intake: IntakeData, scenarios) -> None:
-    """Write the live metadata workbook, and keep a copy of it as this stage left it.
-
-    Every stage from the workflow onward rewrites one metadata workbook, which means going back to an
-    earlier stage's page would otherwise show what *later* stages have since made of it -- a
-    scenario-text page listing tiers assigned after it ran, and proposals that did not exist.
-    The snapshot is what lets each stage show its own reading. It is a copy of a file already
-    being written rather than a second format, so nothing has to stay in step with it.
-    """
+    """Write the live metadata workbook, and keep a copy of it as this stage left it."""
     write_space_metadata(str(workspace.root / METADATA), intake, scenarios)
     shutil.copyfile(workspace.root / METADATA, workspace.root / _snapshot(key))
     workspace.state(key).artifacts["space_metadata"] = METADATA
@@ -111,17 +91,7 @@ def _scenarios(workspace: Workspace, intake: IntakeData):
 
 
 def _context(workspace: Workspace) -> str:
-    """Everything a later stage is grounded on: what the documents established, plus every note.
-
-    Rendered from the evidence record rather than read off the context document, where the record
-    is available. The two say the same things, but the document also carries the quote, source and
-    page behind every claim -- provenance a person auditing it needs and a model cannot check --
-    and that provenance is most of its length. Sending the compact rendering is what keeps the
-    substance inside a budget that would otherwise have to start cutting it.
-
-    Falls back to the document where the record cannot be read, which is what a workspace whose
-    context file was supplied rather than extracted has.
-    """
+    """Everything a later stage is grounded on: what the documents established, plus every note."""
     parts = []
     record = _evidence_record(workspace)
     if record is not None:
@@ -149,12 +119,7 @@ def _evidence_record(workspace: Workspace):
 
 
 def _read_documents(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
-    """Read every submitted document, then answer each question from all of them at once.
-
-    Only the groups that describe the agent are read (``evidence_files``) -- the model owner's
-    scenarios are excluded, since reading them as evidence would let their blind spots into the
-    scenario space by the back door, which is the thing an independent scenario space exists to avoid.
-    """
+    """Read every submitted document, then answer each question from all of them at once."""
     grouped = evidence_files(workspace.root)
     paths = [path for paths in grouped.values() for path in paths]
     if not paths:
@@ -182,13 +147,6 @@ def _read_documents(workspace: Workspace, progress=None, cancel=None) -> Dict[st
     # dropped for want of a quote and how many of eleven internal questions came back answered are
     # all real numbers, and all of them are about the machinery rather than about the agent being
     # validated -- they belong in the log and in the evidence file, both of which still have them.
-    # What is left here changes what somebody does next: a document nothing rests on was either
-    # irrelevant or passed over, and a document that could not be read at all has to be asked for
-    # again.
-    #
-    # Documents and images are counted apart because they are not the same submission. A workflow
-    # drawn across five pictures is one flow sent as five files, and rolling it into "6 documents
-    # read" says the pack was six times the size it was.
     summary: Dict[str, object] = {}
     if counts["texts"]:
         summary["Documents read"] = f"{counts['texts_read']} of {counts['texts']}"
@@ -202,14 +160,7 @@ def _read_documents(workspace: Workspace, progress=None, cancel=None) -> Dict[st
 
 
 def _needs_reading(workspace: Workspace) -> bool:
-    """Whether the submitted documents still have to be read before anything can be drafted.
-
-    True where documents were submitted and either nothing has been read yet, or a file has been
-    added or removed since -- the reading is of the pack as a whole, so a pack that has changed
-    has not been read. Compared by name rather than by content: a file replaced under the same
-    name is the case this cannot see, and re-reading a sixty-page pack on every run to catch it
-    would cost far more than it saves. Running the stage again is always available.
-    """
+    """Whether the submitted documents still have to be read before anything can be drafted."""
     submitted = {path.name for paths in evidence_files(workspace.root).values() for path in paths}
     if not submitted:
         return False
@@ -220,27 +171,7 @@ def _needs_reading(workspace: Workspace) -> bool:
 
 
 def _run_intake(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
-    """Read whatever was submitted, then draft or revise the declaration from it.
-
-    **Reading and drafting are one stage because they are one job.** The reading exists in order
-    to be drafted from; nothing happens between them that a person decides. Splitting them put a
-    Run button in the middle of a single thought, and made the questions the reading raised look
-    like an artefact to work through rather than what they are -- notes against the rows of a
-    draft. The reading is still exactly the same work, and everything it produces is still on
-    disk; it simply is not a step anybody has to take on purpose.
-
-    **A re-run revises rather than redrafts.** This is the whole difference between a second run
-    that helps and one that undoes the first. Everything that has happened since the last run --
-    an answer typed against a row, a note, a document added -- is new information about a
-    declaration that already exists, and a fresh draft has no way to tell a correction somebody
-    made by hand from something it should re-derive from nothing. So the current declaration goes
-    to the model as *what to revise*, with instructions to carry forward everything the new
-    information does not touch.
-
-    A workbook you uploaded is never written to at all. A re-run reads it and reports on it,
-    because a stage that silently replaced somebody's own file would be the worst thing this could
-    do with a button labelled "run again".
-    """
+    """Read whatever was submitted, then draft or revise the declaration from it."""
     report = progress or (lambda *args, **kwargs: None)
     provided = workspace.artifact_path("intake", "workbook")
     ours = provided is None or Path(provided).name == DRAFT_INTAKE
@@ -292,11 +223,7 @@ def _run_intake(workspace: Workspace, progress=None, cancel=None) -> Dict[str, o
 
 def _draft_or_revise(workspace: Workspace, provided, target: Path, context: Path, ours: bool,
                      report, cancel, summary: Dict[str, object]) -> None:
-    """The fixed sequence: draft a declaration, or revise the one already here.
-
-    Unchanged, and still the default. It needs nothing from the gateway beyond an ordinary
-    completion, which the loop cannot say.
-    """
+    """The fixed sequence: draft a declaration, or revise the one already here."""
     if ours and provided is not None and target.exists():
         cancellation.check(cancel)
         summary["_action"] = "revised"
@@ -322,13 +249,7 @@ def _draft_or_revise(workspace: Workspace, provided, target: Path, context: Path
 
 
 def _read_and_draft_with_loop(workspace: Workspace, target: Path, report) -> Dict[str, object]:
-    """Read the pack and fill the declaration in one loop, and report what it managed.
-
-    Replaces the reading and drafting sequence rather than following it. A gateway that cannot run
-    it falls back to that sequence rather than failing the stage -- an intake stage that produces
-    nothing because tool-calling is unavailable would be a worse outcome than one that costs a few
-    more calls.
-    """
+    """Read the pack and fill the declaration in one loop, and report what it managed."""
     from metric.phases.intake.intake import agent
 
     try:
@@ -370,13 +291,7 @@ def _group_of(workspace: Workspace, path) -> str:
 
 
 def _run_variations(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
-    """The variation space. Not built yet, and honest about it.
-
-    The stage exists so the pipeline has the shape it will keep, and so nothing downstream has to
-    change when it is filled in: it reads the scenario space, writes it back unchanged, and takes its
-    own snapshot exactly as every other scenario stage does. What it must not do is quietly report
-    success as though it had produced something, which is why the result says what it says.
-    """
+    """The variation space. Not built yet, and honest about it."""
     report = progress or (lambda *args, **kwargs: None)
     report("Reading the scenario space", 0, 2)
     intake = _intake(workspace)
@@ -389,11 +304,7 @@ def _run_variations(workspace: Workspace, progress=None, cancel=None) -> Dict[st
 
 
 def _proposal_dicts(review) -> List[Dict[str, object]]:
-    """A StructureReview's proposals as the plain dicts the workspace stores and the page reads.
-
-    One flat shape either way, distinguished by ``kind``, rather than two differently-shaped rows
-    -- the page renders both from one loop, and applying one is a single dispatch on this field.
-    """
+    """A StructureReview's proposals as the plain dicts the workspace stores and the page reads."""
     rows: List[Dict[str, object]] = []
     for item in review.reconnections:
         rows.append({"kind": "reconnect", "target_kind": item.kind, "target_id": item.id,
@@ -486,14 +397,7 @@ def _run_review(workspace: Workspace, progress=None, cancel=None) -> Dict[str, o
 
 
 def _run_summary(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
-    """Write the data template for the model owner and the scenario space metadata kept internally.
-
-    Where the workspace is set to issue gaps only, the pack carries just the scenarios the model
-    owner's conversations under-cover. This is the one place in the pipeline that takes
-    scenarios away rather than adding to them, and it is off unless someone turns it on: leaving a
-    scenario out is a decision to accept the model owner's evidence for it, which is a judgement
-    about how far that testing is trusted rather than anything this can work out.
-    """
+    """Write the data template for the model owner and the scenario space metadata kept internally."""
     report = progress or (lambda *args, **kwargs: None)
     report("Reading the scenario space", 0, 3)
     intake = _intake(workspace)
@@ -524,12 +428,7 @@ def _run_summary(workspace: Workspace, progress=None, cancel=None) -> Dict[str, 
 
 
 def _under_represented(workspace: Workspace):
-    """The ids coverage found under-represented, or None if coverage has not run.
-
-    None and the empty set mean different things and the caller has to tell them apart: nothing
-    mapped yet is not the same as everything covered, and filtering a pack down to nothing on the
-    strength of a stage that never ran would be the worst outcome available.
-    """
+    """The ids coverage found under-represented, or None if coverage has not run."""
     if not workspace.coverage_mappings():
         return None
     report = stored_report(workspace, read_space_metadata(str(workspace.root / METADATA)))
@@ -539,12 +438,7 @@ def _under_represented(workspace: Workspace):
 
 
 def _run_coverage(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
-    """Map the conversations the model owner actually ran onto this scenario space.
-
-    The input is transcripts rather than a scenario list -- see :mod:`ingest.conversations` for
-    why. The file may have arrived on either stage, with the rest of the pack or here on its own,
-    so both places are checked before the stage refuses to run.
-    """
+    """Map the conversations the model owner actually ran onto this scenario space."""
     submitted = owner_scenario_file(workspace.root) or workspace.artifact_path(
         "coverage", "owner_scenarios")
     if not submitted:

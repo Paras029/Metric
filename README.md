@@ -15,6 +15,27 @@ file. This page is setup, launch and the shape of the thing.
 
 ---
 
+## How the code is laid out
+
+```
+metric/
+  domain/     the declaration, the graph it describes, the workbooks both live in
+  llm/        model plumbing: gateway, tiers, batching, metering. Knows nothing about scenarios
+  shared/     text, JSON and batching helpers
+  phases/
+    intake/              1 - the agent as a declared decision graph
+    scenario_generator/  2 - walk it, write each route up, weigh it, review the set
+    variation_generator/ 3 - variants worth running separately (not built)
+    coverage/            4 - what the owner already tests, and the pack to issue
+    evaluation/          5 - score the transcripts they return (placeholder)
+  web/        the local interface; each stage's page is assembled here
+```
+
+Each step keeps its prompts beside the code that sends them, in its own `prompts/` directory.
+Anything more than one phase needs lives in `domain/` or `shared/` — that rule is what keeps
+`graph.py` out of the workflow step even though the workflow step is what walks it. Imports are
+absolute throughout, so a module's dependencies read at a glance.
+
 ## Contents
 
 - [Installing](#installing)
@@ -44,7 +65,7 @@ py -m venv .venv
 .venv\Scripts\activate
 py -m pip install -r requirements.txt
 py -m pip install -e .
-py -m scenario_generator --help
+py -m metric --help
 ```
 
 **macOS and Linux**
@@ -56,7 +77,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install -r requirements.txt
 python3 -m pip install -e .
-python3 -m scenario_generator --help
+python3 -m metric --help
 ```
 
 Substitute `py` or `python3` for `python` in every command below, to match your platform.
@@ -132,7 +153,7 @@ You need two things beside the code:
 To check the connection:
 
 ```bash
-python -c "from scenario_generator.llm.gateway import ask_llm; print(ask_llm('You are terse.', 'Say OK.'))"
+python -c "from metric.llm.gateway import ask_llm; print(ask_llm('You are terse.', 'Say OK.'))"
 ```
 
 A missing credential, a model name your `config.yml` does not declare, or a SafeChain that hands
@@ -158,7 +179,7 @@ spending any calls.
 The interface is the easier way to start.
 
 ```bash
-python -m scenario_generator serve
+python -m metric serve
 ```
 
 Open `http://127.0.0.1:5000`, name your use case, and work down the stages on the left. It binds
@@ -168,17 +189,17 @@ Everything it does is also available on the command line:
 
 ```bash
 # Read what the model owner sent.
-python -m scenario_generator ingest submitted_docs/ acme
+python -m metric ingest submitted_docs/ acme
 
 # Draft an intake from what was read, then open it and correct it.
-python -m scenario_generator draft-intake acme_context.md acme_intake.xlsx
+python -m metric draft-intake acme_context.md acme_intake.xlsx
 
 # Build the scenario space and write it up.
-python -m scenario_generator generate acme_intake.xlsx acme --with-probes \
+python -m metric generate acme_intake.xlsx acme --with-probes \
     --context acme_context.md
 
 # Review it whole, and rebuild the data template with the result.
-python -m scenario_generator review acme_intake.xlsx acme_scenario_space_metadata.xlsx acme_scenario_space_metadata.xlsx \
+python -m metric review acme_intake.xlsx acme_scenario_space_metadata.xlsx acme_scenario_space_metadata.xlsx \
     --context acme_context.md --pack acme_data_template.xlsx
 ```
 
@@ -460,7 +481,7 @@ line that is one command, which is the point of it being modular rather than a p
 true once:
 
 ```bash
-python -m scenario_generator graph-page acme_intake.xlsx acme_graph.html \
+python -m metric graph-page acme_intake.xlsx acme_graph.html \
     --scenarios acme_scenario_space_metadata.xlsx
 ```
 
@@ -482,7 +503,7 @@ Any stage accepts free-text notes and extra files. Both are passed to every stag
 On the command line this is `--note`, which is repeatable:
 
 ```bash
-python -m scenario_generator review intake.xlsx scenario_space_metadata.xlsx scenario_space_metadata.xlsx \
+python -m metric review intake.xlsx scenario_space_metadata.xlsx scenario_space_metadata.xlsx \
     --note "Disputes over 500 always go to a person." \
     --note "The vendor document is a version behind."
 ```
@@ -778,7 +799,7 @@ otherwise fail silently:
 ## Project layout
 
 ```
-scenario_generator/
+metric/
     core/       Intake parsing, decision graph, scenario generation, probes,
                 proposals, representation counting, evidence, grounding.
     ingest/     Document readers, extraction, context assembly, intake
@@ -798,14 +819,14 @@ examples/       A worked intake and the context that accompanies it.
 To confirm which copy of the package is being imported:
 
 ```bash
-python -c "import scenario_generator; print(scenario_generator.__file__)"
+python -c "import metric; print(metric.__file__)"
 ```
 
 ---
 
 ## Extending
 
-**Changing a prompt.** Every prompt is a file in `scenario_generator/prompts`, named
+**Changing a prompt.** Every prompt is a file in `the step's prompts/ directory`, named
 `<pass>.<purpose>.md`. Edit the wording and run again — nothing is compiled. Anything in double
 braces, like `{{use_case}}`, is filled in at run time; leave those exactly as they are. If one is
 renamed or removed, the run stops with a message naming the file and the slot.

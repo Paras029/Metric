@@ -56,20 +56,7 @@ VARIATIONS_BY_MATERIALITY = {"Low": 1, "Medium": 3, "High": 8}
 # --------------------------------------------------------------------------- intake
 @dataclass(frozen=True)
 class Capability:
-    """One block of the agent's work, and the part of the graph that does it.
-
-    A capability used to be a label on a decision and nothing else. It is now the unit the
-    scenario space is enumerated over, because a whole-journey walk does not survive a real agent:
-    an agent that identifies a cardmember, then verifies them, then verifies a charge has three
-    blocks of roughly a dozen routes each, and walking it end to end multiplies them into hundreds
-    of scenarios that differ only in how an earlier block was entered. Nobody tests those
-    separately, and a pack of seven hundred is not a pack anybody runs.
-
-    ``entry_states`` are the positions this block can be entered in; ``exit_states`` the positions
-    it hands on or finishes in. Both are drawn by hand -- where one capability ends and the next
-    begins is a judgement about the agent, not something a graph or a model can read off it -- and
-    an exit of one block is ordinarily the entry of the next, which is what makes the two join up.
-    """
+    """One block of the agent's work, and the part of the graph that does it."""
 
     id: str
     name: str
@@ -300,12 +287,7 @@ class ScenarioRow:
 # --------------------------------------------------------------------------- their own material
 @dataclass(frozen=True)
 class OwnerScenario:
-    """One row of a model owner's scenario library, where they keep one.
-
-    Not what the coverage stage reads -- that works from transcripts, since a scenario list is a
-    claim about their testing rather than the testing itself. This is context handed to the final
-    review, so a proposal can take account of what they say they already cover.
-    """
+    """One row of a model owner's scenario library, where they keep one."""
     id: str
     description: str
     declared_path: str = ""

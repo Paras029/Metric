@@ -58,16 +58,7 @@ def is_yes(value: str) -> bool:
 
 
 def one_of(value: object, allowed: Sequence[str], default: str = "") -> str:
-    """Match a value against a closed vocabulary, ignoring case and surrounding space.
-
-    Every vocabulary in this package is closed on purpose -- a category, a materiality tier, an
-    input source -- and anything outside one is dropped rather than guessed at. What must not
-    happen is dropping something that *is* in the list and merely arrived capitalised differently,
-    which is the common case when the value came from a model or from a hand-edited spreadsheet
-    cell. ``"happy path"`` and ``"HAPPY PATH"`` are both ``"Happy path"``; ``"Escalated"`` is not.
-
-    Returns the canonical spelling from ``allowed`` so callers can compare and store one form.
-    """
+    """Match a value against a closed vocabulary, ignoring case and surrounding space."""
     text = str(value or "").strip().lower()
     return next((item for item in allowed if item.lower() == text), default)
 
@@ -83,17 +74,7 @@ _NAME_SPLIT = re.compile(r"[^a-z0-9]+")
 
 
 def name_key(text: str) -> str:
-    """A name reduced to what distinguishes it: lowercase, de-pluralised, noise words dropped.
-
-    Joined with no separator, so a compound written as one word and as two reduces to the same
-    key: "Cardmember" and "Card members" are one persona, and keeping both doubles a part of the
-    scenario space without widening it. Sorted, so word order does not matter -- "dispute filing"
-    and "filing a dispute" are one capability.
-
-    Deliberately aggressive on stop words and deliberately not fuzzy beyond that. Edit distance
-    would fold "Identity check" into "Identity checks" and also into "Identify charge", and the
-    second is a real distinction the whole scenario space hangs on.
-    """
+    """A name reduced to what distinguishes it: lowercase, de-pluralised, noise words dropped."""
     words = []
     for word in _NAME_SPLIT.split(str(text or "").lower()):
         if not word or word in _NAME_NOISE:

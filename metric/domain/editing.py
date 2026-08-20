@@ -1,24 +1,4 @@
-"""Editing the declaration a row at a time, from the interface rather than in a spreadsheet.
-
-The workbook is the record and stays the record -- everything downstream reads it, a validator can
-open it, and a change made here is a change made there. What this removes is the round trip.
-Correcting one outcome used to mean downloading the workbook, finding the row, editing it, saving,
-and uploading it again, and the judgement being made in that loop -- "this branch leads to the
-wrong state" -- is made by looking at the drawing, which is on the screen the whole time. Six steps
-of friction around a two-second edit is how a declaration ends up with known-wrong rows in it.
-
-Two rules hold the whole module up.
-
-**Nothing is written that was not asked for.** An upsert touches the named columns of the named
-row and leaves every other cell exactly as it was, including columns this file does not know about
-and anything a person typed into the sheet by hand. A row that is not named is not read, let alone
-written.
-
-**A delete is reported, never cascaded.** Removing a decision leaves states naming it in their
-Valid Next Decisions, and the tempting fix -- clean those up too -- turns one deliberate deletion
-into several nobody asked for. So the dangling references come back as a report, the audit raises
-them on the next render, and the person decides.
-"""
+"""Editing the declaration a row at a time, from the interface rather than in a spreadsheet."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -62,20 +42,9 @@ _JOINED = {"entry_states": ", ", "exit_states": ", ", "outcomes": " / ", "next_d
            "applies_to": ", "}
 _BOOLEAN = {"out_of_scope", "is_terminal", "changes_state", "is_default"}
 
-# Fields that are not columns anywhere. A capability's decisions are recorded on the *decisions*,
-# one row each, which is the right place for them -- a decision belongs to exactly one capability
-# and the workbook says so where the decision is.
-#
-# It is the wrong place to *edit* them from, though, and that was the defect. Which decisions make
-# up a capability is the first judgement somebody makes about it, and everything else about the
-# capability is derived from that answer: which states it folds in, which of those can be its
-# entry, where a route through it leaves. Editing it one decision at a time from the other end of
-# the declaration meant the capability's own controls were computed from something its own row
-# could not change -- so a wrong grouping could be seen and not corrected.
-#
-# So the capability row carries the membership, and saving it writes the decisions. Expanded here
-# rather than in the interface, so the path with scripting and the path without it cannot come to
-# different conclusions about what a tick means.
+# Fields with no column of their own. A capability's decisions are recorded one per decision row,
+# which is where they belong, but everything else about the capability derives from them -- so the
+# capability's own row has to be able to set them. expand() turns the tick list into row writes.
 VIRTUAL = {("capability", "decisions")}
 
 # The one sheet that is not a table of rows. L1 Use Case is a column of field names beside a column
@@ -104,12 +73,7 @@ class EditRefused(ValueError):
 
 
 def next_id(existing: Sequence[str], prefix: str) -> str:
-    """The next free id in a series, as a person would number it.
-
-    Reading the highest rather than counting the rows: a declaration with DEC-01, DEC-02 and DEC-07
-    has had rows removed, and reusing DEC-03 would silently attach a new decision to whatever still
-    references the old one.
-    """
+    """The next free id in a series, as a person would number it."""
     if not prefix:
         return ""
     highest = 0
@@ -163,14 +127,7 @@ def _first_empty(sheet) -> int:
 
 
 def set_use_case(path: str, fields: Dict[str, str]) -> Report:
-    """Write named fields of the use case. Fields not named are left exactly as they are.
-
-    Its own function because its sheet is its own shape: two columns, field names down one and
-    values down the other, so there is no column number to write to -- the field is found by its
-    name. A field the sheet does not already carry is appended rather than refused, because the
-    reader takes whatever is there and a declaration that wants to record something extra should
-    be able to.
-    """
+    """Write named fields of the use case. Fields not named are left exactly as they are."""
     report = Report()
     if not fields:
         return report
@@ -201,25 +158,7 @@ def set_use_case(path: str, fields: Dict[str, str]) -> Report:
 
 
 def rename(path: str, kind: str, old_key: str, new_key: str) -> Report:
-    """Give something a new id, and repoint everything that named it by the old one.
-
-    The one edit that *must* cascade, and the reason is worth being precise about. A deletion is
-    reported rather than cascaded because the references it leaves behind become genuinely
-    undefined -- somebody has to decide what they should say instead. A rename leaves nothing
-    undefined: it is the same thing under a new name, every reference still means what it meant,
-    and repointing them is not a judgement but bookkeeping. Left undone, a rename silently breaks
-    every route through the renamed row, which is the worst outcome available here.
-
-    What follows what:
-
-    * a **decision** is named by states, in ``Reached Via`` (``DEC-xx=Outcome``) and in
-      ``Valid Next Decisions``;
-    * a **state** is named by capabilities, in their entry and exit spans;
-    * a **capability** is named by decisions and by tools, in their capability column.
-
-    Refused where the new id is already taken. Writing it anyway would fold two rows into one
-    without saying so, and the graph would come back missing a branch nobody removed.
-    """
+    """Give something a new id, and repoint everything that named it by the old one."""
     report = Report()
     old_key, new_key = str(old_key or "").strip(), str(new_key or "").strip()
     spec = KINDS.get(kind)
@@ -306,12 +245,7 @@ def _repoint(intake, kind: str, old_key: str, new_key: str) -> List[dict]:
 
 
 def _rewrite_reached_via(cell: str, old_key: str, new_key: str) -> str:
-    """One Reached Via cell with a decision id swapped, and everything else left alone.
-
-    Only the id is touched. The outcome after the equals sign, the separators, and any note
-    somebody wrote around them are what a person typed, and a rename is not licence to reformat
-    them -- see the retry bounds the walk's own parser is careful to read past.
-    """
+    """One Reached Via cell with a decision id swapped, and everything else left alone."""
     import re
 
     return re.sub(r"(?<![A-Za-z0-9-])" + re.escape(old_key) + r"(?![A-Za-z0-9-])",
@@ -319,14 +253,7 @@ def _rewrite_reached_via(cell: str, old_key: str, new_key: str) -> str:
 
 
 def expand(path: str, edits: Sequence[dict]) -> List[dict]:
-    """Turn virtual fields into the row edits that actually record them.
-
-    Reads the workbook, because the expansion is a *difference*: ticking three decisions for a
-    capability says as much about the ones no longer ticked as about the ones now are, and the
-    only way to know which those were is to look at what is recorded. A tick that only ever added
-    would leave a decision belonging to two capabilities, which the graph cannot represent and the
-    walk silently resolves by taking whichever it read first.
-    """
+    """Turn virtual fields into the row edits that actually record them."""
     if not any((str(e.get("kind", "")), name) in VIRTUAL
                for e in edits for name in (e.get("fields") or {})):
         return list(edits)
@@ -368,15 +295,7 @@ def _as_list(value) -> List[str]:
 
 
 def apply_edits(path: str, edits: Sequence[dict]) -> Report:
-    """Apply a batch of row edits to the workbook and say what happened.
-
-    A batch rather than one at a time, because the edits arrive together from one Save and because
-    a half-applied batch is the state nobody can reason about: a decision written and the state
-    that reaches it not, with no record of which half landed. Everything is applied to one open
-    workbook and saved once, so a failure part way through leaves the file untouched.
-
-    Each edit is ``{"kind": ..., "key": ..., "action": "upsert"|"delete", "fields": {...}}``.
-    """
+    """Apply a batch of row edits to the workbook and say what happened."""
     if not edits:
         return Report()
 
@@ -440,13 +359,7 @@ def apply_edits(path: str, edits: Sequence[dict]) -> Report:
 
 
 def _dangling(path: str) -> List[str]:
-    """References the declaration still makes to things that are not in it.
-
-    Read back off the saved workbook rather than tracked through the edits, because the question
-    is about the file as it now stands: a decision deleted while a state still offers it, and a
-    decision that never existed but was typed into a state by hand, are the same problem and the
-    person fixing them does not care which edit produced it.
-    """
+    """References the declaration still makes to things that are not in it."""
     try:
         intake = read_intake(path)
     except Exception:                     # an unreadable workbook is a louder problem than this
@@ -476,16 +389,7 @@ def _dangling(path: str) -> List[str]:
 
 
 def preview(path: str, edits: Sequence[dict], scratch: Optional[str] = None):
-    """What the declaration would be with these edits, without writing them.
-
-    A copy of the workbook, edited and read back. The alternative -- applying the edits to an
-    ``IntakeData`` in memory -- would be faster and would answer a different question: it would
-    say what the *model* becomes, where what is wanted is what the *file* becomes, which is what
-    every stage after this one reads. The two differ exactly where an edit is malformed, which is
-    the case a preview exists for.
-
-    Returns the :class:`IntakeData` the workbook would hold, and the report.
-    """
+    """What the declaration would be with these edits, without writing them."""
     import shutil
     import tempfile
 
