@@ -59,7 +59,8 @@ from .runners import (CONTEXT, DRAFT_INTAKE, EVIDENCE, OVERLAP, METADATA, RUNNER
                       _apply_proposal, _context, _intake, _proposal_dicts,
                       _scenarios, _snapshot)
 from .scenarios import PAGE_SIZE, build_rows, parse_cells, shape
-from .stages import RUNNING, STAGE_BY_KEY, STAGES, STATUS_LABELS, downstream_of, index_of
+from .stages import (COMPLETE, RUNNING, STAGE_BY_KEY, STAGES, STATUS_LABELS,
+                     downstream_of, index_of)
 from .workspace import Workspace, stage_view
 
 # Stages whose output is a set of scenarios, so the page shows them rather than only counts.
@@ -737,10 +738,8 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         if not path:
             abort(404)
         if set_decision_scope(str(path), decision_id, bool(request.form.get("on"))):
-            invalidated = workspace.invalidate_from("intake")
-            workspace.save()
             return redirect(url_for("stage", key="intake",
-                                    invalidated=", ".join(s.title for s in invalidated)))
+                                    invalidated=", ".join(_declaration_changed(workspace))))
         return redirect(url_for("stage", key="intake"))
 
     @app.route("/stage/intake/capability/<capability_id>/span", methods=["POST"])
@@ -774,12 +773,10 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
                 # cannot be read is a problem to see on the page, not a reason to clear a span.
                 logger.exception("Could not work out where %s is left", capability_id)
         if set_capability_span(str(path), capability_id, entries, exits):
-            invalidated = workspace.invalidate_from("intake")
-            workspace.save()
             return redirect(url_for("stage", key="intake",
-                                    invalidated=", ".join(s.title for s in invalidated))
-                            + "#capabilities")
-        return redirect(url_for("stage", key="intake") + "#capabilities")
+                                    invalidated=", ".join(_declaration_changed(workspace)))
+                            + "#declaration")
+        return redirect(url_for("stage", key="intake") + "#declaration")
 
     # ------------------------------------------------------------------ editing the declaration
     #
@@ -787,6 +784,38 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
     # drawings, and what the audit still says. The page swaps that in without a reload, which is
     # what makes selecting a row and seeing it light in the graph feel like one thing rather than
     # a form and a picture that happen to be adjacent.
+
+    def _declaration_changed(workspace: Workspace) -> List[str]:
+        """Bring the intake stage's own report up to date, and mark the later stages stale.
+
+        The distinction that was wrong before. Editing a row does not make the *intake* out of
+        date: the declaration is the workbook, the workbook has just been written, and the page is
+        rendered from it -- so the stage showing "out of date" was telling somebody to re-run the
+        one thing that is already current. What the edit does make stale is everything built from
+        the declaration, which is a real and expensive difference.
+
+        What genuinely does go stale on the intake is its stored summary -- adding a decision
+        changes "6 decision points" -- so that is refreshed rather than invalidated. A count is a
+        fact about the file and it is cheap to recompute; asking for a model call to correct it
+        would be absurd.
+        """
+        state = workspace.state("intake")
+        if state.status == COMPLETE and state.summary:
+            try:
+                intake = _intake(workspace)
+                state.summary.update({
+                    "Use case": intake.name, "Capabilities": len(intake.capabilities),
+                    "Decision points": len(intake.decisions), "States": len(intake.states),
+                    "Personas": len(intake.personas), "Tools": len(intake.tools)})
+                outstanding = structural_problems(intake)
+                state.summary["Still needs an answer"] = (
+                    len(outstanding) or "nothing — the graph is complete")
+            except Exception:
+                logger.exception("Could not refresh what the intake stage reports")
+
+        invalidated = [s.title for s in workspace.invalidate_after("intake")]
+        workspace.save()
+        return invalidated
 
     def _declaration_state(intake, report=None) -> Dict[str, object]:
         """Everything the editing panel needs after any change, in one answer.
@@ -863,11 +892,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             logger.exception("Could not write the declaration")
             return jsonify({"error": str(exc)}), 400
 
-        invalidated = []
-        if report.changed:
-            invalidated = [s.title for s in workspace.invalidate_from("intake")]
-            workspace.save()
-
+        invalidated = _declaration_changed(workspace) if report.changed else []
         answer = _declaration_state(_intake(workspace), report)
         answer["invalidated"] = invalidated
         return jsonify(answer)
@@ -896,6 +921,10 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             for one in spec:
                 if one["kind"] == "flag":
                     fields[one["name"]] = bool(request.form.get(one["name"]))
+                elif one["kind"] == "states":
+                    # A group of checkboxes, so getlist rather than get -- and always read, even
+                    # when nothing is ticked, because an empty list is how a span is cleared.
+                    fields[one["name"]] = request.form.getlist(one["name"])
                 elif one["name"] in request.form:
                     fields[one["name"]] = request.form.get(one["name"], "")
 
@@ -906,10 +935,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             logger.exception("Could not write %s %s", kind, key)
             return redirect(url_for("stage", key="intake") + "#declaration")
 
-        invalidated = []
-        if report.changed:
-            invalidated = [s.title for s in workspace.invalidate_from("intake")]
-            workspace.save()
+        invalidated = _declaration_changed(workspace) if report.changed else []
         return redirect(url_for("stage", key="intake",
                                 invalidated=", ".join(invalidated)) + "#declaration")
 

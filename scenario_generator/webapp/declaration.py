@@ -61,10 +61,15 @@ FIELDS: Dict[str, List[dict]] = {
         {"name": "name", "label": "Name", "kind": "text"},
         {"name": "type", "label": "Type", "kind": "choice", "of": "capability_types",
          "hint": "Decides which adversarial probes apply."},
-        # Entry and exit are deliberately not here. They have a control of their own -- shortlists
-        # cut to what could be a boundary of *this* capability, and the endings taken from the
-        # graph in one click -- and two controls for one pair of fields is two answers to the
-        # same question, of which one is always about to be stale.
+        # Rendered by the span control rather than as two text boxes -- a shortlist of the states
+        # that could be a boundary of *this* capability, with every state one click behind it, and
+        # the endings takeable from the graph. Declared here all the same so it stages, previews
+        # and saves through the one path everything else does. It used to be a form of its own
+        # that posted and redirected, which navigated out of the expanded view every time somebody
+        # drew a span -- and left the span unable to name a state the shortlist had pruned.
+        {"name": "entry_states", "label": "Entered at", "kind": "states", "of": "entry_options"},
+        {"name": "exit_states", "label": "Hands on or ends at", "kind": "states",
+         "of": "exit_options"},
     ],
     "tool": [
         {"name": "capability_id", "label": "Capability", "kind": "choice", "of": "capabilities"},
@@ -130,7 +135,8 @@ def _rows(intake: IntakeData, spans: Optional[Dict[str, dict]] = None) -> Dict[s
     rows["capability"] = [{
         "key": c.id,
         "title": c.name or c.id,
-        "fields": {"name": c.name, "type": c.type},
+        "fields": {"name": c.name, "type": c.type,
+                   "entry_states": list(c.entry_states), "exit_states": list(c.exit_states)},
         "span": spans.get(c.id, {}),
         "note": (" → ".join(filter(None, [", ".join(c.entry_states), ", ".join(c.exit_states)]))
                  or "no span drawn"),

@@ -361,7 +361,12 @@ class TestWhatThePanelOffers(unittest.TestCase):
         row = self.editable["rows"]["capability"][0]
         self.assertIn("span", row)
         self.assertIn("entry_options", row["span"])
-        self.assertNotIn("entry_states", row["fields"])
+        # Declared as an ordinary field so it stages, previews and saves through the one path
+        # everything else does, but rendered by the span control rather than as a text box.
+        self.assertIn("entry_states", row["fields"])
+        spec = next(f for f in self.editable["fields"]["capability"]
+                    if f["name"] == "entry_states")
+        self.assertEqual(spec["kind"], "states")
 
     def test_every_row_carries_the_questions_the_audit_asks_about_it(self):
         """A question asked in one place and answerable in another is a question nobody closes."""
@@ -373,3 +378,150 @@ class TestWhatThePanelOffers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestWhatAnEditDoesToTheStages(unittest.TestCase):
+    """Editing a row does not make the intake out of date.
+
+    The declaration *is* the workbook, the workbook has just been written, and the page is
+    rendered from it -- so a stage marked stale was telling somebody to re-run the one thing that
+    is already current. What the edit does make stale is everything built from the declaration,
+    which is a real and expensive difference and the one worth showing.
+    """
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.client = create_app(self.root).test_client()
+        self.client.post("/workspaces", data={"name": "Staleness"})
+        with open(EXAMPLE, "rb") as handle:
+            self.client.post("/stage/intake/upload",
+                             data={"files": (handle, EXAMPLE.name), "group": "intake_workbook"},
+                             content_type="multipart/form-data")
+        for key in ("intake", "workflow"):
+            self.client.post(f"/stage/{key}/run")
+            for _ in range(600):
+                if self.client.get(f"/stage/{key}/progress").get_json()["status"] != "running":
+                    break
+                time.sleep(0.05)
+
+    def _workspace(self):
+        from scenario_generator.webapp.workspace import Workspace
+        return Workspace.load(self.root / "staleness")
+
+    def _add(self):
+        return self.client.post("/stage/intake/declaration/save", json={"edits": [
+            {"kind": "decision", "key": "DEC-50", "action": "upsert",
+             "fields": {"name": "Added", "outcomes": ["A", "B"],
+                        "capability_id": "CAP-03"}}]}).get_json()
+
+    def test_the_intake_stays_complete(self):
+        self._add()
+        self.assertEqual(self._workspace().state("intake").status, "complete")
+
+    def test_what_was_built_from_it_goes_stale(self):
+        body = self._add()
+        self.assertEqual(self._workspace().state("workflow").status, "stale")
+        self.assertIn("Workflow", body["invalidated"])
+
+    def test_the_counts_the_stage_reports_are_brought_up_to_date(self):
+        """The one thing that genuinely does go stale on the intake. A count is a fact about the
+        file and cheap to recompute; asking for a model run to correct it would be absurd."""
+        before = self._workspace().state("intake").summary["Decision points"]
+        self._add()
+        self.assertEqual(self._workspace().state("intake").summary["Decision points"], before + 1)
+
+    def test_the_same_holds_for_a_row_posted_without_scripting(self):
+        self.client.post("/stage/intake/declaration/row", data={
+            "kind": "state", "key": "S-60", "action": "upsert", "description": "Added"})
+        workspace = self._workspace()
+        self.assertEqual(workspace.state("intake").status, "complete")
+        self.assertEqual(workspace.state("workflow").status, "stale")
+
+
+class TestEditingASpan(unittest.TestCase):
+    """A span is edited through the same path as every other field.
+
+    It used to be a form of its own that posted and redirected, which navigated out of the
+    expanded view every time somebody drew one -- and offered only a shortlist, so a span could
+    not name a state the shortlist had pruned.
+    """
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.client = create_app(self.root).test_client()
+        self.client.post("/workspaces", data={"name": "Spans"})
+        with open(EXAMPLE, "rb") as handle:
+            self.client.post("/stage/intake/upload",
+                             data={"files": (handle, EXAMPLE.name), "group": "intake_workbook"},
+                             content_type="multipart/form-data")
+        self.client.post("/stage/intake/run")
+        for _ in range(600):
+            if self.client.get("/stage/intake/progress").get_json()["status"] != "running":
+                break
+            time.sleep(0.05)
+        self.workbook = self.root / "spans" / EXAMPLE.name
+
+    def _span(self, capability_id="CAP-02"):
+        found = next(c for c in read_intake(str(self.workbook)).capabilities
+                     if c.id == capability_id)
+        return found.entry_states, found.exit_states
+
+    def test_it_stages_and_saves_like_any_other_field(self):
+        self.client.post("/stage/intake/declaration/save", json={"edits": [
+            {"kind": "capability", "key": "CAP-02", "action": "upsert",
+             "fields": {"entry_states": ["S-02"], "exit_states": ["S-07", "S-08"]}}]})
+        self.assertEqual(self._span(), (("S-02",), ("S-07", "S-08")))
+
+    def test_a_state_the_shortlist_would_have_pruned_can_still_be_named(self):
+        """A span may legitimately begin or end anywhere. A control that only offers what it
+        guessed at is a span that cannot be corrected."""
+        from scenario_generator.core.graph import DecisionGraph, entry_candidates
+
+        intake = read_intake(str(self.workbook))
+        graph = DecisionGraph(intake.decisions, intake.states)
+        shortlisted = set(entry_candidates(graph, "CAP-02", intake.decisions))
+        odd = next(s.id for s in intake.states if s.id not in shortlisted and not s.is_terminal)
+
+        self.client.post("/stage/intake/declaration/save", json={"edits": [
+            {"kind": "capability", "key": "CAP-02", "action": "upsert",
+             "fields": {"entry_states": [odd], "exit_states": ["S-07"]}}]})
+        self.assertEqual(self._span()[0], (odd,))
+
+    def test_a_span_can_be_cleared_by_ticking_nothing(self):
+        """Undividing a capability has to be as available as dividing one, and an empty list is
+        how a set of checkboxes says nothing is ticked."""
+        self.client.post("/stage/intake/declaration/save", json={"edits": [
+            {"kind": "capability", "key": "CAP-02", "action": "upsert",
+             "fields": {"entry_states": [], "exit_states": []}}]})
+        self.assertEqual(self._span(), ((), ()))
+
+    def test_the_page_offers_every_state_behind_the_shortlist(self):
+        page = self.client.get("/stage/intake").get_data(as_text=True)
+        self.assertIn("Every state", page)
+        self.assertIn('type="checkbox" name="entry_states"', page)
+
+    def test_the_collapsed_view_has_somewhere_to_appear(self):
+        """A declaration that starts with no spans had no blocks wrapper and no toggle, so drawing
+        the first span could never produce a collapsed view however correctly it was drawn."""
+        spanless = create_app(Path(tempfile.mkdtemp())).test_client()
+        spanless.post("/workspaces", data={"name": "No spans"})
+        source = EXAMPLE.parent / "2_travel_no_spans.xlsx"
+        with open(source, "rb") as handle:
+            spanless.post("/stage/intake/upload",
+                          data={"files": (handle, source.name), "group": "intake_workbook"},
+                          content_type="multipart/form-data")
+        spanless.post("/stage/intake/run")
+        for _ in range(600):
+            if spanless.get("/stage/intake/progress").get_json()["status"] != "running":
+                break
+            time.sleep(0.05)
+
+        page = spanless.get("/stage/intake").get_data(as_text=True)
+        self.assertIn('data-graph-view="blocks"', page, "there is nowhere to put a collapsed view")
+        self.assertIn("data-graph-detail", page, "there is no control to switch to it")
+
+        drawn = spanless.post("/stage/intake/declaration/preview", json={"edits": [
+            {"kind": "capability", "key": "CAP-01", "action": "upsert",
+             "fields": {"entry_states": ["S-00"], "exit_states": ["S-02", "S-03"]}}]}).get_json()
+        self.assertIn("<svg", drawn["blocks_svg"],
+                      "drawing the first span produced no collapsed view")

@@ -47,7 +47,7 @@
 {# One editable field of one row. Rendered from the field's declared kind rather than by
    naming every field in markup: five kinds of row with four to eight fields each is forty pieces
    of near-identical HTML, and the fortieth is where the one that does not save lives. #}
-{% macro field(spec, value, vocabulary, kind, key) %}
+{% macro field(spec, value, vocabulary, kind, key, row_span={}) %}
   {% set id = "f-" ~ kind ~ "-" ~ key ~ "-" ~ spec.name %}
   <label class="efield" for="{{ id }}">
     <span class="efield__label">{{ spec.label }}</span>
@@ -68,6 +68,80 @@
     {% elif spec.kind == "flag" %}
       <input class="efield__check" type="checkbox" id="{{ id }}" name="{{ spec.name }}"
              value="yes" data-field="{{ spec.name }}" {% if value %}checked{% endif %}>
+    {% elif spec.kind == "states" %}
+      {# A shortlist of the states that could be a boundary of this capability, and every state
+         one click behind it. The shortlist alone was the bug: a span may legitimately begin or
+         end anywhere, and a control that only offers what it guessed at is a span that cannot be
+         corrected. Checkboxes rather than a multi-select -- an ordinary click on one option of a
+         <select multiple> silently clears every other, so somebody adding a second entry state
+         would have deleted the first without being shown it happen. #}
+      <span class="span__picker">
+        <ul class="span__list">
+          {% for option in (row_span[spec.of] or []) %}
+            <li>
+              <label class="check">
+                <input type="checkbox" name="{{ spec.name }}" value="{{ option.id }}"
+                       data-field="{{ spec.name }}" data-multiple
+                       {% if option.id in value %}checked{% endif %}>
+                <span class="mono">{{ option.id }}</span> {{ option.label }}
+                {%- if option.terminal %} <span class="mark">ends</span>{% endif %}
+              </label>
+            </li>
+          {% endfor %}
+          {# Anything already drawn that the shortlist does not contain. Left out, the next save
+             would clear it without anybody seeing it go. #}
+          {% for state in value %}
+            {% if state not in (row_span[spec.of] or []) | map(attribute='id') | list %}
+              <li>
+                <label class="check">
+                  <input type="checkbox" name="{{ spec.name }}" value="{{ state }}"
+                         data-field="{{ spec.name }}" data-multiple checked>
+                  <span class="mono">{{ state }}</span> set by hand
+                </label>
+              </li>
+            {% endif %}
+          {% endfor %}
+        </ul>
+        {# On what basis the shortlist was cut. A list that does not say how it was chosen reads
+           as an arbitrary subset, and the first thing anybody does with one is distrust it. #}
+        <span class="span__why">
+          {% if spec.name == "entry_states" %}
+            {% if row_span.decisions %}
+              States that offer
+              {% for id in row_span.decisions %}<span class="mono">{{ id }}</span>{{
+                ", " if not loop.last }}{% endfor %}.
+            {% else %}
+              No decision is tagged with this capability, so there is nothing to shortlist from.
+            {% endif %}
+          {% elif row_span.derived_exits %}
+            Walked from {% if row_span.entry_states %}the entries{% else %}the first state that
+            offers one of its decisions{% endif %}, a route leaves this block at
+            {% for state in row_span.derived_exits %}<span class="mono">{{ state.id }}</span>{{
+              ", " if not loop.last }}{% endfor %}.
+          {% endif %}
+        </span>
+        {# Open from the start where the shortlist came back empty -- which happens whenever no
+           decision is tagged with this capability, and is exactly when somebody most needs the
+           full list. An empty box above a closed disclosure reads as "there is nothing to pick". #}
+        <details class="span__all"
+                 {% if not (row_span[spec.of] or []) and not value %}open{% endif %}>
+          <summary class="span__editlink">Every state</summary>
+          <ul class="span__list span__list--long">
+            {% for option in vocabulary.states %}
+              {% if option.id not in (row_span[spec.of] or []) | map(attribute='id') | list
+                    and option.id not in value %}
+                <li>
+                  <label class="check">
+                    <input type="checkbox" name="{{ spec.name }}" value="{{ option.id }}"
+                           data-field="{{ spec.name }}" data-multiple>
+                    <span class="mono">{{ option.id }}</span> {{ option.label }}
+                  </label>
+                </li>
+              {% endif %}
+            {% endfor %}
+          </ul>
+        </details>
+      </span>
     {% elif spec.kind == "number" %}
       <input class="efield__input efield__input--small" type="number" min="1" id="{{ id }}"
              name="{{ spec.name }}" data-field="{{ spec.name }}" value="{{ value or 1 }}">
@@ -79,127 +153,6 @@
     {% endif %}
     {% if spec.hint %}<span class="efield__hint">{{ spec.hint }}</span>{% endif %}
   </label>
-{% endmacro %}
-
-{# A capability's span: where the block begins, and where a route through it leaves.
-   Kept as a control of its own inside the capability row rather than folded into the generic
-   fields, because the two halves are different kinds of question. Where a block *starts* is a
-   judgement about the agent, made by reading the drawing. Where it *ends* is arithmetic -- walk
-   what the block holds from that start, and every state one of its decisions lands on that the
-   block is no longer inside is a way out -- so it is offered on a button. #}
-{% macro span_editor(capability) %}
-  <div class="span">
-    {% if capability.is_bounded %}
-      <p class="span__reads">
-        {% for state in capability.entry_states %}
-          <span class="pill pill--in mono">{{ state }}</span>
-        {% endfor %}
-        <span class="span__arrow" aria-label="leads to">&rarr;</span>
-        {% for state in capability.exit_states %}
-          <span class="pill pill--out mono">{{ state }}</span>
-        {% endfor %}
-      </p>
-      <p class="span__note">
-        {% if capability.entry_states | length > 1 %}
-          Entered {{ capability.entry_states | length }} ways, so it is walked
-          {{ capability.entry_states | length }} times — once from each.
-        {% else %}
-          Walked as a block.
-        {% endif %}
-      </p>
-    {% else %}
-      <p class="span__note span__note--none">
-        No span, so nothing is walked through this capability.
-      </p>
-    {% endif %}
-
-    <details class="span__edit">
-      <summary class="span__editlink">
-        {% if capability.is_bounded %}Change the span{% else %}Draw the span{% endif %}
-      </summary>
-      <form method="post" action="{{ url_for('set_span', capability_id=capability.id) }}">
-        {# Checkboxes rather than a multi-select. A <select multiple> renders as a grey scrolling
-           list that reads as a display rather than a control, needs ctrl-click nobody discovers,
-           and -- the reason it had to go -- an ordinary click on one option silently clears every
-           other. #}
-        <div class="span__sides">
-          <div class="span__side">
-            <p class="span__label">Entered at</p>
-            <ul class="span__list">
-              {% for option in capability.entry_options %}
-                <li>
-                  <label class="check">
-                    <input type="checkbox" name="entry" value="{{ option.id }}"
-                           {% if option.id in capability.entry_states %}checked{% endif %}>
-                    <span class="mono">{{ option.id }}</span> {{ option.label }}
-                  </label>
-                </li>
-              {% endfor %}
-              {# Anything already drawn that the shortlist does not contain. A span may
-                 legitimately start anywhere, and a saved entry that vanished from the form would
-                 be cleared by the next save without anybody seeing it go. #}
-              {% for state in capability.entry_states %}
-                {% if state not in capability.entry_options | map(attribute='id') | list %}
-                  <li>
-                    <label class="check">
-                      <input type="checkbox" name="entry" value="{{ state }}" checked>
-                      <span class="mono">{{ state }}</span> set by hand
-                    </label>
-                  </li>
-                {% endif %}
-              {% endfor %}
-            </ul>
-            <p class="span__why">
-              {% if capability.decisions %}
-                States that offer
-                {% for id in capability.decisions %}<span class="mono">{{ id }}</span>{{
-                  ", " if not loop.last }}{% endfor %}.
-              {% else %}
-                No decision is tagged with this capability, so there is nothing to shortlist from.
-              {% endif %}
-            </p>
-          </div>
-
-          <div class="span__side">
-            <p class="span__label">Hands on or ends at</p>
-            <ul class="span__list">
-              {% for option in capability.exit_options %}
-                <li>
-                  <label class="check">
-                    <input type="checkbox" name="exit" value="{{ option.id }}"
-                           {% if option.id in capability.exit_states %}checked{% endif %}>
-                    <span class="mono">{{ option.id }}</span> {{ option.label }}
-                    {%- if option.terminal %} <span class="mark">ends</span>{% endif %}
-                  </label>
-                </li>
-              {% endfor %}
-            </ul>
-            {% if capability.derived_exits %}
-              <p class="span__why">
-                Walked from
-                {% if capability.entry_states %}the entries above{% else %}the first state that
-                offers one of its decisions{% endif %}, a route leaves this block at
-                {% for state in capability.derived_exits %}<span class="mono">{{
-                  state.id }}</span>{{ ", " if not loop.last }}{% endfor %}.
-              </p>
-            {% endif %}
-          </div>
-        </div>
-
-        <div class="span__save">
-          <button class="button" type="submit">Save the span</button>
-          {% if capability.derived_exits %}
-            {# One click for the case that is nearly always right. Offered rather than applied on
-               save, because two real cases derive badly -- a block whose decisions are reachable
-               from outside it, and one deliberately drawn to stop early. #}
-            <button class="button button--quiet" type="submit" name="derive" value="1">
-              Take the endings from the graph
-            </button>
-          {% endif %}
-        </div>
-      </form>
-    </details>
-  </div>
 {% endmacro %}
 
 {% macro gap_row(row, index) %}
@@ -470,11 +423,14 @@
           <button class="graph__zoom" type="button" data-zoom="in" title="Zoom in">+</button>
           <button class="graph__zoom" type="button" data-zoom="fit" title="Fit to width">Fit</button>
           <span class="graph__level mono" data-zoom-level>100%</span>
-          {% if blocks_svg %}
-            <button class="graph__zoom graph__zoom--view" type="button" data-graph-detail>
-              Show every decision
-            </button>
-          {% endif %}
+          {# Always present, hidden while there is nothing to collapse. Rendered only when a span
+             already existed, a declaration that starts with none had no toggle and no wrapper to
+             put one in -- so drawing the first span could never produce a collapsed view, however
+             correctly it was drawn. The button reveals itself the moment a drawing arrives. #}
+          <button class="graph__zoom graph__zoom--view" type="button" data-graph-detail
+                  {% if not blocks_svg %}hidden{% endif %}>
+            Show every decision
+          </button>
           <span class="graph__hint">
             {% if blocks_svg %}Click a capability to open it · drag to pan
             {% else %}Hover to follow one thread · drag to pan{% endif %}
@@ -485,16 +441,18 @@
         </div>
         <div class="graph__frame" data-graph>
           <div class="graph__canvas" data-graph-canvas>
-            {% if blocks_svg %}
-              {# Two drawings of the same agent. The collapsed one is shown first because it is
-                 the one that answers "what does this agent do" -- forty decision boxes is a
-                 picture somebody zooms around rather than reads. Clicking a block opens the
-                 full graph with that block lit. #}
-              <div data-graph-view="blocks">{{ blocks_svg | safe }}</div>
-              <div data-graph-view="detail" hidden>{{ graph_svg | safe }}</div>
-            {% else %}
-              {{ graph_svg | safe }}
-            {% endif %}
+            {# Two drawings of the same agent, both wrappers always here. The collapsed one is
+               shown first *where there is one*, because it answers "what does this agent do" --
+               forty decision boxes is a picture somebody zooms around rather than reads. Clicking
+               a block opens the full graph with that block lit.
+
+               Empty where no capability has a span drawn yet, rather than absent: a span drawn in
+               the editor sends its drawing back with the preview, and there has to be somewhere
+               for it to land. #}
+            <div data-graph-view="blocks"
+                 {% if not blocks_svg %}hidden{% endif %}>{{ blocks_svg | safe }}</div>
+            <div data-graph-view="detail"
+                 {% if blocks_svg %}hidden{% endif %}>{{ graph_svg | safe }}</div>
           </div>
         </div>
         {# Tagged so a preview can correct them. A drawing redrawn with a new branch in it, under
@@ -633,6 +591,30 @@
                           {% for problem in row.problems %}<li>{{ problem }}</li>{% endfor %}
                         </ul>
                       {% endif %}
+                      {% if tab.kind == 'capability' %}
+                        <p class="span__reads">
+                          {% if row.span.is_bounded %}
+                            {% for state in row.span.entry_states %}
+                              <span class="pill pill--in mono">{{ state }}</span>
+                            {% endfor %}
+                            <span class="span__arrow" aria-label="leads to">&rarr;</span>
+                            {% for state in row.span.exit_states %}
+                              <span class="pill pill--out mono">{{ state }}</span>
+                            {% endfor %}
+                            <span class="span__note">
+                              {% if row.span.entry_states | length > 1 %}
+                                Entered {{ row.span.entry_states | length }} ways, so it is walked
+                                {{ row.span.entry_states | length }} times.
+                              {% else %}Walked as a block.{% endif %}
+                            </span>
+                          {% else %}
+                            <span class="span__note span__note--none">
+                              No span, so nothing is walked through this capability and it is not
+                              drawn in the collapsed view.
+                            </span>
+                          {% endif %}
+                        </p>
+                      {% endif %}
                       {# An ordinary form that posts and redirects. Scripting turns it into a
                          staged edit with a preview; without scripting it still works, one row at
                          a time, which is what the rest of this interface does too. #}
@@ -643,7 +625,7 @@
                         <div class="efields">
                           {% for spec in editor.fields[tab.kind] %}
                             {{ field(spec, row.fields[spec.name], editor.vocabulary,
-                                     tab.kind, row.key) }}
+                                     tab.kind, row.key, row.span or {}) }}
                           {% endfor %}
                         </div>
                         <div class="erow__actions">
@@ -658,13 +640,6 @@
                         </div>
                       </form>
 
-                      {# A capability's span has a control of its own rather than two text boxes.
-                         Where a block starts is a judgement made by reading the drawing; where it
-                         ends is arithmetic the tool can do. Neither is served by a comma-separated
-                         list of ids typed from memory. #}
-                      {% if tab.kind == 'capability' %}
-                        {{ span_editor(row.span) }}
-                      {% endif %}
                     </details>
                   </li>
                 {% endfor %}

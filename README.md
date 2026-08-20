@@ -265,8 +265,14 @@ Three things the panel does that a spreadsheet cannot:
   persona.
 - **Edits are staged and can be previewed.** *Show it in the graph* applies them to a copy of the
   workbook and redraws from that, so a new decision can be seen attaching before anything is
-  written. Nothing is saved until *Save changes*, which then marks every stage built from the
-  declaration out of date.
+  written. Nothing is saved until *Save changes*, which marks every stage built from the
+  declaration out of date — but not the intake itself, which is current by definition: the
+  declaration *is* the workbook, and the workbook has just been written. Its counts are
+  recomputed rather than marked stale.
+- **Adding a row creates it.** The next free id is filled in already; *Add* writes the row and
+  reopens it ready to fill in. Staging an addition instead would be an intention with nothing on
+  screen to show for it.
+- **Saving keeps you where you were** — the same view, the same tab, the same row open.
 - **Removing is staged too**, so what stops being reachable can be seen before the row goes. A
   deletion is never cascaded: anything still pointing at what was removed is reported, and the
   audit raises it on the next render, because cleaning those up as well turns one deliberate
@@ -275,7 +281,14 @@ Three things the panel does that a spreadsheet cannot:
 Everything here works with scripting off — each row is an ordinary form that posts and reloads.
 The staging, the preview and the highlighting are what scripting adds.
 
-**Drawing a capability's span.** Each capability reads as what it is — the states it is entered
+**Drawing a capability's span.** It is two fields of the capability row, edited like any other:
+a shortlist of the states that could be a boundary of *this* capability — the ones offering its
+decisions, and the ones its decisions land on — with **Every state** one click behind it, because
+a span may legitimately begin or end anywhere and a control offering only what it guessed at is a
+span nobody can correct. The shortlist says on what basis it was cut. Drawing the first span on a
+declaration that had none makes the collapsed view appear.
+
+Each capability reads as what it is — the states it is entered
 at, an arrow, the states it hands on or ends at. *Change the span* opens two lists, each cut to
 the states that could plausibly be a boundary of *that* capability and each saying on what basis
 it was cut; the full graph is never more than a save away, and anything already drawn stays in

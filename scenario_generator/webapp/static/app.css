@@ -2194,3 +2194,9 @@ body.is-expanded { overflow: hidden; }
    one people conclude was removed. */
 .has-script .declaration__moved { display: block; }
 .declaration__moved { display: none; }
+
+
+/* A row with unsaved changes on it stops asserting what the saved span does. "No span" printed
+   above three ticked boxes reads as the ticks not having registered. */
+.erow--dirty .span__reads,
+.erow--removing .span__reads { display: none; }

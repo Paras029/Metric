@@ -321,6 +321,21 @@
   var toggle = document.querySelector('[data-graph-detail]');
   if (!blocks || !detail || !toggle) { return; }
 
+  // Whether there is a collapsed drawing to switch to. A declaration with no spans has the
+  // wrapper but nothing in it, and offering a view of nothing is worse than not offering one --
+  // so the control appears when a drawing does, which is what happens the moment somebody draws
+  // a span in the editor and previews it.
+  function collapsible() { return !!blocks.querySelector('svg'); }
+
+  function offer() {
+    toggle.hidden = !collapsible();
+    if (!collapsible() && blocks.hidden === false) { show('detail', ''); return; }
+    // And the right label. A control that appears saying "Show every decision" while every
+    // decision is already what is on screen is a control nobody can predict.
+    toggle.textContent = detail.hidden ? 'Show every decision' : 'Show capabilities';
+  }
+  canvas.addEventListener('metric:drawingschanged', offer);
+
   function show(which, capability) {
     var wantDetail = which === 'detail';
     blocks.hidden = wantDetail;
@@ -353,13 +368,16 @@
   toggle.addEventListener('click', function () {
     show(detail.hidden ? 'detail' : 'blocks', '');
   });
+  offer();
 
-  blocks.querySelectorAll('[data-capability]').forEach(function (node) {
-    node.style.cursor = 'pointer';
-    node.addEventListener('click', function () {
-      show('detail', node.getAttribute('data-capability'));
-    });
+  // Bound to the container rather than to each box, because the drawing is replaced wholesale
+  // whenever an edit is previewed or saved -- and handlers attached to the boxes that were there
+  // at load would be attached to elements nothing on screen contains any more.
+  blocks.addEventListener('click', function (event) {
+    var node = event.target.closest && event.target.closest('[data-capability]');
+    if (node) { show('detail', node.getAttribute('data-capability')); }
   });
+  blocks.style.cursor = 'pointer';
 })();
 
 /* The graph at the size it needs, with the scenarios beside it.

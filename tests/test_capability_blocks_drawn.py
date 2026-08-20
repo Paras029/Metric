@@ -155,9 +155,9 @@ class TestTheSpanIsEditableWithoutDestroyingItself(unittest.TestCase):
 
     def test_the_control_is_checkboxes_rather_than_a_multi_select(self):
         page = self.client.get("/stage/intake").data.decode()
-        self.assertIn('type="checkbox" name="entry"', page)
-        self.assertIn('type="checkbox" name="exit"', page)
-        self.assertNotIn('name="entry" multiple', page)
+        self.assertIn('type="checkbox" name="entry_states"', page)
+        self.assertIn('type="checkbox" name="exit_states"', page)
+        self.assertNotIn('name="entry_states" multiple', page)
 
     def test_what_is_already_set_comes_back_ticked(self):
         """Matched on the pair rather than on exact whitespace: an indentation change in the
@@ -165,7 +165,7 @@ class TestTheSpanIsEditableWithoutDestroyingItself(unittest.TestCase):
         import re
 
         page = self.client.get("/stage/intake").data.decode()
-        ticked = re.search(r'name="entry" value="S-00"\s+checked', page)
+        ticked = re.search(r'name="entry_states" value="S-00"[^>]*checked', page)
         self.assertIsNotNone(ticked, "the entry already drawn came back unticked")
 
     def test_the_span_reads_as_a_span_before_it_is_edited(self):

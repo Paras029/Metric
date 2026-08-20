@@ -112,6 +112,27 @@ class TestTheScriptBehindIt(unittest.TestCase):
         self.assertIn("data-anchor-for", self.script)
         self.assertIn("insertBefore", self.script)
 
+    def test_what_is_on_screen_survives_a_save(self):
+        """The editor is used from the expanded view, where the rows and the drawing are side by
+        side. A save that dropped back to the stage page took away the arrangement the work was
+        being done in, every single time."""
+        editor = (Path(__file__).resolve().parent.parent / "scenario_generator" / "webapp"
+                  / "static" / "editor.js").read_text(encoding="utf-8")
+        self.assertIn("sessionStorage", editor)
+        self.assertIn("data-expand-open", editor, "the overlay is not reopened after a reload")
+        for remembered in ("expanded", "tab", "row"):
+            self.assertIn(remembered, editor)
+
+    def test_adding_a_row_writes_it_rather_than_staging_an_intention(self):
+        """A staged addition is an intention with nothing on screen to show for it: the row does
+        not exist yet, so there is nothing to open and the only evidence is a counter -- which
+        reads exactly like the button having done nothing."""
+        editor = (Path(__file__).resolve().parent.parent / "scenario_generator" / "webapp"
+                  / "static" / "editor.js").read_text(encoding="utf-8")
+        adding = editor[editor.index(".erow__new"):]
+        self.assertIn("declaration/save", adding[:1200],
+                      "adding a row does not write it")
+
     def test_the_drawing_refits_when_the_frame_changes_size(self):
         """Both when the view is switched and when the overlay opens: the two drawings are
         different sizes and the overlay is a different size again, and a fit computed for the

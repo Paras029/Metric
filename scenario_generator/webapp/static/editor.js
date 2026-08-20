@@ -165,7 +165,17 @@
   function collect(form) {
     var fields = {};
     Array.prototype.forEach.call(form.querySelectorAll('[data-field]'), function (input) {
-      fields[input.dataset.field] = input.type === 'checkbox' ? input.checked : input.value;
+      var name = input.dataset.field;
+      if (input.hasAttribute('data-multiple')) {
+        // A group of checkboxes standing for one list field -- a capability's entry states, say.
+        // Collected as an array, and an empty one where nothing is ticked, because clearing a
+        // span has to be as available as drawing one: a field that only ever gains values is one
+        // a mistake cannot be taken out of.
+        if (!Array.isArray(fields[name])) { fields[name] = []; }
+        if (input.checked) { fields[name].push(input.value); }
+        return;
+      }
+      fields[name] = input.type === 'checkbox' ? input.checked : input.value;
     });
     return fields;
   }
@@ -214,21 +224,28 @@
     announce();
   });
 
-  // Adding one is staged too, so a new decision can be seen attaching before it is written.
+  // Adding one writes it immediately rather than staging it. A staged addition is an intention
+  // with nothing on screen to show for it: the row does not exist yet, so there is nothing to
+  // open, nothing to type into, and the only evidence is a counter -- which reads exactly like the
+  // button having done nothing. An empty row costs nothing to create and is the thing being asked
+  // for, so it is created, and the page comes back with it open and ready to fill in.
   Array.prototype.forEach.call(editor.querySelectorAll('.erow__new'), function (form) {
     form.addEventListener('submit', function (event) {
       var input = form.querySelector('[name="key"]');
+      var kind = form.querySelector('[name="kind"]').value;
       var key = input && input.value.trim();
       if (!key) { return; }
       event.preventDefault();
-      staged[form.querySelector('[name="kind"]').value + ' ' + key] = {
-        kind: form.querySelector('[name="kind"]').value,
-        key: key,
-        action: 'upsert',
-        fields: {},
-      };
-      announce();
-      say('Added ' + key + '. Show it in the graph, or save and fill it in.');
+      if (countStaged() && !window.confirm(
+        'Adding ' + key + ' saves everything, including ' + countStaged() +
+        ' unsaved change(s). Continue?')) { return; }
+
+      say('Adding ' + key + '…');
+      staged[kind + ' ' + key] = { kind: kind, key: key, action: 'upsert', fields: {} };
+      post('/stage/intake/declaration/save', { edits: edits() }).then(function (answer) {
+        if (answer.error) { report(answer); say('That could not be added'); return; }
+        reopen(kind, key);
+      }).catch(function () { say('Could not reach the tool'); });
     });
   });
 
@@ -253,6 +270,9 @@
     else { canvas.innerHTML = answer.graph_svg || ''; }
     if (blocks) { blocks.innerHTML = answer.blocks_svg || ''; }
     if (answer.highlights) { window.METRIC_HIGHLIGHTS = answer.highlights; }
+    // A span drawn where there were none makes a collapsed view possible for the first time, and
+    // the control that offers it has to notice.
+    canvas.dispatchEvent(new CustomEvent('metric:drawingschanged'));
     // The counts under the drawing, or the page disagrees with itself: a graph redrawn with a new
     // branch in it, under a line still reporting the old number of outcomes.
     Object.keys(answer.facts || {}).forEach(function (name) {
@@ -302,10 +322,7 @@
       say('Saving…');
       post('/stage/intake/declaration/save', { edits: edits() }).then(function (answer) {
         if (answer.error) { report(answer); say('That could not be saved'); return; }
-        // Reloaded rather than patched. Every row's fields, the count on every tab, the open
-        // questions and which later stages the save put out of date all change together, and
-        // rebuilding that from JSON is a second renderer that will disagree with the first.
-        window.location.reload();
+        reopen();
       }).catch(function () { say('Could not reach the tool'); });
     });
   }
@@ -314,9 +331,58 @@
     refreshButton.addEventListener('click', function () {
       if (countStaged() && !window.confirm(
         'Refreshing drops ' + countStaged() + ' unsaved change(s). Continue?')) { return; }
-      window.location.reload();
+      reopen();
     });
   }
+
+  // Reloaded rather than patched. Every row's fields, the count on every tab, the open questions
+  // and which later stages the save put out of date all change together, and rebuilding that from
+  // JSON is a second renderer that will disagree with the first one within a week.
+  //
+  // What the reload must not do is put the reader back where they did not ask to be. The editor
+  // is used from the expanded view, where the rows and the drawing are side by side -- and a save
+  // that dropped back to the stage page took away the arrangement the work was being done in,
+  // every single time. So what is on screen is written down first and put back afterwards: the
+  // overlay, the tab, and the row to open.
+  function reopen(kind, key) {
+    var open = editor.querySelector('.erow__body[open]');
+    var openRow = open && open.closest('[data-row-kind]');
+    var tab = editor.querySelector('[data-editor-tab][aria-selected="true"]');
+    try {
+      window.sessionStorage.setItem('metric:editor', JSON.stringify({
+        expanded: !document.querySelector('[data-expand]').hidden,
+        tab: kind || (tab && tab.dataset.editorTab) || '',
+        row: key || (openRow && openRow.dataset.rowKey) || '',
+      }));
+    } catch (error) { /* private browsing, or storage full. The reload still works. */ }
+    window.location.reload();
+  }
+
+  // And put back, once the page it belongs to has been rebuilt.
+  (function restore() {
+    var saved;
+    try {
+      saved = JSON.parse(window.sessionStorage.getItem('metric:editor') || 'null');
+      window.sessionStorage.removeItem('metric:editor');
+    } catch (error) { return; }
+    if (!saved) { return; }
+
+    if (saved.expanded) {
+      var opener = document.querySelector('[data-expand-open]');
+      if (opener) { opener.click(); }
+    }
+    if (saved.tab) {
+      var tab = editor.querySelector('[data-editor-tab="' + quoted(saved.tab) + '"]');
+      if (tab) { tab.click(); }
+    }
+    if (saved.row) {
+      var row = editor.querySelector('[data-row-key="' + quoted(saved.row) + '"] .erow__body');
+      if (row) {
+        row.open = true;
+        if (row.scrollIntoView) { row.scrollIntoView({ block: 'center' }); }
+      }
+    }
+  })();
 
   // Without scripting, Remove posts straight through and cannot be taken back, so the form asks
   // first. With scripting it is staged and reversible, so it does not -- a confirmation on
