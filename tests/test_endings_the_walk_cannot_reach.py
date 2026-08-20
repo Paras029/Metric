@@ -13,9 +13,9 @@ import dataclasses
 import unittest
 from pathlib import Path
 
-from scenario_generator.core import graph as graph_module
-from scenario_generator.core.graph import DecisionGraph, endings_not_reached
-from scenario_generator.core.intake import read_intake
+from metric.domain import graph as graph_module
+from metric.domain.graph import DecisionGraph, endings_not_reached
+from metric.domain.intake import read_intake
 
 EXAMPLE = (Path(__file__).resolve().parent.parent
            / "examples" / "intakes" / "2_travel_no_spans.xlsx")
@@ -104,7 +104,7 @@ class TestItIsSaidBesideTheDrawing(unittest.TestCase):
 
         from openpyxl import load_workbook
 
-        from scenario_generator.webapp.app import create_app
+        from metric.web.server import create_app
 
         root = Path(tempfile.mkdtemp())
         source = root / "intake.xlsx"
@@ -149,8 +149,8 @@ class TestTheBackstopIsDerivedRatherThanChosen(unittest.TestCase):
     """
 
     def test_it_grows_with_the_declaration(self):
-        from scenario_generator.core.models import Decision, State
-        from scenario_generator.core.graph import DecisionGraph, depth_limit
+        from metric.domain.models import Decision, State
+        from metric.domain.graph import DecisionGraph, depth_limit
 
         def graph_of(count):
             return DecisionGraph(
@@ -161,8 +161,8 @@ class TestTheBackstopIsDerivedRatherThanChosen(unittest.TestCase):
         self.assertGreater(depth_limit(graph_of(40)), depth_limit(graph_of(10)))
 
     def test_it_covers_every_firing_the_rules_allow(self):
-        from scenario_generator.core.models import Decision, State
-        from scenario_generator.core.graph import DecisionGraph, depth_limit
+        from metric.domain.models import Decision, State
+        from metric.domain.graph import DecisionGraph, depth_limit
 
         decisions = [Decision(f"DEC-{n:02d}", "d", "", "", ["Ok"], max_attempts=n % 4 + 1)
                      for n in range(30)]

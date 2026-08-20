@@ -11,8 +11,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scenario_generator.webapp.app import create_app
-from scenario_generator.webapp.workspace import Workspace
+from metric.web.server import create_app
+from metric.web.workspace import Workspace
 
 
 class TestAddingANote(unittest.TestCase):

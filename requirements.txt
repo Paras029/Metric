@@ -1,39 +1,11 @@
-# Python 3.12. SafeChain requires it, and the pipeline is run on it.
-#
-# Install from the internal index:
-#     pip install -r requirements.txt
-
-# Model calls. SafeChain returns a LangChain chat model, already authenticated and already knowing
-# the request body that model expects -- that one call is the whole of its surface here.
-# Everything after it is LangChain, written to LangChain's own documented interfaces, which is why
-# langchain-core is listed in its own right rather than left as a transitive dependency.
+# Offline install path; pyproject.toml carries the version floors.
 safechain
 langchain-core
-
-# Core pipeline.
 openpyxl
 python-dotenv
 pyyaml
-
-# Document ingestion. Each parser is imported inside the reader that needs it, so a package
-# missing from an internal mirror disables one format rather than the whole tool.
 pypdf
 python-docx
 python-pptx
 Pillow
-
-# Local web interface. Flask bundles Jinja2 and Werkzeug; nothing else is needed, and there is
-# no Node or npm step -- the interface is server-rendered HTML with hand-written CSS.
-#
-# Deliberately unpinned, and the code stays on the Flask 1.x interface so that whatever version
-# an internal mirror already carries will run it. tests/test_flask_compatibility.py holds that
-# line: the development environment usually has a newer Flask than the machine this runs on, so
-# a 2.0-only convenience passes every test here and fails where it matters.
 flask
-
-# PII/BI redaction, run on every submitted document before any of it reaches a model call -- see
-# ingest/redaction.py and PII_REDACTION in .env.example. Not on the internal index: it is an
-# editable local install from wherever your team keeps the pii-redactor package, e.g.
-#     pip install -e "C:\path\to\pii-redactor"
-# Left out of this file for that reason -- add it to your own environment, not here, since a path
-# on your machine has no meaning in anyone else's.

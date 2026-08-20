@@ -10,7 +10,7 @@ import re
 import unittest
 
 _ROOT = pathlib.Path(__file__).resolve().parent.parent
-_PACKAGE = _ROOT / "scenario_generator"
+_PACKAGE = _ROOT / "metric"
 _MODULES = sorted(_PACKAGE.rglob("*.py"))
 
 
@@ -63,11 +63,11 @@ class TestTheLayersOnlyPointOneWay(unittest.TestCase):
         """core says of itself: "No file I/O beyond the intake workbook itself, and no model
         calls." The intake reader is that exception, and it reaches for the low-level sheet
         helper -- not for the scenario space metadata and pack writers, which are built on top of core."""
-        allowed = ("scenario_generator.core", "scenario_generator.utils",
-                   "scenario_generator.io.sheets")
-        for path in (_PACKAGE / "core").rglob("*.py"):
+        allowed = ("metric.domain", "metric.shared",
+                   "metric.domain.sheets")
+        for path in (_PACKAGE / "domain").rglob("*.py"):
             for imported in _imports(path):
-                if not imported.startswith("scenario_generator"):
+                if not imported.startswith("metric"):
                     continue
                 self.assertTrue(imported.startswith(allowed),
                                 f"{path.name} imports {imported}; core holds the domain and must "
@@ -76,15 +76,15 @@ class TestTheLayersOnlyPointOneWay(unittest.TestCase):
 
     def test_utils_depends_on_nothing_of_ours(self):
         """"Pure, dependency-free helpers" -- which is only true while it stays that way."""
-        for path in (_PACKAGE / "utils").rglob("*.py"):
+        for path in (_PACKAGE / "shared").rglob("*.py"):
             for imported in _imports(path):
-                if imported.startswith("scenario_generator"):
-                    self.assertTrue(imported.startswith("scenario_generator.utils"), path.name)
+                if imported.startswith("metric"):
+                    self.assertTrue(imported.startswith("metric.shared"), path.name)
 
     def test_the_interface_holds_no_pipeline_logic_of_its_own(self):
         """Both front ends call the same pipeline functions, which is what stops them drifting
         apart. A runner that built scenarios itself would be a third implementation."""
-        runners = (_PACKAGE / "webapp" / "runners.py").read_text(encoding="utf-8")
+        runners = (_PACKAGE / "web" / "runners.py").read_text(encoding="utf-8")
         for forbidden in ("enumerate_paths(", "instantiate_all(", "DecisionGraph("):
             self.assertNotIn(forbidden, runners,
                              "the interface must call pipeline functions rather than reimplement "
@@ -105,7 +105,7 @@ class TestTheAnswerNeverReachesThePack(unittest.TestCase):
     """The one property the whole exercise depends on: the model owner cannot see the key."""
 
     def test_the_pack_writer_never_reads_a_ground_truth_field(self):
-        source = (_PACKAGE / "io" / "workbooks.py").read_text(encoding="utf-8")
+        source = (_PACKAGE / "domain" / "workbooks.py").read_text(encoding="utf-8")
         pack = source[source.index("def write_data_template("):]
         pack = pack[:pack.index("\ndef ", 1)] if "\ndef " in pack[1:] else pack
         # Where a run starts is the question and is issued; how it ends is the answer and is not.
@@ -118,7 +118,7 @@ class TestTheAnswerNeverReachesThePack(unittest.TestCase):
         """Its output is issued to the model owner, so text written from the answer would
         leak it in prose. The route is a different thing and is shown: the tester has to drive
         each decision to a named outcome, and cannot be asked to do that blind."""
-        payload = (_PACKAGE / "llm" / "writer.py").read_text(encoding="utf-8")
+        payload = (_PACKAGE / "phases" / "scenario_generator" / "scenarios" / "writer.py").read_text(encoding="utf-8")
         payload = payload[payload.index("def _payload("):]
         payload = payload[:payload.index("\n    def ")]
         self.assertNotIn("termination", payload)
@@ -135,20 +135,20 @@ class TestOneVocabularyPerThing(unittest.TestCase):
         flagging those would be noise. The hyphenated ones cannot appear by coincidence, and they
         are the ones that matter: they are the names a rename has to reach every copy of.
         """
-        from scenario_generator.core.models import LEGACY_ORIGINS, ORIGINS
+        from metric.domain.models import LEGACY_ORIGINS, ORIGINS
 
         watched = {o for o in ORIGINS if "-" in o} | set(LEGACY_ORIGINS)
         for path in _MODULES:
             relative = str(path.relative_to(_ROOT))
-            if relative == "scenario_generator/core/models.py":
+            if relative == "metric/domain/models.py":
                 continue
             for literal in _string_literals(path):
                 self.assertNotIn(literal, watched,
                                  f"{relative} writes the origin {literal!r} out by hand; use the "
-                                 f"constant in core.models so there is one spelling of it")
+                                 f"constant in domain.models so there is one spelling of it")
 
     def test_an_origin_an_older_registry_carries_still_reads_as_what_it_meant(self):
-        from scenario_generator.core.models import (FUNCTIONAL_ORIGINS, LEGACY_ORIGINS,
+        from metric.domain.models import (FUNCTIONAL_ORIGINS, LEGACY_ORIGINS,
                                                     canonical_origin)
         for old, new in LEGACY_ORIGINS.items():
             self.assertEqual(canonical_origin(old), new)
@@ -156,8 +156,8 @@ class TestOneVocabularyPerThing(unittest.TestCase):
                       "a scenario written before the rename must still reach the data template")
 
     def test_every_origin_the_interface_can_show_has_a_label(self):
-        from scenario_generator.core.models import ORIGINS
-        from scenario_generator.webapp.scenarios import ORIGIN_LABELS
+        from metric.domain.models import ORIGINS
+        from metric.web.scenariolist import ORIGIN_LABELS
 
         self.assertEqual(set(ORIGINS), set(ORIGIN_LABELS),
                          "an unlabelled origin shows its raw slug and cannot be filtered to")
@@ -180,12 +180,12 @@ class TestAWorkbookIsNeverWrittenStale(unittest.TestCase):
 
 class TestPromptsAreEditableWithoutTouchingCode(unittest.TestCase):
     def test_every_prompt_the_code_names_exists_as_a_file(self):
-        prompts = {p.stem for p in (_PACKAGE / "prompts").glob("*.md")}
+        prompts = {p.stem for p in _PACKAGE.rglob("prompts/*.md")}
         named = set()
         for path in _MODULES:
             named.update(re.findall(r'_PROMPT = "([\w.]+)"',
                                     path.read_text(encoding="utf-8")))
-            named.update(re.findall(r'prompt_loader\.(?:load|render)\("([\w.]+)"',
+            named.update(re.findall(r'prompts\.(?:load|render)\("([\w.]+)"',
                                     path.read_text(encoding="utf-8")))
         self.assertEqual(named - prompts, set())
 

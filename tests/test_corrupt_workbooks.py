@@ -13,9 +13,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scenario_generator.core.intake import read_intake, read_owner_scenarios
-from scenario_generator.ingest.conversations import UnreadableConversations, read_conversations
-from scenario_generator.io.workbooks import read_space_metadata, read_scenarios
+from metric.domain.intake import read_intake, read_owner_scenarios
+from metric.phases.coverage.coverage.conversations import UnreadableConversations, read_conversations
+from metric.domain.workbooks import read_space_metadata, read_scenarios
 
 
 def _not_really_a_workbook(name: str) -> Path:
@@ -90,7 +90,7 @@ class TestAnIncompleteIntake(unittest.TestCase):
     """
 
     def test_a_blank_template_says_what_it_is_missing(self):
-        from scenario_generator.core.intake import write_template
+        from metric.domain.intake import write_template
 
         path = Path(tempfile.mkdtemp()) / "blank.xlsx"
         write_template(str(path))

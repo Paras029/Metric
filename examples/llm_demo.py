@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # importable from anywhere
 
-from scenario_generator import generate, map_conversation_coverage, review
+from metric import generate, map_conversation_coverage, review
 
 INTAKE = "claims_intake.xlsx"
 PREFIX = "claims"

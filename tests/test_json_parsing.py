@@ -1,6 +1,6 @@
 import unittest
 
-from scenario_generator.utils.json_parsing import parse_json_object
+from metric.shared.json_parsing import parse_json_object
 
 
 class TestParseJsonObject(unittest.TestCase):

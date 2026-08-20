@@ -12,11 +12,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from scenario_generator.core.intake import write_template
-from scenario_generator.llm import cancellation
-from scenario_generator.llm.calling import call_batch
-from scenario_generator.webapp.app import create_app
-from scenario_generator.webapp.workspace import Workspace
+from metric.domain.intake import write_template
+from metric.llm import cancellation
+from metric.llm.calling import call_batch
+from metric.web.server import create_app
+from metric.web.workspace import Workspace
 
 
 def _intake_workbook(directory: Path) -> Path:
@@ -139,7 +139,7 @@ class TestStoppingAStageThroughTheInterface(unittest.TestCase):
             release.wait(timeout=60)
             return "{}"
 
-        with mock.patch("scenario_generator.llm.materiality.ask_llm", blocking_complete):
+        with mock.patch("metric.phases.scenario_generator.materiality.assess.ask_llm", blocking_complete):
             self.client.post("/stage/materiality/run")
 
             deadline = time.time() + 60
@@ -164,7 +164,7 @@ class TestStoppingAStageThroughTheInterface(unittest.TestCase):
 
         # And it comes back ready to run rather than stuck: a second, uninterrupted run
         # completes normally.
-        with mock.patch("scenario_generator.llm.materiality.ask_llm", lambda s, u, **k: "{}"):
+        with mock.patch("metric.phases.scenario_generator.materiality.assess.ask_llm", lambda s, u, **k: "{}"):
             self.client.post("/stage/materiality/run")
             self.assertEqual(self._settle("materiality"), "complete")
 

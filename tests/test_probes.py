@@ -1,9 +1,9 @@
 """Probe library loading, predicate applicability, and the coverage exclusion rule."""
 import unittest
 
-from scenario_generator.core.models import (Capability, Decision, IntakeData, Persona, State,
+from metric.domain.models import (Capability, Decision, IntakeData, Persona, State,
                                             Tool)
-from scenario_generator.core.probes import (PREDICATES, applicable, build_probes, evaluate,
+from metric.phases.scenario_generator.workflow.probes import (PREDICATES, applicable, build_probes, evaluate,
                                             load_library)
 
 

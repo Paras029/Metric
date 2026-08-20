@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from openpyxl import load_workbook
 
-from scenario_generator.core.intake import write_template
+from metric.domain.intake import write_template
 
 
 def build(path: Path, use_case, personas, capabilities, decisions, states, tools) -> Path:

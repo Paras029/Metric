@@ -18,10 +18,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scenario_generator.core import read_intake
-from scenario_generator.ingest.drafting import carry_diagram_through
-from scenario_generator.ingest.extraction import extract_documents
-from scenario_generator.pipeline import draft_intake_workbook
+from metric.domain import read_intake
+from metric.phases.intake.intake.drafting import carry_diagram_through
+from metric.phases.intake.intake.extraction import extract_documents
+from metric.pipeline import draft_intake_workbook
 
 _PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
@@ -119,8 +119,8 @@ class TestWhatTheDraftDroppedComesBack(unittest.TestCase):
         first it finds, so the carried row going in ahead of the draft's would quietly overrule a
         reading the drafting call was asked to make.
         """
-        from scenario_generator.core.graph import DecisionGraph
-        from scenario_generator.core.models import Decision, State
+        from metric.domain.graph import DecisionGraph
+        from metric.domain.models import Decision, State
 
         drawn = {
             "capabilities": [],
@@ -193,7 +193,7 @@ class TestADiagramOnlySubmissionEndToEnd(unittest.TestCase):
         self.assertEqual(sorted(intake.decisions[0].variants), ["Fail", "Pass"])
 
     def test_and_the_scenario_space_built_off_it_walks_both_branches(self):
-        from scenario_generator.pipeline import build_scenario_space
+        from metric.pipeline import build_scenario_space
         self.assertEqual(len(build_scenario_space(self._run([_NOTHING]), with_probes=False)), 2)
 
 

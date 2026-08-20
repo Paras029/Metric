@@ -10,8 +10,8 @@ import time
 import unittest
 from pathlib import Path
 
-from scenario_generator.webapp.app import create_app
-from scenario_generator.webapp.workspace import Workspace
+from metric.web.server import create_app
+from metric.web.workspace import Workspace
 
 EXAMPLE = (Path(__file__).resolve().parent.parent
            / "examples" / "intakes" / "1_disputes_three_blocks.xlsx")

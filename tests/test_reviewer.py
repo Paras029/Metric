@@ -3,13 +3,13 @@ review is allowed to do.
 """
 import unittest
 import json
-from scenario_generator.core.models import (Capability, Decision, IntakeData, OwnerScenario,
+from metric.domain.models import (Capability, Decision, IntakeData, OwnerScenario,
                                             Persona, State, Tool)
-from scenario_generator.core.probes import build_probes
-from scenario_generator.pipeline import build_scenario_space
-from scenario_generator.core.proposals import instantiate_proposals
-from scenario_generator.llm import config
-from scenario_generator.llm.reviewer import ScenarioReviewer
+from metric.phases.scenario_generator.workflow.probes import build_probes
+from metric.pipeline import build_scenario_space
+from metric.phases.scenario_generator.review.proposals import instantiate_proposals
+from metric.llm import config
+from metric.phases.scenario_generator.review.reviewer import ScenarioReviewer
 
 _INTAKE = IntakeData(
     use_case={"Use case name": "Test", "Business objective": "Objective"},
@@ -89,7 +89,7 @@ class TestWhichBlocksAProposalTouches(unittest.TestCase):
     def setUp(self):
         """A second block, because crossing needs two."""
         import dataclasses
-        from scenario_generator.core.models import Capability, Decision, State
+        from metric.domain.models import Capability, Decision, State
         self.intake = dataclasses.replace(
             _INTAKE,
             capabilities=[Capability("CAP-01", "Auth", "Gating"),

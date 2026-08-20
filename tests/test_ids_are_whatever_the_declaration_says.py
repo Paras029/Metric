@@ -19,10 +19,10 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from scenario_generator.core import editing
-from scenario_generator.core.graph import DecisionGraph
-from scenario_generator.core.intake import read_intake
-from scenario_generator.utils.text import parse_reached_via
+from metric.domain import editing
+from metric.domain.graph import DecisionGraph
+from metric.domain.intake import read_intake
+from metric.shared.text import parse_reached_via
 
 EXAMPLE = (Path(__file__).resolve().parent.parent
            / "examples" / "intakes" / "2_travel_no_spans.xlsx")
@@ -65,7 +65,7 @@ class TestAStateNamedForWhatItIs(unittest.TestCase):
     def test_the_capability_is_walked_as_a_block(self):
         """A span that reads back empty is a capability that contributes no scenarios, which is
         the consequence that matters and the one nobody would connect to an id shape."""
-        from scenario_generator.core.graph import spans_for
+        from metric.domain.graph import spans_for
         editing.apply_edits(str(self.path), [
             {"kind": "capability", "key": "CAP-01", "action": "upsert",
              "fields": {"entry_states": ["S-START"], "exit_states": ["S-03"]}}])
@@ -100,11 +100,11 @@ class TestScrapingPrefersWhatWasDeclared(unittest.TestCase):
     """The shape is a fallback, not the rule -- which is what makes any naming scheme work."""
 
     def setUp(self):
-        from scenario_generator.core.intake import _STATE_TOKEN
+        from metric.domain.intake import _STATE_TOKEN
         self.shape = _STATE_TOKEN
 
     def _named(self, cell, declared):
-        from scenario_generator.core.intake import _named
+        from metric.domain.intake import _named
         return _named(cell, declared, self.shape)
 
     def test_any_separator_reads_the_same(self):

@@ -4,9 +4,9 @@ quote the document does not support.
 """
 import unittest
 
-from scenario_generator.core.evidence import (KIND_HUMAN, KIND_IMAGE, REJECTED, UNVERIFIABLE,
+from metric.phases.intake.intake.evidence import (KIND_HUMAN, KIND_IMAGE, REJECTED, UNVERIFIABLE,
                                               VERIFIED, Claim, EvidenceRecord, SourceRef)
-from scenario_generator.core.grounding import locate, normalise, verify
+from metric.phases.intake.intake.grounding import locate, normalise, verify
 
 _SOURCE = (
     "3.2 Identity verification\n\n"

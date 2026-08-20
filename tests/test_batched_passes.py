@@ -17,15 +17,15 @@ import json
 import unittest
 from typing import Callable, List
 
-from scenario_generator.core.models import (ScenarioRow, Capability, Decision, IntakeData,
+from metric.domain.models import (ScenarioRow, Capability, Decision, IntakeData,
                                             Persona, State, Tool)
-from scenario_generator.core.probes import build_probes
-from scenario_generator.ingest.conversations import Conversation, Turn
-from scenario_generator.llm.conversation_mapping import ConversationMapper
-from scenario_generator.llm.materiality import MaterialityAssessor
-from scenario_generator.llm.reviewer import ScenarioReviewer
-from scenario_generator.llm.writer import ScenarioWriter
-from scenario_generator.pipeline import build_scenario_space
+from metric.phases.scenario_generator.workflow.probes import build_probes
+from metric.phases.coverage.coverage.conversations import Conversation, Turn
+from metric.phases.coverage.coverage.mapping import ConversationMapper
+from metric.phases.scenario_generator.materiality.assess import MaterialityAssessor
+from metric.phases.scenario_generator.review.reviewer import ScenarioReviewer
+from metric.phases.scenario_generator.scenarios.writer import ScenarioWriter
+from metric.pipeline import build_scenario_space
 
 # Satisfies every predicate in the probe library, so build_probes returns enough scenarios to
 # split into several chunks under each pass's default batch size.

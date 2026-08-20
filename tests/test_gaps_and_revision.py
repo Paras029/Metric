@@ -1,7 +1,7 @@
 """Row-scoped gaps in the declared intake, and revising the declaration to fill them.
 
 A gap is addressed to a specific decision, state, capability, tool or persona rather than to
-the evidence as a whole -- see scenario_generator/core/gaps.py for why that distinction matters.
+the evidence as a whole -- see metric/core/gaps.py for why that distinction matters.
 These tests pin two things: that the gap detector finds what it claims to (and only what it claims
 to -- a well-formed intake should raise nothing), and that revising an intake changes only what
 new information touches rather than silently redrafting the rest.
@@ -13,12 +13,12 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from scenario_generator.core.gaps import find_gaps
-from scenario_generator.core.intake import read_intake, read_review_notes, write_template
-from scenario_generator.core.models import (Capability, Decision, IntakeData, Persona, State,
+from metric.phases.intake.intake.gaps import find_gaps
+from metric.domain.intake import read_intake, read_review_notes, write_template
+from metric.domain.models import (Capability, Decision, IntakeData, Persona, State,
                                             Tool)
-from scenario_generator.ingest.drafting import revise_intake, write_drafted_intake, DraftedIntake
-from scenario_generator.pipeline import revise_intake_workbook
+from metric.phases.intake.intake.drafting import revise_intake, write_drafted_intake, DraftedIntake
+from metric.pipeline import revise_intake_workbook
 
 _WELL_FORMED = IntakeData(
     use_case={"Use case name": "Disputes", "Business objective": "Resolve card disputes",

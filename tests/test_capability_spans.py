@@ -17,9 +17,9 @@ The counts in this file are the whole argument, so they are asserted exactly.
 """
 import unittest
 
-from scenario_generator.core.graph import DecisionGraph, Span, enumerate_by_span, spans_for
-from scenario_generator.core.models import Capability, Decision, Persona, State, Tool
-from scenario_generator.core.generation import instantiate_span, number_scenarios
+from metric.domain.graph import DecisionGraph, Span, enumerate_by_span, spans_for
+from metric.domain.models import Capability, Decision, Persona, State, Tool
+from metric.phases.scenario_generator.workflow.generation import instantiate_span, number_scenarios
 
 # A chain of blocks, each the same shape: an entry, two binary decisions, and three ways out --
 # a handoff to the next block, reachable two ways, and a failure ending, reachable two ways.
@@ -278,8 +278,8 @@ class TestTheBlockSurvivesTheWorkbook(unittest.TestCase):
         import tempfile
         from pathlib import Path
 
-        from scenario_generator.core.models import IntakeData
-        from scenario_generator.io import read_scenarios, write_space_metadata
+        from metric.domain.models import IntakeData
+        from metric.domain import read_scenarios, write_space_metadata
 
         intake = IntakeData(use_case={"Use case name": "Disputes"}, personas=_PERSONAS,
                             capabilities=_CAPABILITIES, decisions=_DECISIONS, states=_STATES,
@@ -348,8 +348,8 @@ class TestTheHandDrawnSpanSurvivesTheSequentialPass(unittest.TestCase):
         import tempfile
         from pathlib import Path
 
-        from scenario_generator.core.intake import set_capability_span
-        from scenario_generator.pipeline import draft_intake_workbook
+        from metric.domain.intake import set_capability_span
+        from metric.pipeline import draft_intake_workbook
 
         self.work = Path(tempfile.mkdtemp())
         self.context = self.work / "run_context.md"
@@ -366,7 +366,7 @@ class TestTheHandDrawnSpanSurvivesTheSequentialPass(unittest.TestCase):
         set_capability_span(str(self.path), "CAP-02", ["S-01"], ["S-03", "S-04"])
 
     def _spans(self):
-        from scenario_generator.core.intake import read_intake
+        from metric.domain.intake import read_intake
 
         return {c.id: (tuple(c.entry_states), tuple(c.exit_states))
                 for c in read_intake(str(self.path)).capabilities}
@@ -375,14 +375,14 @@ class TestTheHandDrawnSpanSurvivesTheSequentialPass(unittest.TestCase):
         self.assertEqual(self._spans()["CAP-02"], (("S-01",), ("S-03", "S-04")))
 
     def test_redrafting_over_it_keeps_it(self):
-        from scenario_generator.pipeline import draft_intake_workbook
+        from metric.pipeline import draft_intake_workbook
 
         draft_intake_workbook(str(self.context), str(self.path), complete=self.complete)
         self.assertEqual(self._spans()["CAP-01"], (("S-00",), ("S-01", "S-02")))
         self.assertEqual(self._spans()["CAP-02"], (("S-01",), ("S-03", "S-04")))
 
     def test_revising_it_keeps_it(self):
-        from scenario_generator.pipeline import revise_intake_workbook
+        from metric.pipeline import revise_intake_workbook
 
         revise_intake_workbook(str(self.path), str(self.path), context_path=str(self.context),
                                complete=self.complete)
@@ -390,8 +390,8 @@ class TestTheHandDrawnSpanSurvivesTheSequentialPass(unittest.TestCase):
 
     def test_the_scenarios_are_walked_per_block_after_a_re_run(self):
         """What the span is for. If it were lost, this would walk the whole graph instead."""
-        from scenario_generator.core.intake import read_intake
-        from scenario_generator.pipeline import build_scenario_space, draft_intake_workbook
+        from metric.domain.intake import read_intake
+        from metric.pipeline import build_scenario_space, draft_intake_workbook
 
         draft_intake_workbook(str(self.context), str(self.path), complete=self.complete)
         space = build_scenario_space(read_intake(str(self.path)), with_probes=False)
@@ -415,8 +415,8 @@ class TestWhereABlockIsLeftIsArithmetic(unittest.TestCase):
     def setUpClass(cls):
         from pathlib import Path
 
-        from scenario_generator.core.graph import DecisionGraph
-        from scenario_generator.core.intake import read_intake
+        from metric.domain.graph import DecisionGraph
+        from metric.domain.intake import read_intake
 
         example = (Path(__file__).resolve().parent.parent / "examples" / "intakes"
                    / "1_disputes_three_blocks.xlsx")
@@ -425,7 +425,7 @@ class TestWhereABlockIsLeftIsArithmetic(unittest.TestCase):
         cls.bounded = [c for c in cls.intake.capabilities if c.is_bounded]
 
     def _derived(self, capability):
-        from scenario_generator.core.graph import exits_for
+        from metric.domain.graph import exits_for
         return exits_for(self.graph, capability.id, capability.entry_states,
                          self.intake.decisions)
 
@@ -444,7 +444,7 @@ class TestWhereABlockIsLeftIsArithmetic(unittest.TestCase):
                         "the derivation found nothing the declaration had not already listed")
 
     def test_nothing_inside_a_block_is_offered_as_a_way_out(self):
-        from scenario_generator.core.graph import decisions_owned_by, states_inside
+        from metric.domain.graph import decisions_owned_by, states_inside
 
         for capability in self.bounded:
             owned = decisions_owned_by(self.graph, capability.id, capability.entry_states,
@@ -458,7 +458,7 @@ class TestWhereABlockIsLeftIsArithmetic(unittest.TestCase):
     def test_a_capability_entered_two_ways_derives_from_both(self):
         """A block entered from two positions is walked from each, so its ways out are the union
         -- deriving from the first entry alone would lose whatever only the second reaches."""
-        from scenario_generator.core.graph import exits_for
+        from metric.domain.graph import exits_for
 
         several = next((c for c in self.bounded if len(c.entry_states) > 1), None)
         self.assertIsNotNone(several, "the example no longer has a block entered two ways")
@@ -469,12 +469,12 @@ class TestWhereABlockIsLeftIsArithmetic(unittest.TestCase):
                                          f"did not: {one - both}")
 
     def test_a_capability_with_no_entry_derives_nothing_rather_than_guessing(self):
-        from scenario_generator.core.graph import exits_for
+        from metric.domain.graph import exits_for
 
         self.assertEqual(exits_for(self.graph, "CAP-01", [], self.intake.decisions), [])
 
     def test_the_shortlist_of_entries_is_where_its_own_decisions_can_be_taken_from(self):
-        from scenario_generator.core.graph import entry_candidates
+        from metric.domain.graph import entry_candidates
 
         mine = {d.id for d in self.intake.decisions if d.trigger_capability == "CAP-02"}
         shortlist = entry_candidates(self.graph, "CAP-02", self.intake.decisions)
@@ -486,7 +486,7 @@ class TestWhereABlockIsLeftIsArithmetic(unittest.TestCase):
     def test_the_shortlist_contains_what_is_already_drawn(self):
         """Otherwise the form would open with a saved entry missing, and the next save would clear
         it without anybody seeing it go."""
-        from scenario_generator.core.graph import entry_candidates
+        from metric.domain.graph import entry_candidates
 
         for capability in self.bounded:
             shortlist = set(entry_candidates(self.graph, capability.id, self.intake.decisions))

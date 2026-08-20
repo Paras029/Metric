@@ -15,9 +15,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from scenario_generator.core.probes import build_probes
-from scenario_generator.webapp.app import create_app
-from scenario_generator.webapp.scenarios import build_rows
+from metric.phases.scenario_generator.workflow.probes import build_probes
+from metric.web.server import create_app
+from metric.web.scenariolist import build_rows
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_stage_runners import _intake_workbook                      # noqa: E402
@@ -42,11 +42,11 @@ class TestEveryStageATemplateNamesStillExists(unittest.TestCase):
     _KEY_IN_TEMPLATE = re.compile(r"stage\.key\s*==\s*'([a-z_]+)'")
 
     def _templates(self):
-        from scenario_generator.webapp import app as webapp
+        from metric.web import server as webapp
         return (Path(webapp.__file__).parent / "templates").rglob("*.html")
 
     def test_no_template_tests_for_a_stage_key_nothing_goes_by(self):
-        from scenario_generator.webapp.stages import STAGE_BY_KEY
+        from metric.web.stages import STAGE_BY_KEY
 
         for template in self._templates():
             for key in self._KEY_IN_TEMPLATE.findall(template.read_text(encoding="utf-8")):
@@ -58,7 +58,7 @@ class TestColumnScoping(unittest.TestCase):
     """build_rows on its own, without a workspace behind it."""
 
     def setUp(self):
-        from scenario_generator.core.models import Decision, IntakeData, Persona, State
+        from metric.domain.models import Decision, IntakeData, Persona, State
         intake = IntakeData(
             use_case={"Use case name": "T", "Business objective": "O"},
             personas=[Persona("P1", "Default", [], True)],
@@ -111,15 +111,15 @@ class TestSnapshots(unittest.TestCase):
                              content_type="multipart/form-data")
 
         stubs = {
-            "scenario_generator.llm.writer.ask_llm":
+            "metric.phases.scenario_generator.scenarios.writer.ask_llm":
                 lambda s, u, **k: json.dumps(
                     {i: {"description": f"Text for {i}.", "turn_plan": "1. Do it."}
                      for i in _ids(u)}),
-            "scenario_generator.llm.materiality.ask_llm":
+            "metric.phases.scenario_generator.materiality.assess.ask_llm":
                 lambda s, u, **k: json.dumps(
                     {i: {"materiality": "High", "confidence": "High", "rationale": "costly"}
                      for i in _ids(u)}),
-            "scenario_generator.llm.reviewer.ask_llm":
+            "metric.phases.scenario_generator.review.reviewer.ask_llm":
                 lambda s, u, **k: (json.dumps({"proposals": []}) if '{"proposals"' in u
                                    else json.dumps(
                                        {i: {"materiality": "Low",

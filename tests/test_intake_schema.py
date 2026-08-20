@@ -3,9 +3,9 @@ and the separation of internal steps from conversational turns.
 """
 import unittest
 
-from scenario_generator.core.generation import categorise, instantiate_path
-from scenario_generator.core.graph import DecisionGraph, enumerate_paths
-from scenario_generator.core.models import Decision, Persona, State, Step
+from metric.phases.scenario_generator.workflow.generation import categorise, instantiate_path
+from metric.domain.graph import DecisionGraph, enumerate_paths
+from metric.domain.models import Decision, Persona, State, Step
 
 _PERSONAS = [Persona("P1", "Default", [], True)]
 

@@ -15,12 +15,12 @@ from pathlib import Path
 
 from openpyxl import Workbook
 
-from scenario_generator.core.models import ScenarioRow
-from scenario_generator.core.representation import build_report
-from scenario_generator.ingest.conversations import (UnreadableConversations, read_conversations,
+from metric.domain.models import ScenarioRow
+from metric.phases.intake.intake.representation import build_report
+from metric.phases.coverage.coverage.conversations import (UnreadableConversations, read_conversations,
                                                      _split_prefixed)
-from scenario_generator.llm.conversation_mapping import Mapping, _transcript
-from scenario_generator.ingest.conversations import Conversation, Turn
+from metric.phases.coverage.coverage.mapping import Mapping, _transcript
+from metric.phases.coverage.coverage.conversations import Conversation, Turn
 
 
 def _sheet(rows) -> Path:

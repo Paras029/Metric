@@ -23,12 +23,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scenario_generator.core import read_intake
-from scenario_generator.core.models import Decision, IntakeData, Persona, State, Tool
-from scenario_generator.core.graph import DecisionGraph
-from scenario_generator.ingest.drafting import carry_forward
-from scenario_generator.llm.context import describe_enumeration, describe_graph
-from scenario_generator.pipeline import build_scenario_space, draft_intake_workbook
+from metric.domain import read_intake
+from metric.domain.models import Decision, IntakeData, Persona, State, Tool
+from metric.domain.graph import DecisionGraph
+from metric.phases.intake.intake.drafting import carry_forward
+from metric.llm.describe import describe_enumeration, describe_graph
+from metric.pipeline import build_scenario_space, draft_intake_workbook
 
 _BRANCHED = {
     "use_case": {"name": "Disputes", "objective": "Resolve disputes", "agent_type": "Chatbot",

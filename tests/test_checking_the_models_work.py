@@ -19,12 +19,12 @@ the scenario space already pays for landed two or more tiers apart.
 import json
 import unittest
 
-from scenario_generator.core.models import (Capability, Decision, IntakeData, Persona, State,
+from metric.domain.models import (Capability, Decision, IntakeData, Persona, State,
                                             Tool)
-from scenario_generator.llm import quality
-from scenario_generator.llm.reviewer import ADJUDICATE_GAP, ScenarioReviewer, _tiers_apart
-from scenario_generator.llm.writer import ScenarioWriter
-from scenario_generator.pipeline import build_scenario_space
+from metric.phases.scenario_generator.scenarios import quality
+from metric.phases.scenario_generator.review.reviewer import ADJUDICATE_GAP, ScenarioReviewer, _tiers_apart
+from metric.phases.scenario_generator.scenarios.writer import ScenarioWriter
+from metric.pipeline import build_scenario_space
 
 _INTAKE = IntakeData(
     use_case={"Use case name": "Disputes", "Business objective": "Resolve disputes"},

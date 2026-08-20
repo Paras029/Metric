@@ -7,9 +7,9 @@ beside it in CHECKS.md are what they compare against.
 import unittest
 from pathlib import Path
 
-from scenario_generator.core.graph import DecisionGraph, enumerate_by_span, spans_for
-from scenario_generator.core.intake import read_intake
-from scenario_generator.pipeline import build_scenario_space
+from metric.domain.graph import DecisionGraph, enumerate_by_span, spans_for
+from metric.domain.intake import read_intake
+from metric.pipeline import build_scenario_space
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples" / "intakes"
 

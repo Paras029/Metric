@@ -18,12 +18,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scenario_generator.core import editing
-from scenario_generator.core.intake import read_intake
-from scenario_generator.core.proposals import instantiate_proposals
-from scenario_generator.llm.context import describe_blocks, digest
-from scenario_generator.pipeline import build_scenario_space
-from scenario_generator.webapp.scenarios import to_row
+from metric.domain import editing
+from metric.domain.intake import read_intake
+from metric.phases.scenario_generator.review.proposals import instantiate_proposals
+from metric.llm.describe import describe_blocks, digest
+from metric.pipeline import build_scenario_space
+from metric.web.scenariolist import to_row
 
 EXAMPLE = (Path(__file__).resolve().parent.parent
            / "examples" / "intakes" / "1_disputes_three_blocks.xlsx")
@@ -100,9 +100,9 @@ class TestWhatTheProposalPassIsTold(unittest.TestCase):
         self.assertIn("already runs end to end", describe_blocks(undivided))
 
     def test_the_prompt_asks_for_the_journeys_and_caps_them(self):
-        from scenario_generator.llm import prompt_loader
+        from metric.llm import prompts
 
-        rendered = prompt_loader.render(
+        rendered = prompts.render(
             "reviewer.propose", owner="", total=1, digest="d", limit=5,
             blocks=describe_blocks(self.intake), categories="c", materiality="m", cds="")
         self.assertIn("one block at a time", rendered)
@@ -170,7 +170,7 @@ class TestTheOrderScenariosAreListedIn(unittest.TestCase):
     which is how they came to lead."""
 
     def _rows(self):
-        from scenario_generator.webapp.scenarios import build_rows
+        from metric.web.scenariolist import build_rows
 
         intake = read_intake(str(EXAMPLE))
         space = build_scenario_space(intake, with_probes=True)

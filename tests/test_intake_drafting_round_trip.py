@@ -18,11 +18,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scenario_generator.core import read_intake
-from scenario_generator.core.intake import write_template
-from scenario_generator.ingest import DraftedIntake, write_drafted_intake
-from scenario_generator.ingest.drafting import _L1_KEYS, _validate
-from scenario_generator.pipeline import draft_intake_workbook, structural_problems
+from metric.domain import read_intake
+from metric.domain.intake import write_template
+from metric.phases.intake.intake import DraftedIntake, write_drafted_intake
+from metric.phases.intake.intake.drafting import _L1_KEYS, _validate
+from metric.pipeline import draft_intake_workbook, structural_problems
 
 _USE_CASE = {
     "name": "Claims Assistant",
@@ -225,7 +225,7 @@ class TestARerunBuildsOnWhatIsAlreadyThere(unittest.TestCase):
     """
 
     def setUp(self):
-        from scenario_generator.webapp.workspace import Workspace
+        from metric.web.workspace import Workspace
 
         self.workspace = Workspace.create(Path(tempfile.mkdtemp()), "Re-run")
         (self.workspace.root / "ingest_context.md").write_text(
@@ -244,13 +244,13 @@ class TestARerunBuildsOnWhatIsAlreadyThere(unittest.TestCase):
 
     def _patched(self):
         from unittest import mock
-        return (mock.patch("scenario_generator.webapp.runners.draft_intake_workbook",
+        return (mock.patch("metric.web.runners.draft_intake_workbook",
                            self._record("draft")),
-                mock.patch("scenario_generator.webapp.runners.revise_intake_workbook",
+                mock.patch("metric.web.runners.revise_intake_workbook",
                            self._record("revise")))
 
     def test_the_first_run_drafts_and_the_second_revises(self):
-        from scenario_generator.webapp.runners import _run_intake
+        from metric.web.runners import _run_intake
 
         draft, revise = self._patched()
         with draft, revise:
@@ -261,7 +261,7 @@ class TestARerunBuildsOnWhatIsAlreadyThere(unittest.TestCase):
         self.assertEqual(self.calls, ["draft", "revise", "revise"])
 
     def test_a_workbook_you_uploaded_is_read_and_never_written_to(self):
-        from scenario_generator.webapp.runners import _run_intake
+        from metric.web.runners import _run_intake
 
         mine = self.workspace.root / "my_intake.xlsx"
         write_drafted_intake(mine, DraftedIntake(_validate(_REPAIRED)))
@@ -278,7 +278,7 @@ class TestARerunBuildsOnWhatIsAlreadyThere(unittest.TestCase):
 
     def test_an_upload_carrying_the_drafters_own_filename_is_still_treated_as_yours(self):
         """Otherwise "never overwrite what somebody uploaded" turns on a filename collision."""
-        from scenario_generator.webapp.app import create_app
+        from metric.web.server import create_app
 
         app = create_app(self.workspace.root.parent)
         with app.test_client() as client:
@@ -291,13 +291,13 @@ class TestARerunBuildsOnWhatIsAlreadyThere(unittest.TestCase):
                 "group": "intake_workbook"},
                 content_type="multipart/form-data")
 
-        from scenario_generator.webapp.workspace import Workspace
+        from metric.web.workspace import Workspace
 
         reloaded = Workspace.load(self.workspace.root)
         stored = reloaded.state("intake").artifacts["workbook"]
         self.assertNotEqual(stored, "drafted_intake.xlsx")
 
-        from scenario_generator.webapp.runners import _run_intake
+        from metric.web.runners import _run_intake
 
         draft, revise = self._patched()
         with draft, revise:
@@ -307,7 +307,7 @@ class TestARerunBuildsOnWhatIsAlreadyThere(unittest.TestCase):
 
     def test_the_result_says_which_of_the_three_happened(self):
         """Three runs that look identical on the card are indistinguishable from a dead button."""
-        from scenario_generator.webapp.runners import _run_intake
+        from metric.web.runners import _run_intake
 
         draft, revise = self._patched()
         with draft, revise:
@@ -323,7 +323,7 @@ class TestARevisionCannotQuietlyEmptyTheDeclaration(unittest.TestCase):
     """The failure the user sees as "it forgot everything", caught before it reaches disk."""
 
     def setUp(self):
-        from scenario_generator.pipeline import revise_intake_workbook
+        from metric.pipeline import revise_intake_workbook
 
         self.revise = revise_intake_workbook
         self.work = Path(tempfile.mkdtemp())

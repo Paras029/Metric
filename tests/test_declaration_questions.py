@@ -17,9 +17,9 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from scenario_generator.core.intake import write_template
-from scenario_generator.webapp.app import create_app
-from scenario_generator.webapp.workspace import Workspace
+from metric.domain.intake import write_template
+from metric.web.server import create_app
+from metric.web.workspace import Workspace
 
 
 def _workbook(directory: Path) -> Path:

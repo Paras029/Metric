@@ -14,8 +14,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scenario_generator.webapp import app as webapp
-from scenario_generator.webapp.app import create_app
+from metric.web import server as webapp
+from metric.web.server import create_app
 
 _SOURCE = Path(webapp.__file__).read_text(encoding="utf-8")
 

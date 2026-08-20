@@ -14,14 +14,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scenario_generator.core.generation import fallback_name
-from scenario_generator.core.models import (Capability, Decision, IntakeData, Persona, State,
+from metric.phases.scenario_generator.workflow.generation import fallback_name
+from metric.domain.models import (Capability, Decision, IntakeData, Persona, State,
                                             Tool, TurnMeta)
-from scenario_generator.core.probes import build_probes
-from scenario_generator.io import read_scenarios, write_space_metadata
-from scenario_generator.io.sheets import add_sheet, write_rows
-from scenario_generator.llm.writer import MAX_NAME_CHARS, _clean_name
-from scenario_generator.pipeline import build_scenario_space
+from metric.phases.scenario_generator.workflow.probes import build_probes
+from metric.domain import read_scenarios, write_space_metadata
+from metric.domain.sheets import add_sheet, write_rows
+from metric.phases.scenario_generator.scenarios.writer import MAX_NAME_CHARS, _clean_name
+from metric.pipeline import build_scenario_space
 
 _INTAKE = IntakeData(
     use_case={"Use case name": "Disputes", "Business objective": "Resolve disputes"},
@@ -129,7 +129,7 @@ class TestTheNameSurvivesTheWorkbook(unittest.TestCase):
 
 class TestTheNameReachesThePageAndThePack(unittest.TestCase):
     def test_the_page_shows_the_name_as_the_handle(self):
-        from scenario_generator.webapp.scenarios import to_row
+        from metric.web.scenariolist import to_row
 
         scenario = build_scenario_space(_INTAKE, with_probes=False)[0]
         scenario.name = "Locked out after two failed checks"
@@ -137,8 +137,8 @@ class TestTheNameReachesThePageAndThePack(unittest.TestCase):
         self.assertEqual(to_row(scenario)["title"], "Locked out after two failed checks")
 
     def test_the_challenge_pack_carries_it_beside_the_id(self):
-        from scenario_generator.io import write_data_template
-        from scenario_generator.io.sheets import open_for_reading, read_table
+        from metric.domain import write_data_template
+        from metric.domain.sheets import open_for_reading, read_table
 
         scenarios = build_scenario_space(_INTAKE, with_probes=False)
         scenarios[0].name = "Locked out after two failed checks"
@@ -153,8 +153,8 @@ class TestTheNameReachesThePageAndThePack(unittest.TestCase):
 
     def test_the_pack_still_carries_no_expected_outcome(self):
         """Adding a column to the issued pack is exactly where an answer key could slip in."""
-        from scenario_generator.io import write_data_template
-        from scenario_generator.io.sheets import open_for_reading, read_table
+        from metric.domain import write_data_template
+        from metric.domain.sheets import open_for_reading, read_table
 
         scenarios = build_scenario_space(_INTAKE, with_probes=False)
         path = Path(tempfile.mkdtemp()) / "pack.xlsx"

@@ -14,13 +14,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from scenario_generator.core.models import Decision, IntakeData, Persona, State, Tool
-from scenario_generator.core.probes import build_probes
-from scenario_generator.llm import config
-from scenario_generator.llm.conversation_mapping import ConversationMapper
-from scenario_generator.llm.materiality import MaterialityAssessor
-from scenario_generator.llm.reviewer import ScenarioReviewer
-from scenario_generator.llm.writer import ScenarioWriter
+from metric.domain.models import Decision, IntakeData, Persona, State, Tool
+from metric.phases.scenario_generator.workflow.probes import build_probes
+from metric.llm import config
+from metric.phases.coverage.coverage.mapping import ConversationMapper
+from metric.phases.scenario_generator.materiality.assess import MaterialityAssessor
+from metric.phases.scenario_generator.review.reviewer import ScenarioReviewer
+from metric.phases.scenario_generator.scenarios.writer import ScenarioWriter
 
 _INTAKE = IntakeData(
     use_case={"Use case name": "Test", "Business objective": "Objective"},
@@ -155,7 +155,7 @@ class TestStageOverrideCascade(unittest.TestCase):
         gateway._generation_parameters has to read tier.temperature rather than falling straight
         through to the global default, or a per-tier setting is accepted and then ignored.
         """
-        from scenario_generator.llm.gateway import _generation_parameters
+        from metric.llm.gateway import _generation_parameters
 
         with mock.patch.dict(os.environ, {"LLM_JUDGEMENT_TEMPERATURE": "0.9"}):
             tier = config._tier("judgement", "LLM_JUDGEMENT", 65_536, "high")
@@ -256,8 +256,8 @@ class TestWhichPassUsesWhichTier(unittest.TestCase):
         """Deciding which of several overlapping routes a transcript actually ends on is the
         hardest judgement in the pipeline, and getting it wrong reports coverage that is not
         there -- so it gets the strongest tier rather than the cheapest."""
-        from scenario_generator.core.models import ScenarioRow
-        from scenario_generator.ingest.conversations import Conversation, Turn
+        from metric.domain.models import ScenarioRow
+        from metric.phases.coverage.coverage.conversations import Conversation, Turn
 
         recorder = _Recorder()
         ConversationMapper(complete=recorder).map(

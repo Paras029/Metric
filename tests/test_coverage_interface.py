@@ -21,8 +21,8 @@ from unittest import mock
 
 from openpyxl import Workbook, load_workbook
 
-from scenario_generator.webapp.app import create_app
-from scenario_generator.webapp.workspace import Workspace
+from metric.web.server import create_app
+from metric.web.workspace import Workspace
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -70,7 +70,7 @@ class TestTheCoveragePage(unittest.TestCase):
         return Workspace.load(self.root / "coverage-check")
 
     def _first_scenario(self):
-        from scenario_generator.io import read_space_metadata
+        from metric.domain import read_space_metadata
         return read_space_metadata(str(self._workspace().root / "scenario_space_metadata.xlsx"))[0].id
 
     def _map(self, calls=None):
@@ -85,7 +85,7 @@ class TestTheCoveragePage(unittest.TestCase):
                 calls.append(user)
             return reply
 
-        with mock.patch("scenario_generator.llm.conversation_mapping.ask_llm", stub):
+        with mock.patch("metric.phases.coverage.coverage.mapping.ask_llm", stub):
             self._run("coverage")
         return target
 
@@ -106,7 +106,7 @@ class TestTheCoveragePage(unittest.TestCase):
         before = self._workspace().coverage_mappings()
 
         calls = []
-        with mock.patch("scenario_generator.llm.conversation_mapping.ask_llm",
+        with mock.patch("metric.phases.coverage.coverage.mapping.ask_llm",
                         lambda *a, **k: calls.append(a) or "{}"):
             self.client.post("/stage/coverage/threshold", data={"threshold": "3"})
 
@@ -123,8 +123,8 @@ class TestTheCoveragePage(unittest.TestCase):
 
     def _under_represented_after(self, threshold):
         """Set the threshold through the route, then count what the page would now show."""
-        from scenario_generator.io import read_space_metadata
-        from scenario_generator.webapp.coverageview import stored_report
+        from metric.domain import read_space_metadata
+        from metric.phases.coverage.coverage.view import stored_report
 
         self.client.post("/stage/coverage/threshold", data={"threshold": str(threshold)})
         workspace = self._workspace()
@@ -201,7 +201,7 @@ class TestWhatGoesInThePack(unittest.TestCase):
         self.assertEqual(self._issue(), everything)
 
     def test_a_covered_scenario_is_held_back_but_stays_in_the_registry(self):
-        from scenario_generator.io import read_space_metadata
+        from metric.domain import read_space_metadata
         workspace = self._workspace()
         metadata = read_space_metadata(str(workspace.root / "scenario_space_metadata.xlsx"))
         covered = metadata[0].id
@@ -217,7 +217,7 @@ class TestWhatGoesInThePack(unittest.TestCase):
 
 
 def _mapping(conversation_id: str, scenario_id: str):
-    from scenario_generator.llm.conversation_mapping import Mapping
+    from metric.phases.coverage.coverage.mapping import Mapping
     return Mapping(conversation_id=conversation_id, scenario_id=scenario_id, confidence="high")
 
 

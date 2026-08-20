@@ -16,10 +16,10 @@ from pathlib import Path
 from unittest import mock
 import tempfile
 
-from scenario_generator.llm import config
-from scenario_generator.llm.calling import accepts, call, call_batch
-from scenario_generator.webapp import workspace as workspace_module
-from scenario_generator.webapp.workspace import Workspace
+from metric.llm import config
+from metric.llm.calling import accepts, call, call_batch
+from metric.web import workspace as workspace_module
+from metric.web.workspace import Workspace
 
 
 class TestTheRecordIsNeverCaughtHalfWritten(unittest.TestCase):

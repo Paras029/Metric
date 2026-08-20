@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # importable fr
 
 from openpyxl import Workbook
 
-from scenario_generator.io import sheets
+from metric.domain import sheets
 
 
 def build(path: str = "claims_intake.xlsx") -> str:

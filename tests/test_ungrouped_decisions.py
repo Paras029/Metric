@@ -12,10 +12,10 @@ scenario out of a gap reads like any other.
 """
 import unittest
 
-from scenario_generator.core.graph import (UNASSIGNED, DecisionGraph, enumerate_by_span,
+from metric.domain.graph import (UNASSIGNED, DecisionGraph, enumerate_by_span,
                                            spans_for)
-from scenario_generator.core.generation import instantiate_span, number_scenarios
-from scenario_generator.core.models import Capability, Decision, Persona, State
+from metric.phases.scenario_generator.workflow.generation import instantiate_span, number_scenarios
+from metric.domain.models import Capability, Decision, Persona, State
 
 # Identification, then a consent gate nobody filed, then verification.
 _DECISIONS = [
@@ -96,7 +96,7 @@ class TestCapabilityLevelDocumentationIsCaught(unittest.TestCase):
     invented outcomes cannot be told from real ones by anybody downstream."""
 
     def _intake(self, decisions, capabilities):
-        from scenario_generator.core.models import IntakeData
+        from metric.domain.models import IntakeData
         return IntakeData(
             use_case={"Use case name": "X", "Business objective": "Y", "Agent type": "Chatbot",
                       "Channel / modality": "App", "Human handoff triggers": "n",
@@ -110,7 +110,7 @@ class TestCapabilityLevelDocumentationIsCaught(unittest.TestCase):
             tools=[])
 
     def _granularity_questions(self, intake):
-        from scenario_generator.core.gaps import find_gaps
+        from metric.phases.intake.intake.gaps import find_gaps
         return [g for g in find_gaps(intake) if g.field == "granularity"]
 
     def test_a_capability_holding_one_decision_of_the_same_name_is_questioned(self):
@@ -154,22 +154,22 @@ class TestTheDefinitionReachesEveryPromptThatWritesAGraph(unittest.TestCase):
     MARK = "A capability is a group of decisions"
 
     def test_it_is_in_every_prompt_that_builds_or_restructures_a_declaration(self):
-        from scenario_generator.ingest.drafting import _cds, _wiring
-        from scenario_generator.ingest.extraction import _vocabulary
-        from scenario_generator.llm import prompt_loader
+        from metric.phases.intake.intake.drafting import _cds, _wiring
+        from metric.phases.intake.intake.extraction import _vocabulary
+        from metric.llm import prompts
 
         rendered = {
-            "intake.draft": prompt_loader.render("intake.draft", context="c", cds=_cds(),
+            "intake.draft": prompts.render("intake.draft", context="c", cds=_cds(),
                                                  wiring=_wiring(), structure="s"),
-            "intake.repair": prompt_loader.render("intake.repair", context="c", current="x",
+            "intake.repair": prompts.render("intake.repair", context="c", current="x",
                                                   cds=_cds(), wiring=_wiring(), structure="s",
                                                   enumeration="e", problems="p"),
-            "intake.revise": prompt_loader.render("intake.revise", context="c", current="x",
+            "intake.revise": prompts.render("intake.revise", context="c", current="x",
                                                   cds=_cds(), wiring=_wiring(), structure="s"),
-            "structure_review.task": prompt_loader.render(
+            "structure_review.task": prompts.render(
                 "structure_review.task", use_case="u", structure="s", cds=_cds(), hints="h",
                 context="c"),
-            "reviewer.propose": prompt_loader.render(
+            "reviewer.propose": prompts.render(
                 "reviewer.propose", owner="", total=1, digest="d", limit=1, categories="c",
                 materiality="m", cds=_cds(), blocks="b"),
             "the diagram prompts": _vocabulary(),
@@ -180,6 +180,6 @@ class TestTheDefinitionReachesEveryPromptThatWritesAGraph(unittest.TestCase):
 
     def test_it_says_what_to_do_with_capability_level_documentation(self):
         """The instruction that stops invented decisions, which nothing downstream can detect."""
-        from scenario_generator.llm import prompt_loader
-        definition = prompt_loader.load("shared.cds")
+        from metric.llm import prompts
+        definition = prompts.load("shared.cds")
         self.assertIn("Do **not** manufacture atomic decisions", definition)

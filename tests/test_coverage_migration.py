@@ -22,8 +22,8 @@ from pathlib import Path
 
 from openpyxl import Workbook
 
-from scenario_generator.ingest import conversation_migration
-from scenario_generator.ingest.conversations import read_conversations
+from metric.phases.coverage.coverage import migration as conversation_migration
+from metric.phases.coverage.coverage.conversations import read_conversations
 
 _HEADER = ["sess_key", "seq_no", "party_cd", "cust_msg_body_txt", "agnt_rsn_trace", "tc_ref"]
 _USER_LINE = "I do not recognise a charge on my statement at all."
@@ -163,10 +163,10 @@ class TestTheOtherTwoReadingsAreUntouched(unittest.TestCase):
     def test_our_own_template_never_reaches_the_call(self):
         """It states which scenario each conversation was run against, so there is nothing to
         work out and nothing to pay for."""
-        from scenario_generator.core.models import (Capability, Decision, IntakeData, Persona,
+        from metric.domain.models import (Capability, Decision, IntakeData, Persona,
                                                     State, Tool)
-        from scenario_generator.io import write_data_template
-        from scenario_generator.pipeline import build_scenario_space
+        from metric.domain import write_data_template
+        from metric.pipeline import build_scenario_space
         from openpyxl import load_workbook
 
         intake = IntakeData(

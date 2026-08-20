@@ -11,10 +11,10 @@ from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 
-from scenario_generator.core.intake import read_intake
-from scenario_generator.ingest import (UnreadableConversations, draft_intake, read_conversations,
-                                       write_drafted_intake)
-from scenario_generator.pipeline import build_scenario_space
+from metric.domain.intake import read_intake
+from metric.phases.coverage.coverage import UnreadableConversations, read_conversations
+from metric.phases.intake.intake import draft_intake, write_drafted_intake
+from metric.pipeline import build_scenario_space
 
 _DRAFT = {
     "use_case": {"name": "Charge Verification Assistant", "objective": "Resolve disputes",

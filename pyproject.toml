@@ -1,52 +1,41 @@
-# Packaging, so the code can be installed once and then updated with `git pull` alone.
-#
-# Installed editable -- `pip install -e .` -- the virtual environment points at the working tree
-# rather than holding a copy of it. Pulling new code is then the whole update: nothing to
-# reinstall, no environment to rebuild, and `pip install -e .` again only when the dependency
-# list below actually changes.
-#
-# requirements.txt is kept as the offline install path, since an internal index is easier to
-# point pip at with a plain requirements file. The two lists say the same thing; this one carries
-# the version floors.
-
 [build-system]
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "scenario-generator"
-version = "1.0.0"
+name = "metric"
+version = "5.0.0"
 description = "Builds independent test benchmarks for conversational AI agents"
 requires-python = ">=3.12"
 
 dependencies = [
-    # Model calls. SafeChain returns a LangChain chat model; everything after that is LangChain.
+    # Model access. SafeChain returns a LangChain chat model.
     "safechain",
     "langchain-core",
 
-    # Core pipeline.
     "openpyxl",
     "python-dotenv",
     "pyyaml",
 
-    # Document ingestion. Each parser is imported inside the reader that needs it, so a package
-    # missing from an internal mirror disables one format rather than the whole tool.
+    # Document readers. Each is imported inside the reader that needs it, so a package missing
+    # from an internal mirror disables one format rather than the tool.
     "pypdf",
     "python-docx",
     "python-pptx",
     "Pillow",
 
-    # Local web interface. Deliberately unpinned, and the code stays on the Flask 1.x interface so
-    # whatever version an internal mirror already carries will run it.
+    # Unpinned, and the code stays on the Flask 1.x interface, so whatever an internal mirror
+    # carries will run it.
     "flask",
 ]
 
 [project.scripts]
-scenario-generator = "scenario_generator.cli:main"
+metric = "metric.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["scenario_generator*"]
+include = ["metric*"]
 
 [tool.setuptools.package-data]
-# The prompt library and the probe library are read at run time, so they travel with the package.
-scenario_generator = ["prompts/*.md", "*.yaml", "webapp/templates/*.html", "webapp/static/*.css"]
+# Read at run time, so they travel with the package.
+metric = ["**/prompts/*.md", "**/*.yaml", "web/templates/*.html", "web/static/*.css",
+          "web/static/*.js"]

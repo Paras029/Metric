@@ -13,7 +13,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scenario_generator.ingest import (IngestionFailed, build_context_document, build_corpus,
+from metric.phases.intake.intake import (IngestionFailed, build_context_document, build_corpus,
                                        extract_documents, open_questions, record_from_json,
                                        record_to_json)
 
@@ -614,9 +614,9 @@ class TestCoverageAnnotation(unittest.TestCase):
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from openpyxl import load_workbook
         from test_stage_runners import _intake_workbook
-        from scenario_generator.core.intake import read_intake
-        from scenario_generator.io import read_scenarios, write_data_template, write_space_metadata
-        from scenario_generator.pipeline import build_scenario_space
+        from metric.domain.intake import read_intake
+        from metric.domain import read_scenarios, write_data_template, write_space_metadata
+        from metric.pipeline import build_scenario_space
 
         directory = Path(tempfile.mkdtemp())
         intake = read_intake(str(_intake_workbook(directory)))
@@ -641,11 +641,11 @@ class TestCoverageAnnotation(unittest.TestCase):
         import sys
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from test_stage_runners import _intake_workbook
-        from scenario_generator.core.intake import read_intake
-        from scenario_generator.core.representation import build_report
-        from scenario_generator.io import read_space_metadata, read_scenarios, write_space_metadata
-        from scenario_generator.llm.conversation_mapping import Mapping
-        from scenario_generator.pipeline import annotate_coverage, build_scenario_space
+        from metric.domain.intake import read_intake
+        from metric.phases.intake.intake.representation import build_report
+        from metric.domain import read_space_metadata, read_scenarios, write_space_metadata
+        from metric.phases.coverage.coverage.mapping import Mapping
+        from metric.pipeline import annotate_coverage, build_scenario_space
 
         directory = Path(tempfile.mkdtemp())
         metadata = str(directory / "scenario_space_metadata.xlsx")

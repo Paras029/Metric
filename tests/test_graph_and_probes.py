@@ -8,10 +8,10 @@ silently missing routes is the failure this whole tool exists to prevent, so eac
 import logging
 import unittest
 
-from scenario_generator.core.generation import instantiate_all
-from scenario_generator.core.graph import DecisionGraph, enumerate_paths
-from scenario_generator.core.models import Capability, Decision, IntakeData, Persona, State
-from scenario_generator.core.probes import build_probes, evaluate
+from metric.phases.scenario_generator.workflow.generation import instantiate_all
+from metric.domain.graph import DecisionGraph, enumerate_paths
+from metric.domain.models import Capability, Decision, IntakeData, Persona, State
+from metric.phases.scenario_generator.workflow.probes import build_probes, evaluate
 
 
 def _intake(capabilities=(), decisions=(), states=(), tools=()) -> IntakeData:
@@ -94,7 +94,7 @@ class TestWhichProbesApply(unittest.TestCase):
         self.assertEqual(self._probe_ids("Something else"), self._probe_ids(""))
 
     def test_an_unknown_condition_says_so_rather_than_dropping_probes_in_silence(self):
-        with self.assertLogs("scenario_generator.core.probes", level=logging.WARNING) as caught:
+        with self.assertLogs("metric.phases.scenario_generator.workflow.probes", level=logging.WARNING) as caught:
             applied = evaluate("has_teleportation", _intake())
         self.assertFalse(applied)
         self.assertIn("has_teleportation", "".join(caught.output))
@@ -110,7 +110,7 @@ class TestEnumerationDoesNotRepeatItself(unittest.TestCase):
             [State("S-00", "Start", "Opens", ["DEC-01"], False),
              State("S-01", "DEC-01=Go", "Moving", ["DEC-02"], False)])
 
-        from scenario_generator.core import graph as graph_module
+        from metric.domain import graph as graph_module
         original = graph_module._shortest_prefix_to
 
         def counted(g, decision_id, span):

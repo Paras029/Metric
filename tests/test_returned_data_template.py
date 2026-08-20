@@ -24,12 +24,12 @@ from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 
-from scenario_generator.core.models import Capability, Decision, IntakeData, Persona, State, Tool
-from scenario_generator.core.representation import build_report
-from scenario_generator.ingest.conversations import read_conversations
-from scenario_generator.io import read_space_metadata, write_data_template, write_space_metadata
-from scenario_generator.llm.conversation_mapping import ConversationMapper
-from scenario_generator.pipeline import build_scenario_space
+from metric.domain.models import Capability, Decision, IntakeData, Persona, State, Tool
+from metric.phases.intake.intake.representation import build_report
+from metric.phases.coverage.coverage.conversations import read_conversations
+from metric.domain import read_space_metadata, write_data_template, write_space_metadata
+from metric.phases.coverage.coverage.mapping import ConversationMapper
+from metric.pipeline import build_scenario_space
 
 _INTAKE = IntakeData(
     use_case={"Use case name": "Disputes", "Business objective": "Resolve disputes"},
@@ -104,7 +104,7 @@ class TestTheSheetIsRecognised(unittest.TestCase):
             self.assertIn(conversation.scenario_id, declared)
 
     def test_a_template_nobody_filled_in_is_refused_with_a_reason(self):
-        from scenario_generator.ingest.conversations import UnreadableConversations
+        from metric.phases.coverage.coverage.conversations import UnreadableConversations
 
         with self.assertRaises(UnreadableConversations) as caught:
             read_conversations(self.template)

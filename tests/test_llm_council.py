@@ -19,7 +19,7 @@ import os
 import unittest
 from unittest import mock
 
-from scenario_generator.llm import config, council
+from metric.llm import config, council
 
 _TIER = config.Tier(name="judgement", model="base-model", max_tokens=100,
                     reasoning_effort="high", max_attempts=1)
@@ -144,7 +144,7 @@ class TestItReachesTheFirstPhase(unittest.TestCase):
         """The switches exist; this is what makes them do anything."""
         from pathlib import Path
 
-        from scenario_generator.ingest import extraction
+        from metric.phases.intake.intake import extraction
 
         source = Path(extraction.__file__).read_text(encoding="utf-8")
         # Reading the facets, resolving what they left open, and the three ways a diagram is read:

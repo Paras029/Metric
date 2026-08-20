@@ -17,7 +17,7 @@ import time
 import unittest
 from pathlib import Path
 
-from scenario_generator.webapp.app import create_app
+from metric.web.server import create_app
 
 EXAMPLE = (Path(__file__).resolve().parent.parent
            / "examples" / "intakes" / "1_disputes_three_blocks.xlsx")
@@ -65,7 +65,7 @@ class TestTheExpandedView(unittest.TestCase):
         self.assertIn("data-expand-open", head.group(0))
 
     def test_a_stage_with_no_side_panel_expands_the_graph_on_its_own(self):
-        from scenario_generator.webapp.app import create_app
+        from metric.web.server import create_app
 
         bare = create_app(Path(tempfile.mkdtemp())).test_client()
         bare.post("/workspaces", data={"name": "Nothing yet"})
@@ -101,7 +101,7 @@ class TestTheScriptBehindIt(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.script = (Path(__file__).resolve().parent.parent / "scenario_generator" / "webapp"
+        cls.script = (Path(__file__).resolve().parent.parent / "metric" / "web"
                       / "static" / "graph.js").read_text(encoding="utf-8")
 
     def test_it_moves_rather_than_copies(self):
@@ -125,14 +125,14 @@ class TestTheScriptBehindIt(unittest.TestCase):
 
     def test_only_one_file_remembers_it(self):
         """Two memories of one thing open it twice, and the second open is a close."""
-        editor = (Path(__file__).resolve().parent.parent / "scenario_generator" / "webapp"
+        editor = (Path(__file__).resolve().parent.parent / "metric" / "web"
                   / "static" / "editor.js").read_text(encoding="utf-8")
         self.assertNotIn("data-expand-open", editor)
 
     def test_the_editor_still_remembers_its_own_half(self):
         """Which tab was showing and which row was open are the editor's, and only the editor
         knows them."""
-        editor = (Path(__file__).resolve().parent.parent / "scenario_generator" / "webapp"
+        editor = (Path(__file__).resolve().parent.parent / "metric" / "web"
                   / "static" / "editor.js").read_text(encoding="utf-8")
         self.assertIn("sessionStorage", editor)
         for remembered in ("tab", "row"):
@@ -142,7 +142,7 @@ class TestTheScriptBehindIt(unittest.TestCase):
         """A staged addition is an intention with nothing on screen to show for it: the row does
         not exist yet, so there is nothing to open and the only evidence is a counter -- which
         reads exactly like the button having done nothing."""
-        editor = (Path(__file__).resolve().parent.parent / "scenario_generator" / "webapp"
+        editor = (Path(__file__).resolve().parent.parent / "metric" / "web"
                   / "static" / "editor.js").read_text(encoding="utf-8")
         adding = editor[editor.index(".erow__new"):]
         self.assertIn("declaration/save", adding[:1200],

@@ -10,8 +10,8 @@ state quietly left out because nothing leads to it.
 """
 import unittest
 
-from scenario_generator.core.models import Decision, IntakeData, Persona, State, Tool
-from scenario_generator.webapp.graphview import (DECISION, START, TERMINAL, build_layout,
+from metric.domain.models import Decision, IntakeData, Persona, State, Tool
+from metric.web.graph.view import (DECISION, START, TERMINAL, build_layout,
                                                  graph_summary, render_svg)
 
 _INTAKE = IntakeData(

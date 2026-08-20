@@ -8,9 +8,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scenario_generator.webapp.stages import (COMPLETE, LOCKED, READY, STAGES, STALE,
+from metric.web.stages import (COMPLETE, LOCKED, READY, STAGES, STALE,
                                               downstream_of, index_of)
-from scenario_generator.webapp.workspace import Workspace, slugify
+from metric.web.workspace import Workspace, slugify
 
 
 def _workspace():

@@ -8,11 +8,11 @@ that reintroduces the one thing the data template must never contain.
 import json
 import unittest
 
-from scenario_generator.core.models import (Decision, IntakeData, Persona, State, Tool)
-from scenario_generator.core.probes import build_probes
-from scenario_generator.llm import prompt_loader
-from scenario_generator.llm.prompt_loader import PromptError
-from scenario_generator.llm.writer import ScenarioWriter
+from metric.domain.models import (Decision, IntakeData, Persona, State, Tool)
+from metric.phases.scenario_generator.workflow.probes import build_probes
+from metric.llm import prompts
+from metric.llm.prompts import PromptError
+from metric.phases.scenario_generator.scenarios.writer import ScenarioWriter
 
 # Every prompt a pass loads by name, with the placeholders that pass supplies. Kept here rather
 # than discovered, so that deleting a prompt or renaming a placeholder fails loudly.
@@ -74,33 +74,33 @@ _INTAKE = IntakeData(
 class TestPromptLibrary(unittest.TestCase):
     def test_every_prompt_the_code_uses_exists_and_is_not_empty(self):
         for name in _CONTRACT:
-            self.assertTrue(prompt_loader.load(name).strip(), f"{name} is empty")
+            self.assertTrue(prompts.load(name).strip(), f"{name} is empty")
 
     def test_placeholders_match_what_the_passes_supply(self):
         for name, expected in _CONTRACT.items():
-            self.assertEqual(prompt_loader.placeholders(name), expected,
+            self.assertEqual(prompts.placeholders(name), expected,
                              f"{name} does not expect the placeholders its caller passes")
 
     def test_no_prompt_file_is_orphaned(self):
         """A file nobody loads is either dead weight or a caller that was never wired up."""
-        self.assertEqual(set(prompt_loader.available()), set(_CONTRACT))
+        self.assertEqual(set(prompts.available()), set(_CONTRACT))
 
     def test_every_prompt_renders(self):
         for name, slots in _CONTRACT.items():
-            rendered = prompt_loader.render(name, **{slot: "x" for slot in slots})
+            rendered = prompts.render(name, **{slot: "x" for slot in slots})
             self.assertNotIn("{{", rendered, f"{name} still has an unfilled placeholder")
 
     def test_a_missing_value_is_an_error_rather_than_a_gap(self):
         with self.assertRaises(PromptError):
-            prompt_loader.render("reviewer.owner_block")
+            prompts.render("reviewer.owner_block")
 
     def test_a_value_with_no_slot_is_an_error_rather_than_ignored(self):
         with self.assertRaises(PromptError):
-            prompt_loader.render("reviewer.owner_block", owner_scenarios="x", renamed="y")
+            prompts.render("reviewer.owner_block", owner_scenarios="x", renamed="y")
 
     def test_json_examples_survive_rendering(self):
         """Prompts embed JSON, so braces must pass through untouched by the placeholder pass."""
-        self.assertIn('{"proposals": []}', prompt_loader.render(
+        self.assertIn('{"proposals": []}', prompts.render(
             "reviewer.propose", owner="", total=1, digest="d", limit=1, blocks="b",
             categories="c", materiality="m", cds=""))
 
@@ -117,10 +117,10 @@ class TestWriterWithholdsTheAnswerKey(unittest.TestCase):
             self.assertNotIn("SENTINEL-EXPECTED-OUTCOME", payload)
 
     def test_prompts_carry_the_non_disclosure_rule(self):
-        house_style = prompt_loader.load("shared.house_style").lower()
+        house_style = prompts.load("shared.house_style").lower()
         self.assertIn("never state", house_style)
         for name in ("writer.graph_scenario", "writer.probe"):
-            self.assertIn("{{house_style}}", prompt_loader.load(name))
+            self.assertIn("{{house_style}}", prompts.load(name))
 
 
 class TestTheVocabularyIsWrittenOnce(unittest.TestCase):
@@ -133,13 +133,13 @@ class TestTheVocabularyIsWrittenOnce(unittest.TestCase):
 
     def test_each_prompt_takes_it_rather_than_restating_it(self):
         for name in self.USERS:
-            self.assertIn("vocabulary", prompt_loader.placeholders(name), name)
-            body = prompt_loader.load(name)
+            self.assertIn("vocabulary", prompts.placeholders(name), name)
+            body = prompts.load(name)
             self.assertNotIn("**Decisions** — every branch point", body,
                              f"{name} has its own copy of the vocabulary again")
 
     def test_the_shared_block_still_defines_every_part_of_the_graph(self):
-        shared = prompt_loader.load("shared.diagram_vocabulary")
+        shared = prompts.load("shared.diagram_vocabulary")
         for part in ("**Capabilities**", "**Decisions**", "**States**",
                      "reached_via", "is_terminal", "outcome_type", "input_source",
                      "max_attempts", "outcome_condition"):

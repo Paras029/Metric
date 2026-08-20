@@ -69,8 +69,8 @@ def main() -> int:
     parser.add_argument("--model", help="probe a model other than LLM_MODEL_ID")
     args = parser.parse_args()
 
-    from scenario_generator.llm import config
-    from scenario_generator.llm.gateway import _load_safechain, chat_model
+    from metric.llm import config
+    from metric.llm.gateway import _load_safechain, chat_model
 
     model_id = args.model or config.LLM_MODEL_ID
     print(f"Interpreter : {sys.executable}")
@@ -254,7 +254,7 @@ def main() -> int:
         from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
         from langchain_core.tools import tool
 
-        from scenario_generator.llm.gateway import tool_model
+        from metric.llm.gateway import tool_model
 
         @tool
         def look_up_decision(decision_id: str) -> str:

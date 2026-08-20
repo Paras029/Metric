@@ -21,9 +21,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scenario_generator.core.evidence import DocumentRef, EvidenceRecord, summarise
-from scenario_generator.core.models import Persona, Scenario
-from scenario_generator.llm.calling import call_batch
+from metric.phases.intake.intake.evidence import DocumentRef, EvidenceRecord, summarise
+from metric.domain.models import Persona, Scenario
+from metric.llm.calling import call_batch
 
 
 def _scenario(scenario_id: str, persona: Persona) -> Scenario:
@@ -59,8 +59,8 @@ class TestPicturesAreNotDocuments(unittest.TestCase):
         self.assertEqual(counts["texts"], 2)
 
     def test_the_reading_reports_documents_and_images_separately(self):
-        from scenario_generator.webapp.runners import _read_documents
-        from scenario_generator.webapp.workspace import Workspace
+        from metric.web.runners import _read_documents
+        from metric.web.workspace import Workspace
 
         record = self._record()
 
@@ -74,7 +74,7 @@ class TestPicturesAreNotDocuments(unittest.TestCase):
         (sources / "spec.md").write_text("content", encoding="utf-8")
 
         from unittest import mock
-        with mock.patch("scenario_generator.webapp.runners.ingest_documents",
+        with mock.patch("metric.web.runners.ingest_documents",
                         lambda *a, **k: _Result()):
             summary = _read_documents(workspace)
 
@@ -83,8 +83,8 @@ class TestPicturesAreNotDocuments(unittest.TestCase):
 
     def test_a_pack_with_no_images_does_not_show_an_image_line(self):
         """A line reading "0 of 0" is a question about why it is there."""
-        from scenario_generator.webapp.runners import _read_documents
-        from scenario_generator.webapp.workspace import Workspace
+        from metric.web.runners import _read_documents
+        from metric.web.workspace import Workspace
         from unittest import mock
 
         class _Result:
@@ -96,7 +96,7 @@ class TestPicturesAreNotDocuments(unittest.TestCase):
         sources.mkdir(parents=True)
         (sources / "only.pdf").write_bytes(b"x")
 
-        with mock.patch("scenario_generator.webapp.runners.ingest_documents",
+        with mock.patch("metric.web.runners.ingest_documents",
                         lambda *a, **k: _Result()):
             summary = _read_documents(workspace)
 
@@ -145,8 +145,8 @@ class TestABatchedPassReportsAsRepliesLand(unittest.TestCase):
     def test_the_writer_reports_before_it_has_applied_anything(self):
         """The property that matters: the first report arrives while replies are still coming
         back, not after the pass has finished with them."""
-        from scenario_generator.core.models import IntakeData
-        from scenario_generator.llm import ScenarioWriter
+        from metric.domain.models import IntakeData
+        from metric.phases.scenario_generator.scenarios.writer import ScenarioWriter
 
         reported = []
 
@@ -180,7 +180,7 @@ class TestIngestionCountsWhatHasHappened(unittest.TestCase):
         along before a single reply exists."""
         import json
 
-        from scenario_generator.ingest import extract_documents
+        from metric.phases.intake.intake import extract_documents
 
         directory = Path(tempfile.mkdtemp())
         (directory / "notes.md").write_text(
@@ -207,7 +207,7 @@ class TestIngestionCountsWhatHasHappened(unittest.TestCase):
     def test_parsing_is_part_of_the_total_rather_than_dead_time(self):
         import json
 
-        from scenario_generator.ingest import extract_documents
+        from metric.phases.intake.intake import extract_documents
 
         directory = Path(tempfile.mkdtemp())
         for name in ("one.md", "two.md", "three.md"):
@@ -229,7 +229,7 @@ class TestIngestionCountsWhatHasHappened(unittest.TestCase):
     def test_the_bar_never_reports_more_than_finished(self):
         import json
 
-        from scenario_generator.ingest import extract_documents
+        from metric.phases.intake.intake import extract_documents
 
         directory = Path(tempfile.mkdtemp())
         (directory / "notes.md").write_text("# Flow\n\nThe agent confirms identity.\n",
@@ -252,7 +252,7 @@ class TestTimestampsAreReadable(unittest.TestCase):
     """Stored as UTC in ISO form, which is right for a file and wrong for a page."""
 
     def setUp(self):
-        from scenario_generator.webapp.app import create_app
+        from metric.web.server import create_app
         self.app = create_app(Path(tempfile.mkdtemp()))
         self.when = self.app.jinja_env.filters["when"]
 
@@ -272,7 +272,7 @@ class TestTimestampsAreReadable(unittest.TestCase):
     def test_the_page_carries_the_machine_readable_form_alongside_the_readable_one(self):
         """The browser re-renders these in the viewer's own timezone, which it can only do from
         the original instant -- so the ISO value has to survive into the markup."""
-        from scenario_generator.webapp.workspace import Workspace
+        from metric.web.workspace import Workspace
 
         root = Path(self.app.config["WORKSPACE_ROOT"])
         workspace = Workspace.create(root, "Timestamps")
@@ -295,8 +295,8 @@ class TestAQuestionSaysWhatAnAnswerLooksLike(unittest.TestCase):
     def test_every_gap_carries_an_example_of_its_own_answer(self):
         """A question can be clear about what it asks and still leave the shape of the reply
         unsaid -- a word, a list, or a sentence. The example settles that where it is felt."""
-        from scenario_generator.core.gaps import find_gaps
-        from scenario_generator.core.models import Capability, Decision, IntakeData, Persona, State
+        from metric.phases.intake.intake.gaps import find_gaps
+        from metric.domain.models import Capability, Decision, IntakeData, Persona, State
 
         intake = IntakeData(
             use_case={},

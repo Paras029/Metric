@@ -28,9 +28,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scenario_generator.core.graph import DecisionGraph, enumerate_by_span
-from scenario_generator.core.generation import instantiate_span, number_scenarios
-from scenario_generator.core.models import Capability, Decision, Persona, State
+from metric.domain.graph import DecisionGraph, enumerate_by_span
+from metric.phases.scenario_generator.workflow.generation import instantiate_span, number_scenarios
+from metric.domain.models import Capability, Decision, Persona, State
 
 # Each block has real internal depth, as a real one does: identification can succeed two ways or
 # fail; verification asks two questions; charge verification classifies then checks the window.

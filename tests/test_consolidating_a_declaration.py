@@ -10,7 +10,7 @@ there is one, each walked separately -- and a duplicate persona multiplies the w
 """
 import unittest
 
-from scenario_generator.ingest.consolidate import _key, consolidate
+from metric.phases.scenario_generator.review.consolidate import _key, consolidate
 
 
 def _declaration(**changes):
@@ -124,7 +124,7 @@ class TestWhatItRefusesToDecide(unittest.TestCase):
 class TestItRunsOnEveryDraft(unittest.TestCase):
     def test_the_drafter_folds_and_says_so_in_the_review_sheet(self):
         import json
-        from scenario_generator.ingest.drafting import draft_intake
+        from metric.phases.intake.intake.drafting import draft_intake
 
         reply = json.dumps({
             "use_case": {"name": "Disputes"},

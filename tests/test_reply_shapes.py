@@ -17,13 +17,13 @@ list is joined into the lines the prompt asked for rather than stringified.
 import json
 import unittest
 
-from scenario_generator.core.models import (Capability, Decision, IntakeData, Persona, State)
-from scenario_generator.core.probes import build_probes
-from scenario_generator.core.proposals import instantiate_proposals
-from scenario_generator.llm.materiality import MaterialityAssessor
-from scenario_generator.llm.reviewer import ScenarioReviewer
-from scenario_generator.llm.writer import ScenarioWriter
-from scenario_generator.utils.replies import prose, text
+from metric.domain.models import (Capability, Decision, IntakeData, Persona, State)
+from metric.phases.scenario_generator.workflow.probes import build_probes
+from metric.phases.scenario_generator.review.proposals import instantiate_proposals
+from metric.phases.scenario_generator.materiality.assess import MaterialityAssessor
+from metric.phases.scenario_generator.review.reviewer import ScenarioReviewer
+from metric.phases.scenario_generator.scenarios.writer import ScenarioWriter
+from metric.shared.replies import prose, text
 
 _INTAKE = IntakeData(
     use_case={"Use case name": "Test", "Business objective": "Objective"},

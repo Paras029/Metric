@@ -26,7 +26,7 @@ import re
 import unittest
 from pathlib import Path
 
-_WEBAPP = Path(__file__).resolve().parent.parent / "scenario_generator" / "webapp"
+_WEBAPP = Path(__file__).resolve().parent.parent / "metric" / "web"
 _CSS = _WEBAPP / "static" / "app.css"
 _TEMPLATES = _WEBAPP / "templates"
 

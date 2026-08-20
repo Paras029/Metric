@@ -28,13 +28,14 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from scenario_generator.core.models import Capability, Decision, IntakeData, Persona, State, Tool
-from scenario_generator import webapp
-from scenario_generator.core import DecisionGraph, enumerate_paths, instantiate_all
-from scenario_generator.core.intake import read_intake, write_template
-from scenario_generator.io import write_space_metadata
-from scenario_generator.webapp.app import create_app
-from scenario_generator.webapp.graphview import (BOX_HEIGHT, DECISION, TERMINAL, build_layout,
+from metric.domain.models import Capability, Decision, IntakeData, Persona, State, Tool
+from metric.web import server as webapp
+from metric.domain import DecisionGraph, enumerate_paths
+from metric.phases.scenario_generator.workflow.generation import instantiate_all
+from metric.domain.intake import read_intake, write_template
+from metric.domain import write_space_metadata
+from metric.web.server import create_app
+from metric.web.graph.view import (BOX_HEIGHT, DECISION, TERMINAL, build_layout,
                                                  graph_summary, render_svg, routes)
 
 _PERSONA = Persona("P1", "Cardmember", [], True)
@@ -77,7 +78,7 @@ class TestABoxSaysWhatKindOfThingItIs(unittest.TestCase):
 
     def test_the_two_shapes_are_actually_different(self):
         """The caption promised this distinction long before the drawing made it."""
-        from scenario_generator.webapp.graphview import _corner
+        from metric.web.graph.view import _corner
 
         self.assertNotEqual(_corner(DECISION), _corner(TERMINAL))
 
@@ -85,7 +86,7 @@ class TestABoxSaysWhatKindOfThingItIs(unittest.TestCase):
         """A legend describing a distinction the drawing does not make is worse than no legend."""
         from pathlib import Path
 
-        from scenario_generator.webapp import app as webapp
+        from metric.web import server as webapp
 
         template = (Path(webapp.__file__).parent / "templates" / "stage.html").read_text()
         self.assertIn("rounded boxes the endings", template)
@@ -170,7 +171,7 @@ class TestThePictureAndTheWalkerAgree(unittest.TestCase):
     """
 
     def _both(self, states):
-        from scenario_generator.core.graph import DecisionGraph
+        from metric.domain.graph import DecisionGraph
 
         intake = _intake(states)
         graph = DecisionGraph(intake.decisions, intake.states)
@@ -221,7 +222,7 @@ class TestThePictureAndTheWalkerAgree(unittest.TestCase):
         the disagreement, and re-adding one would produce it again."""
         from pathlib import Path
 
-        from scenario_generator.webapp import graphview
+        from metric.web.graph import view as graphview
 
         source = Path(graphview.__file__).read_text(encoding="utf-8")
         self.assertNotIn("reached_via.strip().lower()", source)
@@ -423,7 +424,7 @@ class TestTheCardCarriesItsRoute(unittest.TestCase):
     def test_the_scenarios_come_from_their_own_workbook_and_carry_their_routes(self):
         """The second half of modular: point it at a scenario space as well and the page gains the
         list, where opening one lights the route it walks -- the same as the interface."""
-        from scenario_generator.webapp.graphpage import write_graph_page
+        from metric.web.graph.page import write_graph_page
 
         workspace = next(self.root.iterdir())
         page = Path(tempfile.mkdtemp()) / "graph.html"
@@ -437,9 +438,9 @@ class TestTheCardCarriesItsRoute(unittest.TestCase):
         """A proposal the review added has no walk behind it yet. Listed, it would look selectable
         and light nothing when opened, which reads as the page being broken rather than as the
         scenario having no route -- and the card would carry no route for the script to read."""
-        from scenario_generator.core.models import ORIGIN_PROPOSED
-        from scenario_generator.webapp.graphpage import render_graph_page
-        from scenario_generator.core.intake import read_intake as _read
+        from metric.domain.models import ORIGIN_PROPOSED
+        from metric.web.graph.page import render_graph_page
+        from metric.domain.intake import read_intake as _read
 
         workspace = next(self.root.iterdir())
         intake = _read(str(workspace / "intake.xlsx"))
@@ -453,7 +454,7 @@ class TestTheCardCarriesItsRoute(unittest.TestCase):
     def test_without_a_scenario_workbook_it_is_the_graph_alone(self):
         """Not a broken list: the drawing on its own is a complete thing, and an empty section
         headed "the scenarios that walk it" reads as a page that failed to load them."""
-        from scenario_generator.webapp.graphpage import write_graph_page
+        from metric.web.graph.page import write_graph_page
 
         workspace = next(self.root.iterdir())
         page = Path(tempfile.mkdtemp()) / "graph.html"
@@ -514,7 +515,7 @@ class TestTheGraphCanLeaveTheTool(unittest.TestCase):
         """The point of it being modular. A picture that was true once is a screenshot with extra
         steps; a page you rebuild from the sheet you just corrected is a thing to keep."""
         from openpyxl import load_workbook as _open
-        from scenario_generator.webapp.graphpage import write_graph_page
+        from metric.web.graph.page import write_graph_page
 
         book = Path(tempfile.mkdtemp()) / "intake.xlsx"
         write_template(str(book))
@@ -581,8 +582,8 @@ class TestNothingIsDrawnOverAnythingElse(unittest.TestCase):
     EXAMPLES = Path(__file__).resolve().parent.parent / "examples" / "intakes"
 
     def _drawings(self):
-        from scenario_generator.core.intake import read_intake
-        from scenario_generator.webapp.graphview import build_block_layout, build_layout
+        from metric.domain.intake import read_intake
+        from metric.web.graph.view import build_block_layout, build_layout
 
         for path in sorted(self.EXAMPLES.glob("*.xlsx")):
             intake = read_intake(str(path))
@@ -592,7 +593,7 @@ class TestNothingIsDrawnOverAnythingElse(unittest.TestCase):
                 yield f"{path.name} (capabilities)", blocks
 
     def test_no_two_boxes_are_in_the_same_place(self):
-        from scenario_generator.webapp.graphview import BOX_HEIGHT, BOX_WIDTH
+        from metric.web.graph.view import BOX_HEIGHT, BOX_WIDTH
 
         for name, layout in self._drawings():
             boxes = list(layout.nodes.values())
@@ -616,7 +617,7 @@ class TestNothingIsDrawnOverAnythingElse(unittest.TestCase):
                                     f"{name}: {edge.source} -> {edge.target} runs sideways")
 
     def test_no_two_labels_are_drawn_over_each_other(self):
-        from scenario_generator.webapp.graphview import (_label_position, _label_width, _stagger)
+        from metric.web.graph.view import (_label_position, _label_width, _stagger)
 
         for name, layout in self._drawings():
             rank_of = _stagger(layout)
@@ -639,7 +640,7 @@ class TestNothingIsDrawnOverAnythingElse(unittest.TestCase):
         """The worst of the three, because it is the least obviously wrong: a label half behind a
         box is still legible enough to be read as belonging to that box. It happens where a
         decision has more outcomes than the row gap has room for label rows."""
-        from scenario_generator.webapp.graphview import (BOX_HEIGHT, BOX_WIDTH, _label_position,
+        from metric.web.graph.view import (BOX_HEIGHT, BOX_WIDTH, _label_position,
                                                          _label_width, _stagger)
 
         for name, layout in self._drawings():
@@ -660,8 +661,8 @@ class TestNothingIsDrawnOverAnythingElse(unittest.TestCase):
         """The gap is fixed at GAP_Y, which fits three rows of labels. Where a row needs four --
         which the wide example does, at the depths where three continuing outcomes and a refusal
         all leave one decision -- the row below is pushed down rather than drawn over."""
-        from scenario_generator.core.intake import read_intake
-        from scenario_generator.webapp.graphview import BOX_HEIGHT, GAP_Y, build_layout, _stagger
+        from metric.domain.intake import read_intake
+        from metric.web.graph.view import BOX_HEIGHT, GAP_Y, build_layout, _stagger
 
         layout = build_layout(read_intake(str(self.EXAMPLES / "5_wide_chain_scale.xlsx")))
         rank_of = _stagger(layout)
@@ -684,8 +685,8 @@ class TestNothingIsDrawnOverAnythingElse(unittest.TestCase):
     def test_a_fan_whose_labels_do_not_touch_stays_on_one_line(self):
         """Every extra row puts a label further from the arrow it belongs to, so the stagger is
         packed rather than assigned by position."""
-        from scenario_generator.core.models import Decision, IntakeData, State
-        from scenario_generator.webapp.graphview import build_layout, _stagger
+        from metric.domain.models import Decision, IntakeData, State
+        from metric.web.graph.view import build_layout, _stagger
 
         intake = IntakeData(
             use_case={"Use case name": "Wide"}, personas=[], capabilities=[],

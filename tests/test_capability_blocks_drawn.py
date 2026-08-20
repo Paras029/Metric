@@ -10,9 +10,9 @@ does not take, or hides an ending the pack tests, is worse than no second drawin
 """
 import unittest
 
-from scenario_generator.core.graph import DecisionGraph, spans_for
-from scenario_generator.core.intake import read_intake
-from scenario_generator.webapp.graphview import (BLOCK, TERMINAL, build_block_layout,
+from metric.domain.graph import DecisionGraph, spans_for
+from metric.domain.intake import read_intake
+from metric.web.graph.view import (BLOCK, TERMINAL, build_block_layout,
                                                  render_blocks_svg, render_svg)
 
 from pathlib import Path
@@ -56,7 +56,7 @@ class TestTheCollapsedDrawing(unittest.TestCase):
     def test_an_ending_reached_inside_a_block_but_not_listed_as_an_exit_is_still_drawn(self):
         """The specific hole. S-10 is "account restricted, handed to fraud" -- reachable from a
         decision inside verification, and named in nobody's exit list."""
-        from scenario_generator.core.intake import read_intake
+        from metric.domain.intake import read_intake
 
         intake = read_intake(str(EXAMPLES / "1_disputes_three_blocks.xlsx"))
         listed = {state for c in intake.capabilities for state in c.exit_states}
@@ -131,7 +131,7 @@ class TestTheSpanIsEditableWithoutDestroyingItself(unittest.TestCase):
     def setUp(self):
         import tempfile, time
 
-        from scenario_generator.webapp.app import create_app
+        from metric.web.server import create_app
 
         self.root = Path(tempfile.mkdtemp())
         self.client = create_app(self.root).test_client()
@@ -149,7 +149,7 @@ class TestTheSpanIsEditableWithoutDestroyingItself(unittest.TestCase):
         self.workbook = Path(next(self.root.glob("*/"))) / source.name
 
     def _spans(self):
-        from scenario_generator.core.intake import read_intake
+        from metric.domain.intake import read_intake
         return {c.id: (c.entry_states, c.exit_states)
                 for c in read_intake(str(self.workbook)).capabilities}
 
@@ -241,7 +241,7 @@ class TestARouteBackIntoAnEarlierBlock(unittest.TestCase):
     """
 
     def _intake(self):
-        from scenario_generator.core.models import Capability, Decision, IntakeData, State
+        from metric.domain.models import Capability, Decision, IntakeData, State
 
         return IntakeData(
             use_case={"Use case name": "Disputes"}, personas=[],

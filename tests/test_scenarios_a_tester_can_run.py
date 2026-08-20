@@ -11,8 +11,8 @@ expensive way to be no more certain. The judgement half is the review's, and it 
 """
 import unittest
 
-from scenario_generator.core.models import Persona, Scenario, TurnMeta
-from scenario_generator.llm import quality
+from metric.domain.models import Persona, Scenario, TurnMeta
+from metric.phases.scenario_generator.scenarios import quality
 
 
 def _scenario(description="", turn_plan="", turns=1, name="A name", termination="") -> Scenario:

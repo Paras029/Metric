@@ -12,9 +12,9 @@ measuring anything at that point.
 """
 import unittest
 
-from scenario_generator.core.models import (Decision, IntakeData, Persona, Scenario, State, Step,
+from metric.domain.models import (Decision, IntakeData, Persona, Scenario, State, Step,
                                             Tool, TurnMeta)
-from scenario_generator.webapp.scenarios import PAGE_SIZE, build_rows, to_row
+from metric.web.scenariolist import PAGE_SIZE, build_rows, to_row
 
 _PERSONA = Persona("P1", "Cardholder", [], True)
 

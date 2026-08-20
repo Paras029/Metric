@@ -14,11 +14,11 @@ import time
 import unittest
 from pathlib import Path
 
-from scenario_generator.core import editing
-from scenario_generator.core.intake import read_intake
-from scenario_generator.webapp.app import create_app
-from scenario_generator.webapp.declaration import editable, graph_index
-from scenario_generator.webapp.graphview import highlights
+from metric.domain import editing
+from metric.domain.intake import read_intake
+from metric.web.server import create_app
+from metric.phases.intake.intake.declaration import editable, graph_index
+from metric.web.graph.view import highlights
 
 EXAMPLE = (Path(__file__).resolve().parent.parent
            / "examples" / "intakes" / "1_disputes_three_blocks.xlsx")
@@ -286,7 +286,7 @@ class TestWhatEachRowPointsAtInTheDrawing(unittest.TestCase):
     def test_every_edge_named_is_one_the_drawing_actually_has(self):
         """A highlight naming an arrow the picture does not contain lights nothing and reads as
         the feature being broken."""
-        from scenario_generator.webapp.graphview import build_layout
+        from metric.web.graph.view import build_layout
 
         drawn = {(e.source, e.target, e.outcome) for e in build_layout(self.intake).edges}
         for by_key in self.found.values():
@@ -469,7 +469,7 @@ class TestWhatAnEditDoesToTheStages(unittest.TestCase):
                 time.sleep(0.05)
 
     def _workspace(self):
-        from scenario_generator.webapp.workspace import Workspace
+        from metric.web.workspace import Workspace
         return Workspace.load(self.root / "staleness")
 
     def _add(self):
@@ -539,7 +539,7 @@ class TestEditingASpan(unittest.TestCase):
     def test_a_state_the_shortlist_would_have_pruned_can_still_be_named(self):
         """A span may legitimately begin or end anywhere. A control that only offers what it
         guessed at is a span that cannot be corrected."""
-        from scenario_generator.core.graph import DecisionGraph, entry_candidates
+        from metric.domain.graph import DecisionGraph, entry_candidates
 
         intake = read_intake(str(self.workbook))
         graph = DecisionGraph(intake.decisions, intake.states)
@@ -694,7 +694,7 @@ class TestWhatTheCapabilityControlIsGiven(unittest.TestCase):
     def test_every_decision_is_offered_with_where_it_belongs(self):
         """The edit somebody needs is usually "that one belongs here, not there", and a list of
         only what is already here cannot express it."""
-        from scenario_generator.webapp.declaration import editable, graph_index
+        from metric.phases.intake.intake.declaration import editable, graph_index
 
         offered = editable(self.intake)["vocabulary"]["decisions"]
         self.assertEqual({d["id"] for d in offered}, {d.id for d in self.intake.decisions})
@@ -735,7 +735,7 @@ class TestWhatTheCapabilityControlIsGiven(unittest.TestCase):
 
     def test_the_start_states_match_the_graph(self):
         """Same answer as the walk's, not a second guess at it."""
-        from scenario_generator.core.graph import DecisionGraph
+        from metric.domain.graph import DecisionGraph
         graph = DecisionGraph(self.intake.decisions, self.intake.states)
         self.assertEqual(graph_index(self.intake)["start_states"], list(graph.start_states))
 
@@ -825,12 +825,12 @@ class TestTheEntryPickerIsNeverEmpty(unittest.TestCase):
     """
 
     def setUp(self):
-        from scenario_generator.core.intake import IntakeData
+        from metric.domain.intake import IntakeData
         self.intake = read_intake(str(EXAMPLE))
         self.assertIsInstance(self.intake, IntakeData)
 
     def _options(self, intake, capability_id, field):
-        from scenario_generator.webapp.graphview import declaration
+        from metric.web.graph.view import declaration
         _, capabilities, _, _ = declaration(intake)
         row = next(c for c in capabilities if c["id"] == capability_id)
         return [option["id"] for option in row[field]]
@@ -854,7 +854,7 @@ class TestTheEntryPickerIsNeverEmpty(unittest.TestCase):
 
     def test_an_orphaned_capability_still_gets_entries_to_pick_from(self):
         orphan = self._orphan()
-        from scenario_generator.core.graph import DecisionGraph, entry_candidates
+        from metric.domain.graph import DecisionGraph, entry_candidates
         graph = DecisionGraph(orphan.decisions, orphan.states)
         self.assertEqual(entry_candidates(graph, "CAP-02", orphan.decisions), [],
                          "the case this is about did not arise")
@@ -862,7 +862,7 @@ class TestTheEntryPickerIsNeverEmpty(unittest.TestCase):
                         "the entry picker came back empty, which reads as refusing to be set")
 
     def test_the_fallback_is_where_the_conversation_starts(self):
-        from scenario_generator.core.graph import DecisionGraph
+        from metric.domain.graph import DecisionGraph
         orphan = self._orphan()
         graph = DecisionGraph(orphan.decisions, orphan.states)
         self.assertEqual(self._options(orphan, "CAP-02", "entry_options"),
@@ -871,7 +871,7 @@ class TestTheEntryPickerIsNeverEmpty(unittest.TestCase):
     def test_the_page_and_the_server_fall_back_to_the_same_states(self):
         """The shortlist is drawn once by the server and redrawn on the page as decisions are
         ticked. Two fallbacks would rearrange the list under a tick that did not ask it to."""
-        from scenario_generator.core.graph import DecisionGraph
+        from metric.domain.graph import DecisionGraph
         orphan = self._orphan()
         graph = DecisionGraph(orphan.decisions, orphan.states)
         self.assertEqual(graph_index(orphan)["start_states"], list(graph.start_states))
@@ -890,7 +890,7 @@ class TestTheEntryPickerIsNeverEmpty(unittest.TestCase):
         """It is an affordance of a control, not a fact about the agent. Deriving the exits from a
         start state the validator never chose would put a whole graph's endings on a capability
         that holds none of them."""
-        from scenario_generator.core.graph import DecisionGraph, entry_candidates
+        from metric.domain.graph import DecisionGraph, entry_candidates
         orphan = self._orphan()
         graph = DecisionGraph(orphan.decisions, orphan.states)
         self.assertEqual(entry_candidates(graph, "CAP-02", orphan.decisions), [])
@@ -1056,7 +1056,7 @@ class TestRenamingAnId(unittest.TestCase):
     def test_the_graph_still_walks_afterwards(self):
         """The point of the whole cascade. A rename that breaks the routes has done the opposite
         of what somebody renaming a row wanted."""
-        from scenario_generator.pipeline import build_scenario_space
+        from metric.pipeline import build_scenario_space
 
         before = len(build_scenario_space(self._intake(), with_probes=False))
         editing.rename(str(self.path), "decision", "DEC-03", "DEC-30")
@@ -1157,7 +1157,7 @@ class TestACapabilityIsDrawnAsAContainer(unittest.TestCase):
     wrong thing to say about a box standing for eleven."""
 
     def setUp(self):
-        from scenario_generator.webapp.graphview import render_blocks_svg
+        from metric.web.graph.view import render_blocks_svg
         self.svg = render_blocks_svg(read_intake(str(EXAMPLE)))
 
     def test_it_has_the_doubled_outline_of_a_composite_state(self):
@@ -1171,7 +1171,7 @@ class TestACapabilityIsDrawnAsAContainer(unittest.TestCase):
 
     def test_the_detailed_drawing_has_neither(self):
         """There are no blocks in it -- every box is a decision or an ending."""
-        from scenario_generator.webapp.graphview import render_svg
+        from metric.web.graph.view import render_svg
 
         detail = render_svg(read_intake(str(EXAMPLE)))
         self.assertNotIn("graph__inner", detail)

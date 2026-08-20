@@ -7,10 +7,10 @@ import unittest
 
 from openpyxl import load_workbook
 
-from scenario_generator.core.generation import recommended_turns, required_variations
-from scenario_generator.core.models import (Decision, IntakeData, Persona, State, Tool)
-from scenario_generator.core.probes import build_probes
-from scenario_generator.io import write_data_template
+from metric.domain.models import recommended_turns, required_variations
+from metric.domain.models import (Decision, IntakeData, Persona, State, Tool)
+from metric.phases.scenario_generator.workflow.probes import build_probes
+from metric.domain import write_data_template
 
 _INTAKE = IntakeData(
     use_case={"Use case name": "Test", "Business objective": "Objective"},

@@ -14,8 +14,8 @@ way through.
 import json
 import unittest
 
-from scenario_generator.core.evidence import EvidenceRecord, FacetAnswer, summarise
-from scenario_generator.ingest import extract_documents, open_questions
+from metric.phases.intake.intake.evidence import EvidenceRecord, FacetAnswer, summarise
+from metric.phases.intake.intake import extract_documents, open_questions
 
 _DOCUMENT = """# Identity
 

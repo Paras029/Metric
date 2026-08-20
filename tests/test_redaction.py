@@ -11,13 +11,13 @@ import types
 import unittest
 from unittest import mock
 
-from scenario_generator.ingest.extraction import build_corpus
-from scenario_generator.ingest.readers import Segment
-from scenario_generator.ingest.redaction import RedactionUnavailable, redact_segments
-from scenario_generator.llm import config
-from scenario_generator.webapp.app import create_app
-from scenario_generator.webapp.runners import _read_documents
-from scenario_generator.webapp.workspace import Workspace
+from metric.phases.intake.intake.extraction import build_corpus
+from metric.phases.intake.intake.readers import Segment
+from metric.phases.intake.intake.redaction import RedactionUnavailable, redact_segments
+from metric.llm import config
+from metric.web.server import create_app
+from metric.web.runners import _read_documents
+from metric.web.workspace import Workspace
 
 
 class _FakeMaskingConfig:
@@ -140,7 +140,7 @@ class TestRedactionOnceSwitchedOn(unittest.TestCase):
         self.addCleanup(narrow.stop)
 
         with mock.patch.object(config, "PII_REDACTION_SENSITIVITY", "strict"):
-            with self.assertLogs("scenario_generator.ingest.redaction", level="WARNING") as logs:
+            with self.assertLogs("metric.phases.intake.intake.redaction", level="WARNING") as logs:
                 result, _ = redact_segments([Segment("has SECRET data", "p. 1")])
         self.assertIn("[REDACTED]", result[0].text)
         self.assertTrue(any("sensitivity" in line for line in logs.output))
@@ -235,7 +235,7 @@ class _StubSummary(dict):
     """
 
     def __init__(self):
-        from scenario_generator.core.evidence import DocumentRef, EvidenceRecord, summarise
+        from metric.phases.intake.intake.evidence import DocumentRef, EvidenceRecord, summarise
         super().__init__(summarise(EvidenceRecord(documents=[DocumentRef("spec.md", "markdown")])))
 
 
@@ -271,7 +271,7 @@ class TestThePerFileToggleReachesIngestion(unittest.TestCase):
             captured["should_redact"] = should_redact
             return _StubIngestResult()
 
-        with mock.patch("scenario_generator.webapp.runners.ingest_documents", fake_ingest_documents):
+        with mock.patch("metric.web.runners.ingest_documents", fake_ingest_documents):
             _read_documents(self.workspace)
 
         should_redact = captured["should_redact"]

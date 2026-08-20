@@ -11,7 +11,7 @@ tone, and the agent does not branch on tone.
 """
 import unittest
 
-from scenario_generator.ingest.drafting import MAX_PERSONAS, _personas
+from metric.phases.intake.intake.drafting import MAX_PERSONAS, _personas
 
 
 def _names(personas):

@@ -13,8 +13,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scenario_generator.ingest import diagram_structure as ds
-from scenario_generator.ingest import build_context_document, extract_documents
+from metric.phases.intake.intake import diagram_structure as ds
+from metric.phases.intake.intake import build_context_document, extract_documents
 
 _PNG = ("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmM"
         "IQAAAABJRU5ErkJggg==")
@@ -413,7 +413,7 @@ class TestSeveralImagesArePutTogetherAsTold(unittest.TestCase):
 
 class TestTheDrafterIsGivenStructure(unittest.TestCase):
     def test_the_graph_is_put_in_front_of_the_drafter_as_structure(self):
-        from scenario_generator.ingest.drafting import draft_intake
+        from metric.phases.intake.intake.drafting import draft_intake
 
         seen = {}
 
@@ -429,7 +429,7 @@ class TestTheDrafterIsGivenStructure(unittest.TestCase):
         self.assertIn("start from it", seen["user"].lower())
 
     def test_without_a_diagram_the_drafter_is_told_to_work_from_the_prose(self):
-        from scenario_generator.ingest.drafting import draft_intake
+        from metric.phases.intake.intake.drafting import draft_intake
 
         seen = {}
 

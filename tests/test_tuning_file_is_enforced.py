@@ -29,7 +29,7 @@ from unittest import mock
 
 import yaml
 
-from scenario_generator.llm import config
+from metric.llm import config
 
 _REPO_TUNING = Path(__file__).resolve().parent.parent / "tuning.yml"
 
@@ -69,7 +69,7 @@ class TestTheFileIsFoundFromAnywhere(unittest.TestCase):
     def test_it_is_found_from_a_directory_inside_the_project(self):
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("TUNING_PATH", None)
-            inside = _REPO_TUNING.parent / "scenario_generator"
+            inside = _REPO_TUNING.parent / "metric"
             with mock.patch("pathlib.Path.cwd", return_value=inside):
                 config.reload_tuning()
                 found = Path(config.tuning_path())
@@ -86,7 +86,7 @@ class TestTheFileIsFoundFromAnywhere(unittest.TestCase):
         missing = Path(tempfile.mkdtemp()) / "nothing.yml"
         with mock.patch.dict(os.environ, {"TUNING_PATH": str(missing)}):
             config.reload_tuning()
-            with self.assertLogs("scenario_generator.llm.config", level=logging.WARNING) as logged:
+            with self.assertLogs("metric.llm.config", level=logging.WARNING) as logged:
                 config.tuning()
         self.assertIn("built-in default", "\n".join(logged.output))
 
@@ -278,7 +278,7 @@ class TestABrokenFileNeverDegradesToDefaults(_Tuned):
         self.path.write_text(self.BROKEN, encoding="utf-8")
         os.utime(self.path, ns=(0, 0))
 
-        with self.assertLogs("scenario_generator.llm.config", level=logging.ERROR) as logged:
+        with self.assertLogs("metric.llm.config", level=logging.ERROR) as logged:
             self.assertEqual(config.MAX_CONCURRENCY, 8)
         self.assertIn("still in force", "\n".join(logged.output))
         self.assertEqual(config.stage_batch_size("WRITER", 99), 32)
@@ -348,8 +348,8 @@ class TestTheConfiguredNumbersAreWhatTheCallsActuallyUse(_Tuned):
     """Reading the setting back is not the same as the pass obeying it. This runs the writer."""
 
     def _writer_run(self, scenario_count: int):
-        from scenario_generator.core.models import IntakeData, Persona, Scenario
-        from scenario_generator.llm import ScenarioWriter
+        from metric.domain.models import IntakeData, Persona, Scenario
+        from metric.phases.scenario_generator.scenarios.writer import ScenarioWriter
 
         persona = Persona("P1", "Default", ["x"], True)
         intake = IntakeData(use_case={"Use case name": "X"}, personas=[persona],
@@ -399,7 +399,7 @@ class TestTheConfiguredNumbersAreWhatTheCallsActuallyUse(_Tuned):
 
     def test_the_gateway_sends_in_waves_of_the_configured_size(self):
         """One level below the pass: what ask_llm_batch does with the number it is handed."""
-        from scenario_generator.llm import gateway
+        from metric.llm import gateway
 
         sent = []
 

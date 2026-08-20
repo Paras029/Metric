@@ -13,10 +13,10 @@ out of scope. None of them produce a scenario.
 """
 import unittest
 
-from scenario_generator.core import graph as graph_module
+from metric.domain import graph as graph_module
 
-from scenario_generator.core.graph import DecisionGraph, enumerate_paths
-from scenario_generator.core.models import Capability, Decision, IntakeData, Persona, State, Tool
+from metric.domain.graph import DecisionGraph, enumerate_paths
+from metric.domain.models import Capability, Decision, IntakeData, Persona, State, Tool
 
 
 def _build_graph():

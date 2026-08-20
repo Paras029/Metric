@@ -10,10 +10,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scenario_generator.core.gaps import find_gaps
-from scenario_generator.core.intake import read_intake
-from scenario_generator.core.models import Decision, IntakeData, State
-from scenario_generator.pipeline import draft_intake_workbook, structural_problems
+from metric.phases.intake.intake.gaps import find_gaps
+from metric.domain.intake import read_intake
+from metric.domain.models import Decision, IntakeData, State
+from metric.pipeline import draft_intake_workbook, structural_problems
 
 _USE_CASE = {"name": "Disputes", "objective": "Handle a disputed charge", "agent_type": "Chat",
              "channel": "Web", "handoff_triggers": "The cardmember asks for a person",

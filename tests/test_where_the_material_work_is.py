@@ -16,11 +16,11 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from scenario_generator.core.intake import read_intake
-from scenario_generator.core.models import ORIGIN_PROPOSED
-from scenario_generator.pipeline import build_scenario_space
-from scenario_generator.webapp.app import create_app
-from scenario_generator.webapp.graphview import load, routes
+from metric.domain.intake import read_intake
+from metric.domain.models import ORIGIN_PROPOSED
+from metric.pipeline import build_scenario_space
+from metric.web.server import create_app
+from metric.web.graph.view import load, routes
 
 EXAMPLE = (Path(__file__).resolve().parent.parent
            / "examples" / "intakes" / "1_disputes_three_blocks.xlsx")
@@ -172,7 +172,7 @@ class TestOnlyTheArrowsArePainted(unittest.TestCase):
     flows along it."""
 
     def setUp(self):
-        base = Path(__file__).resolve().parent.parent / "scenario_generator" / "webapp" / "static"
+        base = Path(__file__).resolve().parent.parent / "metric" / "web" / "static"
         self.script = (base / "graph.js").read_text(encoding="utf-8")
         self.css = (base / "app.css").read_text(encoding="utf-8")
 
@@ -186,7 +186,7 @@ class TestOnlyTheArrowsArePainted(unittest.TestCase):
         self.assertNotIn("data-node", painting)
 
     def test_every_arrow_carries_a_channel_to_paint(self):
-        from scenario_generator.webapp.graphview import render_svg
+        from metric.web.graph.view import render_svg
         drawn = render_svg(read_intake(str(EXAMPLE)))
         self.assertEqual(drawn.count("graph__flow"), drawn.count('marker-end="url(#arrow)"'))
 
@@ -225,7 +225,7 @@ class TestTheCollapsedDrawingKeepsTheReading(unittest.TestCase):
         self.assertTrue(any(key.endswith("|ends") for key in self._blocks()))
 
     def test_nothing_is_counted_on_an_arrow_the_collapsed_view_never_drew(self):
-        from scenario_generator.webapp.graphview import build_block_layout
+        from metric.web.graph.view import build_block_layout
         drawn = {(edge.source, edge.target) for edge in build_block_layout(self.intake).edges}
         for key in self._blocks():
             _, source, target, _ = key.split("|")
@@ -237,7 +237,7 @@ class TestThePaintDoesNotFightTheLighting(unittest.TestCase):
     answer about one route, and it is the reason the list and the drawing were put side by side."""
 
     def setUp(self):
-        base = Path(__file__).resolve().parent.parent / "scenario_generator" / "webapp" / "static"
+        base = Path(__file__).resolve().parent.parent / "metric" / "web" / "static"
         self.script = (base / "graph.js").read_text(encoding="utf-8")
         self.css = (base / "app.css").read_text(encoding="utf-8")
 

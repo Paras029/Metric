@@ -61,7 +61,7 @@ def _safechain():
 
 def _factory(package) -> None:
     """Find anything callable that looks like the model factory, and name its import path."""
-    from scenario_generator.llm.gateway import FACTORY_CANDIDATES, FACTORY_ENV
+    from metric.llm.gateway import FACTORY_CANDIDATES, FACTORY_ENV
 
     print("The model factory")
     print("-----------------")

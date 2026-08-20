@@ -31,8 +31,8 @@ from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable
 
-from scenario_generator.llm import config, gateway, metering
-from scenario_generator.llm.cancellation import Stopped
+from metric.llm import config, gateway, metering
+from metric.llm.cancellation import Stopped
 
 
 class _FakeChatModel(GenericFakeChatModel):
@@ -122,12 +122,12 @@ class TestTheWholePromptLibrarySurvives(_WithSafeChain):
     """
 
     def test_every_prompt_builds_with_nothing_read_as_a_placeholder(self):
-        from scenario_generator.llm import prompt_loader
+        from metric.llm import prompts
 
-        for name in prompt_loader.available():
-            slots = prompt_loader.placeholders(name)
-            text = (prompt_loader.render(name, **{s: "x" for s in slots}) if slots
-                    else prompt_loader.load(name))
+        for name in prompts.available():
+            slots = prompts.placeholders(name)
+            text = (prompts.render(name, **{s: "x" for s in slots}) if slots
+                    else prompts.load(name))
             prompt = gateway.build_prompt("system text", text)
 
             self.assertEqual(prompt.input_variables, [], f"{name} leaked a placeholder")

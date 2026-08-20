@@ -23,10 +23,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scenario_generator.core.context import MAX_CHARS, load_context
-from scenario_generator.core.evidence import (FACETS, Claim, DocumentRef, EvidenceRecord,
+from metric.phases.intake.intake.context import MAX_CHARS, load_context
+from metric.phases.intake.intake.evidence import (FACETS, Claim, DocumentRef, EvidenceRecord,
                                               FacetAnswer, SourceRef)
-from scenario_generator.ingest import build_context_document, build_model_context
+from metric.phases.intake.intake import build_context_document, build_model_context
 
 
 def _record(claims_per_facet: int = 6) -> EvidenceRecord:
@@ -126,7 +126,7 @@ class TestTheBudgetIsGenerousAndHonest(unittest.TestCase):
 
     def test_dropping_a_section_is_said_out_loud(self):
         text = "\n".join(f"## Section {n}\n\n{'x' * 400}\n" for n in range(20))
-        with self.assertLogs("scenario_generator.core.context", level=logging.WARNING) as logged:
+        with self.assertLogs("metric.phases.intake.intake.context", level=logging.WARNING) as logged:
             load_context(self._file(text), max_chars=2000)
         self.assertIn("section(s) were left out", "\n".join(logged.output))
 
@@ -139,7 +139,7 @@ class TestTheBudgetIsGenerousAndHonest(unittest.TestCase):
         self.assertIn("NOTES ADDED BY THE VALIDATOR", loaded)
 
     def test_a_context_with_no_sections_still_says_it_was_cut(self):
-        with self.assertLogs("scenario_generator.core.context", level=logging.WARNING) as logged:
+        with self.assertLogs("metric.phases.intake.intake.context", level=logging.WARNING) as logged:
             loaded = load_context(self._file("y" * 5000), max_chars=1000)
         self.assertLessEqual(len(loaded), 1000)
         self.assertIn("truncated", "\n".join(logged.output))
@@ -149,25 +149,25 @@ class TestANoteReachesTheCallThatNeedsIt(unittest.TestCase):
     """The question behind "will what I typed actually be used": yes, and this is the path."""
 
     def setUp(self):
-        from scenario_generator.webapp.workspace import Workspace
+        from metric.web.workspace import Workspace
 
         self.workspace = Workspace.create(Path(tempfile.mkdtemp()), "Answers")
         (self.workspace.root / "ingest_evidence.json").write_text("{}", encoding="utf-8")
 
     def test_a_note_saved_on_the_page_is_in_what_later_stages_are_given(self):
-        from scenario_generator.webapp.runners import _context
+        from metric.web.runners import _context
 
         self.workspace.add_note("intake", "DEC-02's outcomes are Eligible / Not eligible.")
         self.assertIn("Eligible / Not eligible", _context(self.workspace))
 
     def test_an_answer_given_at_one_stage_reaches_the_stages_after_it(self):
-        from scenario_generator.webapp.runners import _context
+        from metric.web.runners import _context
 
         self.workspace.add_note("intake", "Disputes over 500 always go to a person.")
         self.assertIn("Disputes over 500", _context(self.workspace))
 
     def test_notes_accumulate_rather_than_replace(self):
-        from scenario_generator.webapp.runners import _context
+        from metric.web.runners import _context
 
         self.workspace.add_note("intake", "First thing.")
         self.workspace.add_note("intake", "Second thing.")

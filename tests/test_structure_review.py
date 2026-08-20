@@ -13,13 +13,13 @@ from unittest import mock
 
 from openpyxl import load_workbook
 
-from scenario_generator.core.graph import DecisionGraph, convergence_candidates
-from scenario_generator.core.intake import (attach_decision_to_state, merge_decisions,
+from metric.domain.graph import DecisionGraph, convergence_candidates
+from metric.domain.intake import (attach_decision_to_state, merge_decisions,
                                             read_intake, set_state_reached_via, write_template)
-from scenario_generator.core.models import Decision, IntakeData, Persona, State
-from scenario_generator.llm.structure_review import review_structure
-from scenario_generator.webapp import app as webapp
-from scenario_generator.webapp.app import create_app
+from metric.domain.models import Decision, IntakeData, Persona, State
+from metric.phases.scenario_generator.review.structure import review_structure
+from metric.web import server as webapp
+from metric.web.server import create_app
 
 
 def _workbook(directory: Path) -> Path:
@@ -185,7 +185,7 @@ class TestMergeAndReconnectWriters(unittest.TestCase):
 
     def test_merging_two_decisions_collapses_the_space(self):
         before = read_intake(str(self.path))
-        from scenario_generator.pipeline import build_scenario_space
+        from metric.pipeline import build_scenario_space
         # The 2x2 combinations through DEC-03/DEC-05, and only those. DEC-09 is an orphan nothing
         # leads to, whose outcomes name no destination either -- so there is no route from a start
         # state through it to an ending, and it contributes no scenario. It used to contribute two,
@@ -301,21 +301,21 @@ class TestStructureReviewRoutes(unittest.TestCase):
                                 "capabilities": ["CAP-01", "CAP-02"], "importance": "Low",
                                 "rationale": "Both establish the same fact."}],
         }
-        with mock.patch("scenario_generator.llm.structure_review.ask_llm", self._reply(reply)):
+        with mock.patch("metric.phases.scenario_generator.review.structure.ask_llm", self._reply(reply)):
             response = self.client.post("/stage/intake/structure-review", follow_redirects=True)
         page = response.data.decode()
         self.assertIn("DEC-09", page)
         self.assertIn("Identify caller", page)
 
     def test_applying_a_reconnection_writes_it_and_removes_the_proposal(self):
-        with mock.patch("scenario_generator.llm.structure_review.ask_llm",
+        with mock.patch("metric.phases.scenario_generator.review.structure.ask_llm",
                         self._reply({"reconnections": [
                             {"kind": "decision", "id": "DEC-09", "attach_to_state": "S-01",
                              "rationale": "r"}]})):
             self.client.post("/stage/intake/structure-review")
 
         workspace = self.app.config["WORKSPACE_ROOT"]
-        from scenario_generator.webapp.workspace import Workspace
+        from metric.web.workspace import Workspace
         ws = Workspace.load(next(workspace.iterdir()))
         self.assertEqual(len(ws.structure_proposals), 1)
         proposal_id = ws.structure_proposals[0]["id"]
@@ -329,14 +329,14 @@ class TestStructureReviewRoutes(unittest.TestCase):
         self.assertIn("DEC-09", s01.next_decisions)
 
     def test_dismissing_a_proposal_removes_it_without_touching_the_workbook(self):
-        with mock.patch("scenario_generator.llm.structure_review.ask_llm",
+        with mock.patch("metric.phases.scenario_generator.review.structure.ask_llm",
                         self._reply({"reconnections": [
                             {"kind": "decision", "id": "DEC-09", "attach_to_state": "S-01",
                              "rationale": "r"}]})):
             self.client.post("/stage/intake/structure-review")
 
         workspace = self.app.config["WORKSPACE_ROOT"]
-        from scenario_generator.webapp.workspace import Workspace
+        from metric.web.workspace import Workspace
         ws = Workspace.load(next(workspace.iterdir()))
         proposal_id = ws.structure_proposals[0]["id"]
 

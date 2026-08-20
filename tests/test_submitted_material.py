@@ -13,11 +13,11 @@ from pathlib import Path
 
 from openpyxl import Workbook
 
-from scenario_generator.core.evidence import DocumentRef, EvidenceRecord, FacetAnswer
-from scenario_generator.ingest import build_corpus, read_document
-from scenario_generator.ingest.groups import (DEFAULT_GROUP, EVIDENCE_GROUPS, GROUPS,
+from metric.phases.intake.intake.evidence import DocumentRef, EvidenceRecord, FacetAnswer
+from metric.phases.intake.intake import build_corpus, read_document
+from metric.phases.intake.intake.groups import (DEFAULT_GROUP, EVIDENCE_GROUPS, GROUPS,
                                               evidence_files, files_in, remove_file)
-from scenario_generator.webapp.app import create_app
+from metric.web.server import create_app
 
 
 def _scratch() -> Path:
@@ -210,7 +210,7 @@ class TestNothingUploadedIsLost(unittest.TestCase):
         self.assertIn("Each image shows the same workflow", page)
 
     def test_the_choice_is_kept_and_makes_a_finished_reading_out_of_date(self):
-        from scenario_generator.webapp.workspace import Workspace
+        from metric.web.workspace import Workspace
         self._finish("intake")
         self.client.post("/stage/intake/diagrams", data={"mode": "same_flow"})
 
@@ -226,7 +226,7 @@ class TestNothingUploadedIsLost(unittest.TestCase):
         self.assertEqual(self._statuses()["intake"], "complete")
 
     def test_a_mode_nobody_offered_falls_back_to_the_default(self):
-        from scenario_generator.webapp.workspace import Workspace
+        from metric.web.workspace import Workspace
         self.client.post("/stage/intake/diagrams", data={"mode": "../../etc"})
         self.assertEqual(Workspace.load(self.workspace).diagram_mode, "split")
 
@@ -235,8 +235,8 @@ class TestNothingUploadedIsLost(unittest.TestCase):
         ingestion. Stored and never passed on looks identical on the page and changes nothing about
         how the images are actually read."""
         from unittest import mock
-        from scenario_generator.webapp import runners
-        from scenario_generator.webapp.workspace import Workspace
+        from metric.web import runners
+        from metric.web.workspace import Workspace
 
         self._upload("intake", self._image("one.png"), "diagrams")
         self._upload("intake", self._image("two.png"), "diagrams")
@@ -294,14 +294,14 @@ class TestDocumentsAreAccountedFor(unittest.TestCase):
         return record
 
     def test_a_document_nothing_rests_on_is_named_in_the_context(self):
-        from scenario_generator.ingest import build_context_document
+        from metric.phases.intake.intake import build_context_document
 
         text = build_context_document(self._record(drawn_on=True), "Test agent")
         self.assertIn("vendor.pdf", text)
         self.assertIn("nothing below rests on this document", text)
 
     def test_a_document_that_was_used_is_not_flagged(self):
-        from scenario_generator.ingest import build_context_document
+        from metric.phases.intake.intake import build_context_document
 
         text = build_context_document(self._record(drawn_on=True), "Test agent")
         line = next(l for l in text.splitlines() if "model.pdf" in l)
@@ -309,7 +309,7 @@ class TestDocumentsAreAccountedFor(unittest.TestCase):
 
     def test_an_unreadable_file_is_not_reported_as_ignored(self):
         """It failed to open; that is a different problem with a different fix."""
-        from scenario_generator.ingest import build_context_document
+        from metric.phases.intake.intake import build_context_document
 
         record = EvidenceRecord(documents=[
             DocumentRef(name="scan.pdf", kind="unreadable", note="no text layer")])

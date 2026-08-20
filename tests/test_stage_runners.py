@@ -17,9 +17,9 @@ from unittest import mock
 
 from openpyxl import Workbook
 
-from scenario_generator.core.intake import write_template
-from scenario_generator.webapp.app import RUNNERS, create_app
-from scenario_generator.webapp.stages import STAGES
+from metric.domain.intake import write_template
+from metric.web.server import RUNNERS, create_app
+from metric.web.stages import STAGES
 
 _EXAMPLE = Path(__file__).resolve().parent.parent / "examples" / "build_claims_intake.py"
 
@@ -111,11 +111,11 @@ class TestEveryStageRuns(unittest.TestCase):
 
     def test_all_runners_complete(self):
         patches = {
-            "scenario_generator.ingest.extraction.ask_llm": _ingest_reply,
-            "scenario_generator.llm.writer.ask_llm": lambda s, u, **k: "{}",
-            "scenario_generator.llm.materiality.ask_llm": lambda s, u, **k: "{}",
-            "scenario_generator.llm.reviewer.ask_llm": lambda s, u, **k: '{"proposals": []}',
-            "scenario_generator.llm.conversation_mapping.ask_llm": lambda s, u, **k: "{}",
+            "metric.phases.intake.intake.extraction.ask_llm": _ingest_reply,
+            "metric.phases.scenario_generator.scenarios.writer.ask_llm": lambda s, u, **k: "{}",
+            "metric.phases.scenario_generator.materiality.assess.ask_llm": lambda s, u, **k: "{}",
+            "metric.phases.scenario_generator.review.reviewer.ask_llm": lambda s, u, **k: '{"proposals": []}',
+            "metric.phases.coverage.coverage.mapping.ask_llm": lambda s, u, **k: "{}",
         }
         stack = [mock.patch(target, stub) for target, stub in patches.items()]
         for patch in stack:
@@ -136,15 +136,15 @@ class TestCoverageReportsWhatItMapped(unittest.TestCase):
     """The stage returns its result, and every conversation read is accounted for in it."""
 
     def _run(self, scratch, reply):
-        from scenario_generator.pipeline import build_scenario_space, map_conversation_coverage
-        from scenario_generator.core.intake import read_intake
-        from scenario_generator.io import write_space_metadata
+        from metric.pipeline import build_scenario_space, map_conversation_coverage
+        from metric.domain.intake import read_intake
+        from metric.domain import write_space_metadata
 
         intake_path = _intake_workbook(scratch)
         intake = read_intake(str(intake_path))
         write_space_metadata(str(scratch / "scenario_space_metadata.xlsx"), intake, build_scenario_space(intake))
 
-        with mock.patch("scenario_generator.llm.conversation_mapping.ask_llm",
+        with mock.patch("metric.phases.coverage.coverage.mapping.ask_llm",
                         lambda s, u, **k: reply):
             return map_conversation_coverage(
                 str(intake_path), str(scratch / "scenario_space_metadata.xlsx"),

@@ -18,10 +18,10 @@ from unittest import mock
 
 import yaml
 
-from scenario_generator.llm import config
+from metric.llm import config
 
 _ROOT = pathlib.Path(__file__).resolve().parent.parent
-_PACKAGE = _ROOT / "scenario_generator"
+_PACKAGE = _ROOT / "metric"
 
 
 def _asked_for() -> set:

@@ -1,7 +1,7 @@
 import unittest
 
-from scenario_generator.core.generation import peer_signals
-from scenario_generator.core.models import Persona, Scenario, TurnMeta
+from metric.phases.scenario_generator.workflow.generation import peer_signals
+from metric.domain.models import Persona, Scenario, TurnMeta
 
 _PERSONA = Persona("P1", "Default user", [], True)
 

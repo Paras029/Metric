@@ -14,7 +14,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from scenario_generator.ingest import agent
+from metric.phases.intake.intake import agent
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples" / "intakes"
 
@@ -248,7 +248,7 @@ class TestTheSwitch(unittest.TestCase):
 
     def test_it_is_off_unless_switched_on(self):
         import os
-        from scenario_generator.llm import config
+        from metric.llm import config
         os.environ.pop("LLM_INTAKE_LOOP", None)
         self.assertFalse(config.intake_loop())
 
@@ -257,7 +257,7 @@ class TestTheSwitch(unittest.TestCase):
         than one costing a few more calls."""
         from unittest import mock
 
-        from scenario_generator.webapp import runners
+        from metric.web import runners
 
         root = Path(tempfile.mkdtemp())
         (root / "sources" / "model_doc").mkdir(parents=True)
@@ -282,7 +282,7 @@ class TestTheSwitch(unittest.TestCase):
             fell_back["yes"] = True
             summary["_action"] = "drafted"
 
-        with mock.patch("scenario_generator.ingest.agent.run",
+        with mock.patch("metric.phases.intake.intake.agent.run",
                         side_effect=RuntimeError("no tool calling here")), \
              mock.patch.object(runners, "_needs_reading", return_value=False), \
              mock.patch.object(runners, "_draft_or_revise", _sequence):
@@ -335,7 +335,7 @@ class TestItBuildsADeclarationFromNothing(unittest.TestCase):
 
     def test_a_written_declaration_lands_in_a_readable_workbook(self):
         import json as _json
-        from scenario_generator.core.intake import read_intake
+        from metric.domain.intake import read_intake
 
         state = agent.run(self.root, str(self.intake), converse=_scripted(
             _call("write_declaration", declaration=_json.dumps(_DECLARATION))))
@@ -359,7 +359,7 @@ class TestItBuildsADeclarationFromNothing(unittest.TestCase):
         """Every stage after this one sees the graph and not the documents, so the reading has to
         land on disk in the two files they read."""
         import json as _json
-        from scenario_generator.core.evidence import EvidenceRecord, FacetAnswer
+        from metric.phases.intake.intake.evidence import EvidenceRecord, FacetAnswer
 
         record = EvidenceRecord(answers=[FacetAnswer(
             facet="use_case", answer="It resolves disputed card charges without a person.",
@@ -369,7 +369,7 @@ class TestItBuildsADeclarationFromNothing(unittest.TestCase):
         def reads(paths, **kwargs):
             return record
 
-        with mock.patch("scenario_generator.ingest.extraction.extract_documents", reads):
+        with mock.patch("metric.phases.intake.intake.extraction.extract_documents", reads):
             agent.run(self.root, str(self.intake), converse=_scripted(
                 _call("read_the_pack"),
                 _call("write_declaration", declaration=_json.dumps(_DECLARATION))))
@@ -383,14 +383,14 @@ class TestItBuildsADeclarationFromNothing(unittest.TestCase):
         produced no record, so no context document was written -- and every stage after this one
         is grounded on that file rather than on the documents, which they never see."""
         import json as _json
-        from scenario_generator.core.evidence import EvidenceRecord, FacetAnswer
+        from metric.phases.intake.intake.evidence import EvidenceRecord, FacetAnswer
 
         record = EvidenceRecord(answers=[FacetAnswer(
             facet="use_case", answer="It resolves disputed card charges without a person.",
             points=["It resolves disputed card charges without a person."],
             confidence="High")])
 
-        with mock.patch("scenario_generator.ingest.extraction.extract_documents",
+        with mock.patch("metric.phases.intake.intake.extraction.extract_documents",
                         lambda paths, **kwargs: record):
             agent.run(self.root, str(self.intake), converse=_scripted(
                 _call("read_document", name="notes.md"),
@@ -402,7 +402,7 @@ class TestItBuildsADeclarationFromNothing(unittest.TestCase):
 
     def test_the_reading_is_in_front_of_the_loop_before_its_first_turn(self):
         """A turn spent asking for something needed on every run is a turn wasted."""
-        from scenario_generator.core.evidence import EvidenceRecord, FacetAnswer
+        from metric.phases.intake.intake.evidence import EvidenceRecord, FacetAnswer
 
         record = EvidenceRecord(answers=[FacetAnswer(
             facet="use_case", answer="It resolves disputed card charges without a person.",
@@ -414,7 +414,7 @@ class TestItBuildsADeclarationFromNothing(unittest.TestCase):
             seen.setdefault("first", list(messages))
             return {"content": "", "tool_calls": []}
 
-        with mock.patch("scenario_generator.ingest.extraction.extract_documents",
+        with mock.patch("metric.phases.intake.intake.extraction.extract_documents",
                         lambda paths, **kwargs: record):
             agent.run(self.root, str(self.intake), converse=converse)
 
@@ -428,12 +428,12 @@ class TestItBuildsADeclarationFromNothing(unittest.TestCase):
         seen = {}
 
         def reads(paths, **kwargs):
-            from scenario_generator.core.evidence import EvidenceRecord
+            from metric.phases.intake.intake.evidence import EvidenceRecord
             seen["paths"] = list(paths)
             seen["kwargs"] = kwargs
             return EvidenceRecord()
 
-        with mock.patch("scenario_generator.ingest.extraction.extract_documents", reads):
+        with mock.patch("metric.phases.intake.intake.extraction.extract_documents", reads):
             agent.run(self.root, str(self.intake), converse=_scripted(_call("read_the_pack")),
                       diagram_mode="same_flow")
 
@@ -447,11 +447,11 @@ class TestItBuildsADeclarationFromNothing(unittest.TestCase):
         calls = []
 
         def reads(paths, **kwargs):
-            from scenario_generator.core.evidence import EvidenceRecord
+            from metric.phases.intake.intake.evidence import EvidenceRecord
             calls.append(paths)
             return EvidenceRecord()
 
-        with mock.patch("scenario_generator.ingest.extraction.extract_documents", reads):
+        with mock.patch("metric.phases.intake.intake.extraction.extract_documents", reads):
             read_once = {}
             tools = {t.name: t for t in agent.build_tools(
                 agent.Pack(self.root), str(self.intake), read_once, {})}
@@ -498,7 +498,7 @@ class TestSpansSurviveTheLoop(unittest.TestCase):
 
     def test_a_span_already_drawn_is_carried_across_a_write(self):
         import json as _json
-        from scenario_generator.core.intake import read_intake
+        from metric.domain.intake import read_intake
 
         root = Path(tempfile.mkdtemp())
         intake = root / "intake.xlsx"
@@ -536,7 +536,7 @@ class TestTheCapabilityLifecycle(unittest.TestCase):
         shutil.copy(EXAMPLES / "1_disputes_three_blocks.xlsx", self.intake)
 
     def _declaration(self, capabilities):
-        from scenario_generator.core.intake import read_intake
+        from metric.domain.intake import read_intake
         current = read_intake(str(self.intake))
         return {
             "use_case": {"name": current.name, "objective": "Resolve disputed charges"},
@@ -562,7 +562,7 @@ class TestTheCapabilityLifecycle(unittest.TestCase):
             declaration=_json.dumps(self._declaration(capabilities)))
 
     def test_a_span_the_user_redrew_survives_the_loop_rewriting_everything_else(self):
-        from scenario_generator.core.intake import read_intake, set_capability_span
+        from metric.domain.intake import read_intake, set_capability_span
 
         set_capability_span(str(self.intake), "CAP-02", ["S-02"], ["S-07", "S-08"])
         self._write([{"id": "CAP-01", "name": "Cardmember identification", "type": "Gating"},
@@ -578,7 +578,7 @@ class TestTheCapabilityLifecycle(unittest.TestCase):
     def test_the_loop_fills_in_a_type_the_workbook_left_blank(self):
         """An untyped capability drops its adversarial probes silently, which is exactly the kind
         of blank the loop exists to close."""
-        from scenario_generator.core.intake import read_intake
+        from metric.domain.intake import read_intake
 
         self._write([{"id": "CAP-01", "name": "Identification", "type": ""},
                      {"id": "CAP-02", "name": "Verification", "type": ""},
@@ -594,8 +594,8 @@ class TestTheCapabilityLifecycle(unittest.TestCase):
 
     def test_redrawing_a_span_changes_what_is_enumerated(self):
         """The whole reason the span is the person's to draw."""
-        from scenario_generator.core.intake import read_intake, set_capability_span
-        from scenario_generator.pipeline import build_scenario_space
+        from metric.domain.intake import read_intake, set_capability_span
+        from metric.pipeline import build_scenario_space
 
         before = len(build_scenario_space(read_intake(str(self.intake)), with_probes=False))
         set_capability_span(str(self.intake), "CAP-02", ["S-02"], ["S-07", "S-08"])
@@ -605,7 +605,7 @@ class TestTheCapabilityLifecycle(unittest.TestCase):
     def test_the_loop_folds_a_capability_declared_twice(self):
         """Two capabilities that are one capability are two blocks of the space where there is
         one, so this matters more than tidiness."""
-        from scenario_generator.core.intake import read_intake
+        from metric.domain.intake import read_intake
 
         self._write([{"id": "CAP-01", "name": "Identification", "type": "Gating"},
                      {"id": "CAP-02", "name": "Identification service", "type": "Gating"},
@@ -650,8 +650,8 @@ class TestDiagramsAreReadTheWayTheyWereBuiltToBe(unittest.TestCase):
                                 "points": [], "unknowns": [], "sources": [],
                                 "confidence": "Low"})
 
-        with mock.patch("scenario_generator.ingest.extraction.ask_llm", text), \
-             mock.patch("scenario_generator.ingest.extraction.ask_llm_with_images", images):
+        with mock.patch("metric.phases.intake.intake.extraction.ask_llm", text), \
+             mock.patch("metric.phases.intake.intake.extraction.ask_llm_with_images", images):
             return agent.run(self.root, str(self.intake),
                              converse=_scripted(_call("read_the_pack")), **kwargs)
 

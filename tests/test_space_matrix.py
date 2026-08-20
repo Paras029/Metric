@@ -14,8 +14,8 @@ as a judgement.
 """
 import unittest
 
-from scenario_generator.core.models import Decision, IntakeData, Persona, Scenario, State, Step, Tool
-from scenario_generator.webapp.scenarios import build_rows, matrix, parse_cells, to_row
+from metric.domain.models import Decision, IntakeData, Persona, Scenario, State, Step, Tool
+from metric.web.scenariolist import build_rows, matrix, parse_cells, to_row
 
 _PERSONA = Persona("P1", "Cardholder", [], True)
 

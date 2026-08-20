@@ -15,7 +15,7 @@ import string
 import time
 import unittest
 
-from scenario_generator.core.grounding import MATCH_THRESHOLD, Source, locate
+from metric.phases.intake.intake.grounding import MATCH_THRESHOLD, Source, locate
 
 # Big enough to be the thing under test -- a sixty-page pack is around this -- and generated rather
 # than fixed so no quote can accidentally be findable for the wrong reason.

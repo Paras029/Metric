@@ -15,7 +15,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from scenario_generator.core.intake import (attach_decision_to_state, read_intake,
+from metric.domain.intake import (attach_decision_to_state, read_intake,
                                             set_decision_scope, set_state_reached_via,
                                             write_template)
 
