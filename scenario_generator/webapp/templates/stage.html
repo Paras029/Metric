@@ -49,7 +49,13 @@
    of near-identical HTML, and the fortieth is where the one that does not save lives. #}
 {% macro field(spec, value, vocabulary, kind, key, row_span={}) %}
   {% set id = "f-" ~ kind ~ "-" ~ key ~ "-" ~ spec.name %}
-  <label class="efield" for="{{ id }}">
+  {# A group of checkboxes is not one control, so it is not wrapped in a label. It used to be, and
+     a <label> around a list of <label>s is invalid: the outer one pointed at an id nothing owned,
+     so a click anywhere in the field that was not exactly on an inner label went to a label with
+     no control and browsers were left to decide what that meant. #}
+  {% set grouped = spec.kind in ("states", "decisions") %}
+  <{{ "div" if grouped else "label" }} class="efield"
+    {%- if not grouped %} for="{{ id }}"{% endif %}>
     <span class="efield__label">{{ spec.label }}</span>
     {% if spec.kind == "long" %}
       <textarea class="efield__input" id="{{ id }}" name="{{ spec.name }}" rows="2"
@@ -132,21 +138,25 @@
         {# Open from the start where the shortlist came back empty -- which happens whenever no
            decision is tagged with this capability, and is exactly when somebody most needs the
            full list. An empty box above a closed disclosure reads as "there is nothing to pick". #}
+        {# Every state, without exception. It used to leave out whatever the shortlist above
+           already offered -- which was correct at the instant the page was built and wrong a
+           moment later, because the shortlist is redrawn from the decisions as they are ticked.
+           A state that left the shortlist was in neither list and could not be picked at all.
+           Now the list is complete and the duplicates are hidden as they arise, so the union of
+           the two is always every state. #}
         <details class="span__all"
                  {% if not (row_span[spec.of] or []) and not value %}open{% endif %}>
           <summary class="span__editlink">Every state</summary>
           <ul class="span__list span__list--long">
             {% for option in vocabulary.states %}
-              {% if option.id not in (row_span[spec.of] or []) | map(attribute='id') | list
-                    and option.id not in value %}
-                <li>
-                  <label class="check">
-                    <input type="checkbox" name="{{ spec.name }}" value="{{ option.id }}"
-                           data-field="{{ spec.name }}" data-multiple>
-                    <span class="mono">{{ option.id }}</span> {{ option.label }}
-                  </label>
-                </li>
-              {% endif %}
+              <li {% if option.id in (row_span[spec.of] or []) | map(attribute='id') | list
+                       or option.id in value %}hidden{% endif %}>
+                <label class="check">
+                  <input type="checkbox" name="{{ spec.name }}" value="{{ option.id }}"
+                         data-field="{{ spec.name }}" data-multiple>
+                  <span class="mono">{{ option.id }}</span> {{ option.label }}
+                </label>
+              </li>
             {% endfor %}
           </ul>
         </details>
@@ -165,7 +175,7 @@
        control: a consequence, shown so the boundary below is picked from something visible
        rather than from a list of ids. #}
     {% if spec.kind == "decisions" %}<span class="span__why" data-folds-in>&nbsp;</span>{% endif %}
-  </label>
+  </{{ "div" if grouped else "label" }}>
 {% endmacro %}
 
 {% macro gap_row(row, index) %}

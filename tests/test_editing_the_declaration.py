@@ -662,3 +662,105 @@ class TestWhatTheCapabilityControlIsGiven(unittest.TestCase):
         self.assertEqual(set(index), {"decisions", "states"})
         self.assertEqual(set(index["decisions"]["DEC-03"]),
                          {"name", "capability", "offered_by", "lands_on"})
+
+
+class TestNoStateCanBecomeUnpickable(unittest.TestCase):
+    """A span may begin or end at any state, so every state has to stay reachable in the control.
+
+    The way it stopped being true is worth stating, because it is a whole class of bug. The
+    shortlist is rendered by the server and then *redrawn on the page* from the decisions as they
+    are ticked -- two lists over the same set, maintained in two places. The "every state" list was
+    rendered excluding whatever the shortlist held at the moment the page was built, which was
+    correct then and wrong the instant a decision was unticked: the states that left the shortlist
+    were in neither list, and could not be picked at all.
+
+    The fix is the invariant rather than a patch: the long list holds every state, always, and
+    entries are hidden as they appear above. The union is every state by construction.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.root = Path(tempfile.mkdtemp())
+        cls.client = create_app(cls.root).test_client()
+        cls.client.post("/workspaces", data={"name": "Pickable"})
+        with open(EXAMPLE, "rb") as handle:
+            cls.client.post("/stage/intake/upload",
+                            data={"files": (handle, EXAMPLE.name), "group": "intake_workbook"},
+                            content_type="multipart/form-data")
+        cls.client.post("/stage/intake/run")
+        for _ in range(600):
+            if cls.client.get("/stage/intake/progress").get_json()["status"] != "running":
+                break
+            time.sleep(0.05)
+        cls.page = cls.client.get("/stage/intake").get_data(as_text=True)
+        cls.intake = read_intake(str(cls.root / "pickable" / EXAMPLE.name))
+
+    def _boundary(self, capability_id, field):
+        """The two lists for one capability's one boundary field, as rendered."""
+        import re
+
+        row = re.search(
+            r'data-row-key="' + capability_id + r'".*?(?=data-row-key="|</ul>\s*<p class="card__empty"|$)',
+            self.page, re.S).group(0)
+        picker = re.search(r'data-boundary="' + field + r'".*?</details>', row, re.S).group(0)
+        long = re.search(r'span__list--long.*', picker, re.S).group(0)
+        short = picker[:picker.index("span__list--long")]
+        return (re.findall(r'value="(S-\d+)"', short), re.findall(r'value="(S-\d+)"', long))
+
+    def test_the_long_list_holds_every_state_without_exception(self):
+        declared = {s.id for s in self.intake.states}
+        for capability in self.intake.capabilities:
+            for field in ("entry_states", "exit_states"):
+                _, long = self._boundary(capability.id, field)
+                self.assertEqual(set(long), declared,
+                                 f"{capability.id} {field} cannot reach every state")
+
+    def test_a_state_the_shortlist_already_offers_is_hidden_rather_than_left_out(self):
+        """Hidden is recoverable and left out is not: the page shows it again the moment the
+        shortlist stops offering it."""
+        import re
+
+        row = re.search(r'data-row-key="CAP-01".*?</details>', self.page, re.S).group(0)
+        picker = re.search(r'data-boundary="entry_states".*?</details>', row, re.S).group(0)
+        long = re.search(r'span__list--long.*', picker, re.S).group(0)
+        short, _ = self._boundary("CAP-01", "entry_states")
+        for state_id in short:
+            item = re.search(r'<li([^>]*)>(?:(?!</li>).)*?value="' + state_id + '"', long, re.S)
+            self.assertIsNotNone(item, f"{state_id} is missing from the long list entirely")
+            self.assertIn("hidden", item.group(1))
+
+
+class TestAGroupOfCheckboxesIsNotOneControl(unittest.TestCase):
+    """A <label> wrapped around a list of <label>s is invalid, and browsers are left to decide what
+    a click on the outer one means. The outer label pointed at an id nothing owned, so clicking
+    anywhere in the field that was not exactly on an inner label went nowhere predictable."""
+
+    @classmethod
+    def setUpClass(cls):
+        root = Path(tempfile.mkdtemp())
+        client = create_app(root).test_client()
+        client.post("/workspaces", data={"name": "Labels"})
+        with open(EXAMPLE, "rb") as handle:
+            client.post("/stage/intake/upload",
+                        data={"files": (handle, EXAMPLE.name), "group": "intake_workbook"},
+                        content_type="multipart/form-data")
+        client.post("/stage/intake/run")
+        for _ in range(600):
+            if client.get("/stage/intake/progress").get_json()["status"] != "running":
+                break
+            time.sleep(0.05)
+        cls.page = client.get("/stage/intake").get_data(as_text=True)
+
+    def test_no_label_contains_another_label(self):
+        import re
+
+        nested = re.findall(r'<label class="efield"[^>]*>(?:(?!</label>).)*?<label',
+                            self.page, re.S)
+        self.assertEqual(nested, [], "a checkbox group is still wrapped in a label")
+
+    def test_every_label_that_points_at_a_control_points_at_one_that_exists(self):
+        import re
+
+        owned = set(re.findall(r'\bid="(f-[^"]+)"', self.page))
+        for target in re.findall(r'<label class="efield" for="([^"]+)"', self.page):
+            self.assertIn(target, owned, f"a label points at {target}, which nothing owns")

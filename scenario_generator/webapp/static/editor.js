@@ -275,12 +275,18 @@
             : 'States that ' + owned.join(', ') + ' route to.');
     }
 
-    // And take out of the "every state" list whatever is now offered above it, so nothing is
-    // shown twice with two boxes that disagree.
+    // Hide from the "every state" list whatever is offered above it, and -- the half that was
+    // missing -- show again whatever is not. The long list holds every state, so a state leaving
+    // the shortlist reappears there rather than vanishing from both.
     Array.prototype.forEach.call(
       picker.querySelectorAll('.span__list--long input'), function (box) {
         var item = box.closest('li');
-        if (item) { item.hidden = offer.indexOf(box.value) >= 0; }
+        if (!item) { return; }
+        item.hidden = offer.indexOf(box.value) >= 0;
+        // A tick in the long list is the same tick, so it has to follow the box that replaced it
+        // -- otherwise unticking above leaves a hidden box still ticked and the save keeps a
+        // boundary the person just took off.
+        if (item.hidden) { box.checked = false; }
       });
   }
 
