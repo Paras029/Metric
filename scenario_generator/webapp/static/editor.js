@@ -332,10 +332,24 @@
     return fields;
   }
 
+  // The id box is not a field, so it does not carry data-field -- but typing in it still has to
+  // stage the row, or a rename on its own would look saved and never be sent.
+  editor.addEventListener('input', function (event) {
+    if (!event.target.hasAttribute || !event.target.hasAttribute('data-rename')) { return; }
+    var form = event.target.closest('.erow__form');
+    var row = form && form.closest('[data-row-kind]');
+    if (row) { stage(row, form); }
+  });
+
   function stage(row, form) {
+    // The id travels beside the fields rather than among them. It is not a column value: changing
+    // it has to repoint everything that named the old one, which is a different operation with a
+    // different failure -- renaming onto an id already taken folds two rows into one.
+    var id = form.querySelector('[data-rename]');
     staged[row.dataset.rowKind + ' ' + row.dataset.rowKey] = {
       kind: row.dataset.rowKind,
       key: row.dataset.rowKey,
+      rename: id ? id.value.trim() : '',
       action: 'upsert',
       fields: collect(form),
     };

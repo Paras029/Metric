@@ -16,7 +16,8 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Sequence
 
 from ..core.editing import KINDS, next_id
-from ..core.gaps import CAPABILITY, DECISION, PERSONA, STATE, TOOL, find_gaps
+from ..core.gaps import (CAPABILITY, DECISION, PERSONA, STATE, TOOL, USE_CASE,
+                         find_gaps)
 from ..core.models import IntakeData
 from ..ingest.drafting import CAPABILITY_TYPES, INPUT_SOURCES, OUTCOME_TYPES
 
@@ -24,6 +25,7 @@ from ..ingest.drafting import CAPABILITY_TYPES, INPUT_SOURCES, OUTCOME_TYPES
 # is what a validator opens this to correct: a branch with a missing outcome is the defect that
 # stops a route being walked, and everything else is a supporting fact about it.
 ORDER = (
+    ("use_case", "Use case", USE_CASE),
     ("decision", "Decisions", DECISION),
     ("state", "States", STATE),
     ("capability", "Capabilities", CAPABILITY),
@@ -32,12 +34,27 @@ ORDER = (
 )
 
 # Written out rather than derived by removing the last letter, which produced "Add capabilitie".
-ONE_OF = {"decision": "decision", "state": "state", "capability": "capability",
-          "tool": "tool", "persona": "persona"}
+ONE_OF = {"use_case": "use case", "decision": "decision", "state": "state",
+          "capability": "capability", "tool": "tool", "persona": "persona"}
+
+# The use case is one row and there is only ever one of it, so it has no "add" and no id.
+SINGLETON = {"use_case"}
 
 # How each field is edited. "text" is a line, "long" a paragraph, "choice" a fixed vocabulary,
 # "ids" a comma-separated list of ids, "flag" a checkbox, "number" a small integer.
 FIELDS: Dict[str, List[dict]] = {
+    "use_case": [
+        {"name": "Use case name", "label": "Name", "kind": "text"},
+        {"name": "Business objective", "label": "Business objective", "kind": "long",
+         "hint": "Every scenario is written against this."},
+        {"name": "Agent type", "label": "Agent type", "kind": "text"},
+        {"name": "Channel / modality", "label": "Channel", "kind": "text"},
+        {"name": "Human handoff triggers", "label": "Hand-off triggers", "kind": "long"},
+        {"name": "Safety requirements", "label": "Safety requirements", "kind": "long"},
+        {"name": "Success criteria", "label": "Success criteria", "kind": "long"},
+        {"name": "Known limitations", "label": "Known limitations", "kind": "long"},
+        {"name": "Use case rating (informational)", "label": "Rating", "kind": "text"},
+    ],
     "decision": [
         {"name": "name", "label": "What it decides", "kind": "text"},
         {"name": "outcomes", "label": "Possible outputs", "kind": "list", "separator": " / ",
@@ -114,12 +131,18 @@ def _problems(intake: IntakeData) -> Dict[str, Dict[str, List[str]]]:
 def _rows(intake: IntakeData, spans: Optional[Dict[str, dict]] = None) -> Dict[str, List[dict]]:
     audit = _problems(intake)
     spans = spans or {}
-    tools_of = {}
-    for tool in intake.tools:
-        tools_of.setdefault(tool.capability_id, []).append(tool.name)
-
     rows: Dict[str, List[dict]] = {}
 
+    # One row, always present even where the sheet is empty -- a use case with nothing filled in
+    # is the case somebody most needs to open, and a list with no rows in it has nothing to open.
+    rows["use_case"] = [{
+        "key": "use_case",
+        "title": intake.name,
+        "fields": {spec["name"]: intake.use_case.get(spec["name"], "")
+                   for spec in FIELDS["use_case"]},
+        "note": intake.objective,
+        "problems": [gap for gaps in audit["use_case"].values() for gap in gaps],
+    }]
     rows["decision"] = [{
         "key": d.id,
         "title": d.name or d.id,
@@ -195,7 +218,11 @@ def editable(intake: IntakeData) -> dict:
     spans = {row["id"]: row for row in _spans(intake)}
     rows = _rows(intake, spans)
     return {
-        "kinds": [{"kind": kind, "label": label, "one": ONE_OF[kind], "count": len(rows[kind])}
+        # The use case reports no count: there is one and only ever one, and "Use case 1" beside
+        # every other tab's real tally reads as a number that means something.
+        "kinds": [{"kind": kind, "label": label, "one": ONE_OF[kind],
+                   "count": None if kind in SINGLETON else len(rows[kind]),
+                   "singleton": kind in SINGLETON}
                   for kind, label, _ in ORDER],
         "fields": FIELDS,
         "rows": rows,
@@ -211,7 +238,7 @@ def editable(intake: IntakeData) -> dict:
             "outcome_types": list(OUTCOME_TYPES),
         },
         "next": {kind: next_id([row["key"] for row in rows[kind]], KINDS[kind].prefix)
-                 for kind, _, _ in ORDER},
+                 for kind, _, _ in ORDER if kind in KINDS},
     }
 
 

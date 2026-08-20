@@ -30,10 +30,10 @@ from flask import (Flask, abort, jsonify, redirect, render_template, request, se
 from werkzeug.utils import secure_filename
 
 from ..core.gaps import CAPABILITY, DECISION, STATE, find_gaps
-from ..core.editing import apply_edits
-from ..core.editing import preview as editing_preview
+from ..core import editing
 from ..core.graph import DecisionGraph, exits_for
-from ..core.intake import (read_review_notes, set_capability_span, set_decision_scope,
+from ..core.intake import (read_intake, read_review_notes, set_capability_span,
+                           set_decision_scope,
                            write_template)
 from ..core.models import MATERIALITY
 from ..ingest.conversations import read_conversations
@@ -848,6 +848,60 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         edits = body.get("edits")
         return edits if isinstance(edits, list) else []
 
+    def _apply(path: str, edits: list, dry_run: bool = False):
+        """Apply a batch, taking the two edits that are not ordinary row writes out of it first.
+
+        The use case is written by field name because its sheet is two columns rather than a table
+        of rows, and a rename has to repoint everything that named the old id. Both go through
+        their own function in :mod:`core.editing`; what is left is ordinary and goes through
+        :func:`core.editing.apply_edits` with everything else.
+
+        ``dry_run`` runs the whole thing against a copy, for the preview -- including the renames,
+        because a rename is exactly the edit somebody wants to see the consequences of before
+        committing to it.
+        """
+        import shutil
+        import tempfile
+
+        target = path
+        scratch = None
+        if dry_run:
+            scratch = Path(tempfile.mkdtemp()) / Path(path).name
+            shutil.copy(path, scratch)
+            target = str(scratch)
+
+        try:
+            report = editing.Report()
+            ordinary = []
+            for edit in edits:
+                kind, key = str(edit.get("kind", "")), str(edit.get("key") or "").strip()
+                fields = dict(edit.get("fields") or {})
+                rename_to = str(edit.get("rename") or "").strip()
+
+                if kind == "use_case":
+                    _absorb(report, editing.set_use_case(target, fields))
+                    continue
+                # Renamed first, so the edits that follow name the row by the id it now has.
+                if rename_to and rename_to != key:
+                    _absorb(report, editing.rename(target, kind, key, rename_to))
+                    key = rename_to
+                if fields or edit.get("action") == "delete":
+                    ordinary.append({**edit, "key": key, "fields": fields})
+
+            if ordinary:
+                _absorb(report, editing.apply_edits(target, ordinary))
+            if report.changed:
+                report.dangling = editing._dangling(target)
+            return read_intake(target), report
+        finally:
+            if scratch is not None:
+                scratch.unlink(missing_ok=True)
+
+    def _absorb(into, other) -> None:
+        into.written.extend(other.written)
+        into.removed.extend(other.removed)
+        into.refused.extend(other.refused)
+
     @app.route("/stage/intake/declaration", methods=["GET"])
     def read_declaration():
         """The declaration as it stands on disk. What the panel's refresh asks for."""
@@ -870,7 +924,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         if not path:
             abort(404)
         try:
-            intake, report = editing_preview(str(path), _edits_from_request())
+            intake, report = _apply(str(path), _edits_from_request(), dry_run=True)
         except Exception as exc:
             logger.exception("Could not preview the declaration")
             return jsonify({"error": str(exc)}), 400
@@ -889,9 +943,8 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         path = workspace.artifact_path("intake", "workbook")
         if not path:
             abort(404)
-        edits = _edits_from_request()
         try:
-            report = apply_edits(str(path), edits)
+            _, report = _apply(str(path), _edits_from_request())
         except Exception as exc:
             logger.exception("Could not write the declaration")
             return jsonify({"error": str(exc)}), 400
@@ -925,7 +978,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             for one in spec:
                 if one["kind"] == "flag":
                     fields[one["name"]] = bool(request.form.get(one["name"]))
-                elif one["kind"] == "states":
+                elif one["kind"] in ("states", "decisions"):
                     # A group of checkboxes, so getlist rather than get -- and always read, even
                     # when nothing is ticked, because an empty list is how a span is cleared.
                     fields[one["name"]] = request.form.getlist(one["name"])
@@ -933,8 +986,9 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
                     fields[one["name"]] = request.form.get(one["name"], "")
 
         try:
-            report = apply_edits(str(path), [{"kind": kind, "key": key, "action": action,
-                                              "fields": fields}])
+            _, report = _apply(str(path), [{"kind": kind, "key": key, "action": action,
+                                            "rename": request.form.get("rename", ""),
+                                            "fields": fields}])
         except Exception as exc:
             logger.exception("Could not write %s %s", kind, key)
             return redirect(url_for("stage", key="intake") + "#declaration")

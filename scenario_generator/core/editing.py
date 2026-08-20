@@ -78,6 +78,11 @@ _BOOLEAN = {"out_of_scope", "is_terminal", "changes_state", "is_default"}
 # different conclusions about what a tick means.
 VIRTUAL = {("capability", "decisions")}
 
+# The one sheet that is not a table of rows. L1 Use Case is a column of field names beside a column
+# of values, so a "row" of it is the whole use case and its fields are found by name rather than by
+# column number.
+USE_CASE_SHEET = "L1 Use Case"
+
 
 @dataclass
 class Report:
@@ -155,6 +160,162 @@ def _first_empty(sheet) -> int:
         if not any(str(cell.value or "").strip() for cell in row):
             return row[0].row
     return sheet.max_row + 1
+
+
+def set_use_case(path: str, fields: Dict[str, str]) -> Report:
+    """Write named fields of the use case. Fields not named are left exactly as they are.
+
+    Its own function because its sheet is its own shape: two columns, field names down one and
+    values down the other, so there is no column number to write to -- the field is found by its
+    name. A field the sheet does not already carry is appended rather than refused, because the
+    reader takes whatever is there and a declaration that wants to record something extra should
+    be able to.
+    """
+    report = Report()
+    if not fields:
+        return report
+
+    workbook = _open_for_editing(path)
+    if USE_CASE_SHEET not in workbook.sheetnames:
+        report.refused.append(f"This workbook has no {USE_CASE_SHEET} sheet.")
+        return report
+
+    sheet = workbook[USE_CASE_SHEET]
+    at = {}
+    for row in sheet.iter_rows(min_row=2):
+        name = str(row[0].value or "").strip()
+        if name:
+            at.setdefault(name.casefold(), row[0].row)
+
+    for name, value in fields.items():
+        where = at.get(name.strip().casefold())
+        if where is None:
+            where = _first_empty(sheet)
+            sheet.cell(row=where, column=1, value=name)
+            at[name.strip().casefold()] = where
+        sheet.cell(row=where, column=2, value="" if value is None else str(value).strip())
+        report.written.append(("use_case", name))
+
+    workbook.save(path)
+    return report
+
+
+def rename(path: str, kind: str, old_key: str, new_key: str) -> Report:
+    """Give something a new id, and repoint everything that named it by the old one.
+
+    The one edit that *must* cascade, and the reason is worth being precise about. A deletion is
+    reported rather than cascaded because the references it leaves behind become genuinely
+    undefined -- somebody has to decide what they should say instead. A rename leaves nothing
+    undefined: it is the same thing under a new name, every reference still means what it meant,
+    and repointing them is not a judgement but bookkeeping. Left undone, a rename silently breaks
+    every route through the renamed row, which is the worst outcome available here.
+
+    What follows what:
+
+    * a **decision** is named by states, in ``Reached Via`` (``DEC-xx=Outcome``) and in
+      ``Valid Next Decisions``;
+    * a **state** is named by capabilities, in their entry and exit spans;
+    * a **capability** is named by decisions and by tools, in their capability column.
+
+    Refused where the new id is already taken. Writing it anyway would fold two rows into one
+    without saying so, and the graph would come back missing a branch nobody removed.
+    """
+    report = Report()
+    old_key, new_key = str(old_key or "").strip(), str(new_key or "").strip()
+    spec = KINDS.get(kind)
+
+    if spec is None:
+        report.refused.append(f"{kind!r} is not something this can rename.")
+        return report
+    if not old_key or not new_key:
+        report.refused.append("A rename needs both the old id and the new one.")
+        return report
+    if old_key.casefold() == new_key.casefold():
+        return report
+
+    try:
+        intake = read_intake(path)
+    except Exception as exc:
+        report.refused.append(f"The declaration could not be read: {exc}")
+        return report
+
+    taken = {
+        "decision": {d.id for d in intake.decisions},
+        "state": {s.id for s in intake.states},
+        "capability": {c.id for c in intake.capabilities},
+        "tool": {t.name for t in intake.tools},
+        "persona": {p.id for p in intake.personas},
+    }[kind]
+    if old_key not in {k for k in taken}:
+        report.refused.append(f"{old_key} is not in the declaration.")
+        return report
+    if any(new_key.casefold() == k.casefold() for k in taken):
+        report.refused.append(
+            f"{new_key} is already taken. Renaming onto it would fold two rows into one and the "
+            f"graph would come back missing a branch nobody removed.")
+        return report
+
+    edits: List[dict] = [{"kind": kind, "key": old_key, "action": "rekey", "to": new_key}]
+    edits.extend(_repoint(intake, kind, old_key, new_key))
+
+    written = apply_edits(path, edits)
+    written.written.append((kind, f"{old_key} → {new_key}"))
+    return written
+
+
+def _repoint(intake, kind: str, old_key: str, new_key: str) -> List[dict]:
+    """Every other row that names the thing being renamed, rewritten to name it by its new id."""
+    same = old_key.casefold()
+    edits: List[dict] = []
+
+    if kind == "decision":
+        for state in intake.states:
+            fields = {}
+            if any(d.casefold() == same for d in state.next_decisions):
+                fields["next_decisions"] = [new_key if d.casefold() == same else d
+                                            for d in state.next_decisions]
+            reached = _rewrite_reached_via(state.reached_via, old_key, new_key)
+            if reached != state.reached_via:
+                fields["reached_via"] = reached
+            if fields:
+                edits.append({"kind": "state", "key": state.id, "action": "upsert",
+                              "fields": fields})
+
+    elif kind == "state":
+        for capability in intake.capabilities:
+            fields = {}
+            for name, current in (("entry_states", capability.entry_states),
+                                  ("exit_states", capability.exit_states)):
+                if any(s.casefold() == same for s in current):
+                    fields[name] = [new_key if s.casefold() == same else s for s in current]
+            if fields:
+                edits.append({"kind": "capability", "key": capability.id, "action": "upsert",
+                              "fields": fields})
+
+    elif kind == "capability":
+        for decision in intake.decisions:
+            if decision.trigger_capability.casefold() == same:
+                edits.append({"kind": "decision", "key": decision.id, "action": "upsert",
+                              "fields": {"capability_id": new_key}})
+        for tool in intake.tools:
+            if tool.capability_id.casefold() == same:
+                edits.append({"kind": "tool", "key": tool.name, "action": "upsert",
+                              "fields": {"capability_id": new_key}})
+
+    return edits
+
+
+def _rewrite_reached_via(cell: str, old_key: str, new_key: str) -> str:
+    """One Reached Via cell with a decision id swapped, and everything else left alone.
+
+    Only the id is touched. The outcome after the equals sign, the separators, and any note
+    somebody wrote around them are what a person typed, and a rename is not licence to reformat
+    them -- see the retry bounds the walk's own parser is careful to read past.
+    """
+    import re
+
+    return re.sub(r"(?<![A-Za-z0-9-])" + re.escape(old_key) + r"(?![A-Za-z0-9-])",
+                  new_key, cell or "", flags=re.I)
 
 
 def expand(path: str, edits: Sequence[dict]) -> List[dict]:
@@ -242,6 +403,15 @@ def apply_edits(path: str, edits: Sequence[dict]) -> Report:
             continue
 
         at = _rows_of(sheet, 1).get(key.upper())
+
+        if action == "rekey":
+            if at is None:
+                report.refused.append(f"{key} is not in {kind.sheet}, so it was not renamed.")
+                continue
+            sheet.cell(row=at, column=kind.columns[kind.key],
+                       value=str(edit.get("to") or "").strip())
+            report.written.append((edit["kind"], key))
+            continue
 
         if action == "delete":
             if at is None:

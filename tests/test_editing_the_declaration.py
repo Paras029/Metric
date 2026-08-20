@@ -264,7 +264,7 @@ class TestTheEditingRoutes(unittest.TestCase):
         removes."""
         body = self.client.get("/stage/intake/declaration").get_json()
         self.assertEqual([k["kind"] for k in body["declaration"]["kinds"]],
-                         ["decision", "state", "capability", "tool", "persona"])
+                         ["use_case", "decision", "state", "capability", "tool", "persona"])
         self.assertIn("<svg", body["graph_svg"])
         self.assertIn("<svg", body["blocks_svg"])
         self.assertIn("decision", body["highlights"])
@@ -341,7 +341,13 @@ class TestWhatThePanelOffers(unittest.TestCase):
     def test_every_kind_has_fields_and_rows(self):
         for entry in self.editable["kinds"]:
             self.assertTrue(self.editable["fields"][entry["kind"]])
-            self.assertEqual(len(self.editable["rows"][entry["kind"]]), entry["count"])
+            if entry["singleton"]:
+                # One, and only ever one, so it reports no count -- "Use case 1" beside every
+                # other tab's real tally reads as a number that means something.
+                self.assertIsNone(entry["count"])
+                self.assertEqual(len(self.editable["rows"][entry["kind"]]), 1)
+            else:
+                self.assertEqual(len(self.editable["rows"][entry["kind"]]), entry["count"])
 
     def test_a_dropdown_only_offers_ids_that_exist(self):
         """Assembled in one call rather than per kind, because the vocabularies cross. Built
@@ -764,3 +770,180 @@ class TestAGroupOfCheckboxesIsNotOneControl(unittest.TestCase):
         owned = set(re.findall(r'\bid="(f-[^"]+)"', self.page))
         for target in re.findall(r'<label class="efield" for="([^"]+)"', self.page):
             self.assertIn(target, owned, f"a label points at {target}, which nothing owns")
+
+
+class TestRenamingAnId(unittest.TestCase):
+    """The one edit that must cascade, and the reason is worth being precise about.
+
+    A deletion is reported rather than cascaded because the references it leaves behind become
+    genuinely undefined -- somebody has to decide what they should say instead. A rename leaves
+    nothing undefined: it is the same thing under a new name, every reference still means what it
+    meant, and repointing them is bookkeeping rather than judgement. Left undone, a rename
+    silently breaks every route through the renamed row.
+    """
+
+    def setUp(self):
+        self.path = Path(tempfile.mkdtemp()) / "intake.xlsx"
+        shutil.copy(EXAMPLE, self.path)
+
+    def _intake(self):
+        return read_intake(str(self.path))
+
+    def test_a_decision_takes_its_references_with_it(self):
+        before = self._intake()
+        named_by = {s.id for s in before.states
+                    if "DEC-03" in s.next_decisions or "DEC-03" in s.reached_via}
+        self.assertTrue(named_by, "the fixture no longer exercises this")
+
+        editing.rename(str(self.path), "decision", "DEC-03", "DEC-30")
+        after = self._intake()
+        self.assertIn("DEC-30", [d.id for d in after.decisions])
+        self.assertNotIn("DEC-03", [d.id for d in after.decisions])
+        for state in after.states:
+            self.assertNotIn("DEC-03", state.next_decisions)
+            self.assertNotIn("DEC-03", state.reached_via)
+        still = {s.id for s in after.states
+                 if "DEC-30" in s.next_decisions or "DEC-30" in s.reached_via}
+        self.assertEqual(still, named_by, "a reference was lost rather than repointed")
+
+    def test_a_state_is_followed_through_the_capability_spans(self):
+        editing.rename(str(self.path), "state", "S-07", "S-70")
+        after = self._intake()
+        self.assertIn("S-70", [s.id for s in after.states])
+        for capability in after.capabilities:
+            self.assertNotIn("S-07", capability.entry_states)
+            self.assertNotIn("S-07", capability.exit_states)
+        self.assertTrue(any("S-70" in c.entry_states or "S-70" in c.exit_states
+                            for c in after.capabilities))
+
+    def test_a_capability_is_followed_through_its_decisions_and_tools(self):
+        editing.rename(str(self.path), "capability", "CAP-02", "CAP-20")
+        after = self._intake()
+        self.assertIn("CAP-20", [c.id for c in after.capabilities])
+        self.assertEqual([d.id for d in after.decisions if d.trigger_capability == "CAP-02"], [])
+        self.assertTrue([d.id for d in after.decisions if d.trigger_capability == "CAP-20"])
+        self.assertTrue([t.name for t in after.tools if t.capability_id == "CAP-20"])
+
+    def test_the_graph_still_walks_afterwards(self):
+        """The point of the whole cascade. A rename that breaks the routes has done the opposite
+        of what somebody renaming a row wanted."""
+        from scenario_generator.pipeline import build_scenario_space
+
+        before = len(build_scenario_space(self._intake(), with_probes=False))
+        editing.rename(str(self.path), "decision", "DEC-03", "DEC-30")
+        editing.rename(str(self.path), "state", "S-07", "S-70")
+        editing.rename(str(self.path), "capability", "CAP-02", "CAP-20")
+        self.assertEqual(len(build_scenario_space(self._intake(), with_probes=False)), before)
+
+    def test_renaming_onto_a_taken_id_is_refused(self):
+        """Writing it anyway would fold two rows into one without saying so, and the graph would
+        come back missing a branch nobody removed."""
+        report = editing.rename(str(self.path), "decision", "DEC-01", "DEC-02")
+        self.assertTrue(report.refused)
+        self.assertEqual(len([d for d in self._intake().decisions if d.id == "DEC-02"]), 1)
+        self.assertIn("DEC-01", [d.id for d in self._intake().decisions])
+
+    def test_renaming_to_the_same_id_does_nothing(self):
+        report = editing.rename(str(self.path), "decision", "DEC-01", "DEC-01")
+        self.assertFalse(report.changed)
+        self.assertFalse(report.refused)
+
+    def test_renaming_something_that_is_not_there_is_refused(self):
+        report = editing.rename(str(self.path), "decision", "DEC-99", "DEC-98")
+        self.assertTrue(report.refused)
+
+    def test_the_outcome_after_the_equals_sign_is_left_alone(self):
+        """A rename is not licence to reformat a cell. The outcome, the separators and any retry
+        bound somebody wrote around them are what a person typed."""
+        editing.apply_edits(str(self.path), [
+            {"kind": "state", "key": "S-05", "action": "upsert",
+             "fields": {"reached_via": "DEC-03=Verified (attempt<3)"}}])
+        editing.rename(str(self.path), "decision", "DEC-03", "DEC-30")
+        found = next(s for s in self._intake().states if s.id == "S-05")
+        self.assertEqual(found.reached_via, "DEC-30=Verified (attempt<3)")
+
+    def test_it_can_be_previewed_without_being_written(self):
+        """A rename is exactly the edit somebody wants to see the consequences of first."""
+        client = create_app(Path(tempfile.mkdtemp())).test_client()
+        client.post("/workspaces", data={"name": "Renaming"})
+        with open(EXAMPLE, "rb") as handle:
+            client.post("/stage/intake/upload",
+                        data={"files": (handle, EXAMPLE.name), "group": "intake_workbook"},
+                        content_type="multipart/form-data")
+        client.post("/stage/intake/run")
+        for _ in range(600):
+            if client.get("/stage/intake/progress").get_json()["status"] != "running":
+                break
+            time.sleep(0.05)
+
+        body = client.post("/stage/intake/declaration/preview", json={"edits": [
+            {"kind": "capability", "key": "CAP-01", "rename": "CAP-99"}]}).get_json()
+        self.assertIn("CAP-99", [r["key"] for r in body["declaration"]["rows"]["capability"]])
+
+        after = client.get("/stage/intake/declaration").get_json()
+        self.assertIn("CAP-01", [r["key"] for r in after["declaration"]["rows"]["capability"]])
+        self.assertNotIn("CAP-99", [r["key"] for r in after["declaration"]["rows"]["capability"]])
+
+
+class TestEditingTheUseCase(unittest.TestCase):
+    """Its sheet is two columns rather than a table of rows, so the field is found by its name."""
+
+    def setUp(self):
+        self.path = Path(tempfile.mkdtemp()) / "intake.xlsx"
+        shutil.copy(EXAMPLE, self.path)
+
+    def test_a_field_is_written_and_read_back(self):
+        editing.set_use_case(str(self.path), {"Use case name": "Renamed assistant"})
+        self.assertEqual(read_intake(str(self.path)).name, "Renamed assistant")
+
+    def test_fields_not_named_are_left_alone(self):
+        before = read_intake(str(self.path)).use_case
+        editing.set_use_case(str(self.path), {"Use case name": "Renamed"})
+        after = read_intake(str(self.path)).use_case
+        for field, value in before.items():
+            if field != "Use case name":
+                self.assertEqual(after.get(field), value)
+
+    def test_a_field_the_sheet_does_not_carry_is_added(self):
+        """The reader takes whatever is there, so a declaration that wants to record something
+        extra should be able to."""
+        editing.set_use_case(str(self.path), {"Regulatory owner": "MRMG"})
+        self.assertEqual(read_intake(str(self.path)).use_case.get("Regulatory owner"), "MRMG")
+
+    def test_it_is_one_row_with_no_add_and_no_remove(self):
+        rows = editable(read_intake(str(self.path)))["rows"]["use_case"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["key"], "use_case")
+
+    def test_the_panel_offers_it_first(self):
+        """It is what every scenario is written against, so it leads rather than trailing the
+        five lists of rows."""
+        kinds = [k["kind"] for k in editable(read_intake(str(self.path)))["kinds"]]
+        self.assertEqual(kinds[0], "use_case")
+
+
+class TestACapabilityIsDrawnAsAContainer(unittest.TestCase):
+    """The picture already says what a box is by its shape -- a stadium ends the interaction, a
+    square is a branch point. A block drawn identically to a decision read as one, which is the
+    wrong thing to say about a box standing for eleven."""
+
+    def setUp(self):
+        from scenario_generator.webapp.graphview import render_blocks_svg
+        self.svg = render_blocks_svg(read_intake(str(EXAMPLE)))
+
+    def test_it_has_the_doubled_outline_of_a_composite_state(self):
+        self.assertIn("graph__inner", self.svg)
+
+    def test_it_says_how_much_it_is_standing_in_for(self):
+        """Without it a capability holding eleven decisions and one holding two are the same
+        picture, and the whole reason to collapse is that they are not the same thing."""
+        self.assertIn("graph__inside", self.svg)
+        self.assertIn("decisions", self.svg)
+
+    def test_the_detailed_drawing_has_neither(self):
+        """There are no blocks in it -- every box is a decision or an ending."""
+        from scenario_generator.webapp.graphview import render_svg
+
+        detail = render_svg(read_intake(str(EXAMPLE)))
+        self.assertNotIn("graph__inner", detail)
+        self.assertNotIn("graph__inside", detail)

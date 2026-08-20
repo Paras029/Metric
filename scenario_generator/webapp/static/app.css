@@ -966,6 +966,29 @@ ol, ul { list-style: none; padding: 0; }
 .graph__node--pending rect { stroke: var(--blue); stroke-dasharray: 5 3; fill: var(--blue-tint); }
 .graph__edge--pending path { stroke: var(--blue); stroke-dasharray: 5 3; }
 
+/* A capability, in the collapsed drawing. The picture already says what a box is by its shape --
+   a stadium ends the interaction, a square is a branch point -- so a block gets the third shape
+   rather than a colour it would have to spend: a doubled outline, which is the statechart
+   convention for a composite state and says the one thing a collapsed box owes the reader, that
+   there is more inside it. */
+.graph__node--block rect { fill: var(--surface); stroke: var(--navy); stroke-width: 1.6; }
+.graph__node--block .graph__inner {
+  fill: none;
+  stroke: var(--navy);
+  stroke-width: .9;
+  opacity: .45;
+}
+.graph__node--block:hover rect { fill: var(--blue-tint); stroke: var(--blue); }
+.graph__node--block:hover .graph__inner { stroke: var(--blue); }
+.graph__node--block .graph__caption { font-weight: 650; }
+.graph__inside {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  fill: var(--ink-dim);
+  text-anchor: middle;
+}
+.graph__node--block.is-lit .graph__inner { stroke: var(--blue); opacity: .7; }
+
 /* Declared but not walked -- a decision marked as already covered elsewhere. Muted rather than
    hidden: the box still belongs in the picture. */
 .graph__node--out-of-scope rect { stroke: #9AA4B4; stroke-dasharray: 3 3; fill: #F1F3F6; }
@@ -2102,7 +2125,17 @@ body.is-expanded { overflow: hidden; }
 }
 .erow__problems li + li { margin-top: var(--s1); }
 
+/* The id sits above the fields rather than among them: it is the row's identity, and a rename
+   reaches further than any other edit on the row. */
 .erow__form { padding: 0 var(--s3) var(--s4); }
+.efield--id {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  padding-bottom: var(--s3);
+  margin-bottom: var(--s3);
+  border-bottom: 1px solid var(--rule-soft);
+}
 .efields {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));

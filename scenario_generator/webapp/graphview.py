@@ -774,8 +774,30 @@ def _corner(kind: str) -> float:
     rounded ends, nothing leaves it. A decision is square, because something is being chosen there
     and the branches leave from its corners. Shape rather than colour, so it survives being
     printed, and so it does not spend the one colour idea the interface has.
+
+    A capability block is the third shape and gets a modest radius of its own, drawn with a second
+    outline inset inside the first -- the statechart convention for a composite state, and the one
+    thing a reader needs to know about a block: there is more inside it. Drawn identically to a
+    decision, it read as one, which is the wrong thing to say about a box standing for eleven.
     """
-    return BOX_HEIGHT / 2 if kind in (START, TERMINAL, ORPHAN) else 3
+    if kind in (START, TERMINAL, ORPHAN):
+        return BOX_HEIGHT / 2
+    return 6 if kind == BLOCK else 3
+
+
+def _inside_note(node: Node) -> str:
+    """How much a block is standing in for, printed under its name.
+
+    The one fact a collapsed box owes the reader. Without it a capability holding eleven decisions
+    and one holding two are the same picture, and the whole reason to collapse is that they are
+    not the same thing.
+    """
+    if node.kind != BLOCK or not node.merged_ids:
+        return ""
+    held = len(node.merged_ids)
+    return (f'<text class="graph__inside" x="{node.x + BOX_WIDTH / 2:.1f}" '
+            f'y="{node.y + BOX_HEIGHT - 7:.1f}">'
+            f'{held} decision{"" if held == 1 else "s"}</text>')
 
 
 def _edge_label(edge: Edge) -> str:
@@ -893,14 +915,24 @@ def _render(layout: Layout, aria_label: str, block_of: Dict[str, str]) -> str:
             f'<tspan x="{node.x + BOX_WIDTH / 2:.1f}" dy="{0 if i == 0 else 12}">'
             f'{html.escape(line)}</tspan>' for i, line in enumerate(lines))
 
+        # A block gets a second outline inset inside the first. Two rects rather than a border
+        # style, because SVG has no such thing and because the doubled edge is the statechart
+        # convention for a composite state -- which is exactly what a capability is here.
+        inner = ""
+        if node.kind == BLOCK:
+            inner = (f'<rect class="graph__inner" x="{node.x + 4:.1f}" y="{node.y + 4:.1f}" '
+                     f'width="{BOX_WIDTH - 8}" height="{BOX_HEIGHT - 8}" '
+                     f'rx="{max(_corner(node.kind) - 2, 0):.1f}"/>')
+
         parts.append(
             f'<g class="{" ".join(classes)}" data-node="{html.escape(node.id)}"{block}>'
             f'<title>{html.escape(detail)}</title>'
             f'<rect x="{node.x:.1f}" y="{node.y:.1f}" width="{BOX_WIDTH}" height="{BOX_HEIGHT}" '
-            f'rx="{_corner(node.kind)}"/>'
+            f'rx="{_corner(node.kind)}"/>{inner}'
             f'<text class="graph__id" x="{node.x + 10:.1f}" y="{node.y + 15:.1f}">'
             f'{html.escape(node.title)}</text>'
-            f'<text class="graph__caption" y="{text_y:.1f}">{spans}</text></g>')
+            f'<text class="graph__caption" y="{text_y:.1f}">{spans}</text>'
+            f'{_inside_note(node)}</g>')
 
     parts.append("</svg>")
     return "".join(parts)

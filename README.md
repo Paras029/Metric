@@ -272,6 +272,16 @@ Three things the panel does that a spreadsheet cannot:
 - **Adding a row creates it.** The next free id is filled in already; *Add* writes the row and
   reopens it ready to fill in. Staging an addition instead would be an intention with nothing on
   screen to show for it.
+- **Ids can be changed, and the change is carried.** Renaming `DEC-03` to `DEC-30` repoints every
+  reference to it — the states that offer it, the states it routes to, the spans it sits in, the
+  tools tagged with it — in the same save. Ids get typed in a hurry and read for the rest of the
+  exercise, and a rename that left the references behind would be worse than no rename at all. It
+  is refused only when the new id is already taken. This is the one edit that *does* cascade, and
+  deliberately: a rename leaves nothing undefined, it is bookkeeping, whereas a deletion leaves
+  genuine holes that somebody has to decide about.
+- **The use case is a row like any other.** It leads the toggles, and it is the only one with no
+  id, no *Add* and no *Remove* — there is exactly one use case, and the panel says that by what it
+  does not offer rather than by refusing afterwards.
 - **Saving keeps you where you were** — the same view, the same tab, the same row open.
 - **Removing is staged too**, so what stops being reachable can be seen before the row goes. A
   deletion is never cascaded: anything still pointing at what was removed is reported, and the
@@ -321,6 +331,13 @@ whose decisions are reachable from outside it, and a block deliberately drawn to
 boxes are the ways an interaction can end. Hovering anything holds that one thread at full strength
 and drops the rest back, which answers "where does this come from and where does it go" without
 tracing it with a finger.
+
+Folding the capabilities redraws the same graph one level up, and a capability is not drawn as a
+bigger decision. It carries a **doubled outline** and says how many decisions are inside it, which
+is how a statechart has always distinguished a composite state from a plain one. Shape is the
+graph's language — a stadium ends the interaction, a square decides something, a doubled box holds
+a graph of its own — so the collapsed view is readable as a different picture rather than as the
+same picture with fewer boxes, and nobody has to remember which level they are looking at.
 
 **Opening a scenario lights the route it walks.** A scenario *is* a route through this graph, and
 the graph is drawn on every stage that lists scenarios for exactly that reason. Open a card and its

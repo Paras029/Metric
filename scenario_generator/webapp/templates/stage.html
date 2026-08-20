@@ -48,7 +48,11 @@
    naming every field in markup: five kinds of row with four to eight fields each is forty pieces
    of near-identical HTML, and the fortieth is where the one that does not save lives. #}
 {% macro field(spec, value, vocabulary, kind, key, row_span={}) %}
-  {% set id = "f-" ~ kind ~ "-" ~ key ~ "-" ~ spec.name %}
+  {# Slugged, because a field name can carry spaces and punctuation -- "Channel / modality" --
+     and an id with a space in it is invalid and cannot be reached by a label's for=. #}
+  {% set id = ("f-" ~ kind ~ "-" ~ key ~ "-" ~ spec.name) | lower
+              | replace(" ", "-") | replace("/", "-") | replace("(", "")
+              | replace(")", "") | replace(".", "-") | replace(",", "") %}
   {# A group of checkboxes is not one control, so it is not wrapped in a label. It used to be, and
      a <label> around a list of <label>s is invalid: the outer one pointed at an id nothing owned,
      so a click anywhere in the field that was not exactly on an inner label went to a label with
@@ -576,7 +580,10 @@
               <button class="editor__tab" type="button" role="tab"
                       data-editor-tab="{{ tab.kind }}"
                       aria-selected="{{ 'true' if loop.first else 'false' }}">
-                {{ tab.label }} <span class="editor__count mono">{{ tab.count }}</span>
+                {{ tab.label }}
+                {%- if not tab.singleton %}
+                  <span class="editor__count mono">{{ tab.count }}</span>
+                {%- endif %}
               </button>
             {% endfor %}
           </div>
@@ -645,6 +652,26 @@
                             action="{{ url_for('edit_row') }}">
                         <input type="hidden" name="kind" value="{{ tab.kind }}">
                         <input type="hidden" name="key" value="{{ row.key }}">
+                        {% if not tab.singleton %}
+                          {# The id, editable. It is the one field whose change has to be followed
+                             through the rest of the declaration -- a decision is named by states,
+                             a state by capability spans, a capability by decisions and tools --
+                             so it is written by its own route rather than as an ordinary field,
+                             and the references are repointed with it. #}
+                          <div class="efield efield--id">
+                            <label class="efield__label" for="id-{{ tab.kind }}-{{ row.key }}">
+                              Id
+                            </label>
+                            <input class="efield__input efield__input--small mono"
+                                   id="id-{{ tab.kind }}-{{ row.key }}" name="rename"
+                                   data-rename value="{{ row.key }}"
+                                   pattern="[A-Za-z0-9 ._:/-]+">
+                            <span class="efield__hint">
+                              Changing this repoints everything that names
+                              <span class="mono">{{ row.key }}</span>.
+                            </span>
+                          </div>
+                        {% endif %}
                         <div class="efields">
                           {% for spec in editor.fields[tab.kind] %}
                             {{ field(spec, row.fields[spec.name], editor.vocabulary,
@@ -655,11 +682,13 @@
                           <button class="button" type="submit" name="action" value="upsert">
                             Save this row
                           </button>
-                          <button class="button button--danger" type="submit" name="action"
-                                  value="delete"
-                                  data-confirm="Remove {{ row.key }} from the declaration?">
-                            Remove
-                          </button>
+                          {% if not tab.singleton %}
+                            <button class="button button--danger" type="submit" name="action"
+                                    value="delete"
+                                    data-confirm="Remove {{ row.key }} from the declaration?">
+                              Remove
+                            </button>
+                          {% endif %}
                         </div>
                       </form>
 
@@ -673,7 +702,9 @@
               {% endif %}
 
               {# Adding one. The id is filled in already, because the next free number is a fact
-                 the page has and asking for it is asking somebody to scroll the list and add one. #}
+                 the page has and asking for it is asking somebody to scroll the list and add one.
+                 Not offered for the use case: there is one, and there is only ever one. #}
+              {% if not tab.singleton %}
               <form class="erow__new" method="post" action="{{ url_for('edit_row') }}">
                 <input type="hidden" name="kind" value="{{ tab.kind }}">
                 <input type="hidden" name="action" value="upsert">
@@ -687,6 +718,7 @@
                 </label>
                 <button class="button button--quiet" type="submit">Add {{ tab.one }}</button>
               </form>
+              {% endif %}
             </div>
           {% endfor %}
         </div>
