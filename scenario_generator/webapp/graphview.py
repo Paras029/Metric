@@ -857,12 +857,22 @@ def _render(layout: Layout, aria_label: str, block_of: Dict[str, str]) -> str:
         classes = "graph__edge" + (" graph__edge--pending" if edge.pending else "") + \
             (" graph__edge--loop" if edge.is_back else "") + \
             (" graph__edge--out-of-scope" if edge.out_of_scope else "")
+        # Two paths on the same line: the arrow, and a wide soft one behind it that carries how
+        # much of the scenario space flows along it. Drawn always and invisible until something
+        # paints it, because adding an element from script would mean the standalone page and the
+        # interface producing different SVG from one function.
+        #
+        # Behind rather than instead of, and only here rather than on the boxes: a box's colour
+        # already means its outcome type, and repainting it would overwrite a reading that is
+        # true of the declaration with one that is true of this run.
+        drawn = _edge_path(edge, source, target)
         parts.append(
             f'<g class="{classes}" data-source="{html.escape(edge.source)}" '
             f'data-target="{html.escape(edge.target)}" '
             f'data-outcome="{html.escape(edge.outcome)}">'
             f'<title>{html.escape(edge.detail)}</title>'
-            f'<path d="{_edge_path(edge, source, target)}" marker-end="url(#arrow)"/></g>')
+            f'<path class="graph__flow" d="{drawn}"/>'
+            f'<path d="{drawn}" marker-end="url(#arrow)"/></g>')
 
     # Labels are drawn after every edge so no path crosses over the text. A loop's label is
     # rotated to run along its lane -- upright, it would need the label's full text width just to
@@ -1050,6 +1060,22 @@ def load(intake: IntakeData, scenarios: Sequence) -> Dict[str, dict]:
     """
     walked = routes(intake, scenarios)
     by_id = {getattr(s, "id", ""): s for s in scenarios}
+    owner = {d.id: d.trigger_capability for d in intake.decisions}
+
+    # The collapsed drawing's own arrows, so folding the capabilities keeps the reading rather
+    # than losing it. Indexed off the block layout rather than derived a second time: which pairs
+    # of blocks are joined, and whether the join reads as a hand-off or a route back, is a
+    # judgement :func:`build_block_layout` already makes.
+    joins = {(edge.source, edge.target): edge.outcome
+             for edge in build_block_layout(intake).edges}
+    # Which block each state opens, so a route that *ends* by handing on is counted on the arrow
+    # it hands on along. Every scenario is scoped to one block, so no route walks a hand-off from
+    # the inside -- and left at that, the collapsed drawing would paint the endings and leave the
+    # agent's main arteries blank, which reads as a fault rather than as a fact about scoping.
+    entered_by: Dict[str, str] = {}
+    for capability in intake.capabilities:
+        for state_id in capability.entry_states:
+            entered_by.setdefault(state_id, capability.id)
 
     tally: Dict[str, Dict[str, int]] = {}
     peak = {name: 0 for name in LOADS}
@@ -1082,7 +1108,51 @@ def load(intake: IntakeData, scenarios: Sequence) -> Dict[str, dict]:
         if block_id:
             add("block:" + block_id, scenario)
 
+        for source, target in _block_hops(scenario, owner, joins, entered_by):
+            add("|".join(("edge", source, target, joins[(source, target)])), scenario)
+
     return {"at": tally, "peak": peak}
+
+
+def _block_hops(scenario, owner: Dict[str, str], joins: Dict[Tuple[str, str], str],
+                entered_by: Dict[str, str]) -> List[Tuple[str, str]]:
+    """Which arrows of the collapsed drawing one route travels.
+
+    Read off the route's own decisions rather than off the detailed edges: what makes a hop is
+    that consecutive steps belong to different blocks, and the decision is where a block is
+    recorded. Only pairs the block layout actually drew are counted, so a route that crosses a
+    boundary the collapsed view does not draw contributes nothing rather than inventing an arrow.
+    """
+    steps = list(getattr(scenario, "path", ()) or ())
+    if not steps:
+        return []
+
+    sequence = [owner.get(step.decision_id, "") for step in steps]
+    hops: List[Tuple[str, str]] = []
+
+    opening = next((block for block in sequence if block), "")
+    if (_START_ID, opening) in joins:
+        hops.append((_START_ID, opening))
+
+    previous = ""
+    for block in sequence:
+        if block and previous and block != previous and (previous, block) in joins:
+            hops.append((previous, block))
+        if block:
+            previous = block
+
+    # And where it ends, which is one of two things. A route that stops at a terminal state ends
+    # at a box hanging off its block; a route that stops at another block's entry has handed on,
+    # and travels that arrow to do it.
+    last = steps[-1].next_state
+    ending = (previous, f"{previous}:{last}")
+    if ending in joins:
+        hops.append(ending)
+    onward = entered_by.get(last, "")
+    if onward and onward != previous and (previous, onward) in joins:
+        hops.append((previous, onward))
+
+    return list(dict.fromkeys(hops))
 
 
 def _described(states: Dict[str, State], ids: Sequence[str]) -> List[dict]:

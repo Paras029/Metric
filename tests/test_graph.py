@@ -126,16 +126,16 @@ class TestOnlyWholeRoutesAreIssued(unittest.TestCase):
 class TestAnAugmentedRouteObeysTheSameRules(unittest.TestCase):
     """The focused routes are still routes, and are bound by everything an ordinary one is.
 
-    What binds them is two different rules, and this graph is built to separate them. DEC-02
-    allows one attempt, so no route may take it twice *in a row* -- that is what Max Attempts
-    says, and carrying the counts into the focused search is what keeps it true; restarting them
-    there produces a route that reads perfectly well and could never happen.
+    DEC-02 allows one attempt, so no route may take it twice. Carrying the counts into the focused
+    search is what keeps that true; restarting them there produces a route that reads perfectly
+    well and could never happen.
 
-    S-04 routing back to DEC-02 is not that. It is the flow going elsewhere and returning, which
-    the intake never claimed to bound, and holding it to the retry count used to delete every
-    route through it: the only way onward from DEC-09 is back into DEC-02, so DEC-09's outcome
-    could not finish anywhere and was dropped from the space entirely. A declaration that draws a
-    loop means the loop to be tested.
+    S-04 routing back to DEC-02 is a *return* -- the flow going elsewhere and coming back -- and
+    those are deliberately not walked here. The intake says nothing about how often a route may go
+    round, so any bound would be this tool's invention, and enumerating them multiplies the space
+    by every loop in the graph to test the same behaviour a second time from a different distance.
+    That is a variation on a scenario rather than a scenario. The consequence is visible and worth
+    stating: DEC-09's only way onward is back into DEC-02, so its outcome is not exercised at all.
     """
 
     def _graph(self):
@@ -163,23 +163,20 @@ class TestAnAugmentedRouteObeysTheSameRules(unittest.TestCase):
                     run, graph.decision(step.decision_id).max_attempts,
                     f"{[str(s) for s in path]} retries {step.decision_id} {run} times")
 
-    def test_a_returning_route_is_walked_and_is_bounded(self):
-        graph = self._graph()
-        walked, augmented = enumerate_paths(graph)
-        returns = [p for p in walked + augmented
-                   if sum(1 for s in p if s.decision_id == "DEC-02") > 1]
-        self.assertTrue(returns, "the loop the declaration draws produced no routes at all")
-        for path in returns:
-            self.assertLessEqual(sum(1 for s in path if s.decision_id == "DEC-02"), graph_module.LOOP_VISITS,
-                                 f"{[str(s) for s in path]} goes round more than once")
+    def test_no_route_goes_round_the_loop(self):
+        walked, augmented = enumerate_paths(self._graph())
+        for path in walked + augmented:
+            self.assertLessEqual(sum(1 for s in path if s.decision_id == "DEC-02"), 1,
+                                 f"{[str(s) for s in path]} goes round the loop")
 
-    def test_an_outcome_reachable_only_through_the_loop_is_exercised(self):
-        """DEC-09's only way onward is back into DEC-02, so it used to be dropped from the space
-        with nothing to say so -- the shape of the report that "the traversal is not visiting the
-        states creating the cyclicity"."""
+    def test_an_outcome_reachable_only_through_the_loop_is_left_unexercised(self):
+        """The cost of leaving loops out, stated rather than discovered. DEC-09's only way onward
+        is back into DEC-02, so its outcome is not in the space at all -- which is the right
+        trade while going round is a variation rather than a scenario, and the wrong one to make
+        silently."""
         walked, augmented = enumerate_paths(self._graph())
         taken = {(step.decision_id, step.variant) for p in walked + augmented for step in p}
-        self.assertIn(("DEC-09", "Z"), taken)
+        self.assertNotIn(("DEC-09", "Z"), taken)
 
     def test_every_route_still_ends_somewhere_declared(self):
         """A loop that is walked must still finish. A route that goes round and stops is not a

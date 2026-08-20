@@ -148,6 +148,74 @@ class TestWhereTheControlIsOffered(unittest.TestCase):
         self.assertIn("metric-load", self._page("materiality"))
 
 
+class TestOnlyTheArrowsArePainted(unittest.TestCase):
+    """A box's colour already means something -- which kind of ending it is, whether it is out of
+    scope, whether it is a block -- and that reading is true of the *declaration*, where a paint is
+    true of one run over it. Overwriting the first with the second loses a fact to show a number,
+    and the number has somewhere of its own to go: a channel behind the arrow, widening with what
+    flows along it."""
+
+    def setUp(self):
+        base = Path(__file__).resolve().parent.parent / "scenario_generator" / "webapp" / "static"
+        self.script = (base / "graph.js").read_text(encoding="utf-8")
+        self.css = (base / "app.css").read_text(encoding="utf-8")
+
+    def test_no_rule_paints_a_box(self):
+        painting = self.css[self.css.index("painting the drawing"):]
+        self.assertNotIn(".graph__node.is-painted", painting)
+        self.assertNotIn("is-painted rect", painting)
+
+    def test_the_script_only_looks_at_edges(self):
+        painting = self.script[self.script.index("painting the drawing"):]
+        self.assertNotIn("data-node", painting)
+
+    def test_every_arrow_carries_a_channel_to_paint(self):
+        from scenario_generator.webapp.graphview import render_svg
+        drawn = render_svg(read_intake(str(EXAMPLE)))
+        self.assertEqual(drawn.count("graph__flow"), drawn.count('marker-end="url(#arrow)"'))
+
+    def test_the_channel_is_invisible_until_it_is_painted(self):
+        """Rendered always, so the standalone page and the interface come off one function."""
+        self.assertIn("stroke: none", self.css[self.css.index(".graph__flow {"):][:200])
+
+    def test_width_carries_the_reading(self):
+        """A width difference is legible where twelve shades of one colour are not."""
+        painted = self.css[self.css.index(".graph__edge.is-painted .graph__flow"):][:400]
+        self.assertIn("stroke-width: calc", painted)
+
+
+class TestTheCollapsedDrawingKeepsTheReading(unittest.TestCase):
+    """Folding the capabilities to see the shape of the agent is exactly what somebody asking
+    where the material work sits would do."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.intake = read_intake(str(EXAMPLE))
+        cls.counted = load(cls.intake, build_scenario_space(cls.intake, with_probes=False))["at"]
+
+    def _blocks(self):
+        return {key: entry["total"] for key, entry in self.counted.items()
+                if key.startswith("edge|CAP") or key.startswith("edge|__start__|CAP")}
+
+    def test_the_hand_offs_between_blocks_carry_a_load(self):
+        """Every scenario is scoped to one block, so no route walks a hand-off from the inside.
+        Left at that the collapsed drawing paints the endings and leaves the agent's main arteries
+        blank, which reads as a fault rather than as a fact about scoping. A route that *ends* by
+        handing on travels that arrow to do it."""
+        self.assertTrue(any("hands on" in key for key in self._blocks()),
+                        f"no hand-off was counted at all: {sorted(self._blocks())}")
+
+    def test_an_ending_hanging_off_a_block_carries_one_too(self):
+        self.assertTrue(any(key.endswith("|ends") for key in self._blocks()))
+
+    def test_nothing_is_counted_on_an_arrow_the_collapsed_view_never_drew(self):
+        from scenario_generator.webapp.graphview import build_block_layout
+        drawn = {(edge.source, edge.target) for edge in build_block_layout(self.intake).edges}
+        for key in self._blocks():
+            _, source, target, _ = key.split("|")
+            self.assertIn((source, target), drawn)
+
+
 class TestThePaintDoesNotFightTheLighting(unittest.TestCase):
     """Paint is the background reading -- the shape of the space. An opened card is a foreground
     answer about one route, and it is the reason the list and the drawing were put side by side."""
@@ -158,8 +226,8 @@ class TestThePaintDoesNotFightTheLighting(unittest.TestCase):
         self.css = (base / "app.css").read_text(encoding="utf-8")
 
     def test_the_lit_rules_come_after_the_painted_ones(self):
-        self.assertGreater(self.css.rindex(".graph__edge.is-lit path"),
-                           self.css.rindex(".graph__edge.is-painted path"))
+        self.assertGreater(self.css.rindex(".graph__edge.is-lit .graph__flow"),
+                           self.css.rindex(".graph__edge.is-painted .graph__flow"))
 
     def test_switching_modes_needs_no_round_trip(self):
         self.assertIn("METRIC_LOAD", self.script)

@@ -360,15 +360,16 @@ graph's language — a stadium ends the interaction, a square decides something,
 a graph of its own — so the collapsed view is readable as a different picture rather than as the
 same picture with fewer boxes, and nobody has to remember which level they are looking at.
 
-**Retrying and returning are different, and are bounded differently.** *Max Attempts* on a
-decision says how often the agent may retry it on the spot — three goes at an identity check.
-A **return** is the flow genuinely going elsewhere and coming back: a fallback that could not
-understand the request and routes to the start of the block, a check that sends the conversation
-back to be identified again. The intake never claimed to bound that, and holding it to the retry
-count deleted whole regions of the space — a loop back to a one-attempt decision enumerated *no*
-routes through it at all, and any outcome whose only way onward was round the loop went with it.
-A route may now come back to a decision once, which is what a returning route is for: the point is
-to test what the agent does on the way round, and a second lap tests nothing the first did not.
+**Routes that go round a loop are not enumerated, and that is a choice.** *Max Attempts* on a
+decision says how often the agent may retry it on the spot — three goes at an identity check —
+and the walk honours that. A **return** is different: the flow genuinely going elsewhere and
+coming back, as when a fallback that could not understand the request routes to the start of the
+block. The intake says nothing about how often that may happen, so any bound on it would be this
+tool's invention rather than the declaration's; and walking them multiplies the space by every
+loop in the graph to test the same behaviour a second time from a different distance. That is a
+*variation* on a scenario rather than a scenario, and it belongs in the variation space where the
+number of laps is a knob. The cost is real and worth stating: an outcome whose only way onward is
+round a loop is not in the base space at all.
 
 **The backstops are derived, not chosen.** Every decision can fire a bounded number of times on
 one route, so the longest route a declaration allows is arithmetic over that declaration — and the
@@ -400,9 +401,9 @@ produces the scenarios worth running and which produces thirty that are not — 
 three hundred rows says it either, because that is a question about the shape of the graph. So
 from the materiality stage on, the drawing takes a second reading, chosen from *Colour by*:
 
-- **Volume** — how much of the space runs through each box and arrow, in one colour, weight
-  standing for load. Volume is not a judgement, so it does not get a hue of its own to compete
-  with the tiers, which are.
+- **Volume** — how much of the space flows along each arrow, in one colour, width standing for
+  load. Volume is not a judgement, so it does not get a hue of its own to compete with the tiers,
+  which are.
 - **Materiality** — the same weight in the colour of the tier that dominates there. The busy
   branch that is all Low reads differently from the quiet one that is all High, which is the
   comparison the table cannot make.
@@ -413,9 +414,18 @@ from the materiality stage on, the drawing takes a second reading, chosen from *
   out, against the same scale, so the thinning across the graph **is** the recommendation rather
   than a list of ids to read against the picture.
 
+Only the arrows are painted, and never the boxes. A box's colour already means something — which
+kind of ending it is, whether it is out of scope, whether it is a block — and that reading is true
+of the *declaration*, where a paint is true of one run over it; overwriting the first with the
+second loses a fact to show a number. The number has somewhere of its own to go: a channel behind
+each arrow, widening with what flows along it, leaving the line itself untouched.
+
 Counted over the same routes the card highlighting uses, so an arrow a scenario lights when its
-card is opened is an arrow it is counted on. The scenario list stays beside it, so a tier worth
-arguing with is one click from the route it was assigned to.
+card is opened is an arrow it is counted on. The collapsed view is painted the same way, so
+folding the capabilities to see the shape of the agent keeps the reading; because every scenario
+is scoped to one block, a hand-off carries the routes that *end* by handing on along it. The
+scenario list stays beside it, so a tier worth arguing with is one click from the route it was
+assigned to.
 
 **Opening a scenario lights the route it walks.** A scenario *is* a route through this graph, and
 the graph is drawn on every stage that lists scenarios for exactly that reason. Open a card and its

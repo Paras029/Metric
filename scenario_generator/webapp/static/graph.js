@@ -560,13 +560,6 @@
 
   function counts(el) {
     var at = window.METRIC_LOAD.at || {};
-    if (el.hasAttribute('data-node')) {
-      var id = el.getAttribute('data-node');
-      // A capability block is a node in the collapsed drawing and a whole region in the counts,
-      // so it answers to a different key. Falling through rather than branching on the shape of
-      // the element: the collapsed view is the same markup with different ids in it.
-      return at['node:' + id] || at['block:' + id];
-    }
     return at[['edge', el.getAttribute('data-source'), el.getAttribute('data-target'),
                el.getAttribute('data-outcome')].join('|')];
   }
@@ -596,15 +589,12 @@
   }
 
   function paintable() {
-    // Blocks as well as boxes and arrows, so the collapsed view reads the same way -- a validator
-    // who folded the capabilities to see the shape of the agent is exactly the one asking where
-    // the material work sits.
-    //
-    // What the collapsed view does not paint is the arrows *between* blocks, and deliberately:
-    // opening a scenario there lights its block and not the hand-offs either, because a route is
-    // counted on the graph it was walked on. Painting a hand-off would be a number this has not
-    // got, arrived at by a second rule.
-    return canvas.querySelectorAll('[data-node], [data-source]');
+    // Arrows only, in both drawings. A box's colour already means which kind of ending it is,
+    // and that reading is true of the declaration where a paint is true of one run over it --
+    // overwriting the first with the second loses a fact to show a number that has somewhere of
+    // its own to go. The collapsed view paints its hand-offs the same way, so folding the
+    // capabilities to see the shape of the agent keeps the reading rather than losing it.
+    return canvas.querySelectorAll('[data-source]');
   }
 
   function clear(el) {
@@ -615,11 +605,15 @@
     el.style.removeProperty('--load');
   }
 
+  // The label rides on its own group with the same three attributes, so it would be painted as a
+  // second arrow underneath the text. Only the edge itself carries a channel.
+  function isEdge(el) { return el.classList.contains('graph__edge'); }
+
   function apply() {
     var top = peak();
     Array.prototype.forEach.call(paintable(), function (el) {
       clear(el);
-      if (mode === 'off') { return; }
+      if (mode === 'off' || !isEdge(el)) { return; }
       var at = counts(el);
       if (!at) { return; }
 

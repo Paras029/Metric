@@ -162,13 +162,12 @@ class TestTheBackstopIsDerivedRatherThanChosen(unittest.TestCase):
 
     def test_it_covers_every_firing_the_rules_allow(self):
         from scenario_generator.core.models import Decision, State
-        from scenario_generator.core.graph import DecisionGraph, LOOP_VISITS, depth_limit
+        from scenario_generator.core.graph import DecisionGraph, depth_limit
 
         decisions = [Decision(f"DEC-{n:02d}", "d", "", "", ["Ok"], max_attempts=n % 4 + 1)
                      for n in range(30)]
         graph = DecisionGraph(decisions, [State("S-00", "Start", "opens", ["DEC-00"], False)])
-        self.assertGreaterEqual(depth_limit(graph),
-                                sum(max(d.max_attempts, LOOP_VISITS) for d in decisions))
+        self.assertGreaterEqual(depth_limit(graph), sum(d.max_attempts for d in decisions))
 
 
 if __name__ == "__main__":

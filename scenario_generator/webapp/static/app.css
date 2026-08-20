@@ -2243,14 +2243,18 @@ body.is-expanded { overflow: hidden; }
 
 /* ------------------------------------------------------------------ painting the drawing
  *
- * A second reading of the same picture: not "what is this decision" but "how much of the scenario
- * space runs through it, and how much of that matters". The intensity is carried in a custom
- * property the script sets per element, so switching modes is a class change rather than a
- * repaint of computed colours -- and so the rules below stay readable as rules.
+ * A second reading of the same picture: not "what is this decision" but how much of the scenario
+ * space flows along each arrow, and how much of that matters.
  *
- * Paint sits *under* the scenario lighting on purpose. It is the background reading, the shape of
- * the space; an opened card is a foreground answer about one route. A mode that competed with the
- * lighting would take away the reason the list and the drawing were put side by side. */
+ * Only the arrows. A box's colour already means something -- which kind of ending it is, whether
+ * it is out of scope, whether it is a block -- and that reading is true of the declaration where
+ * a paint is true of one run over it. Overwriting the first with the second loses a fact to show
+ * a number, and the number has somewhere of its own to go.
+ *
+ * Where it goes is a second path behind the arrow: wide, soft, and thickening with the volume, so
+ * the line itself is untouched and the load reads as something flowing along it. The intensity
+ * comes from a custom property the script sets per edge, so switching modes is a class change
+ * rather than a recomputation of colours -- and so the rules below stay readable as rules. */
 .paint {
   display: flex;
   flex-wrap: wrap;
@@ -2282,47 +2286,42 @@ body.is-expanded { overflow: hidden; }
 .paint__drop { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-dim); }
 .paint__key { color: var(--ink-dim); }
 
-/* Volume: one colour, and the weight says how much. Deliberately the interface's own blue rather
-   than a new hue -- volume is not a judgement, and giving it a colour of its own would put it in
-   competition with the tiers, which are. */
-.graph__edge.is-painted path,
-.graph__node.is-painted rect {
-  stroke: var(--blue);
-  stroke-opacity: calc(0.25 + 0.75 * var(--load, 0));
+/* The channel behind every arrow. Nothing until it is painted, and never an arrowhead of its own
+   -- one arrow, with a load behind it. */
+.graph__flow {
+  fill: none;
+  stroke: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
-.graph__edge.is-painted path { stroke-width: calc(1 + 2.4 * var(--load, 0)); }
-.graph__node.is-painted rect { fill: var(--blue-tint); fill-opacity: var(--load, 0); }
 
-/* Materiality: the tier that dominates there, at the weight of the volume behind it. Three hues
-   far enough apart to be told apart at a glance and at thumbnail size, which rules out a ramp of
-   one colour however principled that would be. */
-.graph__edge.is-painted--high path,
-.graph__node.is-painted--high rect { stroke: var(--bad); }
-.graph__node.is-painted--high rect { fill: var(--bad-tint); }
-.graph__edge.is-painted--medium path,
-.graph__node.is-painted--medium rect { stroke: var(--warn); }
-.graph__node.is-painted--medium rect { fill: var(--warn-tint); }
-.graph__edge.is-painted--low path,
-.graph__node.is-painted--low rect { stroke: #7C8698; }
-.graph__node.is-painted--low rect { fill: #F2F4F7; }
+/* Volume: one colour, and the width says how much. Deliberately the interface's own blue rather
+   than a new hue -- volume is not a judgement, and giving it a colour of its own would put it in
+   competition with the tiers, which are. Width carries the reading and opacity only keeps the
+   quiet ones from disappearing, because a width difference is legible where twelve shades of one
+   colour are not. */
+.graph__edge.is-painted .graph__flow {
+  stroke: var(--blue);
+  stroke-opacity: calc(0.2 + 0.32 * var(--load, 0));
+  stroke-width: calc(4.5 + 15 * var(--load, 0));
+}
+
+/* Materiality: the same channel in the colour of the tier that dominates there. Three hues far
+   enough apart to be told apart at a glance and at thumbnail size, which rules out a ramp of one
+   colour however principled that would be. */
+.graph__edge.is-painted--high .graph__flow { stroke: var(--bad); }
+.graph__edge.is-painted--medium .graph__flow { stroke: var(--warn); }
+.graph__edge.is-painted--low .graph__flow { stroke: #7C8698; }
 
 /* What the review changes. Additions and flags only: anything the review says nothing about is
    left unpainted, because a picture where everything is coloured says nothing about where the
    change is. */
-.graph__edge.is-painted--added path,
-.graph__node.is-painted--added rect { stroke: var(--ok); }
-.graph__node.is-painted--added rect { fill: var(--ok-tint); }
-.graph__edge.is-painted--added path { stroke-dasharray: 6 3; }
-.graph__edge.is-painted--dropped path,
-.graph__node.is-painted--dropped rect { stroke: var(--warn); }
-.graph__node.is-painted--dropped rect { fill: var(--warn-tint); }
-.graph__edge.is-painted--dropped path { stroke-dasharray: 2 3; }
+.graph__edge.is-painted--added .graph__flow { stroke: var(--ok); }
+.graph__edge.is-painted--dropped .graph__flow {
+  stroke: var(--warn);
+  stroke-dasharray: 10 7;
+}
 
-/* The one node whose fill is not the paint's to take. The start box is solid navy with white
-   text on it, so tinting it leaves white on near-white. It still takes the stroke, which is where
-   its share of the volume shows. */
-.graph__node--start.is-painted rect { fill: var(--navy); fill-opacity: 1; }
-
-/* The lighting wins wherever the two meet. */
-.graph__edge.is-lit path { stroke: var(--blue); stroke-opacity: 1; }
-.graph__node.is-lit rect { fill-opacity: 1; }
+/* The lighting wins wherever the two meet: paint is the background reading of the whole space,
+   an opened card is the foreground answer about one route. */
+.graph__edge.is-lit .graph__flow { stroke-opacity: 0.5; }

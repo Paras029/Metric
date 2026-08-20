@@ -7,10 +7,11 @@ Enumeration is two passes: a DFS from every start state, then a focused path for
 declared (decision, variant) the DFS never exercised.
 
 Loops are bounded by each decision's own declared `Max Attempts`, not by a global revisit cap,
-so a decision that genuinely allows three tries produces three-try paths, and a route that
-*returns* to a decision after going elsewhere is bounded separately -- see LOOP_VISITS. The depth
-backstop is derived from the declaration rather than fixed, and the path cap remains as a backstop
-only; hitting either is reported rather than silent.
+so a decision that genuinely allows three tries produces three-try paths. A route that *returns*
+to a decision after going elsewhere is deliberately not enumerated here and belongs in the
+variation space -- see the note above MIN_DEPTH. The depth backstop is derived from the
+declaration rather than fixed, and the path cap remains as a backstop only; hitting either is
+reported rather than silent.
 """
 from __future__ import annotations
 
@@ -25,21 +26,21 @@ from .models import Capability, Decision, State, Step
 
 logger = logging.getLogger(__name__)
 
-# How many times one route may come back to a decision it has already taken.
+# A route that leaves a decision and comes back to it is **not enumerated**, and that is a choice
+# rather than an oversight.
 #
-# Not the same question as Max Attempts, and conflating the two deleted whole regions of the
-# scenario space. Max Attempts says how often the agent may *retry* one decision on the spot --
-# three goes at an identity check. A **return** is the flow genuinely going elsewhere and coming
-# back: a fallback that could not understand the request and routes to the start of the block, a
-# verification step that sends the conversation back to be identified again. That is a different
-# thing, the intake never claimed to bound it, and holding it to the retry count meant a
-# declaration whose loop returned to a one-attempt decision enumerated *no* routes through that
-# loop at all -- not truncated, absent, with nothing to say so.
+# It is a different thing from a retry. Max Attempts says how often the agent may try one decision
+# on the spot -- three goes at an identity check -- and the walk honours that. A *return* is the
+# flow genuinely going elsewhere and coming back: a fallback that could not understand the request
+# and routes to the start of the block, a verification step that sends the conversation back to be
+# identified again. The intake says nothing about how often that may happen, so any bound on it
+# would be this tool's invention rather than the declaration's.
 #
-# Two, so a route may come back once. Once is what a returning route is for: the point is to test
-# what the agent does on the way round, and a second lap tests nothing the first did not.
-LOOP_VISITS = 2
-
+# Walking them multiplies the space by every loop in the graph, and what the extra routes test is
+# the same behaviour a second time from a different distance. That is a *variation* on a scenario,
+# not a scenario, and it belongs in the variation space where the number of laps is a knob rather
+# than in the base space where it is a combinatorial explosion nobody asked for.
+#
 # Backstops, and neither is meant to shape the walk.
 #
 # Depth is *derived* rather than fixed -- see :func:`depth_limit`. Every decision can fire a
@@ -77,12 +78,11 @@ class Limits:
 def depth_limit(graph: DecisionGraph) -> int:
     """The longest route this declaration can produce, so the backstop never cuts a real one.
 
-    Each decision may fire at most ``max(Max Attempts, LOOP_VISITS)`` times on one route, so their
-    sum is the longest route the rules allow. Bounded below so a two-decision graph still has room
-    for the augmentation pass to work in.
+    Each decision may fire at most its declared Max Attempts times on one route, so their sum is
+    the longest route the rules allow. Bounded below so a two-decision graph still has room for the
+    augmentation pass to work in.
     """
-    return max(MIN_DEPTH,
-               sum(max(d.max_attempts, LOOP_VISITS) for d in graph.decisions.values()))
+    return max(MIN_DEPTH, sum(d.max_attempts for d in graph.decisions.values()))
 
 # What an opening state says in its "Reached Via" cell when it is not reached by a decision at all.
 # Only consulted for states that name no decision edge: a state reached via "DEC-02=Reconnected"
@@ -326,16 +326,11 @@ def walk_paths(graph: DecisionGraph, span: Optional[Span] = None,
             if decision is None or decision.out_of_scope:
                 continue
             occurrence = fired.get(decision_id, 0)
-            # Retrying and returning are different things and are bounded differently. Taking a
-            # decision again straight after taking it is a retry, and Max Attempts is exactly the
-            # declaration's statement about that. Coming back to it after the route has been
-            # somewhere else is a *return* -- a fallback that could not understand the request and
-            # sends the conversation back, a check that routes to be identified again -- which the
-            # intake never claimed to bound, and which held to the retry count made every looping
-            # route disappear: a loop back to a one-attempt decision enumerated nothing at all.
-            returning = bool(path) and path[-1].decision_id != decision_id
-            allowed = max(decision.max_attempts, LOOP_VISITS) if returning else decision.max_attempts
-            if occurrence >= allowed:
+            # Max Attempts bounds both taking a decision again on the spot and coming back to it
+            # after going elsewhere. The second of those is a route the declaration does draw and
+            # this does not walk -- see the note above MIN_DEPTH for why it is left to the
+            # variation space rather than multiplied into this one.
+            if occurrence >= decision.max_attempts:
                 continue
             for variant in decision.variants:
                 next_state = graph.successor(decision_id, variant, occurrence)
