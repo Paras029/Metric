@@ -17,7 +17,7 @@ from pathlib import Path
 from scenario_generator.core import editing
 from scenario_generator.core.intake import read_intake
 from scenario_generator.webapp.app import create_app
-from scenario_generator.webapp.declaration import editable
+from scenario_generator.webapp.declaration import editable, graph_index
 from scenario_generator.webapp.graphview import highlights
 
 EXAMPLE = (Path(__file__).resolve().parent.parent
@@ -525,3 +525,140 @@ class TestEditingASpan(unittest.TestCase):
              "fields": {"entry_states": ["S-00"], "exit_states": ["S-02", "S-03"]}}]}).get_json()
         self.assertIn("<svg", drawn["blocks_svg"],
                       "drawing the first span produced no collapsed view")
+
+
+class TestBuildingACapabilityFromItsDecisions(unittest.TestCase):
+    """The order that makes a capability editable at all.
+
+    Membership is recorded on the *decisions* -- a decision belongs to one capability and the
+    workbook says so where the decision is, which is the right place to record it. It was the
+    wrong place to edit it from, and that was the whole defect: the capability's boundary controls
+    were computed from its membership, while its own row could not change that membership. A
+    grouping that was wrong could be seen and not corrected, and every shortlist derived from it
+    was wrong in the same way.
+
+    So the capability row carries the membership, and the rest follows: tick the decisions, see
+    the states they fold in, pick the boundary from those.
+    """
+
+    def setUp(self):
+        self.path = Path(tempfile.mkdtemp()) / "intake.xlsx"
+        shutil.copy(EXAMPLE, self.path)
+
+    def _owns(self):
+        found = {}
+        for decision in read_intake(str(self.path)).decisions:
+            found.setdefault(decision.trigger_capability, []).append(decision.id)
+        return found
+
+    def test_ticking_a_decision_moves_it_into_the_capability(self):
+        editing.apply_edits(str(self.path), [
+            {"kind": "capability", "key": "CAP-02", "action": "upsert",
+             "fields": {"decisions": ["DEC-03", "DEC-04", "DEC-05"]}}])
+        self.assertIn("DEC-05", self._owns()["CAP-02"])
+
+    def test_it_moves_rather_than_copies(self):
+        """A decision belonging to two capabilities is something the graph cannot represent, and
+        the walk resolves silently by taking whichever it read first."""
+        before = self._owns()["CAP-03"]
+        self.assertIn("DEC-05", before)
+        editing.apply_edits(str(self.path), [
+            {"kind": "capability", "key": "CAP-02", "action": "upsert",
+             "fields": {"decisions": ["DEC-03", "DEC-05"]}}])
+        self.assertNotIn("DEC-05", self._owns().get("CAP-03", []))
+
+    def test_unticking_a_decision_takes_it_out(self):
+        editing.apply_edits(str(self.path), [
+            {"kind": "capability", "key": "CAP-02", "action": "upsert",
+             "fields": {"decisions": ["DEC-03"]}}])
+        self.assertNotIn("DEC-04", self._owns().get("CAP-02", []))
+        self.assertIn("DEC-04", self._owns().get("", []),
+                      "the decision was left belonging to nothing rather than to no capability")
+
+    def test_it_leaves_other_capabilities_alone(self):
+        before = self._owns()["CAP-01"]
+        editing.apply_edits(str(self.path), [
+            {"kind": "capability", "key": "CAP-02", "action": "upsert",
+             "fields": {"decisions": ["DEC-03", "DEC-04"]}}])
+        self.assertEqual(self._owns()["CAP-01"], before)
+
+    def test_membership_and_boundary_save_together(self):
+        """Both are edits to one capability, made in one pass over its row."""
+        editing.apply_edits(str(self.path), [
+            {"kind": "capability", "key": "CAP-02", "action": "upsert",
+             "fields": {"decisions": ["DEC-03", "DEC-04", "DEC-05"],
+                        "entry_states": ["S-02"], "exit_states": ["S-11"]}}])
+        intake = read_intake(str(self.path))
+        found = next(c for c in intake.capabilities if c.id == "CAP-02")
+        self.assertEqual((found.entry_states, found.exit_states), (("S-02",), ("S-11",)))
+        self.assertIn("DEC-05", [d.id for d in intake.decisions
+                                 if d.trigger_capability == "CAP-02"])
+
+    def test_the_expansion_is_a_difference_not_an_addition(self):
+        """Reading the workbook is what makes it one. A tick that only ever added would say
+        nothing about the decisions no longer ticked."""
+        grown = editing.expand(str(self.path), [
+            {"kind": "capability", "key": "CAP-02", "action": "upsert",
+             "fields": {"decisions": ["DEC-03", "DEC-05"]}}])
+        written = {(e["key"], e["fields"].get("capability_id"))
+                   for e in grown if e["kind"] == "decision"}
+        self.assertIn(("DEC-05", "CAP-02"), written, "the decision moving in was not written")
+        self.assertIn(("DEC-04", ""), written, "the decision moving out was not written")
+        self.assertNotIn(("DEC-03", "CAP-02"), written,
+                         "a decision already there was rewritten for no reason")
+
+    def test_nothing_is_written_where_the_membership_is_unchanged(self):
+        grown = editing.expand(str(self.path), [
+            {"kind": "capability", "key": "CAP-02", "action": "upsert",
+             "fields": {"decisions": ["DEC-03", "DEC-04"], "name": "Verification"}}])
+        self.assertEqual([e for e in grown if e["kind"] == "decision"], [])
+
+    def test_the_virtual_field_never_reaches_a_column(self):
+        """There is no Decisions column on the capabilities sheet, and writing one would put a
+        second answer beside the one the decisions already give."""
+        grown = editing.expand(str(self.path), [
+            {"kind": "capability", "key": "CAP-02", "action": "upsert",
+             "fields": {"decisions": ["DEC-03"]}}])
+        capability = next(e for e in grown if e["kind"] == "capability")
+        self.assertNotIn("decisions", capability["fields"])
+
+
+class TestWhatTheCapabilityControlIsGiven(unittest.TestCase):
+    def setUp(self):
+        self.intake = read_intake(str(EXAMPLE))
+
+    def test_every_decision_is_offered_with_where_it_belongs(self):
+        """The edit somebody needs is usually "that one belongs here, not there", and a list of
+        only what is already here cannot express it."""
+        from scenario_generator.webapp.declaration import editable, graph_index
+
+        offered = editable(self.intake)["vocabulary"]["decisions"]
+        self.assertEqual({d["id"] for d in offered}, {d.id for d in self.intake.decisions})
+        self.assertTrue(any(d["capability"] for d in offered))
+
+    def test_the_page_carries_the_adjacency_it_needs(self):
+        """Which states a decision is offered by and routes to -- so ticking one answers as fast
+        as the ticking, rather than a round trip per checkbox."""
+        index = graph_index(self.intake)
+        self.assertEqual(set(index["decisions"]), {d.id for d in self.intake.decisions})
+        entry = index["decisions"]["DEC-03"]
+        self.assertTrue(entry["offered_by"])
+        self.assertTrue(entry["lands_on"])
+        self.assertEqual(set(index["states"]), {s.id for s in self.intake.states})
+
+    def test_the_adjacency_only_names_states_that_exist(self):
+        """An outcome leading nowhere gets a synthetic id in the walk. Offering one as a boundary
+        would put a state in the span that the workbook does not have."""
+        index = graph_index(self.intake)
+        declared = {s.id for s in self.intake.states}
+        for entry in index["decisions"].values():
+            for state_id in entry["offered_by"] + entry["lands_on"]:
+                self.assertIn(state_id, declared)
+
+    def test_it_carries_no_policy_only_adjacency(self):
+        """What counts as an exit is a judgement -- see core.graph.exits_for -- and it stays in
+        one language. A second implementation on the page would disagree with the first."""
+        index = graph_index(self.intake)
+        self.assertEqual(set(index), {"decisions", "states"})
+        self.assertEqual(set(index["decisions"]["DEC-03"]),
+                         {"name", "capability", "offered_by", "lands_on"})

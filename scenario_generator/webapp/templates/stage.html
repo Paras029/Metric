@@ -68,6 +68,29 @@
     {% elif spec.kind == "flag" %}
       <input class="efield__check" type="checkbox" id="{{ id }}" name="{{ spec.name }}"
              value="yes" data-field="{{ spec.name }}" {% if value %}checked{% endif %}>
+    {% elif spec.kind == "decisions" %}
+      {# The first question, and the one everything below it answers from. Every decision is
+         listed, not only this capability's, because the edit somebody needs to make is usually
+         "that one belongs here, not there" -- and a list of only what is already here cannot
+         express it. A decision belongs to exactly one capability, so ticking it moves it, and the
+         row says where it is moving from. #}
+      <ul class="span__list span__list--long" data-owns>
+        {% for option in vocabulary.decisions %}
+          <li>
+            <label class="check">
+              <input type="checkbox" name="decisions" value="{{ option.id }}"
+                     data-field="decisions" data-multiple data-owns-decision
+                     {% if option.id in value %}checked{% endif %}>
+              <span class="mono">{{ option.id }}</span> {{ option.label }}
+              {%- if option.capability and option.capability != key %}
+                <span class="mark">{{ option.capability }}</span>
+              {%- elif not option.capability %}
+                <span class="mark mark--flag">no capability</span>
+              {%- endif %}
+            </label>
+          </li>
+        {% endfor %}
+      </ul>
     {% elif spec.kind == "states" %}
       {# A shortlist of the states that could be a boundary of this capability, and every state
          one click behind it. The shortlist alone was the bug: a span may legitimately begin or
@@ -75,8 +98,8 @@
          corrected. Checkboxes rather than a multi-select -- an ordinary click on one option of a
          <select multiple> silently clears every other, so somebody adding a second entry state
          would have deleted the first without being shown it happen. #}
-      <span class="span__picker">
-        <ul class="span__list">
+      <span class="span__picker" data-boundary="{{ spec.name }}">
+        <ul class="span__list" data-boundary-shortlist>
           {% for option in (row_span[spec.of] or []) %}
             <li>
               <label class="check">
@@ -102,24 +125,10 @@
             {% endif %}
           {% endfor %}
         </ul>
-        {# On what basis the shortlist was cut. A list that does not say how it was chosen reads
-           as an arbitrary subset, and the first thing anybody does with one is distrust it. #}
-        <span class="span__why">
-          {% if spec.name == "entry_states" %}
-            {% if row_span.decisions %}
-              States that offer
-              {% for id in row_span.decisions %}<span class="mono">{{ id }}</span>{{
-                ", " if not loop.last }}{% endfor %}.
-            {% else %}
-              No decision is tagged with this capability, so there is nothing to shortlist from.
-            {% endif %}
-          {% elif row_span.derived_exits %}
-            Walked from {% if row_span.entry_states %}the entries{% else %}the first state that
-            offers one of its decisions{% endif %}, a route leaves this block at
-            {% for state in row_span.derived_exits %}<span class="mono">{{ state.id }}</span>{{
-              ", " if not loop.last }}{% endfor %}.
-          {% endif %}
-        </span>
+        {# On what basis the list was drawn. Rewritten on the page whenever the membership
+           changes, because it is a statement *about* the membership -- left as rendered it would
+           still be naming the decisions that were ticked when the page was built. #}
+        <span class="span__why" data-boundary-why></span>
         {# Open from the start where the shortlist came back empty -- which happens whenever no
            decision is tagged with this capability, and is exactly when somebody most needs the
            full list. An empty box above a closed disclosure reads as "there is nothing to pick". #}
@@ -152,6 +161,10 @@
              {% if spec.of %}list="vocab-{{ spec.of }}"{% endif %}>
     {% endif %}
     {% if spec.hint %}<span class="efield__hint">{{ spec.hint }}</span>{% endif %}
+    {# What those decisions bring with them, after the hint that explains the ticking. Not a
+       control: a consequence, shown so the boundary below is picked from something visible
+       rather than from a list of ids. #}
+    {% if spec.kind == "decisions" %}<span class="span__why" data-folds-in>&nbsp;</span>{% endif %}
   </label>
 {% endmacro %}
 
@@ -662,9 +675,7 @@
                          value="{{ editor.next[tab.kind] }}" required
                          placeholder="{% if tab.kind == 'tool' %}Identity service{% endif %}">
                 </label>
-                <button class="button button--quiet" type="submit">
-                  Add {{ tab.label[:-1] | lower }}
-                </button>
+                <button class="button button--quiet" type="submit">Add {{ tab.one }}</button>
               </form>
             </div>
           {% endfor %}
@@ -1558,9 +1569,13 @@
    put a round trip between clicking a row and seeing it light. #}
 {% if editor %}
   <script id="metric-highlights" type="application/json">{{ highlights | tojson }}</script>
+  {# Which states each decision touches, so building a capability answers as fast as the ticking.
+     Adjacency only -- what counts as an exit is policy and stays in Python. #}
+  <script id="metric-graph" type="application/json">{{ graph_index | tojson }}</script>
   <script>
     window.METRIC_HIGHLIGHTS = JSON.parse(
       document.getElementById('metric-highlights').textContent);
+    window.METRIC_GRAPH = JSON.parse(document.getElementById('metric-graph').textContent);
   </script>
 {% endif %}
 <script src="{{ url_for('static', filename='graph.js') }}" defer></script>

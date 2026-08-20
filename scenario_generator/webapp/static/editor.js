@@ -161,6 +161,152 @@
     }
   }, true);
 
+  // --------------------------------------------------------------- building a capability
+  //
+  // A capability is built from its decisions, and everything else about it follows. That order
+  // was the thing that did not work before: membership is recorded on the *decisions*, so the
+  // capability's own row could not change it, while the boundary controls on that row were
+  // computed from it. A wrong grouping could be seen and not corrected, and every shortlist
+  // derived from it was wrong in the same way.
+  //
+  // So: tick the decisions, see the states they fold in, pick the boundary from those. The middle
+  // step is pure set arithmetic over adjacency the page already carries -- which states offer a
+  // decision, which states its outcomes land on -- so it answers as fast as the ticking. What
+  // counts as an *exit* is policy and stays in one language: "Show it in the graph" asks the tool
+  // for that rather than working it out again here.
+  function adjacency() { return window.METRIC_GRAPH || { decisions: {}, states: {} }; }
+
+  // Two halves, not one set. A capability is entered at a state that *offers* one of its
+  // decisions and left at a state one of them *routes to*, and those are different lists -- so
+  // offering the union to both put "the chat opens" among the ways a block can end, under a line
+  // saying these are the states its decisions route to. The union is still what the block folds
+  // in, which is the count worth reporting.
+  function foldedIn(row) {
+    var graph = adjacency();
+    var into = {}, outOf = {};
+    Array.prototype.forEach.call(
+      row.querySelectorAll('[data-owns-decision]:checked'), function (box) {
+        var decision = graph.decisions[box.value];
+        if (!decision) { return; }
+        decision.offered_by.forEach(function (id) { into[id] = true; });
+        decision.lands_on.forEach(function (id) { outOf[id] = true; });
+      });
+    var all = {};
+    Object.keys(into).forEach(function (id) { all[id] = true; });
+    Object.keys(outOf).forEach(function (id) { all[id] = true; });
+    return {
+      entry_states: Object.keys(into).sort(),
+      exit_states: Object.keys(outOf).sort(),
+      all: Object.keys(all).sort(),
+    };
+  }
+
+  function stateLabel(id) {
+    var state = adjacency().states[id];
+    return state ? state.label : id;
+  }
+
+  function isTerminal(id) {
+    var state = adjacency().states[id];
+    return !!(state && state.terminal);
+  }
+
+  // The boundary lists, redrawn over the states the ticked decisions fold in. Anything already
+  // ticked is kept even where it falls outside that set -- a span may legitimately begin or end
+  // anywhere, and silently dropping a boundary because the membership changed would be an edit
+  // nobody made.
+  function redrawBoundary(row, picker, folded) {
+    var name = picker.dataset.boundary;
+    var list = picker.querySelector('[data-boundary-shortlist]');
+    if (!list) { return; }
+
+    var ticked = {};
+    Array.prototype.forEach.call(
+      picker.querySelectorAll('input:checked'), function (box) { ticked[box.value] = true; });
+
+    var offer = folded.slice();
+    Object.keys(ticked).forEach(function (id) {
+      if (offer.indexOf(id) < 0) { offer.push(id); }
+    });
+
+    list.textContent = '';
+    offer.forEach(function (id) {
+      var item = document.createElement('li');
+      var label = document.createElement('label');
+      label.className = 'check';
+
+      var box = document.createElement('input');
+      box.type = 'checkbox';
+      box.name = name;
+      box.value = id;
+      box.checked = !!ticked[id];
+      box.setAttribute('data-field', name);
+      box.setAttribute('data-multiple', '');
+
+      var mono = document.createElement('span');
+      mono.className = 'mono';
+      mono.textContent = id;
+
+      label.appendChild(box);
+      label.appendChild(mono);
+      label.appendChild(document.createTextNode(' ' + stateLabel(id)));
+      if (isTerminal(id)) {
+        var ends = document.createElement('span');
+        ends.className = 'mark';
+        ends.textContent = 'ends';
+        label.appendChild(ends);
+      }
+      item.appendChild(label);
+      list.appendChild(item);
+    });
+
+    // On what basis this list was drawn, in the same breath as drawing it. Said separately from
+    // the server's own rendering because it is a statement about the membership, and the
+    // membership is being changed on this page: rendered once at page build it would go on naming
+    // whichever decisions were ticked at the time.
+    var why = picker.querySelector('[data-boundary-why]');
+    if (why) {
+      var owned = Array.prototype.map.call(
+        row.querySelectorAll('[data-owns-decision]:checked'), function (box) { return box.value; });
+      why.textContent = !owned.length
+        ? 'Tick the decisions above first — the boundary is picked from the states they fold in.'
+        : (name === 'entry_states'
+            ? 'States that offer ' + owned.join(', ') + '.'
+            : 'States that ' + owned.join(', ') + ' route to.');
+    }
+
+    // And take out of the "every state" list whatever is now offered above it, so nothing is
+    // shown twice with two boxes that disagree.
+    Array.prototype.forEach.call(
+      picker.querySelectorAll('.span__list--long input'), function (box) {
+        var item = box.closest('li');
+        if (item) { item.hidden = offer.indexOf(box.value) >= 0; }
+      });
+  }
+
+  function rebuild(row) {
+    var folded = foldedIn(row);
+    var says = row.querySelector('[data-folds-in]');
+    if (says) {
+      says.textContent = folded.all.length
+        ? ('Those decisions fold in ' + folded.all.length + ' state(s): ' +
+           folded.all.join(', ') + '. The boundary below is picked from them.')
+        : 'No decisions ticked, so this capability folds in nothing and is not walked.';
+    }
+    Array.prototype.forEach.call(row.querySelectorAll('[data-boundary]'), function (picker) {
+      redrawBoundary(row, picker, folded[picker.dataset.boundary] || []);
+    });
+  }
+
+  Array.prototype.forEach.call(editor.querySelectorAll('[data-row-kind="capability"]'),
+                               function (row) { rebuild(row); });
+
+  editor.addEventListener('change', function (event) {
+    if (!event.target.hasAttribute || !event.target.hasAttribute('data-owns-decision')) { return; }
+    var row = event.target.closest('[data-row-kind="capability"]');
+    if (row) { rebuild(row); }
+  });
+
   // --------------------------------------------------------------------------- staging
   function collect(form) {
     var fields = {};
@@ -270,6 +416,7 @@
     else { canvas.innerHTML = answer.graph_svg || ''; }
     if (blocks) { blocks.innerHTML = answer.blocks_svg || ''; }
     if (answer.highlights) { window.METRIC_HIGHLIGHTS = answer.highlights; }
+    if (answer.graph) { window.METRIC_GRAPH = answer.graph; }
     // A span drawn where there were none makes a collapsed view possible for the first time, and
     // the control that offers it has to notice.
     canvas.dispatchEvent(new CustomEvent('metric:drawingschanged'));

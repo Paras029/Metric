@@ -281,12 +281,27 @@ Three things the panel does that a spreadsheet cannot:
 Everything here works with scripting off — each row is an ordinary form that posts and reloads.
 The staging, the preview and the highlighting are what scripting adds.
 
-**Drawing a capability's span.** It is two fields of the capability row, edited like any other:
-a shortlist of the states that could be a boundary of *this* capability — the ones offering its
-decisions, and the ones its decisions land on — with **Every state** one click behind it, because
-a span may legitimately begin or end anywhere and a control offering only what it guessed at is a
-span nobody can correct. The shortlist says on what basis it was cut. Drawing the first span on a
-declaration that had none makes the collapsed view appear.
+**Building a capability.** Three steps in one order, because each answers from the one before it.
+
+1. **Tick its decisions.** Every declared decision is listed, with the capability it currently
+   belongs to. A decision belongs to exactly one, so ticking it moves it — which is the edit
+   actually needed most of the time, and one a list of "this capability's decisions" cannot
+   express.
+2. **See what they fold in.** The states those decisions are offered by and route to, listed as
+   the ticking happens.
+3. **Pick the boundary from those.** *Entered at* offers the states that offer its decisions;
+   *hands on or ends at* offers the states they route to. Both say on what basis they were drawn,
+   and both keep **Every state** one click behind them — a span may legitimately begin or end
+   anywhere, and a control offering only what it guessed at is a span nobody can correct.
+
+The order matters and getting it wrong is what made this unusable before. Membership is recorded
+on the *decisions*, which is the right place for it — a decision belongs to one capability and the
+workbook says so where the decision is. It was the wrong place to *edit* from: the capability's
+boundary controls were computed from its membership while its own row could not change that
+membership, so a wrong grouping could be seen and not corrected, and every list derived from it
+was wrong in the same way.
+
+Drawing the first span on a declaration that had none makes the collapsed view appear.
 
 Each capability reads as what it is — the states it is entered
 at, an arrow, the states it hands on or ends at. *Change the span* opens two lists, each cut to

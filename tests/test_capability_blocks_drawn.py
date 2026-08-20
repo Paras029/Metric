@@ -178,12 +178,16 @@ class TestTheSpanIsEditableWithoutDestroyingItself(unittest.TestCase):
         self.assertIn("pill--in", page)
         self.assertIn("pill--out", page)
 
-    def test_the_lists_are_cut_to_what_could_be_a_boundary_of_this_capability(self):
+    def test_the_boundary_is_built_from_the_decisions_rather_than_from_a_fixed_list(self):
+        """The order that makes a capability editable at all: which decisions it holds is the
+        judgement, and the states it folds in and the boundary among them follow from it. Both
+        halves are drawn on the page as the decisions are ticked, so what is rendered here is the
+        machinery rather than the answer."""
         page = self.client.get("/stage/intake").data.decode()
-        offered = page.count('name="entry" value=')
-        self.assertLess(offered, len(read_intake(str(self.workbook)).states) * 3,
-                        "every state is still offered as an entry of every capability")
-        self.assertIn("States that offer", page, "the shortlist does not say how it was cut")
+        self.assertIn("data-owns-decision", page, "membership cannot be changed from the row")
+        self.assertIn("data-folds-in", page, "nothing says which states the decisions fold in")
+        self.assertIn("data-boundary-why", page, "the boundary list does not say how it was drawn")
+        self.assertIn("METRIC_GRAPH", page, "the page cannot work out what a tick folds in")
 
     def test_the_endings_can_be_taken_from_the_graph(self):
         """Where a block starts is a judgement. Where it ends is arithmetic, and typing it out is

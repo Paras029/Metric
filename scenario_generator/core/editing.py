@@ -62,6 +62,22 @@ _JOINED = {"entry_states": ", ", "exit_states": ", ", "outcomes": " / ", "next_d
            "applies_to": ", "}
 _BOOLEAN = {"out_of_scope", "is_terminal", "changes_state", "is_default"}
 
+# Fields that are not columns anywhere. A capability's decisions are recorded on the *decisions*,
+# one row each, which is the right place for them -- a decision belongs to exactly one capability
+# and the workbook says so where the decision is.
+#
+# It is the wrong place to *edit* them from, though, and that was the defect. Which decisions make
+# up a capability is the first judgement somebody makes about it, and everything else about the
+# capability is derived from that answer: which states it folds in, which of those can be its
+# entry, where a route through it leaves. Editing it one decision at a time from the other end of
+# the declaration meant the capability's own controls were computed from something its own row
+# could not change -- so a wrong grouping could be seen and not corrected.
+#
+# So the capability row carries the membership, and saving it writes the decisions. Expanded here
+# rather than in the interface, so the path with scripting and the path without it cannot come to
+# different conclusions about what a tick means.
+VIRTUAL = {("capability", "decisions")}
+
 
 @dataclass
 class Report:
@@ -141,6 +157,55 @@ def _first_empty(sheet) -> int:
     return sheet.max_row + 1
 
 
+def expand(path: str, edits: Sequence[dict]) -> List[dict]:
+    """Turn virtual fields into the row edits that actually record them.
+
+    Reads the workbook, because the expansion is a *difference*: ticking three decisions for a
+    capability says as much about the ones no longer ticked as about the ones now are, and the
+    only way to know which those were is to look at what is recorded. A tick that only ever added
+    would leave a decision belonging to two capabilities, which the graph cannot represent and the
+    walk silently resolves by taking whichever it read first.
+    """
+    if not any((str(e.get("kind", "")), name) in VIRTUAL
+               for e in edits for name in (e.get("fields") or {})):
+        return list(edits)
+
+    try:
+        intake = read_intake(path)
+    except Exception:
+        # An unreadable workbook is a louder problem than this, and apply_edits will raise its own
+        # message about it. Passing the edits through unexpanded drops the virtual fields, which
+        # have no column and are ignored -- so nothing is written wrongly, only not at all.
+        return list(edits)
+
+    owned_by = {d.id.upper(): d.trigger_capability for d in intake.decisions}
+    grown: List[dict] = []
+
+    for edit in edits:
+        kind = str(edit.get("kind", ""))
+        fields = dict(edit.get("fields") or {})
+        key = str(edit.get("key") or "").strip()
+
+        if kind == "capability" and "decisions" in fields:
+            wanted = {str(d).strip().upper()
+                      for d in _as_list(fields.pop("decisions")) if str(d).strip()}
+            for decision_id, capability_id in owned_by.items():
+                belongs = decision_id in wanted
+                if belongs == (capability_id.upper() == key.upper()):
+                    continue                       # already says what the tick says
+                grown.append({"kind": "decision", "key": decision_id, "action": "upsert",
+                              "fields": {"capability_id": key if belongs else ""}})
+        grown.append({**edit, "fields": fields})
+
+    return grown
+
+
+def _as_list(value) -> List[str]:
+    if isinstance(value, (list, tuple)):
+        return [str(v) for v in value]
+    return [p for p in split_list(str(value or ""), separators=r"[,;]") if p]
+
+
 def apply_edits(path: str, edits: Sequence[dict]) -> Report:
     """Apply a batch of row edits to the workbook and say what happened.
 
@@ -154,6 +219,7 @@ def apply_edits(path: str, edits: Sequence[dict]) -> Report:
     if not edits:
         return Report()
 
+    edits = expand(path, edits)
     workbook = _open_for_editing(path)
     report = Report()
 

@@ -50,6 +50,7 @@ from . import stagecancel
 from .coverageview import coverage_view, stored_mappings, stored_report
 from .graphpage import render_graph_page
 from .declaration import FIELDS as EDITOR_FIELDS, editable
+from .declaration import graph_index as declaration_index
 from .graphview import (declaration as _declaration, graph_summary, highlights,
                         render_blocks_svg, render_svg,
                         routes as _graph_routes)
@@ -284,6 +285,8 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             # already walked from without the page saying what that cost.
             editor=editable(intake) if key == "intake" and intake is not None else None,
             highlights=highlights(intake) if key == "intake" and intake is not None else {},
+            graph_index=(declaration_index(intake)
+                         if key == "intake" and intake is not None else {}),
             graph_open=key in GRAPH_OPEN_STAGES,
             routes=_routes(intake, scenarios) if graph_svg else {},
             structure_proposals=(workspace.structure_proposals
@@ -827,6 +830,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         return {
             "declaration": editable(intake),
             "highlights": highlights(intake),
+            "graph": declaration_index(intake),
             "graph_svg": render_svg(intake),
             "blocks_svg": render_blocks_svg(intake),
             "facts": graph_summary(intake),

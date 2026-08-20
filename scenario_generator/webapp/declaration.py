@@ -31,6 +31,10 @@ ORDER = (
     ("persona", "Personas", PERSONA),
 )
 
+# Written out rather than derived by removing the last letter, which produced "Add capabilitie".
+ONE_OF = {"decision": "decision", "state": "state", "capability": "capability",
+          "tool": "tool", "persona": "persona"}
+
 # How each field is edited. "text" is a line, "long" a paragraph, "choice" a fixed vocabulary,
 # "ids" a comma-separated list of ids, "flag" a checkbox, "number" a small integer.
 FIELDS: Dict[str, List[dict]] = {
@@ -61,15 +65,22 @@ FIELDS: Dict[str, List[dict]] = {
         {"name": "name", "label": "Name", "kind": "text"},
         {"name": "type", "label": "Type", "kind": "choice", "of": "capability_types",
          "hint": "Decides which adversarial probes apply."},
+        # First, because everything below it follows from the answer. Which decisions make up a
+        # capability is the judgement somebody actually makes about it; which states it folds in
+        # and which of those can be its boundary are consequences, not further judgements.
+        {"name": "decisions", "label": "Decisions in this capability", "kind": "decisions",
+         "hint": "A decision belongs to one capability. Ticking one here moves it."},
         # Rendered by the span control rather than as two text boxes -- a shortlist of the states
         # that could be a boundary of *this* capability, with every state one click behind it, and
         # the endings takeable from the graph. Declared here all the same so it stages, previews
         # and saves through the one path everything else does. It used to be a form of its own
         # that posted and redirected, which navigated out of the expanded view every time somebody
         # drew a span -- and left the span unable to name a state the shortlist had pruned.
-        {"name": "entry_states", "label": "Entered at", "kind": "states", "of": "entry_options"},
+        {"name": "entry_states", "label": "Entered at", "kind": "states", "of": "entry_options",
+         "hint": "Where a route arrives. Usually an exit of the capability before it."},
         {"name": "exit_states", "label": "Hands on or ends at", "kind": "states",
-         "of": "exit_options"},
+         "of": "exit_options",
+         "hint": "Where a route leaves — the next capability's entry, or an ending."},
     ],
     "tool": [
         {"name": "capability_id", "label": "Capability", "kind": "choice", "of": "capabilities"},
@@ -136,6 +147,8 @@ def _rows(intake: IntakeData, spans: Optional[Dict[str, dict]] = None) -> Dict[s
         "key": c.id,
         "title": c.name or c.id,
         "fields": {"name": c.name, "type": c.type,
+                   "decisions": [d.id for d in intake.decisions
+                                 if d.trigger_capability == c.id],
                    "entry_states": list(c.entry_states), "exit_states": list(c.exit_states)},
         "span": spans.get(c.id, {}),
         "note": (" → ".join(filter(None, [", ".join(c.entry_states), ", ".join(c.exit_states)]))
@@ -182,13 +195,16 @@ def editable(intake: IntakeData) -> dict:
     spans = {row["id"]: row for row in _spans(intake)}
     rows = _rows(intake, spans)
     return {
-        "kinds": [{"kind": kind, "label": label, "count": len(rows[kind])}
+        "kinds": [{"kind": kind, "label": label, "one": ONE_OF[kind], "count": len(rows[kind])}
                   for kind, label, _ in ORDER],
         "fields": FIELDS,
         "rows": rows,
         "vocabulary": {
             "capabilities": [{"id": c.id, "label": c.name or c.id} for c in intake.capabilities],
-            "decisions": [{"id": d.id, "label": d.name or d.id} for d in intake.decisions],
+            # With where each one currently belongs, so the capability control can say what a
+            # tick is about to move rather than moving it silently.
+            "decisions": [{"id": d.id, "label": d.name or d.id,
+                           "capability": d.trigger_capability} for d in intake.decisions],
             "states": [{"id": s.id, "label": s.description or s.id} for s in intake.states],
             "capability_types": list(CAPABILITY_TYPES),
             "input_sources": list(INPUT_SOURCES),
@@ -196,6 +212,37 @@ def editable(intake: IntakeData) -> dict:
         },
         "next": {kind: next_id([row["key"] for row in rows[kind]], KINDS[kind].prefix)
                  for kind, _, _ in ORDER},
+    }
+
+
+def graph_index(intake: IntakeData) -> dict:
+    """The adjacency the capability control needs to answer its own questions on the page.
+
+    Which states a capability folds in is set arithmetic over the decisions ticked -- the states
+    that offer them, and the states their outcomes land on -- and it has to answer as fast as the
+    ticking. A round trip per tick would make building a capability feel like filing a form, which
+    is the thing the whole panel exists not to be.
+
+    Deliberately adjacency and nothing else. What counts as an *exit* is policy -- see
+    :func:`core.graph.exits_for` -- and policy stays in one language: the interface asks for it
+    with a preview rather than working it out a second time in another.
+    """
+    from ..core.graph import DecisionGraph
+
+    graph = DecisionGraph(intake.decisions, intake.states)
+    return {
+        "decisions": {
+            d.id: {
+                "name": d.name or d.id,
+                "capability": d.trigger_capability,
+                "offered_by": graph.states_offering(d.id),
+                "lands_on": list(dict.fromkeys(
+                    landing for landing in
+                    (graph.successor(d.id, variant) for variant in d.variants)
+                    if landing in graph.states)),
+            } for d in intake.decisions},
+        "states": {s.id: {"label": s.description or s.id, "terminal": s.is_terminal}
+                   for s in intake.states},
     }
 
 
