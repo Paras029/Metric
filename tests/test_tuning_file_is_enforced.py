@@ -362,7 +362,8 @@ class TestTheConfiguredNumbersAreWhatTheCallsActuallyUse(_Tuned):
                               name=f"Handle {n}",
                               description="A situation the tester sets up, said at enough length "
                                           "to read as a description rather than a fragment.",
-                              turn_plan="1. Open the conversation.")
+                              turn_plan="1. Open the conversation as the account holder and "
+                                        "give the reference when asked.")
                      for n in range(scenario_count)]
 
         seen = {"waves": [], "messages": 0}

@@ -17,6 +17,13 @@ about the text -- is there a name, does the plan have lines, does the descriptio
 from the expected outcome -- rather than a judgement about how good it is. A check that needed
 judgement would need a model, and a model checking a model's work on every scenario is the
 expensive way to be no more certain.
+Where the line sits is worth stating, because it moved once and moving it the wrong way is
+expensive. "This description is one sentence where the prompt asked for two or three" is a fact,
+and it is still not a check here: a single sentence naming the position, the condition and the
+subject matter is a good description, so the check would fire on sound text and buy a repair call
+per scenario to change nothing. "This turn plan says to provide the relevant details" is a fact
+*and* names something unrunnable whatever else is around it. Only the second kind belongs here.
+The rest is the review's, which reads for judgement and has a flag for it.
 """
 from __future__ import annotations
 
@@ -45,6 +52,31 @@ SHINGLE = 3
 # Below this a description is not a description. The prompt asks for two or three sentences; this
 # is the floor at which what came back is a fragment rather than a short answer.
 MIN_DESCRIPTION_CHARS = 40
+
+# A numbered line shorter than this is not an instruction. "Continue the conversation." and
+# "Confirm." are lines a tester cannot act on, and they are what a plan degrades into when the
+# writer has run out of things to say but still owes a line.
+MIN_TURN_WORDS = 5
+
+# Words that stand in for the thing they should have named. A turn plan exists to be executed by
+# somebody who has never seen this agent, and "provide the relevant details" leaves them to invent
+# the test -- at which point two testers run two different tests and the transcripts cannot be
+# compared, which is the failure this whole exercise is built to avoid.
+#
+# Checked in the turn plan only. A description may honestly say a condition is "appropriate to the
+# account", where an instruction to *do* something appropriate is an instruction to guess.
+_VAGUE = (
+    "relevant details", "relevant information", "appropriate details", "appropriate information",
+    "necessary details", "necessary information", "required details", "required information",
+    "as needed", "as appropriate", "as necessary", "if necessary", "if required",
+    "some kind of", "or similar", "and so on", "etc.", "etc ",
+    "provide details", "give details", "supply details",
+    "continue the conversation", "proceed as normal", "respond accordingly",
+)
+
+# Text the writer left for somebody else to fill in.
+_PLACEHOLDER = re.compile(r"\[(?:insert|add|tbd|todo|placeholder)[^\]]*\]|<[a-z_ ]+>|\bTBD\b|\bXXX\b",
+                          re.I)
 
 
 def _distinctive(text: str) -> List[str]:
@@ -75,6 +107,12 @@ def repeats_the_ending(text: str, ending: str) -> bool:
     return bool(_shingles(_distinctive(text)) & _shingles(_distinctive(ending)))
 
 
+def _vague_in(text: str) -> str:
+    """The first stand-in phrase in a turn plan, or an empty string."""
+    lowered = " " + " ".join((text or "").lower().split()) + " "
+    return next((phrase for phrase in _VAGUE if phrase in lowered), "")
+
+
 def problems(scenario: Scenario) -> List[str]:
     """What is wrong with this scenario's written text, phrased for the model to act on.
 
@@ -95,11 +133,42 @@ def problems(scenario: Scenario) -> List[str]:
                      f"situation the tester is setting up, in two or three sentences.")
 
     lines = [line for line in turn_plan_lines(scenario) if line.strip()]
+    # The same number the writer was given, which is not the same question for the two kinds. A
+    # route is scripted turn by turn and the count is exact; a probe has no decision path, so its
+    # count is a floor and the prompt says so. Checking a probe against the route's number would
+    # report a plan the prompt asked for.
+    wanted = (len(scenario.turn_meta) if getattr(scenario, "is_probe", False)
+              else getattr(scenario, "turn_count", 0) or 0)
     if not (scenario.turn_plan or "").strip():
         found.append("turn_plan is missing.")
     elif len(lines) < 1:
         found.append("turn_plan has no numbered lines -- each turn needs its own, "
                      "written \"1. \", \"2. \" and so on.")
+    elif wanted and len(lines) < wanted:
+        # Short, not long. A plan with more lines than turns has said too much, which is a style
+        # problem; a plan with fewer has left part of the route with no instruction against it,
+        # and the tester cannot reach the situation the scenario is about.
+        found.append(f"turn_plan has {len(lines)} numbered lines where the route needs {wanted}. "
+                     f"Every step the tester drives needs its own line, or the route cannot be "
+                     f"reached.")
+
+    for index, line in enumerate(lines, start=1):
+        if len(_WORD.findall(line.lower())) < MIN_TURN_WORDS:
+            found.append(f"turn_plan line {index} is too short to act on. Say what the tester "
+                         f"says or supplies, in the terms a real user would use.")
+            break
+
+    vague = _vague_in(scenario.turn_plan)
+    if vague:
+        found.append(f"turn_plan says \"{vague}\" instead of naming what the tester actually "
+                     f"provides. A tester who has never seen this agent has to be able to run it "
+                     f"without inventing the missing half.")
+
+    for field, text in (("description", description), ("turn_plan", scenario.turn_plan or "")):
+        left = _PLACEHOLDER.search(text)
+        if left:
+            found.append(f"{field} still carries \"{left.group(0)}\", which is text left for "
+                         f"somebody else to fill in. Write the real subject matter.")
 
     # The answer-key check, last because it is the one worth reading first when it fires.
     ending = scenario.termination or ""

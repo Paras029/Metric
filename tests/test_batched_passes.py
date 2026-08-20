@@ -93,7 +93,12 @@ class TestTheWriterBatches(unittest.TestCase):
         return json.dumps({i: {"name": f"Handle for {i}",
                                "description": f"Description for {i}, long enough to pass the "
                                               f"audit that follows the writing.",
-                               "turn_plan": "1. Go."}
+                               # Runnable, and long enough for any probe in the set, because the
+                               # audit that follows the writing checks both -- and this test is
+                               # about batching, not about the repair pass a bad reply triggers.
+                               "turn_plan": "\n".join(
+                                   f"{n}. Open the conversation and press the same request again."
+                                   for n in range(1, 9))}
                            for i in _ids_in(user)})
 
     def test_one_call_covers_every_chunk_in_a_group(self):

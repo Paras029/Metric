@@ -450,6 +450,27 @@ load-bearing fields do, and how coverage is measured.
 
 ---
 
+**What is issued has to be runnable by somebody who has never seen the agent.** That is the one
+property the scenario text has to have, and it fails quietly: a pack of scenarios nobody can run
+consistently looks exactly like a pack of good ones. Two testers reading "provide the relevant
+details" run two different tests, and transcripts that cannot be compared are the failure the
+whole exercise exists to avoid.
+
+It is checked in two places, split by what each can actually decide. **Code checks the facts**: a
+turn plan with fewer lines than the route has steps, a line too short to act on, a phrase that
+stands in for the thing it should have named, a bracket left for somebody to fill in. Each names
+the fault rather than asking for a better attempt, and each one that fires puts that scenario —
+only that scenario, and only once — back to the model with its faults listed. **The review
+judges the rest**, and says what is missing rather than that something is: "turn 2 says to give
+the account details without saying which" is something somebody can act on, where "the wording is
+unclear" is not.
+
+Where the line between the two sits matters, because moving it the wrong way is expensive. "This
+description is one sentence where the prompt asked for two" is a fact, and it is deliberately not
+checked by code: a single sentence naming the position, the condition and the subject matter is a
+good description, so the check would fire on sound text and buy a repair call per scenario to
+change nothing.
+
 **Nothing runs end to end, and the review is what fixes that.** Scoping by capability means a
 verification scenario starts with the cardmember already identified. The routes that cross a
 boundary are therefore exactly the ones nobody can see by reading the space — so the review is

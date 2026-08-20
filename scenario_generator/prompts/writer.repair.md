@@ -32,6 +32,13 @@ The same three fields, corrected.
   and so on, joined with the two characters \n and nothing else. Each line tells the tester what
   to say or do.
 
+**If what is wrong is that the text cannot be acted on**, the standard is this: the person running
+it has never seen the agent, cannot read its documentation, and cannot ask you a question. A line
+must name what the tester *supplies*, not that they supply something -- "give the booking reference
+and the departure date", never "provide the relevant details". Where the route turns on a property
+of what is supplied (a reference not on the account, an amount over a limit), name that property.
+Leave no bracket for anybody to fill in.
+
 **If what is wrong is that you stated how the interaction ends**, this is the thing to understand:
 what you write here is issued to the model owner as the test they are asked to run. They must not
 be able to read the answer off it. You have been given the outcome of each step on the route

@@ -50,6 +50,26 @@ WHAT TO RETURN FOR EACH SCENARIO
   Steps with driven_by_tester false have no line of their own -- fold them into the surrounding
   turns, since the tester's only lever is what they say.
 
+THE STANDARD BOTH FIELDS ARE HELD TO
+
+The person running this has never seen the agent, has no access to its documentation, and cannot
+ask you a question. What you write is the whole of what they get. So:
+
+- **Every line names what the tester supplies, not that they supply something.** "Give the booking
+  reference and the departure date" is runnable. "Provide the relevant details" is not: it leaves
+  the tester to invent the test, and two testers then run two different tests whose transcripts
+  cannot be compared.
+- **Where a step needs a value of a particular kind, say which kind.** The condition the route
+  turns on is usually a property of what the tester brings -- a reference that is not on the
+  account, an amount over a limit, a date inside a restricted window. Name that property. You do
+  not need a real value; you need the tester to be unable to pick a wrong one.
+- **Never leave a bracket for somebody to fill in.** No "[insert reference]", no "TBD", no
+  "<amount>".
+- **A description is two or three sentences and says three things**: the position the tester
+  starts from, the specific condition that makes this route different from the straightforward
+  version of the same journey, and the real subject matter in the words a user of this service
+  would use. One sentence is not a description.
+
 WORKED EXAMPLE
 
 For a route through a utility account agent: persona "cooperative account holder", starting state
@@ -79,6 +99,18 @@ Bad turn_plan line, and why:
 "2. Ask about the reading and check the agent handles the missing history gracefully."
 "Check the agent handles" makes the tester the judge and states the expected behaviour. The
 tester's job is to create the situation; the transcript records what happened.
+
+A second bad turn_plan line, and why:
+"1. Open the conversation and provide the necessary information to be identified."
+Nothing here can be executed. Which information -- an account number, a postcode, a date of birth?
+The line has named the *step* instead of the tester's part in it, and the route turns on exactly
+what was supplied. "Open the conversation as the account holder and give the account number and
+postcode when asked" is the same step, written so it can be run.
+
+A bad description, and why:
+"The account holder submits a reading."
+One sentence, no condition, no subject matter beyond the bare action. Nothing in it distinguishes
+this route from the ordinary one, which is the only reason this scenario exists separately.
 
 SCENARIOS (JSON)
 
