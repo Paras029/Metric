@@ -24,7 +24,6 @@ from metric.phases.intake.intake.groups import ALL_EXTENSIONS, DEFAULT_GROUP, DI
 from metric.domain import read_space_metadata, read_scenarios, write_coverage_report, write_space_metadata
 from metric.llm import metering
 from metric.llm.cancellation import Stopped
-from metric.phases.scenario_generator.review.structure import review_structure
 from metric.pipeline import revise_intake_workbook
 from metric.web import stagecancel
 from metric.phases.coverage.coverage.view import coverage_view, stored_mappings, stored_report
@@ -32,7 +31,7 @@ from metric.web.graph.page import render_graph_page
 from metric.phases.intake.intake.declaration import FIELDS as EDITOR_FIELDS, editable
 from metric.phases.intake.intake.declaration import graph_index as declaration_index
 from metric.web.graph.view import LOADS, declaration as _declaration, graph_summary, highlights, load as _graph_load, render_blocks_svg, render_svg, routes as _graph_routes
-from metric.web.runners import CONTEXT, DRAFT_INTAKE, EVIDENCE, OVERLAP, METADATA, RUNNERS, structural_problems, STAGE_OUTPUTS, _apply_proposal, _context, _intake, _proposal_dicts, _scenarios, _snapshot
+from metric.web.runners import CONTEXT, DRAFT_INTAKE, EVIDENCE, OVERLAP, METADATA, RUNNERS, structural_problems, STAGE_OUTPUTS, _context, _intake, _scenarios, _snapshot
 from metric.web.scenariolist import PAGE_SIZE, build_rows, parse_cells, shape
 from metric.web.stages import COMPLETE, RUNNING, STAGE_BY_KEY, STAGES, STATUS_LABELS, downstream_of, index_of
 from metric.web.workspace import Workspace, stage_view
@@ -98,8 +97,6 @@ _KIND_BY_PREFIX = {"DEC": DECISION, "S": STATE, "CAP": CAPABILITY}
 # off, is not settled, and a half-defined tidy-up applied to the graph everything downstream is
 # built from is worse than no tidy-up. The machinery behind it is complete and tested; this is the
 # one switch that puts it back on the page once the scope is written down.
-STRUCTURE_REVIEW_OFFERED = False
-
 # The group name the "upload a completed intake" drop sends. Not one of the submission headings:
 # an intake workbook is the declaration itself rather than evidence for one, so it goes to the
 # workspace root and is never read as a document.
@@ -253,10 +250,6 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             # three ways of drawing one colour.
             graph_load=(_graph_load(intake, scenarios)
                         if graph_svg and key in LOAD_STAGES and scenarios else {}),
-            structure_proposals=(workspace.structure_proposals
-                                 if STRUCTURE_REVIEW_OFFERED and key == "intake" else []),
-            structure_review_available=(STRUCTURE_REVIEW_OFFERED and key == "intake"
-                                        and intake is not None),
             groups=_group_rows(workspace, key),
             space=_space_for(scenarios, key, workspace),
             shape=_shape_for(scenarios, key),
@@ -823,56 +816,6 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
                     path.name, DRAFT_INTAKE, len(workspace.notes))
         return redirect(url_for("stage", key="intake",
                                 invalidated=", ".join(s.title for s in invalidated)))
-
-    @app.route("/stage/intake/structure-review", methods=["POST"])
-    def run_structure_review():
-        """One call: look for decisions and states worth reconnecting or consolidating."""
-        if not STRUCTURE_REVIEW_OFFERED:
-            abort(404)
-        workspace = _workspace()
-        path = workspace.artifact_path("intake", "workbook")
-        if not path:
-            abort(404)
-        intake = _intake(workspace)
-        review = review_structure(intake, context=_context(workspace))
-        workspace.set_structure_proposals(_proposal_dicts(review))
-        workspace.save()
-        if not review:
-            workspace.state("intake").note = (
-                "Nothing to propose: every decision and state connects, and no decisions looked "
-                "like alternate routes to the same fact.")
-            workspace.save()
-        return redirect(url_for("stage", key="intake", _anchor="structure-review"))
-
-    @app.route("/stage/intake/structure-review/<proposal_id>/apply", methods=["POST"])
-    def apply_structure_proposal(proposal_id: str):
-        """Write one accepted proposal straight into the intake workbook."""
-        if not STRUCTURE_REVIEW_OFFERED:
-            abort(404)
-        workspace = _workspace()
-        path = workspace.artifact_path("intake", "workbook")
-        entry = workspace.pop_structure_proposal(proposal_id)
-        if not path or entry is None:
-            abort(404)
-
-        applied = _apply_proposal(path, entry)
-        invalidated = workspace.invalidate_from("intake") if applied else []
-        workspace.state("intake").note = "" if applied else (
-            "That proposal no longer matches the workbook -- something it referred to may have "
-            "changed since it was made. It has been dropped rather than applied.")
-        workspace.save()
-        return redirect(url_for("stage", key="intake",
-                                invalidated=", ".join(s.title for s in invalidated),
-                                _anchor="structure-review"))
-
-    @app.route("/stage/intake/structure-review/<proposal_id>/dismiss", methods=["POST"])
-    def dismiss_structure_proposal(proposal_id: str):
-        if not STRUCTURE_REVIEW_OFFERED:
-            abort(404)
-        workspace = _workspace()
-        workspace.pop_structure_proposal(proposal_id)
-        workspace.save()
-        return redirect(url_for("stage", key="intake", _anchor="structure-review"))
 
     @app.route("/stage/coverage/threshold", methods=["POST"])
     def set_coverage_threshold():

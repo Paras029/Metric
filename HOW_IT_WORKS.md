@@ -573,7 +573,6 @@ this level changes nothing.
 | `INGEST_DIAGRAM_REPAIR` | Putting unresolved points back to the images | Judgement | — |
 | `INTAKE_DRAFT` | Drafting the intake from the evidence | Judgement | — |
 | `INTAKE_REPAIR` | Filling in what the draft left structurally incomplete | Judgement | — |
-| `STRUCTURE_REVIEW` | Proposing reconnections/consolidations on the intake | Judgement | — |
 | `WRITER` | Writing scenario text | Standard | 8 |
 | `MATERIALITY_ASSESS` | Weighing each scenario's materiality | Materiality | 10 |
 | `WRITER` (repair) | Rewriting only the scenarios that failed the audit | Standard | one call |

@@ -168,7 +168,6 @@ class Workspace:
                  stages: Optional[Dict[str, StageState]] = None,
                  notes: Optional[List[dict]] = None,
                  redact_files: Optional[List[str]] = None,
-                 structure_proposals: Optional[List[dict]] = None,
                  coverage_threshold: int = None,
                  coverage: Optional[dict] = None,
                  pack_gaps_only: bool = False,
@@ -184,11 +183,6 @@ class Workspace:
         # upload groups. A person marking one sensitive upload should not have to switch redaction
         # on for the whole pack to get it.
         self.redact_files: Set[str] = set(redact_files or [])
-        # What the optional structure-review pass has proposed and not yet been applied or
-        # dismissed. Applying one writes straight to the workbook -- see
-        # core.intake.merge_decisions and friends -- so this list only ever holds what is
-        # still open.
-        self.structure_proposals: List[dict] = list(structure_proposals or [])
         # How many of the team's conversations a scenario needs before it counts as represented.
         # A judgement about how far their testing is trusted, so it belongs to the workspace and
         # to the person using it -- see core.representation.
@@ -290,21 +284,6 @@ class Workspace:
         """Move the line between represented and under-represented. Does not save."""
         self.coverage_threshold = max(1, int(threshold))
 
-    # ----------------------------------------------------------------- structure review
-    def set_structure_proposals(self, proposals: List[dict]) -> None:
-        """Replace the open proposals with a freshly run structure review's results."""
-        self.structure_proposals = [dict(entry, id=f"sr-{index}")
-                                    for index, entry in enumerate(proposals, start=1)]
-
-    def pop_structure_proposal(self, proposal_id: str) -> Optional[dict]:
-        """Remove and return one proposal by its id, or None if it is not there."""
-        for entry in self.structure_proposals:
-            if entry.get("id") == proposal_id:
-                self.structure_proposals = [e for e in self.structure_proposals
-                                            if e.get("id") != proposal_id]
-                return entry
-        return None
-
     # ----------------------------------------------------------------- persistence
     @property
     def state_path(self) -> Path:
@@ -319,7 +298,6 @@ class Workspace:
         return {"name": self.name, "created_at": self.created_at,
                 "notes": list(self.notes),
                 "redact_files": sorted(self.redact_files),
-                "structure_proposals": list(self.structure_proposals),
                 "coverage_threshold": self.coverage_threshold,
                 "coverage": dict(self.coverage),
                 "pack_gaps_only": self.pack_gaps_only,
@@ -376,7 +354,6 @@ class Workspace:
                         created_at=data.get("created_at", ""), stages=stages,
                         notes=data.get("notes", []),
                         redact_files=data.get("redact_files", []),
-                        structure_proposals=data.get("structure_proposals", []),
                         coverage_threshold=data.get("coverage_threshold"),
                         coverage=data.get("coverage", {}),
                         pack_gaps_only=data.get("pack_gaps_only", False),

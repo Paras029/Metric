@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Callable, Dict, List
 
 from metric.domain.models import required_variations
-from metric.domain.intake import attach_decision_to_state, merge_decisions, read_intake, set_state_reached_via
+from metric.domain.intake import read_intake
 from metric.domain.models import MATERIALITY, IntakeData
 from metric.phases.intake.intake import build_model_context, record_from_json
 from metric.phases.intake.intake.groups import OWNER_SCENARIOS, evidence_files, owner_scenario_file
@@ -301,35 +301,6 @@ def _run_variations(workspace: Workspace, progress=None, cancel=None) -> Dict[st
     report("Nothing to vary yet", 2, 2)
     return {"Scenarios carried through": len(scenarios),
             "Variations written": "none — this stage is not built yet"}
-
-
-def _proposal_dicts(review) -> List[Dict[str, object]]:
-    """A StructureReview's proposals as the plain dicts the workspace stores and the page reads."""
-    rows: List[Dict[str, object]] = []
-    for item in review.reconnections:
-        rows.append({"kind": "reconnect", "target_kind": item.kind, "target_id": item.id,
-                     "attach_to_state": item.attach_to_state, "reached_via": item.reached_via,
-                     "rationale": item.rationale})
-    for item in review.consolidations:
-        rows.append({"kind": "consolidate", "decisions": item.decisions, "new_id": item.id,
-                     "name": item.name, "outcomes": item.outcomes,
-                     "outcome_map": item.outcome_map, "capabilities": item.capabilities,
-                     "importance": item.importance, "rationale": item.rationale})
-    return rows
-
-
-def _apply_proposal(path: Path, entry: dict) -> bool:
-    """Write one accepted proposal into the intake workbook. See core.intake for the mechanics."""
-    if entry.get("kind") == "reconnect":
-        if entry.get("target_kind") == "decision":
-            return attach_decision_to_state(str(path), entry["attach_to_state"],
-                                            entry["target_id"])
-        return set_state_reached_via(str(path), entry["target_id"], entry["reached_via"])
-    if entry.get("kind") == "consolidate":
-        return merge_decisions(str(path), entry["decisions"], entry["new_id"], entry["name"],
-                               entry["outcomes"], entry["outcome_map"],
-                               primary_capability=(entry.get("capabilities") or [""])[0])
-    return False
 
 
 def _run_workflow(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:

@@ -57,8 +57,6 @@ _CONTRACT = {
     "coverage.system": set(),
     "coverage.map": {"use_case", "scenarios", "conversations"},
     "coverage.migrate": {"origin", "sample"},
-    "structure_review.system": set(),
-    "structure_review.task": {"use_case", "structure", "hints", "context", "cds"},
 }
 
 _INTAKE = IntakeData(

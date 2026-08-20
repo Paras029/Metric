@@ -64,9 +64,6 @@ stages:
   intake_reconcile:               # the finished declaration read back whole, once
     # model: a-smaller-model
     max_attempts: 4
-  structure_review:               # reconnection and consolidation proposals on the graph
-    # model: a-smaller-model
-    max_attempts: 4
 
   # --- The scenario space passes. These batch, so they also take batch_size and concurrency.
   #     batch_size is how many rows go into one call; concurrency is how many such calls run at

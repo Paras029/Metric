@@ -166,9 +166,6 @@ class TestTheDefinitionReachesEveryPromptThatWritesAGraph(unittest.TestCase):
                                                   enumeration="e", problems="p"),
             "intake.revise": prompts.render("intake.revise", context="c", current="x",
                                                   cds=_cds(), wiring=_wiring(), structure="s"),
-            "structure_review.task": prompts.render(
-                "structure_review.task", use_case="u", structure="s", cds=_cds(), hints="h",
-                context="c"),
             "reviewer.propose": prompts.render(
                 "reviewer.propose", owner="", total=1, digest="d", limit=1, categories="c",
                 materiality="m", cds=_cds(), blocks="b"),
