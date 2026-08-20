@@ -10,12 +10,13 @@ from typing import Dict, List
 from openpyxl import Workbook, load_workbook
 
 from ..io import sheets
-from ..utils.text import is_yes, normalise_variant, one_of, parse_reached_via, split_list
+from ..utils.text import (ID_BODY, is_yes, normalise_variant, one_of, parse_reached_via,
+                          split_list)
 from .models import (CATEGORIES, INPUT_SOURCES, Capability, Decision, IntakeData, OwnerScenario,
                      Persona, State, Tool)
 
-_DECISION_TOKEN = re.compile(r"DEC-\d+")
-_STATE_TOKEN = re.compile(r"S-\d+", re.I)
+_DECISION_TOKEN = re.compile(r"DEC-" + ID_BODY)
+_STATE_TOKEN = re.compile(r"S-" + ID_BODY, re.I)
 
 # The sheets an intake must have. "Tools" is optional -- an agent that calls nothing
 # is unusual but not malformed.
@@ -45,6 +46,42 @@ def _open_for_editing(path: str):
 
 def _cell(row: List[str], index: int) -> str:
     return row[index] if index < len(row) else ""
+
+
+def _named(cell: str, declared: List[str], shape) -> tuple:
+    """The ids a cell names, in the order they are written.
+
+    Scraped rather than split, because these cells are filled in by hand and the separator varies:
+    "S-00, S-03", "S-00 and S-03", and a list down the cell all mean the same thing, and a span
+    that silently covers half the block it names is the failure worth avoiding.
+
+    What is scraped *for* is the ids that were actually declared, and only then anything of the
+    right general shape. Matching a shape alone is what broke on a declaration that numbered its
+    states any way other than this tool's own: a state called ``S-START`` is not "S- and a number",
+    so a span naming it was written to the workbook and read back empty, which is
+    indistinguishable from the save having failed. The shape stays as a fallback so a reference to a state that does not exist is
+    still read, and then reported as dangling, rather than disappearing without trace.
+
+    Matches keep the declared spelling. An id written ``s-start`` in one cell and ``S-START`` in
+    another is one id, and which of the two the walk keys on cannot depend on which cell was read.
+    """
+    text = str(cell or "")
+    if not text.strip():
+        return ()
+
+    canonical = {i.upper(): i for i in declared if i}
+    # Longest first, or "S-1" would match the front of "S-10" and leave the rest behind.
+    known = sorted(canonical.values(), key=len, reverse=True)
+    expression = re.compile(
+        r"(?<![A-Za-z0-9_-])(?:" + "|".join([re.escape(i) for i in known] + [shape.pattern])
+        + r")(?![A-Za-z0-9_-])", re.I)
+
+    found = []
+    for token in expression.findall(text):
+        settled = canonical.get(token.upper(), token.upper())
+        if settled not in found:
+            found.append(settled)
+    return tuple(found)
 
 
 def _input_source(raw: str) -> str:
@@ -101,14 +138,6 @@ def read_intake(path: str) -> IntakeData:
     if not any(p.is_default for p in personas):
         personas[0] = Persona(personas[0].id, personas[0].name, personas[0].applies_to, True)
 
-    # Entry and exit are read as whatever state ids appear in the cell, so "S-00, S-03" and
-    # "S-00 and S-03" and a list down the cell all mean the same thing. The alternative is a
-    # separator nobody remembers and a span that silently covers half the block it names.
-    capabilities = [Capability(_cell(r, 0), _cell(r, 1), _cell(r, 2),
-                               tuple(t.upper() for t in _STATE_TOKEN.findall(_cell(r, 3))),
-                               tuple(t.upper() for t in _STATE_TOKEN.findall(_cell(r, 4))))
-                    for r in rows["L2 Capabilities"]]
-
     decisions = [Decision(_cell(r, 0), _cell(r, 1), _cell(r, 2), _cell(r, 3),
                           [normalise_variant(v) for v in split_list(_cell(r, 4), separators=r"[/]")],
                           _input_source(_cell(r, 5)), _max_attempts(_cell(r, 6)), _cell(r, 7),
@@ -116,9 +145,20 @@ def read_intake(path: str) -> IntakeData:
                  for r in rows["L3 Decisions"]]
 
     states = [State(_cell(r, 0), _cell(r, 1), _cell(r, 2),
-                    _DECISION_TOKEN.findall(_cell(r, 3)), is_yes(_cell(r, 4)),
-                    _outcome_type(_cell(r, 5)))
+                    list(_named(_cell(r, 3), [d.id for d in decisions], _DECISION_TOKEN)),
+                    is_yes(_cell(r, 4)), _outcome_type(_cell(r, 5)))
               for r in rows["L4 States"]]
+
+    # Read after the states, so a span can be matched against the ids that actually exist.
+    #
+    # Entry and exit are read as whatever state ids appear in the cell, so "S-00, S-03" and
+    # "S-00 and S-03" and a list down the cell all mean the same thing. The alternative is a
+    # separator nobody remembers and a span that silently covers half the block it names.
+    declared = [s.id for s in states]
+    capabilities = [Capability(_cell(r, 0), _cell(r, 1), _cell(r, 2),
+                               _named(_cell(r, 3), declared, _STATE_TOKEN),
+                               _named(_cell(r, 4), declared, _STATE_TOKEN))
+                    for r in rows["L2 Capabilities"]]
 
     tools = [Tool(_cell(r, 0), _cell(r, 1), is_yes(_cell(r, 2)))
              for r in rows["Tools"] if _cell(r, 0)]
@@ -340,7 +380,7 @@ def attach_decision_to_state(path: str, state_id: str, decision_id: str) -> bool
     return False
 
 
-_REACHED_VIA_KEY = re.compile(r"^\s*([A-Za-z]+-\d+)\s*=\s*(.+?)\s*$")
+_REACHED_VIA_KEY = re.compile(r"^\s*([A-Za-z]+-" + ID_BODY + r")\s*=\s*(.+?)\s*$")
 
 
 def _outcome_key(decision_id: str, outcome: str) -> str:

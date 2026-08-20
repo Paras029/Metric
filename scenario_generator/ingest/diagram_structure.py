@@ -26,14 +26,16 @@ from typing import Dict, List, Sequence
 
 from ..core.models import CATEGORIES, INPUT_SOURCES
 from ..utils.replies import at_least_one, objects as _objects, string_list as _list, text as _text
-from ..utils.text import one_of
+from ..utils.text import ID_BODY, one_of
 
 # The parts a structure carries, in the order they are useful to read. Kept as one tuple so
 # cleaning, merging and rendering cannot disagree about what a structure contains.
 PARTS = ("capabilities", "decisions", "states")
 
-_DECISION_ID = re.compile(r"^DEC-\d+$", re.I)
-_STATE_ID = re.compile(r"^S-\d+$", re.I)
+# A prefix and a body, not a prefix and a number. A diagram that labels its opening state S-START
+# is labelling it legibly, and dropping the row for it loses the state the whole graph begins at.
+_DECISION_ID = re.compile(r"^DEC-" + ID_BODY + r"$", re.I)
+_STATE_ID = re.compile(r"^S-" + ID_BODY + r"$", re.I)
 
 
 def empty() -> dict:

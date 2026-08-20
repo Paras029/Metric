@@ -340,6 +340,14 @@ down and also refuses, escalates and locks out, and those endings are what the p
 offered on a button rather than applied on save, because two real cases derive badly: a block
 whose decisions are reachable from outside it, and a block deliberately drawn to stop early.
 
+**Ids are whatever the declaration calls them.** `S-01` and `DEC-04` are what this tool writes,
+and a workbook is free to name its states `S-START`, `DEC-VERIFY` or `WELCOME` instead. Cells that
+list ids — a capability's span, a state's next decisions — are *scraped* rather than split, so
+"S-00, S-03" and "S-00 and S-03" and a list down the cell all mean the same thing; what they are
+scraped for is the ids the workbook actually declares, and only then anything of the right general
+shape. A reference to a state that does not exist is still read, and reported as dangling, rather
+than disappearing on the way in.
+
 **Reading the declared graph.** Boxes are decisions, arrows are the states between them, rounded
 boxes are the ways an interaction can end. Hovering anything holds that one thread at full strength
 and drops the rest back, which answers "where does this come from and where does it go" without

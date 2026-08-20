@@ -25,9 +25,20 @@ def split_list(raw: str, separators: str = r"[/,;]") -> List[str]:
     return [p.strip() for p in re.split(separators, str(raw or "")) if p.strip()]
 
 
+# What an id looks like wherever one has to be picked out of a cell or a sentence: a prefix, a
+# hyphen, and a run of letters, digits or underscores.
+#
+# It used to require digits -- ``S-\d+``, ``DEC-\d+`` -- which is the convention this tool writes
+# but not one it may impose on a declaration it is only reading. A hand-written ``S-START`` matched
+# nothing, so everything that names a state by scraping a cell quietly skipped it: a capability
+# span naming it was written to the workbook and read back empty, which looked exactly like the
+# save having failed.
+ID_BODY = r"[A-Za-z0-9_]+"
+
+
 def parse_reached_via(raw: str) -> List[Tuple[str, str]]:
     """'DEC-01=Pass, DEC-02=Match' -> [('DEC-01', 'Pass'), ('DEC-02', 'Match')]"""
-    pairs = re.finditer(r"(DEC-\d+)\s*=\s*([^,;]+)", str(raw or ""))
+    pairs = re.finditer(r"(DEC-" + ID_BODY + r")\s*=\s*([^,;]+)", str(raw or ""))
     return [(m.group(1), normalise_variant(m.group(2))) for m in pairs]
 
 
@@ -35,7 +46,7 @@ def parse_path_str(text: str) -> List[Tuple[str, str]]:
     """'DEC-01=Pass -> DEC-02=Found' -> [('DEC-01', 'Pass'), ('DEC-02', 'Found')]"""
     pairs = []
     for chunk in str(text or "").split("->"):
-        match = re.match(r"(DEC-\d+)\s*=\s*(.+)", chunk.strip())
+        match = re.match(r"(DEC-" + ID_BODY + r")\s*=\s*(.+)", chunk.strip())
         if match:
             pairs.append((match.group(1), match.group(2).strip()))
     return pairs

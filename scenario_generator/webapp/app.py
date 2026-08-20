@@ -35,6 +35,7 @@ from ..core.graph import DecisionGraph, exits_for
 from ..core.intake import (read_intake, read_review_notes, set_capability_span,
                            set_decision_scope,
                            write_template)
+from ..utils.text import ID_BODY
 from ..core.models import MATERIALITY
 from ..ingest.conversations import read_conversations
 from ..ingest.extraction import SAME_FLOW_EACH, SPLIT_ACROSS_IMAGES
@@ -122,7 +123,8 @@ _GRAPH_ROW_KINDS = {DECISION: "Decisions", STATE: "States", CAPABILITY: "Capabil
 # A review note's own "field" text is free-form -- whatever the model wrote, not a schema this can
 # rely on -- so only an unambiguous row id is trusted to place it. Ids loose enough to false-match
 # ordinary words (a persona's "P1" against any word starting with a "p") are not looked for.
-_ROW_ID_IN_TEXT = re.compile(r"\b(DEC-\d+|S-\d+|CAP-\d+)\b", re.I)
+_ROW_ID_IN_TEXT = re.compile(
+    r"(?<![A-Za-z0-9_-])((?:DEC-|S-|CAP-)" + ID_BODY + r")(?![A-Za-z0-9_-])", re.I)
 _KIND_BY_PREFIX = {"DEC": DECISION, "S": STATE, "CAP": CAPABILITY}
 
 # Whether the structure review is offered on the intake page. Off: what the review should be
