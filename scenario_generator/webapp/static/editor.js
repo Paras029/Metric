@@ -609,8 +609,10 @@
     var openRow = open && open.closest('[data-row-kind]');
     var tab = editor.querySelector('[data-editor-tab][aria-selected="true"]');
     try {
+      // The overlay is not written down here. It is remembered by the file that owns it, for
+      // every reload of every stage rather than only the ones this editor causes -- see
+      // graph.js. Two memories of one thing would open it twice, and the second click closes it.
       window.sessionStorage.setItem('metric:editor', JSON.stringify({
-        expanded: !document.querySelector('[data-expand]').hidden,
         tab: kind || (tab && tab.dataset.editorTab) || '',
         row: key || (openRow && openRow.dataset.rowKey) || '',
       }));
@@ -627,10 +629,6 @@
     } catch (error) { return; }
     if (!saved) { return; }
 
-    if (saved.expanded) {
-      var opener = document.querySelector('[data-expand-open]');
-      if (opener) { opener.click(); }
-    }
     if (saved.tab) {
       var tab = editor.querySelector('[data-editor-tab="' + quoted(saved.tab) + '"]');
       if (tab) { tab.click(); }

@@ -44,11 +44,16 @@ def load_context(path: str = None, notes=None) -> str:
     return _load_context(path, notes, max_chars=config.MAX_CONTEXT_CHARS)
 
 
-def build_scenario_space(intake: IntakeData, with_probes: bool = False) -> List[Scenario]:
-    """Deterministic scenario set from an intake — no LLM."""
+def build_scenario_space(intake: IntakeData, with_probes: bool = False,
+                         limits=None) -> List[Scenario]:
+    """Deterministic scenario set from an intake — no LLM.
+
+    ``limits`` is an optional :class:`core.graph.Limits` the walk fills in where a backstop bit,
+    so the caller can say the set is incomplete instead of leaving it to be noticed.
+    """
     graph = DecisionGraph(intake.decisions, intake.states)
     scenarios: List[Scenario] = []
-    for span, walked, augmented in enumerate_by_span(graph, intake.capabilities):
+    for span, walked, augmented in enumerate_by_span(graph, intake.capabilities, limits):
         scenarios += instantiate_span(span, walked, augmented, graph, intake.personas,
                                       intake.tools)
     number_scenarios(scenarios)

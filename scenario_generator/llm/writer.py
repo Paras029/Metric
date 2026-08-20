@@ -162,38 +162,50 @@ class ScenarioWriter:
             logger.warning("%d scenario(s) gave the ending away in text that is issued to the "
                            "model owner. Rewriting them.", leaks)
 
+        # Chunked exactly as the writing was. It used to be one call per broken scenario, which on
+        # a space where the audit catches a systematic habit -- a turn plan the writer keeps
+        # ending a line short -- is a call for every scenario in the run, at the price of the
+        # whole pass again. Nothing in one rewrite depends on another, so they group the same way
+        # the first attempt did.
         system = prompt_loader.load(_SYSTEM_PROMPT)
-        prompts = [self._render_repair(s, problems, intake) for s, problems in broken]
+        pending = list(chunks(broken, self._batch))
+        prompts = [self._render_repair(chunk, intake) for chunk in pending]
         self._progress(f"Rewriting {len(broken)} scenarios", 0, len(broken))
         replies = call_batch(self._complete, system, prompts,
                              tier=config.stage_tier("WRITER", config.STANDARD),
                              max_concurrency=config.stage_concurrency("WRITER"),
                              cancel=self._cancel,
                              on_progress=lambda done, total: self._progress(
-                                 f"Rewritten {done} of {total} scenarios", done, total))
+                                 f"Rewritten {done} of {total} chunks", done, total))
 
         fixed = 0
-        for (scenario, _), reply in zip(broken, replies):
+        for chunk, reply in zip(pending, replies):
             cancellation.check(self._cancel)
+            ids = ", ".join(s.id for s, _ in chunk)
             if isinstance(reply, BaseException):
-                logger.warning("Rewrite of %s did not come back: %s", scenario.id, reply)
+                logger.warning("Rewrite of %s did not come back: %s", ids, reply)
                 continue
             try:
-                entry = parse_json_object(reply)
+                entries = parse_json_object(reply)
             except Exception as exc:
-                logger.warning("Rewrite of %s would not parse: %s", scenario.id, exc)
+                logger.warning("Rewrite of %s would not parse: %s", ids, exc)
                 continue
-            # Applied to a copy first: a rewrite that fixes one fault and introduces another is
-            # not an improvement, and the text already there at least came from a call that saw
-            # the whole chunk. Only a strictly cleaner result replaces it.
-            candidate = replace(scenario)
-            candidate.name = _clean_name(prose(entry, "name")) or candidate.name
-            candidate.description = prose(entry, "description") or candidate.description
-            candidate.turn_plan = prose(entry, "turn_plan") or candidate.turn_plan
-            if len(quality.problems(candidate)) < len(quality.problems(scenario)):
-                scenario.name, scenario.description, scenario.turn_plan = (
-                    candidate.name, candidate.description, candidate.turn_plan)
-                fixed += 1
+            for scenario, _ in chunk:
+                entry = entries.get(scenario.id)
+                if not isinstance(entry, dict):
+                    logger.warning("Rewrite of %s was not in the reply.", scenario.id)
+                    continue
+                # Applied to a copy first: a rewrite that fixes one fault and introduces another
+                # is not an improvement, and the text already there at least came from a call
+                # that saw the whole chunk. Only a strictly cleaner result replaces it.
+                candidate = replace(scenario)
+                candidate.name = _clean_name(prose(entry, "name")) or candidate.name
+                candidate.description = prose(entry, "description") or candidate.description
+                candidate.turn_plan = prose(entry, "turn_plan") or candidate.turn_plan
+                if len(quality.problems(candidate)) < len(quality.problems(scenario)):
+                    scenario.name, scenario.description, scenario.turn_plan = (
+                        candidate.name, candidate.description, candidate.turn_plan)
+                    fixed += 1
 
         remaining = quality.leaking(scenarios)
         if remaining:
@@ -204,18 +216,26 @@ class ScenarioWriter:
         logger.info("Rewrote %d of %d.", fixed, len(broken))
         return fixed
 
-    def _render_repair(self, scenario: Scenario, problems: List[str], intake: IntakeData) -> str:
-        """The prompt for one scenario being written again, with its faults named."""
-        current = json.dumps({"name": scenario.name, "description": scenario.description,
-                              "turn_plan": scenario.turn_plan}, indent=2)
+    def _render_repair(self, chunk: List[tuple], intake: IntakeData) -> str:
+        """The prompt for one chunk being written again, each entry with its own faults named.
+
+        The faults travel *with* the scenario rather than in a list beside it, because a chunk of
+        eight rewrites under one shared list of problems is eight scenarios asked to fix each
+        other's faults.
+        """
+        payload = [{
+            "id": scenario.id,
+            "wrote": {"name": scenario.name, "description": scenario.description,
+                      "turn_plan": scenario.turn_plan},
+            "wrong": list(problems),
+            "scenario": self._payload(scenario),
+        } for scenario, problems in chunk]
         return prompt_loader.render(
             _REPAIR_PROMPT,
             use_case=describe_use_case(intake),
             context=supplementary_context(self._context),
             house_style=prompt_loader.load("shared.house_style"),
-            current=current,
-            problems="\n".join(f"- {problem}" for problem in problems),
-            scenario=json.dumps(self._payload(scenario), indent=2))
+            scenarios=json.dumps(payload, indent=2))
 
     def _payload(self, scenario: Scenario) -> dict:
         """What the model is shown. The terminal state is deliberately absent: it is the answer

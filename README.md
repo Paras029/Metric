@@ -360,6 +360,24 @@ graph's language — a stadium ends the interaction, a square decides something,
 a graph of its own — so the collapsed view is readable as a different picture rather than as the
 same picture with fewer boxes, and nobody has to remember which level they are looking at.
 
+**Retrying and returning are different, and are bounded differently.** *Max Attempts* on a
+decision says how often the agent may retry it on the spot — three goes at an identity check.
+A **return** is the flow genuinely going elsewhere and coming back: a fallback that could not
+understand the request and routes to the start of the block, a check that sends the conversation
+back to be identified again. The intake never claimed to bound that, and holding it to the retry
+count deleted whole regions of the space — a loop back to a one-attempt decision enumerated *no*
+routes through it at all, and any outcome whose only way onward was round the loop went with it.
+A route may now come back to a decision once, which is what a returning route is for: the point is
+to test what the agent does on the way round, and a second lap tests nothing the first did not.
+
+**The backstops are derived, not chosen.** Every decision can fire a bounded number of times on
+one route, so the longest route a declaration allows is arithmetic over that declaration — and the
+depth limit is read off the arithmetic rather than set to a number that was under it. A limit
+derived this way cannot cut a route the rules would have allowed, which is the only thing a depth
+limit was ever wanted for: guaranteeing the walk ends. The cap on how many routes one run may
+produce stays a constant, far above anything a real declaration reaches, because an interface that
+hangs is worse than one that says it stopped — and when it does stop, the stage says so.
+
 **It says what the walk could not reach.** An ending a capability's own decisions can produce
 that no route through it arrives at is named beside the drawing, with the reason — because a pack
 missing the ending nobody could get to looks exactly like a complete one, and the three reasons

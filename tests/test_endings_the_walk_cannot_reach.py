@@ -63,13 +63,17 @@ class TestTheThreeReasons(unittest.TestCase):
         self.assertIn("cannot be reached", found["S-02"])
 
     def test_a_route_longer_than_the_backstop(self):
-        """Nothing wrong with the declaration; the enumeration is incomplete and says so."""
-        original = graph_module.MAX_DEPTH
-        graph_module.MAX_DEPTH = 1
+        """Nothing wrong with the declaration; the enumeration is incomplete and says so.
+
+        The backstop is derived from the declaration now, so it cannot cut a route the loop rules
+        allow -- which is the point of deriving it. Forced down here, because the case still has
+        to report itself where a declaration is genuinely past what a run can hold."""
+        original = graph_module.depth_limit
+        graph_module.depth_limit = lambda graph: 1
         try:
             found = self._found(self._spanned("CAP-01", "S-00", ["S-03"]))
         finally:
-            graph_module.MAX_DEPTH = original
+            graph_module.depth_limit = original
         self.assertIn("S-04", found)
         self.assertIn("past the 1-step backstop", found["S-04"])
 
@@ -135,11 +139,36 @@ class TestItIsSaidBesideTheDrawing(unittest.TestCase):
         self.assertNotIn("No route ends here", self._page(("S-00", "S-03")))
 
 
-class TestTheBackstopFitsARealDeclaration(unittest.TestCase):
-    def test_depth_is_not_set_under_a_long_route(self):
-        """It was 12. Thirty-odd states with a three-attempt retry in the middle spends steps
-        quickly, and every branch past the twelfth was dropped with nothing on screen to say so."""
-        self.assertGreaterEqual(graph_module.MAX_DEPTH, 24)
+class TestTheBackstopIsDerivedRatherThanChosen(unittest.TestCase):
+    """It was 12, then 24, and both were guesses at somebody else's declaration.
+
+    Every decision can fire a bounded number of times on one route, so the longest route a
+    declaration allows is arithmetic over that declaration. A limit read off the arithmetic cannot
+    cut a route the rules would have allowed, which is the only thing a depth limit was ever
+    wanted for: guaranteeing the walk ends.
+    """
+
+    def test_it_grows_with_the_declaration(self):
+        from scenario_generator.core.models import Decision, State
+        from scenario_generator.core.graph import DecisionGraph, depth_limit
+
+        def graph_of(count):
+            return DecisionGraph(
+                [Decision(f"DEC-{n:02d}", "d", "", "", ["Ok"], max_attempts=3)
+                 for n in range(count)],
+                [State("S-00", "Start", "opens", ["DEC-00"], False)])
+
+        self.assertGreater(depth_limit(graph_of(40)), depth_limit(graph_of(10)))
+
+    def test_it_covers_every_firing_the_rules_allow(self):
+        from scenario_generator.core.models import Decision, State
+        from scenario_generator.core.graph import DecisionGraph, LOOP_VISITS, depth_limit
+
+        decisions = [Decision(f"DEC-{n:02d}", "d", "", "", ["Ok"], max_attempts=n % 4 + 1)
+                     for n in range(30)]
+        graph = DecisionGraph(decisions, [State("S-00", "Start", "opens", ["DEC-00"], False)])
+        self.assertGreaterEqual(depth_limit(graph),
+                                sum(max(d.max_attempts, LOOP_VISITS) for d in decisions))
 
 
 if __name__ == "__main__":

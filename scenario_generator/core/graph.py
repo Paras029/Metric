@@ -7,8 +7,10 @@ Enumeration is two passes: a DFS from every start state, then a focused path for
 declared (decision, variant) the DFS never exercised.
 
 Loops are bounded by each decision's own declared `Max Attempts`, not by a global revisit cap,
-so a decision that genuinely allows three tries produces three-try paths. MAX_DEPTH and
-MAX_PATHS remain as backstops only, and hitting either is reported rather than silent.
+so a decision that genuinely allows three tries produces three-try paths, and a route that
+*returns* to a decision after going elsewhere is bounded separately -- see LOOP_VISITS. The depth
+backstop is derived from the declaration rather than fixed, and the path cap remains as a backstop
+only; hitting either is reported rather than silent.
 """
 from __future__ import annotations
 
@@ -23,14 +25,64 @@ from .models import Capability, Decision, State, Step
 
 logger = logging.getLogger(__name__)
 
-# Backstops, not the bound that shapes the walk -- loops are bounded by each decision's own
-# declared Max Attempts. Depth was 12, which is under a long route through a real declaration:
-# thirty-odd states with a three-attempt retry in the middle spends steps quickly, and every
-# branch past the twelfth was dropped with nothing on screen to say so. Endings past a cut are
-# reported now (see :func:`endings_not_reached`), and the limit itself sits where a genuine route
-# fits under it.
-MAX_DEPTH = 24
-MAX_PATHS = 1000
+# How many times one route may come back to a decision it has already taken.
+#
+# Not the same question as Max Attempts, and conflating the two deleted whole regions of the
+# scenario space. Max Attempts says how often the agent may *retry* one decision on the spot --
+# three goes at an identity check. A **return** is the flow genuinely going elsewhere and coming
+# back: a fallback that could not understand the request and routes to the start of the block, a
+# verification step that sends the conversation back to be identified again. That is a different
+# thing, the intake never claimed to bound it, and holding it to the retry count meant a
+# declaration whose loop returned to a one-attempt decision enumerated *no* routes through that
+# loop at all -- not truncated, absent, with nothing to say so.
+#
+# Two, so a route may come back once. Once is what a returning route is for: the point is to test
+# what the agent does on the way round, and a second lap tests nothing the first did not.
+LOOP_VISITS = 2
+
+# Backstops, and neither is meant to shape the walk.
+#
+# Depth is *derived* rather than fixed -- see :func:`depth_limit`. Every decision can fire a
+# bounded number of times per route, so the longest route a declaration allows is arithmetic over
+# the declaration, and a constant put a number under that arithmetic and silently cut whatever
+# was past it. A derived limit cannot cut a route the loop rules would have allowed, which is the
+# only thing a depth limit was ever wanted for: guaranteeing the walk ends.
+#
+# Paths remains a constant, and remains for one reason: a declaration can ask for more routes than
+# a person can read or a run can afford, and an interface that hangs is worse than one that says
+# it stopped. It is far above anything a real declaration produces, and hitting it is reported --
+# see :class:`Limits`.
+MIN_DEPTH = 24
+MAX_PATHS = 25000
+
+
+@dataclass
+class Limits:
+    """Whether a backstop bit, filled in by the walk for a caller that wants to say so.
+
+    Mutable and passed in rather than returned, because the walk is called from several places
+    with three different return shapes and threading a fourth value through all of them to be
+    dropped by most callers is how a report stops being kept up to date. A caller that does not
+    care passes nothing.
+    """
+
+    paths: bool = False
+    depth: bool = False
+
+    @property
+    def truncated(self) -> bool:
+        return self.paths or self.depth
+
+
+def depth_limit(graph: DecisionGraph) -> int:
+    """The longest route this declaration can produce, so the backstop never cuts a real one.
+
+    Each decision may fire at most ``max(Max Attempts, LOOP_VISITS)`` times on one route, so their
+    sum is the longest route the rules allow. Bounded below so a two-decision graph still has room
+    for the augmentation pass to work in.
+    """
+    return max(MIN_DEPTH,
+               sum(max(d.max_attempts, LOOP_VISITS) for d in graph.decisions.values()))
 
 # What an opening state says in its "Reached Via" cell when it is not reached by a decision at all.
 # Only consulted for states that name no decision edge: a state reached via "DEC-02=Reconnected"
@@ -201,7 +253,8 @@ def _spans_for_the_gaps(graph: DecisionGraph, drawn: Sequence[Span]) -> List[Spa
 
 
 # --------------------------------------------------------------------------- enumeration
-def walk_paths(graph: DecisionGraph, span: Optional[Span] = None) -> List[Path]:
+def walk_paths(graph: DecisionGraph, span: Optional[Span] = None,
+               limits: Optional["Limits"] = None) -> List[Path]:
     """DFS across one span, keeping only the routes that reach one of its exits.
 
     A route finishes when it arrives at a state the span names as an exit, or at a state the
@@ -230,20 +283,21 @@ def walk_paths(graph: DecisionGraph, span: Optional[Span] = None) -> List[Path]:
     if span is None:
         endings = frozenset(s.id for s in graph.states.values() if s.is_terminal)
         return [p for start in graph.start_states
-                for p in walk_paths(graph, Span("", "", start, endings))]
+                for p in walk_paths(graph, Span("", "", start, endings), limits)]
 
     paths: List[Path] = []
-    truncated = {"paths": False, "depth": False}
+    told = limits if limits is not None else Limits()
+    deepest = depth_limit(graph)
 
     def finishes_here(state: Optional[State], state_id: str) -> bool:
         return state_id in span.exit_states or (state is not None and state.is_terminal)
 
     def visit(state_id: str, path: Path, fired: Dict[str, int]) -> None:
         if len(paths) >= MAX_PATHS:
-            truncated["paths"] = True
+            told.paths = True
             return
-        if len(path) > MAX_DEPTH:
-            truncated["depth"] = True
+        if len(path) > deepest:
+            told.depth = True
             return
         state = graph.state(state_id)
         if state is None or finishes_here(state, state_id) or not state.next_decisions:
@@ -272,7 +326,16 @@ def walk_paths(graph: DecisionGraph, span: Optional[Span] = None) -> List[Path]:
             if decision is None or decision.out_of_scope:
                 continue
             occurrence = fired.get(decision_id, 0)
-            if occurrence >= decision.max_attempts:
+            # Retrying and returning are different things and are bounded differently. Taking a
+            # decision again straight after taking it is a retry, and Max Attempts is exactly the
+            # declaration's statement about that. Coming back to it after the route has been
+            # somewhere else is a *return* -- a fallback that could not understand the request and
+            # sends the conversation back, a check that routes to be identified again -- which the
+            # intake never claimed to bound, and which held to the retry count made every looping
+            # route disappear: a loop back to a one-attempt decision enumerated nothing at all.
+            returning = bool(path) and path[-1].decision_id != decision_id
+            allowed = max(decision.max_attempts, LOOP_VISITS) if returning else decision.max_attempts
+            if occurrence >= allowed:
                 continue
             for variant in decision.variants:
                 next_state = graph.successor(decision_id, variant, occurrence)
@@ -286,12 +349,12 @@ def walk_paths(graph: DecisionGraph, span: Optional[Span] = None) -> List[Path]:
 
     visit(span.entry_state, [], {})
 
-    if truncated["paths"]:
-        logger.warning("Path enumeration stopped at the MAX_PATHS cap of %d — the scenario set is "
-                       "incomplete. Split the use case or raise the cap.", MAX_PATHS)
-    if truncated["depth"]:
-        logger.warning("One or more paths were cut at the MAX_DEPTH limit of %d steps — those "
-                       "branches are not represented.", MAX_DEPTH)
+    if told.paths:
+        logger.warning("Path enumeration stopped at the cap of %d — the scenario set is "
+                       "incomplete. Split the use case or raise MAX_PATHS.", MAX_PATHS)
+    if told.depth:
+        logger.warning("One or more paths were cut at %d steps — those branches are not "
+                       "represented.", deepest)
     return paths
 
 
@@ -472,6 +535,7 @@ def endings_not_reached(graph: DecisionGraph, capabilities: Sequence[Capability]
     augmentation pass, so reporting it here would be reporting a route that does get walked.
     """
     found: List[Unreached] = []
+    deepest = depth_limit(graph)
     by_capability: Dict[str, List[Span]] = {}
     for span in spans_for(graph, capabilities):
         by_capability.setdefault(span.capability_id, []).append(span)
@@ -498,7 +562,7 @@ def endings_not_reached(graph: DecisionGraph, capabilities: Sequence[Capability]
                         into[state_id] = depth
 
         for ending in sorted(wanted):
-            if ending in honouring and honouring[ending] <= MAX_DEPTH:
+            if ending in honouring and honouring[ending] <= deepest:
                 continue
             if ending not in ignoring:
                 reason = ("the decision that produces it cannot be reached from where this block "
@@ -511,7 +575,7 @@ def endings_not_reached(graph: DecisionGraph, capabilities: Sequence[Capability]
                           + " before a route gets there")
             else:
                 reason = (f"the shortest route to it is {honouring[ending]} decisions, past the "
-                          f"{MAX_DEPTH}-step backstop")
+                          f"{deepest}-step backstop")
             found.append(Unreached(capability_id, ending, reason))
     return found
 
@@ -542,7 +606,7 @@ def _shortest_prefix_to(graph: DecisionGraph, decision_id: str, span: Span) -> P
         if state_id in targets:
             return prefix
         state = graph.state(state_id)
-        if state is None or len(prefix) >= MAX_DEPTH:
+        if state is None or len(prefix) >= depth_limit(graph):
             continue
         # An exit is where the block hands on, so the search stops there for the same reason the
         # walk does: a route that leaves the block is not a route through it.
@@ -585,7 +649,7 @@ def _shortest_suffix_to_ending(graph: DecisionGraph, state_id: str,
     while queue:
         current, suffix, used = queue.popleft()
         state = graph.state(current)
-        if state is None or taken + len(suffix) >= MAX_DEPTH:
+        if state is None or taken + len(suffix) >= depth_limit(graph):
             continue
         for decision_id in state.next_decisions:
             decision = graph.decision(decision_id)
@@ -651,10 +715,10 @@ def augment_variants(graph: DecisionGraph, paths: List[Path],
     return extra
 
 
-def enumerate_paths(graph: DecisionGraph,
-                    span: Optional[Span] = None) -> Tuple[List[Path], List[Path]]:
+def enumerate_paths(graph: DecisionGraph, span: Optional[Span] = None,
+                    limits: Optional[Limits] = None) -> Tuple[List[Path], List[Path]]:
     """Return (walked, augmented) paths over one span, de-duplicated by decision-variant signature."""
-    walked = walk_paths(graph, span)
+    walked = walk_paths(graph, span, limits)
     seen: Set[tuple] = set()
 
     def keep(path: Path) -> bool:
@@ -669,16 +733,17 @@ def enumerate_paths(graph: DecisionGraph,
     return unique_walked, unique_augmented
 
 
-def enumerate_by_span(graph: DecisionGraph,
-                      capabilities: Sequence[Capability]) -> List[Tuple[Span, List[Path],
-                                                                        List[Path]]]:
+def enumerate_by_span(graph: DecisionGraph, capabilities: Sequence[Capability],
+                      limits: Optional[Limits] = None) -> List[Tuple[Span, List[Path],
+                                                                     List[Path]]]:
     """Every span, with the routes through it. The whole enumeration, in one call.
 
     De-duplication is per span rather than across the set. Two capabilities sharing a decision
     would otherwise have the second one silently lose the routes the first had already claimed --
     and the point of walking blocks separately is that each block is tested on its own terms.
     """
-    return [(span,) + enumerate_paths(graph, span) for span in spans_for(graph, capabilities)]
+    return [(span,) + enumerate_paths(graph, span, limits)
+            for span in spans_for(graph, capabilities)]
 
 
 # --------------------------------------------------------------------------- structural hints

@@ -107,9 +107,11 @@ class TestTheWriterRewritesOnlyWhatFailed(unittest.TestCase):
 
     def _writer(self, first_reply, repair_reply=_GOOD):
         def complete(system, user, **kwargs):
-            if "ONE SCENARIO TO WRITE AGAIN" in user:
+            # The rewrite is chunked like the writing, so it answers in the same shape: a map
+            # keyed by id, not one object standing for one scenario.
+            if "SCENARIOS TO WRITE AGAIN" in user:
                 self.calls.append("repair")
-                return json.dumps(repair_reply)
+                return json.dumps({i: dict(repair_reply) for i in _ids_in(user)})
             self.calls.append("write")
             return json.dumps({i: dict(first_reply) for i in _ids_in(user)})
         return ScenarioWriter(complete=complete)
@@ -117,6 +119,18 @@ class TestTheWriterRewritesOnlyWhatFailed(unittest.TestCase):
     def test_nothing_is_rewritten_when_nothing_is_wrong(self):
         self._writer(_GOOD).write(self.scenarios, _INTAKE)
         self.assertEqual(self.calls, ["write"])
+
+    def test_the_rewrites_are_chunked_rather_than_one_call_each(self):
+        """It used to be a call per broken scenario. On a space where the audit catches a
+        systematic habit that is a call for every scenario in the run, at the price of the whole
+        pass again -- and nothing in one rewrite depends on another."""
+        leak = dict(_GOOD, description="The cardmember tries and is locked out after two failed "
+                                       "attempts, which ends the conversation.")
+        writer = self._writer(leak)
+        writer._batch = 50
+        writer.write(self.scenarios, _INTAKE)
+        self.assertEqual(self.calls.count("repair"), 1,
+                         "one chunk of rewrites should be one call")
 
     def test_a_leaking_scenario_is_rewritten(self):
         leak = dict(_GOOD, description="The cardmember tries and is locked out after two failed "

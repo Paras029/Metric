@@ -419,8 +419,39 @@
     if (canvas) { canvas.dispatchEvent(new CustomEvent('metric:viewchanged')); }
   }
 
+  // Whether this page was left expanded, remembered across the reload that any control on it
+  // might cause.
+  //
+  // It used to be the editor's business, so a save came back expanded and everything else did not
+  // -- a filter, a sort, an added row, anything that submits -- and each one took away the
+  // arrangement the work was being done in. The overlay is this file's, so the memory of it is
+  // too, and every reload of every stage gets the same answer without each control having to
+  // know about it.
+  //
+  // Keyed by path, so the arrangement follows the stage rather than the tab: leaving for another
+  // stage and coming back finds it as it was, and a stage never opened expanded never opens
+  // expanded.
+  var MEMORY = 'metric:expanded';
+
+  function remember(on) {
+    try {
+      var kept = JSON.parse(window.sessionStorage.getItem(MEMORY) || '{}');
+      if (on) { kept[window.location.pathname] = true; }
+      else { delete kept[window.location.pathname]; }
+      window.sessionStorage.setItem(MEMORY, JSON.stringify(kept));
+    } catch (error) { /* private browsing, or storage full. The view still works. */ }
+  }
+
+  function wasExpanded() {
+    try {
+      return !!JSON.parse(window.sessionStorage.getItem(MEMORY) || '{}')[
+        window.location.pathname];
+    } catch (error) { return false; }
+  }
+
   function open() {
     overlay.hidden = false;
+    remember(true);
     document.body.classList.add('is-expanded');
     // Whichever side panel this stage has. The intake stage carries the declaration editor, every
     // stage after it carries the scenario space, and no stage carries both -- the declaration is
@@ -460,6 +491,7 @@
       }
     });
     overlay.hidden = true;
+    remember(false);
     opener.hidden = false;
     document.body.classList.remove('is-expanded');
     refit();
@@ -475,6 +507,10 @@
     open();
   });
   if (closer) { closer.addEventListener('click', close); }
+
+  // Put back before the first paint the reader sees, so a reload of a stage that was expanded
+  // does not flash the stage page on its way to where it was.
+  if (wasExpanded()) { open(); }
 
   // Escape closes the overlay, and only the overlay. The route highlighting also listens for it
   // to clear open cards, which is the right thing on the stage and the wrong thing here -- one

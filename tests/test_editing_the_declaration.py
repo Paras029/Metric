@@ -120,6 +120,64 @@ class TestApplyingAnEdit(unittest.TestCase):
         self.assertFalse(report.changed)
 
 
+class TestAddingARow(unittest.TestCase):
+    """Add stages a key and nothing else, because there is nothing to fill in until the row is
+    there. That made it look like an edit changing nothing, it was dropped as one, and the button
+    posted, came back reporting success, and created nothing."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.client = create_app(self.root).test_client()
+        self.client.post("/workspaces", data={"name": "Adding"})
+        with open(EXAMPLE, "rb") as handle:
+            self.client.post("/stage/intake/upload",
+                             data={"files": (handle, EXAMPLE.name), "group": "intake_workbook"},
+                             content_type="multipart/form-data")
+        self.client.post("/stage/intake/run")
+        for _ in range(600):
+            if self.client.get("/stage/intake/progress").get_json()["status"] != "running":
+                break
+            time.sleep(0.05)
+        self.path = str(self.root / "adding" / EXAMPLE.name)
+
+    def _states(self):
+        return [s.id for s in read_intake(self.path).states]
+
+    def test_a_key_and_nothing_else_creates_the_row(self):
+        before = self._states()
+        answer = self.client.post("/stage/intake/declaration/save", json={
+            "edits": [{"kind": "state", "key": "S-90", "action": "upsert", "fields": {}}]})
+        self.assertEqual(answer.status_code, 200)
+        self.assertIsNone(answer.get_json().get("error"))
+        self.assertEqual(set(self._states()) - set(before), {"S-90"})
+
+    def test_it_says_it_wrote_something(self):
+        """A report of nothing written under a row that did appear is the same confusion the
+        other way round."""
+        answer = self.client.post("/stage/intake/declaration/save", json={
+            "edits": [{"kind": "decision", "key": "DEC-90", "action": "upsert", "fields": {}}]})
+        self.assertTrue(answer.get_json()["report"]["written"])
+
+    def test_the_new_row_is_on_the_page_ready_to_fill_in(self):
+        self.client.post("/stage/intake/declaration/save", json={
+            "edits": [{"kind": "state", "key": "S-91", "action": "upsert", "fields": {}}]})
+        page = self.client.get("/stage/intake").get_data(as_text=True)
+        self.assertIn('data-row-key="S-91"', page)
+
+    def test_a_declaration_of_any_size_takes_another(self):
+        """Reported as a size limit -- eighty states in and the button stopped working. It was
+        never the size; it was that Add had never worked through this route at all."""
+        for n in range(20, 90):
+            self.client.post("/stage/intake/declaration/save", json={
+                "edits": [{"kind": "state", "key": f"S-{n}", "action": "upsert",
+                           "fields": {"description": f"Filler {n}"}}]})
+        before = self._states()
+        self.assertGreater(len(before), 79)
+        self.client.post("/stage/intake/declaration/save", json={
+            "edits": [{"kind": "state", "key": "S-95", "action": "upsert", "fields": {}}]})
+        self.assertIn("S-95", self._states())
+
+
 class TestRemoving(unittest.TestCase):
     def setUp(self):
         self.path = Path(tempfile.mkdtemp()) / "intake.xlsx"

@@ -112,15 +112,30 @@ class TestTheScriptBehindIt(unittest.TestCase):
         self.assertIn("data-anchor-for", self.script)
         self.assertIn("insertBefore", self.script)
 
-    def test_what_is_on_screen_survives_a_save(self):
-        """The editor is used from the expanded view, where the rows and the drawing are side by
-        side. A save that dropped back to the stage page took away the arrangement the work was
-        being done in, every single time."""
+    def test_the_overlay_survives_any_reload_of_the_stage(self):
+        """It used to be the editor's business, so a save came back expanded and everything else
+        did not -- a filter, a sort, an added row, anything that submits -- and each one took away
+        the arrangement the work was being done in. The overlay belongs to this file, so
+        remembering it does too, and every reload of every stage gets the same answer without each
+        control having to know about it."""
+        self.assertIn("sessionStorage", self.script)
+        self.assertIn("wasExpanded", self.script)
+        self.assertIn("location.pathname", self.script,
+                      "the memory is not scoped to the stage it was left on")
+
+    def test_only_one_file_remembers_it(self):
+        """Two memories of one thing open it twice, and the second open is a close."""
+        editor = (Path(__file__).resolve().parent.parent / "scenario_generator" / "webapp"
+                  / "static" / "editor.js").read_text(encoding="utf-8")
+        self.assertNotIn("data-expand-open", editor)
+
+    def test_the_editor_still_remembers_its_own_half(self):
+        """Which tab was showing and which row was open are the editor's, and only the editor
+        knows them."""
         editor = (Path(__file__).resolve().parent.parent / "scenario_generator" / "webapp"
                   / "static" / "editor.js").read_text(encoding="utf-8")
         self.assertIn("sessionStorage", editor)
-        self.assertIn("data-expand-open", editor, "the overlay is not reopened after a reload")
-        for remembered in ("expanded", "tab", "row"):
+        for remembered in ("tab", "row"):
             self.assertIn(remembered, editor)
 
     def test_adding_a_row_writes_it_rather_than_staging_an_intention(self):

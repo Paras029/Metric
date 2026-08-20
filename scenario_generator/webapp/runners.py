@@ -31,6 +31,7 @@ from ..io import read_space_metadata, read_scenarios, write_data_template, write
 from ..llm import MaterialityAssessor, ScenarioReviewer, ScenarioWriter
 from ..llm.gateway import ask_llm
 from ..llm import cancellation, config
+from ..core.graph import Limits
 from ..pipeline import (build_scenario_space, draft_intake_workbook, ingest_documents,
                         map_conversation_coverage, revise_intake_workbook, structural_problems)
 from .coverageview import stored_report
@@ -426,14 +427,23 @@ def _run_workflow(workspace: Workspace, progress=None, cancel=None) -> Dict[str,
     report("Reading the intake", 0, 3)
     intake = _intake(workspace)
     report("Walking the graph", 1, 3)
-    scenarios = build_scenario_space(intake, with_probes=True)
+    limits = Limits()
+    scenarios = build_scenario_space(intake, with_probes=True, limits=limits)
     report("Writing the scenario space metadata", 2, 3)
     _save_metadata(workspace, "workflow", intake, scenarios)
     report("Built the scenario space", 3, 3)
 
     probes = sum(1 for s in scenarios if s.is_probe)
-    return {"Scenarios": len(scenarios), "Routes through the graph": len(scenarios) - probes,
-            "Probes": probes}
+    facts = {"Scenarios": len(scenarios), "Routes through the graph": len(scenarios) - probes,
+             "Probes": probes}
+    # Said on the stage rather than left in a log. An incomplete scenario space that does not
+    # know it is incomplete is the one failure this whole stage cannot be checked for by reading
+    # its output: what is missing is missing.
+    if limits.truncated:
+        facts["Enumeration"] = ("Stopped at a backstop — the set is incomplete"
+                                if limits.paths else
+                                "Some branches were cut for length — the set is incomplete")
+    return facts
 
 
 def _run_scenarios(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:

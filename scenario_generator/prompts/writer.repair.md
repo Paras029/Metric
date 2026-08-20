@@ -1,28 +1,29 @@
 {{use_case}}
 {{context}}
 
-ONE SCENARIO TO WRITE AGAIN
+SCENARIOS TO WRITE AGAIN
 
-You wrote this scenario already and something specific is wrong with it. What is wrong is listed
-below. Everything not listed is fine — change it as little as you can while fixing what is named.
+You wrote each of these already and something specific is wrong with it. What is wrong is listed
+against each one. Everything not listed is fine — change each as little as you can while fixing
+what is named for it.
 
-WHAT YOU WROTE
+They are independent. A fault named against one says nothing about any other, and a rewrite that
+carries a phrase from its neighbour has replaced one problem with a worse one.
 
-{{current}}
+Each entry carries:
 
-WHAT IS WRONG WITH IT
+- `id`: return your rewrite under this key.
+- `wrote`: the three fields as they stand.
+- `wrong`: what has to be fixed. This list, and nothing else.
+- `scenario`: the route it is written from, in the same form it was written from the first time.
 
-{{problems}}
-
-THE SCENARIO
-
-{{scenario}}
+{{scenarios}}
 
 {{house_style}}
 
 WHAT TO RETURN
 
-The same three fields, corrected.
+For every id in the list, the same three fields, corrected.
 
 - `name`: a handle, six words or fewer, no ending full stop. The situation, never the expected
   behaviour.
@@ -48,8 +49,11 @@ Write the setup. The transcript records what happened.
 
 OUTPUT
 
-Return ONLY a JSON object of the form:
+Work through them one at a time and return a separate, independent object for every "id" in the
+list. Return ONLY a single JSON object mapping each "id" to its object, of the form:
 
-{"name": "...", "description": "...", "turn_plan": "1. ...\n2. ..."}
+{"SC-001": {"name": "...", "description": "...", "turn_plan": "1. ...\n2. ..."},
+"SC-002": {...}}
 
-No markdown fences and no text outside the JSON.
+No markdown fences and no text outside the JSON. Keep description on a single line, and use \n in
+turn_plan only between numbered lines.

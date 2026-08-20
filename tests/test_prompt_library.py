@@ -29,7 +29,7 @@ _CONTRACT = {
     "writer.system": set(),
     "writer.graph_scenario": {"use_case", "context", "house_style", "scenarios"},
     "writer.probe": {"use_case", "context", "house_style", "scenarios"},
-    "writer.repair": {"use_case", "context", "house_style", "current", "problems", "scenario"},
+    "writer.repair": {"use_case", "context", "house_style", "scenarios"},
     "materiality.system": set(),
     "materiality.task": {"mission", "scale", "use_case", "context", "scenarios"},
     "reviewer.system": set(),

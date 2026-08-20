@@ -887,8 +887,12 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
                 if rename_to and rename_to != key:
                     _absorb(report, editing.rename(target, kind, key, rename_to))
                     key = rename_to
-                if fields or edit.get("action") == "delete":
-                    ordinary.append({**edit, "key": key, "fields": fields})
+                # Everything else goes through, including an upsert carrying no fields -- which
+                # is not a no-op but the way a row is *created*. Add stages exactly that: a key
+                # and nothing else, because there is nothing to fill in until the row exists.
+                # Dropped here as "an edit that changes nothing", Add posted, came back reporting
+                # success, and created nothing.
+                ordinary.append({**edit, "key": key, "fields": fields})
 
             if ordinary:
                 _absorb(report, editing.apply_edits(target, ordinary))
