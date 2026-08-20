@@ -70,10 +70,76 @@ class TestProposalValidation(unittest.TestCase):
         scenario = instantiate_proposals(
             [_valid_proposal(capabilities=["CAP-99"], persona_id="P9",
                              category="NotACategory", materiality="Enormous")], _INTAKE)[0]
-        self.assertEqual(scenario.capabilities, [])
+        self.assertNotIn("CAP-99", scenario.capabilities)
         self.assertEqual(scenario.persona.id, "P1")
         self.assertEqual(scenario.category, "Proposed")
         self.assertEqual(scenario.materiality, "Medium")
+
+
+class TestWhichBlocksAProposalTouches(unittest.TestCase):
+    """Read off the route it walks, not off the field where it says so.
+
+    That field is one of a dozen the proposal is asked for, and a proposal arriving without it
+    came back scoped to nothing at all -- no block, and no "end to end" either, since that label
+    needs more than one block to name. It landed hardest on exactly the scenarios the review is
+    now asked for: a cross-capability journey is *defined* by crossing, so it is the case most
+    likely to arrive with the field blank and the least affordable to lose.
+    """
+
+    def setUp(self):
+        """A second block, because crossing needs two."""
+        import dataclasses
+        from scenario_generator.core.models import Capability, Decision, State
+        self.intake = dataclasses.replace(
+            _INTAKE,
+            capabilities=[Capability("CAP-01", "Auth", "Gating"),
+                          Capability("CAP-02", "Disputes", "Transactional")],
+            decisions=[Decision("DEC-01", "Auth", "CAP-01", "", ["Pass", "Fail"]),
+                       Decision("DEC-03", "Raise it", "CAP-02", "", ["Recognised", "Not"])],
+            states=[State("S-00", "Start", "Start", ["DEC-01"], False),
+                    State("S-01", "DEC-01=Pass", "Verified", ["DEC-03"], False),
+                    State("S-02", "DEC-01=Fail", "Locked out", [], True, "Termination"),
+                    State("S-03", "DEC-03=Recognised", "Filed", [], True, "Happy path"),
+                    State("S-04", "DEC-03=Not", "Refused", [], True, "Termination")])
+
+    def test_the_steps_answer_where_the_field_is_missing(self):
+        scenario = instantiate_proposals([_valid_proposal(capabilities=[])], self.intake)[0]
+        self.assertEqual(scenario.capabilities, ["CAP-01"])
+        self.assertEqual(scenario.capability_id, "CAP-01")
+
+    def test_a_route_that_crosses_blocks_is_scoped_to_neither_and_says_so(self):
+        crossing = _valid_proposal(capabilities=[], decision_path=[
+            {"decision_id": "DEC-01", "variant": "Pass"},
+            {"decision_id": "DEC-03", "variant": "Recognised"}])
+        scenario = instantiate_proposals([crossing], self.intake)[0]
+        self.assertEqual(scenario.capability_id, "", "a crossing route is not one block's")
+        self.assertGreater(len(scenario.capabilities), 1,
+                           "and the blocks it crosses have to be named, or it reads as scoped to "
+                           "nothing rather than to several")
+
+    def test_the_blocks_are_in_the_order_the_route_walks_them(self):
+        crossing = _valid_proposal(capabilities=[], decision_path=[
+            {"decision_id": "DEC-03", "variant": "Recognised"},
+            {"decision_id": "DEC-01", "variant": "Pass"}])
+        walked = instantiate_proposals([crossing], self.intake)[0].capabilities
+        forwards = _valid_proposal(capabilities=[], decision_path=[
+            {"decision_id": "DEC-01", "variant": "Pass"},
+            {"decision_id": "DEC-03", "variant": "Recognised"}])
+        self.assertEqual(walked, list(reversed(
+            instantiate_proposals([forwards], self.intake)[0].capabilities)))
+
+    def test_a_proposal_with_no_route_falls_back_to_what_it_declared(self):
+        """A perturbation legitimately follows no declared route. What it says it exercises is
+        then the only statement anybody has made about it."""
+        scenario = instantiate_proposals(
+            [_valid_proposal(decision_path=[], capabilities=["CAP-02"])], self.intake)[0]
+        self.assertEqual(scenario.capabilities, ["CAP-02"])
+        self.assertEqual(scenario.capability_id, "CAP-02")
+
+    def test_nothing_undeclared_survives_either_way(self):
+        scenario = instantiate_proposals(
+            [_valid_proposal(decision_path=[], capabilities=["CAP-99"])], self.intake)[0]
+        self.assertEqual(scenario.capabilities, [])
 
     def test_a_proposal_without_a_description_is_dropped(self):
         self.assertEqual(instantiate_proposals([_valid_proposal(description="  ")], _INTAKE), [])

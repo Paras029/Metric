@@ -70,13 +70,26 @@ def instantiate_proposal(entry: dict, index: int, intake: IntakeData) -> Scenari
     # taken from what it claimed. A proposal is enumerated over the same blocks as everything else
     # -- it goes into the same pack, in the same order, and a reviewer reading the identification
     # section should find the proposals about identification there. Left empty where the steps
-    # straddle two blocks or name none, because a proposal that crosses a boundary is not scoped
-    # to either and pretending otherwise would file it under the wrong one.
-    by_step = {intake_decision.trigger_capability
-               for step in steps
-               for intake_decision in intake.decisions
-               if intake_decision.id == step.decision_id and intake_decision.trigger_capability}
-    block = next(iter(by_step)) if len(by_step) == 1 else ""
+    # straddle two blocks, because a proposal that crosses a boundary is not scoped to either and
+    # pretending otherwise would file it under the wrong one.
+    owner = {d.id: d.trigger_capability for d in intake.decisions}
+    walked = list(dict.fromkeys(owner.get(step.decision_id, "") for step in steps))
+    walked = [block_id for block_id in walked if block_id]
+    block = walked[0] if len(walked) == 1 else ""
+
+    # And which blocks it touches, derived before it is read off the reply.
+    #
+    # It used to be only what the proposal claimed, in a field the prompt marks as one of a dozen.
+    # A proposal that left it out came back scoped to nothing at all -- no block, and no "end to
+    # end" either, since that label needs more than one block to name. The steps are ground truth
+    # about which blocks a route crosses where the list is a claim about it, so the steps answer
+    # first, and this is the one that matters most for the scenarios the review is now asked for:
+    # a cross-capability journey is *defined* by crossing, and it was the case most likely to
+    # arrive with the field blank.
+    declared = [c for c in (entry.get("capabilities") or []) if c in capability_ids]
+    touches = walked or declared
+    if not block and len(touches) == 1:
+        block = touches[0]
     entry_state = next((c for c in intake.capabilities if c.id == block), None)
     seeded = "Session start"
     precondition = ""
@@ -94,7 +107,7 @@ def instantiate_proposal(entry: dict, index: int, intake: IntakeData) -> Scenari
         persona=persona,
         seeded_state=seeded,
         termination=str(entry.get("expected_outcome", "")).strip() or "See scenario description.",
-        capabilities=[c for c in (entry.get("capabilities") or []) if c in capability_ids],
+        capabilities=touches,
         tools=[],
         touches_state_change=bool(entry.get("touches_state_change")),
         turn_meta=_turn_meta(steps, entry, intake),

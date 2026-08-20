@@ -27,11 +27,31 @@ For every id in the list, the same three fields, corrected.
 
 - `name`: a handle, six words or fewer, no ending full stop. The situation, never the expected
   behaviour.
-- `description`: two or three sentences saying what situation the tester is setting up and what
-  makes this route distinct. Name the real subject matter.
+- `description`: what situation the tester is setting up and what makes this route distinct,
+  named in the real subject matter of this service. There is no length to hit. What it has to be
+  is *apt*: somebody who has never seen this agent reads it and knows what they are being asked to
+  bring about.
 - `turn_plan`: as many numbered lines as this scenario's `turns_to_write`, written "1. ", "2. "
   and so on, joined with the two characters \n and nothing else. Each line tells the tester what
   to say or do.
+
+THE RESULT HAS TO HOLD TOGETHER
+
+"Change as little as you can" is about **scope** — do not go re-deciding what a scenario is about.
+It is not a licence to leave a broken thing broken around the patch. Whatever you return is read
+on its own by somebody with nothing else in front of them, so:
+
+- **The turn plan is one conversation, in order.** Each line follows from the one before it. If
+  the fault is that a line is missing, the fix is not a line bolted on the end — it is the turn
+  that actually belongs at that point in the route, with the lines around it still reading into
+  and out of it. A plan padded to the right length that no longer describes a conversation is
+  worse than the short one it replaced.
+- **The description has to be true of the route.** It is the reader's only account of what they
+  are doing and why this run differs from the ordinary one. Vague is a fault; so is confident and
+  wrong.
+- **Where the declaration is silent, say what is known and stop.** A workflow with a gap in it is
+  the normal case. Write the part that is stated, plainly, and leave the rest out — do not invent
+  a detail to fill the space, and do not hedge the whole description into saying nothing.
 
 **If what is wrong is that the text cannot be acted on**, the standard is this: the person running
 it has never seen the agent, cannot read its documentation, and cannot ask you a question. A line

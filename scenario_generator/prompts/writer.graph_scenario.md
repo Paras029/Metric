@@ -37,12 +37,16 @@ WHAT TO RETURN FOR EACH SCENARIO
   in their names by that condition. Name the situation, never the expected behaviour --
   "Locked out after two failed checks", not "Agent correctly locks the account".
 
-- description: two or three sentences. Say what situation the tester is setting up and what makes
-  this route distinct from the straightforward version of the same journey -- the specific
-  condition, the specific failure, the specific sequence. Name the real subject matter. Do not say
-  what the agent should do about it. Where `already_established` is present, open by stating that
-  position in the tester's own words, in one short clause, then say what is being tested from
-  there.
+- description: say what situation the tester is setting up and what makes this route distinct
+  from the straightforward version of the same journey -- the specific condition, the specific
+  failure, the specific sequence. Name the real subject matter. Do not say what the agent should
+  do about it. Where `already_established` is present, open by stating that position in the
+  tester's own words, in one short clause, then say what is being tested from there.
+
+  Usually two or three sentences, which is what it takes to say all of that. That is a
+  consequence, not a quota: nothing is improved by padding a complete description to reach it, or
+  by cutting a clear one to fit. What it has to be is apt -- true of this route, and enough for a
+  reader with nothing else in front of them.
 
 - turn_plan: exactly as many numbered lines as that scenario's own turns_to_write value, written
   "1. ", "2. " and so on, joined with the two characters \n and nothing else. Each line tells the tester what to say or do to
@@ -65,10 +69,13 @@ ask you a question. What you write is the whole of what they get. So:
   not need a real value; you need the tester to be unable to pick a wrong one.
 - **Never leave a bracket for somebody to fill in.** No "[insert reference]", no "TBD", no
   "<amount>".
-- **A description is two or three sentences and says three things**: the position the tester
-  starts from, the specific condition that makes this route different from the straightforward
-  version of the same journey, and the real subject matter in the words a user of this service
-  would use. One sentence is not a description.
+- **A description says three things**: the position the tester starts from, the specific
+  condition that makes this route different from the straightforward version of the same journey,
+  and the real subject matter in the words a user of this service would use. Length follows from
+  saying them; it is not a target.
+- **Where the declaration is silent, say what is known and stop.** A workflow with a gap in it is
+  the normal case. Write the part that is stated, plainly. Do not invent a detail to fill the
+  space, and do not hedge the description into saying nothing.
 
 WORKED EXAMPLE
 
@@ -109,8 +116,9 @@ postcode when asked" is the same step, written so it can be run.
 
 A bad description, and why:
 "The account holder submits a reading."
-One sentence, no condition, no subject matter beyond the bare action. Nothing in it distinguishes
-this route from the ordinary one, which is the only reason this scenario exists separately.
+No condition, no subject matter beyond the bare action. Nothing in it distinguishes this route
+from the ordinary one, which is the only reason this scenario exists separately. The fault is not
+that it is short.
 
 SCENARIOS (JSON)
 
