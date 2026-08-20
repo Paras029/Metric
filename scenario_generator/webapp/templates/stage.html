@@ -434,6 +434,22 @@
           </p>
         {% endif %}
 
+        {# Endings enumeration cannot arrive at. Said here rather than left to be noticed as a
+           missing scenario, because a pack missing the ending nobody could reach looks exactly
+           like a complete one -- and each reason wants a different fix, so the reason is the
+           useful half. #}
+        {% if graph_facts.unreached_endings %}
+          <p class="aside aside--bad">
+            No route ends here, though a decision in the block produces it:
+            {% for miss in graph_facts.unreached_endings %}
+              <span class="mono">{{ miss.state }}</span>
+              {%- if miss.capability %} in <span class="mono">{{ miss.capability }}</span>{% endif %}
+              — {{ miss.reason }}{% if not loop.last %};{% else %}.{% endif %}
+            {% endfor %}
+            Every scenario that would have ended there is missing from the pack.
+          </p>
+        {% endif %}
+
         {% if graph_facts.duplicate_endings %}
           <p class="aside aside--warn">
             The same ending is declared more than once:

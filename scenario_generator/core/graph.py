@@ -23,7 +23,13 @@ from .models import Capability, Decision, State, Step
 
 logger = logging.getLogger(__name__)
 
-MAX_DEPTH = 12
+# Backstops, not the bound that shapes the walk -- loops are bounded by each decision's own
+# declared Max Attempts. Depth was 12, which is under a long route through a real declaration:
+# thirty-odd states with a three-attempt retry in the middle spends steps quickly, and every
+# branch past the twelfth was dropped with nothing on screen to say so. Endings past a cut are
+# reported now (see :func:`endings_not_reached`), and the limit itself sits where a genuine route
+# fits under it.
+MAX_DEPTH = 24
 MAX_PATHS = 1000
 
 # What an opening state says in its "Reached Via" cell when it is not reached by a decision at all.
@@ -401,6 +407,113 @@ def exits_for(graph: DecisionGraph, capability_id: str, entry_states: Sequence[s
             if landing is not None and (landing.is_terminal or landing.id not in inside):
                 found.add(landing.id)
     return sorted(found)
+
+
+@dataclass(frozen=True)
+class Unreached:
+    """An ending a block can produce that no route through the block arrives at."""
+
+    capability_id: str
+    state_id: str
+    reason: str
+
+
+def _reachable(graph: DecisionGraph, entry: str, stop_at: FrozenSet[str]) -> Dict[str, int]:
+    """States reachable from one entry, with the fewest decisions it takes to get to each.
+
+    Attempt limits are ignored on purpose. This answers "can a route get there at all", and a
+    decision behind a retry bound is still somewhere a route can arrive -- the augmentation pass
+    exists to reach exactly those. What is *not* ignored is where the block hands on, which is the
+    difference the caller reads.
+    """
+    seen = {entry: 0}
+    queue = deque([entry])
+    while queue:
+        state_id = queue.popleft()
+        state = graph.state(state_id)
+        if state is None:
+            continue
+        if state_id != entry and (state.is_terminal or state_id in stop_at):
+            continue
+        for decision_id in state.next_decisions:
+            decision = graph.decision(decision_id)
+            if decision is None or decision.out_of_scope:
+                continue
+            for variant in decision.variants:
+                landing = graph.successor(decision_id, variant)
+                if landing and landing not in seen:
+                    seen[landing] = seen[state_id] + 1
+                    queue.append(landing)
+    return seen
+
+
+def endings_not_reached(graph: DecisionGraph, capabilities: Sequence[Capability],
+                        decisions: Sequence[Decision]) -> List[Unreached]:
+    """Endings a block's own decisions can produce that no route through the block ends at.
+
+    Enumeration is silent about what it could not reach, and that silence is the problem this
+    answers. A pack that is missing the ending nobody could get to looks exactly like a pack that
+    is complete, and the person reading it has no way to tell whether the declaration is wrong,
+    the span is drawn wrong, or the walk is. Naming the ending and the reason turns a suspicion
+    into something to act on.
+
+    Three reasons, and they want different fixes:
+
+    - **The decision that produces it cannot be reached from where the block is entered.** The
+      declaration is incomplete, or the block is entered somewhere other than where it starts.
+    - **The block is declared to hand on before it gets there.** The span is drawn too narrow:
+      an exit sits on the way to the ending, and the walk stops at an exit by definition.
+    - **The route to it is longer than the depth backstop.** Nothing is wrong with the
+      declaration; the enumeration is genuinely incomplete and says so.
+
+    Answered by reachability rather than by enumerating, so it costs two searches per block and
+    can be shown on a page that redraws. Retry bounds are ignored for the same reason they are
+    ignored in :func:`_decisions_within`: an ending only reachable past one is reached by the
+    augmentation pass, so reporting it here would be reporting a route that does get walked.
+    """
+    found: List[Unreached] = []
+    by_capability: Dict[str, List[Span]] = {}
+    for span in spans_for(graph, capabilities):
+        by_capability.setdefault(span.capability_id, []).append(span)
+
+    for capability_id, spans in by_capability.items():
+        wanted: Set[str] = set()
+        honouring: Dict[str, int] = {}
+        ignoring: Dict[str, int] = {}
+        exits: Set[str] = set()
+        for span in spans:
+            owned = decisions_owned_by(graph, capability_id, [span.entry_state], decisions)
+            for decision_id in owned:
+                decision = graph.decision(decision_id)
+                if decision is None or decision.out_of_scope:
+                    continue
+                for variant in decision.variants:
+                    landing = graph.state(graph.successor(decision_id, variant))
+                    if landing is not None and landing.is_terminal:
+                        wanted.add(landing.id)
+            exits |= set(span.exit_states)
+            for where, into in ((span.exit_states, honouring), (frozenset(), ignoring)):
+                for state_id, depth in _reachable(graph, span.entry_state, frozenset(where)).items():
+                    if state_id not in into or depth < into[state_id]:
+                        into[state_id] = depth
+
+        for ending in sorted(wanted):
+            if ending in honouring and honouring[ending] <= MAX_DEPTH:
+                continue
+            if ending not in ignoring:
+                reason = ("the decision that produces it cannot be reached from where this block "
+                          "is entered")
+            elif ending not in honouring:
+                blocking = sorted(e for e in exits
+                                  if e in ignoring and ignoring[e] < ignoring[ending])
+                reason = ("the block is declared to hand on at "
+                          + (", ".join(blocking) if blocking else "an exit")
+                          + " before a route gets there")
+            else:
+                reason = (f"the shortest route to it is {honouring[ending]} decisions, past the "
+                          f"{MAX_DEPTH}-step backstop")
+            found.append(Unreached(capability_id, ending, reason))
+    return found
 
 
 def entry_candidates(graph: DecisionGraph, capability_id: str,

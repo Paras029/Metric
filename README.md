@@ -360,6 +360,22 @@ graph's language — a stadium ends the interaction, a square decides something,
 a graph of its own — so the collapsed view is readable as a different picture rather than as the
 same picture with fewer boxes, and nobody has to remember which level they are looking at.
 
+**It says what the walk could not reach.** An ending a capability's own decisions can produce
+that no route through it arrives at is named beside the drawing, with the reason — because a pack
+missing the ending nobody could get to looks exactly like a complete one, and the three reasons
+want three different fixes:
+
+- **the decision that produces it cannot be reached from where the block is entered** — the
+  declaration is incomplete, or the block is entered somewhere other than where it starts;
+- **the block is declared to hand on before it gets there** — the span is drawn too narrow: an
+  exit sits on the way, and the walk stops at an exit by definition;
+- **the route to it is longer than the depth backstop** — nothing is wrong with the declaration,
+  and the enumeration is genuinely incomplete.
+
+Answered by reachability rather than by walking, so it costs two searches per block and is on the
+page as the declaration is edited rather than only after a run. An ending only reachable past a
+retry limit is not reported: that one *is* reached, by the augmentation pass that exists for it.
+
 **Opening a scenario lights the route it walks.** A scenario *is* a route through this graph, and
 the graph is drawn on every stage that lists scenarios for exactly that reason. Open a card and its
 path lights up from the start box to the ending; open several and all of them stay lit, which is

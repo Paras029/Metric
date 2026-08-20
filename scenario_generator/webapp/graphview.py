@@ -25,7 +25,7 @@ import html
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from ..core.graph import DecisionGraph, entry_candidates, exits_for
+from ..core.graph import DecisionGraph, endings_not_reached, entry_candidates, exits_for
 from ..utils.text import parse_reached_via
 from ..core.models import Decision, IntakeData, State
 
@@ -943,6 +943,8 @@ def graph_summary(intake: IntakeData, pending_decisions: Sequence[str] = (),
     """Counts worth stating beside the picture, including anything the declaration got wrong."""
     layout = build_layout(intake, pending_decisions, pending_states)
     terminal = [s for s in intake.states if s.is_terminal]
+    graph = DecisionGraph(intake.decisions, intake.states)
+    states = {s.id: s for s in intake.states}
     return {
         "states": len(intake.states),
         "terminal": len(terminal),
@@ -956,6 +958,16 @@ def graph_summary(intake: IntakeData, pending_decisions: Sequence[str] = (),
         "orphans": layout.orphans,
         "duplicate_endings": layout.duplicate_endings,
         "depth": max((n.depth for n in layout.nodes.values()), default=0) + 1,
+        # Endings the enumeration cannot arrive at, with the reason. Shown beside the drawing
+        # rather than only after a run, because the fix for every one of them is an edit to the
+        # declaration and the declaration is on this page.
+        "unreached_endings": [
+            {"capability": u.capability_id,
+             "state": u.state_id,
+             "label": (states[u.state_id].description or u.state_id)
+                      if u.state_id in states else u.state_id,
+             "reason": u.reason}
+            for u in endings_not_reached(graph, intake.capabilities, intake.decisions)],
     }
 
 
