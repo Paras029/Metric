@@ -100,16 +100,20 @@ class TestTheTokensAreAllDefined(unittest.TestCase):
         return set(re.findall(r"(--[\w-]+)\s*:", root.group(1)))
 
     def _set_by_a_template(self) -> set:
-        """Custom properties the markup sets inline, as `style="--thing: 4"`.
+        """Custom properties something other than the palette sets: a template inline, or a script.
 
         A handful of values are not design decisions at all -- how many columns a grid has is a
-        property of the data, so it belongs in the template that knows the count rather than in a
-        palette that cannot. Those are still checked, just against the templates: a typo in one is
-        the same silent failure as a typo in a token, so it has to be declared *somewhere*.
+        property of the data, and how much of the scenario space runs through one arrow is a
+        property of the run -- so they belong with the code that knows the number rather than in a
+        palette that cannot. Those are still checked, just against their own source: a typo in one
+        is the same silent failure as a typo in a token, so it has to be declared *somewhere*.
         """
         found = set()
         for template in _TEMPLATES.rglob("*.html"):
             found |= set(re.findall(r"style=\"(--[\w-]+)\s*:", template.read_text(encoding="utf-8")))
+        for script in (_CSS.parent).glob("*.js"):
+            found |= set(re.findall(r"setProperty\(\s*['\"](--[\w-]+)",
+                                    script.read_text(encoding="utf-8")))
         return found
 
     def test_no_custom_property_is_used_without_being_declared(self):

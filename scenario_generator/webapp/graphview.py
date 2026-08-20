@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from ..core.graph import DecisionGraph, endings_not_reached, entry_candidates, exits_for
 from ..utils.text import parse_reached_via
-from ..core.models import Decision, IntakeData, State
+from ..core.models import ORIGIN_PROPOSED, Decision, IntakeData, State
 
 BOX_WIDTH = 190
 BOX_HEIGHT = 62
@@ -1023,6 +1023,66 @@ def routes(intake: IntakeData, scenarios: Sequence) -> Dict[str, dict]:
         found[scenario.id] = {"nodes": nodes, "edges": [list(edge) for edge in edges],
                               "block": getattr(scenario, "capability_id", "") or ""}
     return found
+
+
+# How a scenario is counted when the paint is asked "which of these does this route belong to".
+# Kept as one tuple so the server's keys and the page's controls cannot drift apart.
+LOADS = ("total", "High", "Medium", "Low", "proposed", "flagged", "kept")
+
+
+def load(intake: IntakeData, scenarios: Sequence) -> Dict[str, dict]:
+    """How much of the scenario space runs through each part of the drawing.
+
+    The materiality table answers "how material is this scenario". It does not answer the question
+    a validator actually arrives with, which is *where the material work is* -- which branch of the
+    agent produces the scenarios that matter, and which produces thirty that do not. That is a
+    question about the shape of the graph, and it is unanswerable from a table of three hundred
+    rows however it is sorted.
+
+    Counted over :func:`routes`, deliberately, rather than over the paths again. The lighting and
+    the paint then agree by construction: an edge a scenario lights when its card is opened is an
+    edge that scenario is counted on, and two implementations of "which parts of the drawing does
+    this route touch" would disagree the first time either changed.
+
+    ``kept`` is everything the review did not flag, so the page can show what the space looks like
+    with the flagged scenarios taken out of it -- the drop in volume across the graph is the review's
+    recommendation, drawn.
+    """
+    walked = routes(intake, scenarios)
+    by_id = {getattr(s, "id", ""): s for s in scenarios}
+
+    tally: Dict[str, Dict[str, int]] = {}
+    peak = {name: 0 for name in LOADS}
+
+    def add(key: str, scenario) -> None:
+        counts = tally.setdefault(key, {name: 0 for name in LOADS})
+        tier = getattr(scenario, "review_materiality", "") or getattr(scenario, "materiality", "")
+        flag = (getattr(scenario, "review_flag", "") or "").strip()
+        counts["total"] += 1
+        if tier in counts:
+            counts[tier] += 1
+        if getattr(scenario, "origin", "") == ORIGIN_PROPOSED:
+            counts["proposed"] += 1
+        if flag:
+            counts["flagged"] += 1
+        else:
+            counts["kept"] += 1
+        for name in LOADS:
+            peak[name] = max(peak[name], counts[name])
+
+    for scenario_id, where in walked.items():
+        scenario = by_id.get(scenario_id)
+        if scenario is None:
+            continue
+        for node_id in where.get("nodes", ()):
+            add("node:" + node_id, scenario)
+        for source, target, outcome in where.get("edges", ()):
+            add("|".join(("edge", source, target, outcome)), scenario)
+        block_id = where.get("block") or ""
+        if block_id:
+            add("block:" + block_id, scenario)
+
+    return {"at": tally, "peak": peak}
 
 
 def _described(states: Dict[str, State], ids: Sequence[str]) -> List[dict]:

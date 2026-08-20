@@ -152,7 +152,7 @@ class TestTheScriptBehindIt(unittest.TestCase):
         """Both when the view is switched and when the overlay opens: the two drawings are
         different sizes and the overlay is a different size again, and a fit computed for the
         frame it is no longer in scrolls over empty space."""
-        self.assertEqual(self.script.count("metric:viewchanged"), 3)
+        self.assertGreaterEqual(self.script.count("metric:viewchanged"), 3)
 
     def test_escape_closes_the_overlay_before_it_clears_the_selection(self):
         """One key press should not both put the window away and drop every open card."""

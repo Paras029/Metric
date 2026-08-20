@@ -461,6 +461,39 @@
           </p>
         {% endif %}
 
+        {# What the drawing is coloured by. Rendered only where the scenario space has something
+           to say -- before materiality every route is the same colour, and three ways of drawing
+           one colour is worse than no control at all. #}
+        {% if graph_load %}
+          <div class="paint" data-paint>
+            <span class="paint__label">Colour by</span>
+            <div class="paint__options" role="group" aria-label="Colour the graph by">
+              <button class="paint__option is-on" type="button" data-paint-mode="off">
+                Nothing
+              </button>
+              <button class="paint__option" type="button" data-paint-mode="volume">
+                Volume
+              </button>
+              <button class="paint__option" type="button" data-paint-mode="materiality">
+                Materiality
+              </button>
+              {% if view.stage.key == 'review' %}
+                <button class="paint__option" type="button" data-paint-mode="review">
+                  What the review changes
+                </button>
+              {% endif %}
+            </div>
+            {# Only where a review has run. The toggle takes the flagged scenarios out of the
+               count and redraws, so the drop in volume across the graph *is* the review's
+               recommendation rather than a list of ids to read against the picture. #}
+            <label class="paint__drop" data-paint-drop hidden>
+              <input type="checkbox" data-paint-flagged>
+              Without the flagged ones
+            </label>
+            <span class="paint__key" data-paint-key></span>
+          </div>
+        {% endif %}
+
         <div class="graph__tools">
           <button class="graph__zoom" type="button" data-zoom="out" title="Zoom out">−</button>
           <button class="graph__zoom" type="button" data-zoom="in" title="Zoom in">+</button>
@@ -1654,6 +1687,15 @@
     window.METRIC_HIGHLIGHTS = JSON.parse(
       document.getElementById('metric-highlights').textContent);
     window.METRIC_GRAPH = JSON.parse(document.getElementById('metric-graph').textContent);
+  </script>
+{% endif %}
+{# How much of the scenario space runs through each part of the drawing, so the graph can answer
+   "where does the material work come from" -- which is the question a validator arrives with and
+   the one a table of three hundred rows cannot answer however it is sorted. #}
+{% if graph_load %}
+  <script id="metric-load" type="application/json">{{ graph_load | tojson }}</script>
+  <script>
+    window.METRIC_LOAD = JSON.parse(document.getElementById('metric-load').textContent);
   </script>
 {% endif %}
 <script src="{{ url_for('static', filename='graph.js') }}" defer></script>

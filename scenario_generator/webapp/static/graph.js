@@ -521,3 +521,177 @@
     close();
   }, true);
 })();
+
+
+/* ---------------------------------------------------------------- painting the drawing
+ *
+ * The materiality table answers "how material is this scenario". It does not answer the question
+ * a validator arrives with, which is *where the material work is*: which branch of the agent
+ * produces the scenarios that matter and which produces thirty that do not. That is a question
+ * about the shape of the graph, and no sorting of three hundred rows answers it.
+ *
+ * So the drawing gets a second reading. Volume paints how much of the space runs through each
+ * part of it; materiality paints the same weight in the colour of the tier that dominates there;
+ * and on the review stage a third mode contrasts what the review proposes against what is already
+ * there -- additions in their own colour, and a toggle that takes the flagged scenarios out of
+ * the count so the drop in volume across the graph *is* the recommendation, drawn.
+ *
+ * The counts come from the server, computed over the same routes() the card highlighting uses, so
+ * an edge a scenario lights when its card is opened is an edge it is counted on. Painting is
+ * client-side from there: switching modes is a class and a custom property per element, which is
+ * instant, where a round trip per mode would make the control feel like a form.
+ *
+ * The scenario lighting stays on top of it. Paint is the background reading -- the shape of the
+ * space -- and an opened card is a foreground answer about one route; a mode that fought the
+ * lighting would take away the thing the two views were put side by side for.
+ */
+(function () {
+  var control = document.querySelector('[data-paint]');
+  var canvas = document.querySelector('[data-graph-canvas]');
+  if (!control || !canvas || !window.METRIC_LOAD) { return; }
+
+  var TIERS = ['High', 'Medium', 'Low'];
+  var mode = 'off';
+  var dropFlagged = false;
+
+  var drop = control.querySelector('[data-paint-drop]');
+  var dropBox = control.querySelector('[data-paint-flagged]');
+  var key = control.querySelector('[data-paint-key]');
+
+  function counts(el) {
+    var at = window.METRIC_LOAD.at || {};
+    if (el.hasAttribute('data-node')) {
+      var id = el.getAttribute('data-node');
+      // A capability block is a node in the collapsed drawing and a whole region in the counts,
+      // so it answers to a different key. Falling through rather than branching on the shape of
+      // the element: the collapsed view is the same markup with different ids in it.
+      return at['node:' + id] || at['block:' + id];
+    }
+    return at[['edge', el.getAttribute('data-source'), el.getAttribute('data-target'),
+               el.getAttribute('data-outcome')].join('|')];
+  }
+
+  // What one element is worth, in the terms the current mode reads in.
+  //
+  // The denominator does *not* move when the flagged ones are dropped, and that is the whole
+  // point of the toggle: measured against its own new peak, a branch that lost half its scenarios
+  // renormalises straight back to the shade it had, and the picture that was supposed to show the
+  // review's effect shows nothing. Held against the full space, taking scenarios out thins the
+  // paint, which is the recommendation drawn rather than described.
+  function weight(at) {
+    if (!at) { return 0; }
+    return (dropFlagged ? at.kept : at.total) || 0;
+  }
+
+  function peak() {
+    return (window.METRIC_LOAD.peak || {}).total || 1;
+  }
+
+  function dominant(at) {
+    var best = '', most = 0;
+    TIERS.forEach(function (tier) {
+      if ((at[tier] || 0) > most) { most = at[tier]; best = tier; }
+    });
+    return best;
+  }
+
+  function paintable() {
+    // Blocks as well as boxes and arrows, so the collapsed view reads the same way -- a validator
+    // who folded the capabilities to see the shape of the agent is exactly the one asking where
+    // the material work sits.
+    //
+    // What the collapsed view does not paint is the arrows *between* blocks, and deliberately:
+    // opening a scenario there lights its block and not the hand-offs either, because a route is
+    // counted on the graph it was walked on. Painting a hand-off would be a number this has not
+    // got, arrived at by a second rule.
+    return canvas.querySelectorAll('[data-node], [data-source]');
+  }
+
+  function clear(el) {
+    el.classList.remove('is-painted');
+    TIERS.forEach(function (tier) { el.classList.remove('is-painted--' + tier.toLowerCase()); });
+    el.classList.remove('is-painted--added');
+    el.classList.remove('is-painted--dropped');
+    el.style.removeProperty('--load');
+  }
+
+  function apply() {
+    var top = peak();
+    Array.prototype.forEach.call(paintable(), function (el) {
+      clear(el);
+      if (mode === 'off') { return; }
+      var at = counts(el);
+      if (!at) { return; }
+
+      var share = Math.min(1, weight(at) / top);
+      if (mode === 'review') {
+        // Three states worth telling apart, and only three: what the review adds, what it would
+        // take away, and what it leaves alone. Anything the review says nothing about is left
+        // unpainted rather than painted "unchanged" -- a picture where everything is coloured
+        // says nothing about where the change is.
+        if (at.proposed) { el.classList.add('is-painted', 'is-painted--added'); }
+        else if (at.flagged) { el.classList.add('is-painted', 'is-painted--dropped'); }
+        else { return; }
+        el.style.setProperty('--load', Math.max(0.25, share).toFixed(3));
+        return;
+      }
+
+      // Nothing left running through here is not a faint reading, it is an absent one -- and
+      // with the flagged scenarios dropped it is exactly what somebody is looking for.
+      if (weight(at) <= 0) { return; }
+      el.classList.add('is-painted');
+      if (mode === 'materiality') {
+        var tier = dominant(at);
+        if (tier) { el.classList.add('is-painted--' + tier.toLowerCase()); }
+      }
+      // Floored above zero, because "one scenario runs through here" and "none at all" have to
+      // look different: a share of 1/300 rounds to invisible, and invisible reads as untested.
+      el.style.setProperty('--load', Math.max(0.22, share).toFixed(3));
+    });
+    describe();
+  }
+
+  function describe() {
+    if (!key) { return; }
+    var top = peak();
+    if (mode === 'off') { key.textContent = ''; return; }
+    if (mode === 'volume') {
+      key.textContent = 'Darker where more of the space runs through it · busiest carries '
+        + top + ' scenario' + (top === 1 ? '' : 's');
+      return;
+    }
+    if (mode === 'materiality') {
+      key.textContent = 'Coloured by the tier that dominates there, darker with volume';
+      return;
+    }
+    key.textContent = 'Green where the review proposes something new · amber where it flags what '
+      + 'is there';
+  }
+
+  control.addEventListener('click', function (event) {
+    var button = event.target.closest('[data-paint-mode]');
+    if (!button) { return; }
+    mode = button.dataset.paintMode;
+    Array.prototype.forEach.call(control.querySelectorAll('[data-paint-mode]'), function (other) {
+      other.classList.toggle('is-on', other === button);
+    });
+    // Offered only where taking something out would change the picture. On a space nothing is
+    // flagged in, the toggle is a control that does nothing.
+    if (drop) {
+      drop.hidden = mode === 'off' || !((window.METRIC_LOAD.peak || {}).flagged);
+    }
+    apply();
+  });
+
+  if (dropBox) {
+    dropBox.addEventListener('change', function () {
+      dropFlagged = dropBox.checked;
+      apply();
+    });
+  }
+
+  // Redrawn after an edit or a view switch, so the paint follows the picture rather than being
+  // left on the one it was applied to.
+  canvas.addEventListener('metric:viewchanged', apply);
+  canvas.addEventListener('metric:drawingschanged', apply);
+})();

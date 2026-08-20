@@ -52,8 +52,8 @@ from .coverageview import coverage_view, stored_mappings, stored_report
 from .graphpage import render_graph_page
 from .declaration import FIELDS as EDITOR_FIELDS, editable
 from .declaration import graph_index as declaration_index
-from .graphview import (declaration as _declaration, graph_summary, highlights,
-                        render_blocks_svg, render_svg,
+from .graphview import (LOADS, declaration as _declaration, graph_summary, highlights,
+                        load as _graph_load, render_blocks_svg, render_svg,
                         routes as _graph_routes)
 from .runners import (CONTEXT, DRAFT_INTAKE, EVIDENCE, OVERLAP, METADATA, RUNNERS,
                       structural_problems,
@@ -78,6 +78,15 @@ SCENARIO_STAGES = ("scenarios", "variations", "materiality", "review", "coverage
 # and a full graph above three hundred cards pushes all of them off the screen.
 GRAPH_STAGES = ("intake", "workflow") + SCENARIO_STAGES
 GRAPH_OPEN_STAGES = ("intake", "workflow")
+
+# Stages where the drawing can be painted by what the scenario space says about it.
+#
+# Materiality is where "which branch produces the work that matters" first has an answer, and the
+# review is where that answer is about to change. Before either, nothing has been weighed: every
+# route would paint the same, and a control offering three ways to draw one colour is worse than
+# no control. Coverage has its own colouring already and painting a second thing over it would
+# leave two scales on one picture.
+LOAD_STAGES = ("materiality", "review", "summary")
 
 # Groups redaction can actually do something to: the two that carry text ingestion reads. A
 # diagram has no text to redact, and the model owner's conversations never reach
@@ -291,6 +300,12 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
                          if key == "intake" and intake is not None else {}),
             graph_open=key in GRAPH_OPEN_STAGES,
             routes=_routes(intake, scenarios) if graph_svg else {},
+            # Where the scenario space actually sits on the graph, for the stages that have a
+            # judgement to make about it. Not on the intake or workflow stages: nothing has been
+            # weighed there yet, so every route would paint the same and the control would be
+            # three ways of drawing one colour.
+            graph_load=(_graph_load(intake, scenarios)
+                        if graph_svg and key in LOAD_STAGES and scenarios else {}),
             structure_proposals=(workspace.structure_proposals
                                  if STRUCTURE_REVIEW_OFFERED and key == "intake" else []),
             structure_review_available=(STRUCTURE_REVIEW_OFFERED and key == "intake"

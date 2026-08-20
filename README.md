@@ -394,6 +394,29 @@ Answered by reachability rather than by walking, so it costs two searches per bl
 page as the declaration is edited rather than only after a run. An ending only reachable past a
 retry limit is not reported: that one *is* reached, by the augmentation pass that exists for it.
 
+**The drawing answers where the material work is.** A materiality table says how material each
+scenario is. It does not say *where* the work that matters comes from — which branch of the agent
+produces the scenarios worth running and which produces thirty that are not — and no sorting of
+three hundred rows says it either, because that is a question about the shape of the graph. So
+from the materiality stage on, the drawing takes a second reading, chosen from *Colour by*:
+
+- **Volume** — how much of the space runs through each box and arrow, in one colour, weight
+  standing for load. Volume is not a judgement, so it does not get a hue of its own to compete
+  with the tiers, which are.
+- **Materiality** — the same weight in the colour of the tier that dominates there. The busy
+  branch that is all Low reads differently from the quiet one that is all High, which is the
+  comparison the table cannot make.
+- **What the review changes**, on the review stage only — green where the review proposes
+  something new, amber where it flags what is already there, and nothing at all where it has no
+  opinion, because a picture where everything is coloured says nothing about where the change is.
+  Beside it, *Without the flagged ones* recomputes the volume with the flagged scenarios taken
+  out, against the same scale, so the thinning across the graph **is** the recommendation rather
+  than a list of ids to read against the picture.
+
+Counted over the same routes the card highlighting uses, so an arrow a scenario lights when its
+card is opened is an arrow it is counted on. The scenario list stays beside it, so a tier worth
+arguing with is one click from the route it was assigned to.
+
 **Opening a scenario lights the route it walks.** A scenario *is* a route through this graph, and
 the graph is drawn on every stage that lists scenarios for exactly that reason. Open a card and its
 path lights up from the start box to the ending; open several and all of them stay lit, which is
