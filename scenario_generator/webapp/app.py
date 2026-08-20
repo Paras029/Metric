@@ -176,6 +176,33 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         workspace = _workspace()
         return redirect(url_for("stage", key=workspace.current_stage().key))
 
+    @app.route("/workspaces/<slug>/delete", methods=["POST"])
+    def delete_workspace(slug: str):
+        """Remove a workspace and everything in it.
+
+        A workspace is a directory and nothing else, so this is one recursive delete -- and that is
+        exactly why it is worth being careful about the path. The slug is resolved against the
+        workspace root and refused if it lands anywhere else, so a crafted slug cannot reach out
+        of it.
+
+        There is no undo and none is offered. A confirmation people have learned to click through
+        is not a safeguard; what makes this safe to have is that it is the only destructive control
+        in the tool and it names what it is about to remove.
+        """
+        import shutil
+
+        base = Path(app.config["WORKSPACE_ROOT"]).resolve()
+        target = (base / slug).resolve()
+        if base not in target.parents or not (target / "workspace.json").exists():
+            abort(404)
+
+        name = Workspace.load(target).name
+        shutil.rmtree(target, ignore_errors=True)
+        logger.info("Deleted the workspace %r and everything in it.", name)
+        if session.get("workspace") == slug:
+            session.pop("workspace", None)
+        return redirect(url_for("index"))
+
     @app.route("/stage/<key>", methods=["GET"])
     def stage(key: str):
         if key not in STAGE_BY_KEY:
@@ -1125,13 +1152,14 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         """
         workspace = _workspace()
         purge = bool(request.form.get("purge"))
+        submissions = bool(request.form.get("submissions"))
         delete = []
         if purge:
             for stage in [STAGE_BY_KEY[key]] + downstream_of(key):
                 delete.extend(STAGE_OUTPUTS.get(stage.key, ()))
 
-        removed = workspace.reset_from(key, delete=delete)
-        if purge:
+        removed = workspace.reset_from(key, delete=delete, submissions=submissions)
+        if purge or submissions:
             logger.info("Cleared %s onward and deleted %d file(s).", key, len(removed))
         return redirect(url_for("stage", key=key))
 

@@ -5,8 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}METRIC{% endblock %}</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+{# Set before the stylesheet is applied rather than on load, so anything hidden only where
+   scripting exists never flashes into view and back out. Everything in this interface works
+   without scripting; what this marks is where an enhancement can replace something rather than
+   sit beside it. #}
+<script>document.documentElement.className += " has-script";</script>
 </head>
 <body>
 {% block body %}{% endblock %}
+{# On every page, because the two things it guards are on two different pages and a confirmation
+   that is only loaded where somebody remembered to load it is not a guard. #}
+<script src="{{ url_for('static', filename='confirm.js') }}" defer></script>
 </body>
 </html>

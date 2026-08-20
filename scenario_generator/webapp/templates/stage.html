@@ -563,6 +563,13 @@
        page nobody reaches the bottom of, and the question is never "show me everything" -- it is
        "which decisions are wrong", then "where does that state go". #}
     {% if editor %}
+      {# Where the editor is, for the page it is no longer on. #}
+      <p class="aside declaration__moved">
+        Every part of the declaration — decisions, states, capabilities, tools and personas — is
+        editable in the expanded view. Use <strong>Open with the declaration</strong> above: the
+        rows go down one side and the drawing down the other, so selecting a row lights it.
+      </p>
+
       <span data-anchor-for="declaration" hidden></span>
       <section class="block" id="declaration" data-movable="declaration">
         <h2 class="block__title">The declaration</h2>
@@ -1057,7 +1064,8 @@
                      capability is that a scenario exercises one block, and nothing in a title or
                      a description reliably says which. #}
                   {% if row.capability %}
-                    <span class="mark mark--block">{{ row.capability }}</span>
+                    <span class="mark mark--block{{ ' mark--journey' if row.crosses_blocks }}">
+                      {{ row.capability }}</span>
                   {% endif %}
                   <span class="card__marks">
                     {% if 'review' in space.shows %}
@@ -1093,6 +1101,12 @@
                     {% if row.capability_id %}
                       <span>Tests <span class="mono">{{ row.capability_id }}</span>
                         — {{ row.capability }}</span>
+                    {% elif row.crosses_blocks %}
+                      {# The walk cannot produce one of these. Every full journey in the pack is a
+                         route somebody proposed on purpose, and it is run from the beginning
+                         rather than seeded part way through. #}
+                      <span>Runs end to end, across
+                        <span class="mono">{{ row.capabilities | join(', ') }}</span></span>
                     {% endif %}
                     <span>{{ row.persona }}</span>
                     <span>{{ row.turns }} turn{{ '' if row.turns == 1 else 's' }}</span>
@@ -1373,6 +1387,22 @@
           </button>
           <span class="reset__note">
             Deletes what this stage and the ones after it produced. Submitted files are kept.
+          </span>
+        </form>
+        {# The third intention, and the one that was missing. "Start again" that leaves the
+           submitted documentation in place produces a next run built from a pack nobody remembers
+           uploading -- which for a tool whose whole output is meant to be traceable to its inputs
+           is the most confusing state available. #}
+        <form method="post" action="{{ url_for('reset_stage', key=stage.key) }}">
+          <input type="hidden" name="purge" value="1">
+          <input type="hidden" name="submissions" value="1">
+          <button class="button button--danger" type="submit"
+                  data-confirm="Delete everything from {{ stage.title }} onward, including the
+                                files submitted to it?">
+            Start from nothing
+          </button>
+          <span class="reset__note">
+            The same, and removes what was submitted to this stage and the ones after it.
           </span>
         </form>
       </div>

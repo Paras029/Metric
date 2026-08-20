@@ -37,7 +37,7 @@ _CONTRACT = {
     "reviewer.field_guide": set(),
     "reviewer.assess": {"owner", "total", "digest", "materiality", "batch"},
     "reviewer.category": {"owner", "total", "digest", "categories", "batch"},
-    "reviewer.propose": {"owner", "total", "digest", "limit", "categories", "materiality", "cds"},
+    "reviewer.propose": {"owner", "total", "digest", "limit", "categories", "materiality", "cds", "blocks"},
     "reviewer.adjudicate": {"total", "digest", "materiality", "scale_values", "batch"},
     "reviewer.owner_block": {"owner_scenarios"},
     "ingest.system": set(),
@@ -101,7 +101,7 @@ class TestPromptLibrary(unittest.TestCase):
     def test_json_examples_survive_rendering(self):
         """Prompts embed JSON, so braces must pass through untouched by the placeholder pass."""
         self.assertIn('{"proposals": []}', prompt_loader.render(
-            "reviewer.propose", owner="", total=1, digest="d", limit=1,
+            "reviewer.propose", owner="", total=1, digest="d", limit=1, blocks="b",
             categories="c", materiality="m", cds=""))
 
 

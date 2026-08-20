@@ -205,13 +205,19 @@ def walk_paths(graph: DecisionGraph, span: Optional[Span] = None) -> List[Path]:
 
     * the outcome taken names a destination no state declares (``OUT:DEC-02=Odd``);
     * the state reached leads nowhere and is neither an exit nor an ending;
-    * every decision the state offers has used up its ``Max Attempts``, or is out of scope.
+    * every decision the state offers has used up its ``Max Attempts``.
 
     All three used to be recorded as paths, and became scenarios. None of them can be one: a
     scenario is a conversation issued to the model owner with an expected outcome behind it, and a
     route the declaration stops short of has no expected outcome to have -- so the metadata
     workbook carried an ending of nothing at all, and the pack asked for a conversation nobody
     could mark. They are dropped here, which is what keeps that out of everything downstream.
+
+    **An out-of-scope decision is not one of those.** It is a boundary somebody drew deliberately
+    -- a sub-system reviewed under a separate engagement -- so a route arriving at one has an
+    expected outcome: the agent hands off. Those routes finish there and are kept, which is what
+    makes the flag mean "do not test past here" rather than "do not test anything that leads
+    here".
 
     Called with no span, this walks the whole graph exactly as it did before spans existed.
     """
@@ -236,6 +242,22 @@ def walk_paths(graph: DecisionGraph, span: Optional[Span] = None) -> List[Path]:
         state = graph.state(state_id)
         if state is None or finishes_here(state, state_id) or not state.next_decisions:
             if path and finishes_here(state, state_id):
+                paths.append(list(path))
+            return
+
+        # A boundary somebody drew, rather than the declaration running out. Where every decision
+        # on offer is marked out of scope, the route ends here and is kept: that is the whole
+        # point of marking something out of scope -- a plug-and-play sub-system reviewed under a
+        # separate engagement, whose behaviour is not being tested but whose *hand-off* is. Left
+        # unrecorded, everything on the way to that boundary went untested too, which is the
+        # opposite of what the flag is for.
+        #
+        # Retry exhaustion is deliberately not this case. There the intake genuinely has not said
+        # what the agent does next, so there is no expected outcome to issue.
+        offered = [graph.decision(d) for d in state.next_decisions]
+        if any(d is not None for d in offered) and all(
+                d is None or d.out_of_scope for d in offered):
+            if path:
                 paths.append(list(path))
             return
 

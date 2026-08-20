@@ -56,6 +56,17 @@
                     <span class="mono ledger__count">{{ progress.done }}/{{ progress.total }}</span>
                   </span>
                 </a>
+                {# The only destructive control in the tool, so it says what it removes rather
+                   than relying on a confirmation people have learned to click through. #}
+                <form class="ledger__remove" method="post"
+                      action="{{ url_for('delete_workspace', slug=workspace.root.name) }}">
+                  <button class="ledger__delete" type="submit"
+                          title="Delete this workspace and everything in it"
+                          data-confirm="Delete {{ workspace.name }} and everything in it? There
+                                        is no undo.">
+                    Delete
+                  </button>
+                </form>
               </li>
             {% endfor %}
           </ul>

@@ -39,7 +39,8 @@ from ..utils import chunks, one_of, parse_json_object
 from ..utils.replies import prose
 from . import cancellation, config, council, prompt_loader
 from .calling import call_batch, parsed_reply
-from .context import describe_graph, describe_use_case, digest, supplementary_context
+from .context import (describe_blocks, describe_graph, describe_use_case, digest,
+                      supplementary_context)
 from .gateway import ask_llm
 
 logger = logging.getLogger(__name__)
@@ -375,6 +376,10 @@ class ScenarioReviewer:
         user = f"{preamble}\n\n" + prompt_loader.render(
             _PROPOSE_PROMPT, **shared, limit=self._limit,
             cds=prompt_loader.load("shared.cds"),
+            # How the agent is divided, which is the one thing the digest cannot say. Every
+            # scenario in it covers a single block, so the routes that cross two are exactly the
+            # ones this pass has to propose -- and it cannot name one without the chain.
+            blocks=describe_blocks(intake),
             categories=", ".join(CATEGORIES), materiality=", ".join(MATERIALITY))
         try:
             reply = parse_json_object(self._call(user))

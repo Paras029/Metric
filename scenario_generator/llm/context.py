@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from typing import List
+from typing import Dict, List
 
 from ..core.models import IntakeData, Scenario
 
@@ -163,13 +163,60 @@ def supplementary_context(text: str) -> str:
 
 
 def digest(scenarios: List[Scenario], description_chars: int = 160) -> str:
-    """One line per scenario — the whole scenario space in a form a single prompt can carry."""
+    """One line per scenario — the whole scenario space in a form a single prompt can carry.
+
+    The block each one is scoped to is on the line, because since the space became
+    capability-scoped that is the single most important fact about a scenario for anything reading
+    the list: every entry covers one block, so what is *not* here is any route that crosses two.
+    """
     lines = []
     for s in scenarios:
         parts = [s.id, f"[{s.origin}]", f"({s.category})",
                  f"materiality={s.effective_materiality}"]
+        if s.capability_id:
+            parts.append(f"block={s.capability_id}")
         if s.path:
             parts.append(f"path: {s.path_str}")
         parts.append(f"| {s.description[:description_chars]}")
         lines.append(" ".join(parts))
+    return "\n".join(lines)
+
+
+def describe_blocks(intake: IntakeData) -> str:
+    """The agent as its chain of capabilities: which block hands on to which, and where each ends.
+
+    What a proposal pass needs in order to name a journey. The scenario space it is looking at is
+    scoped one block at a time, so the routes that run the whole way through are exactly the ones
+    it cannot see in the digest -- and it cannot propose one without knowing the order the blocks
+    run in and where they join.
+    """
+    bounded = [c for c in intake.capabilities if c.is_bounded]
+    if not bounded:
+        return ("No capability has a span drawn, so the scenario space is walked whole and every "
+                "scenario already runs end to end.")
+
+    described = {s.id: s for s in intake.states}
+    entered_by: Dict[str, str] = {}
+    for capability in bounded:
+        for state_id in capability.entry_states:
+            entered_by.setdefault(state_id, capability.id)
+
+    lines = ["The agent is divided into these blocks, and the scenario space is walked one block "
+             "at a time. Each line says where a block is entered and where it hands on."]
+    for capability in bounded:
+        entries = ", ".join(f"{s} ({described[s].description})" if s in described else s
+                            for s in capability.entry_states)
+        onward = []
+        for state_id in capability.exit_states:
+            state = described.get(state_id)
+            target = entered_by.get(state_id)
+            if target and target != capability.id:
+                onward.append(f"{state_id} -> {target}")
+            elif state is not None and state.is_terminal:
+                onward.append(f"{state_id} ends the interaction ({state.outcome_type or 'no type'})")
+            else:
+                onward.append(state_id)
+        lines.append(f"- {capability.id} ({capability.name or capability.id}): entered at "
+                     f"{entries or 'nothing declared'}; leaves at "
+                     f"{'; '.join(onward) or 'nothing declared'}")
     return "\n".join(lines)

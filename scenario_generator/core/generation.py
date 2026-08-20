@@ -158,6 +158,7 @@ def instantiate_path(path: Path, graph: DecisionGraph, personas: List[Persona],
     else:
         start_state = graph.state(_started_at(path, graph)) if graph.start_states else None
     terminal_state = graph.state(path[-1].next_state) if path else None
+    ending = _how_it_ends(terminal_state, graph)
 
     capabilities = list(dict.fromkeys(
         graph.decision(s.decision_id).trigger_capability for s in path
@@ -169,7 +170,7 @@ def instantiate_path(path: Path, graph: DecisionGraph, personas: List[Persona],
         category=category,
         persona=bind_persona(category, personas),
         seeded_state=start_state.description if start_state else "Session start",
-        termination=terminal_state.description if terminal_state else "Terminal state reached",
+        termination=ending,
         capabilities=capabilities,
         tools=tool_names,
         touches_state_change=state_changing,
@@ -183,6 +184,26 @@ def instantiate_path(path: Path, graph: DecisionGraph, personas: List[Persona],
     scenario.turn_plan = fallback_turn_plan(turn_meta)
     scenario.materiality_rationale = "Not assessed (LLM writer not run)."
     return scenario
+
+
+def _how_it_ends(state, graph: DecisionGraph) -> str:
+    """What the tester should expect at the last turn.
+
+    Ordinarily the ending state's own description. The exception is a route that stops at an
+    out-of-scope boundary: the state it stops at is not an ending at all, and its description
+    reads as though the conversation carries on -- which for a tester marking the transcript is
+    the difference between a pass and a bug report. So the hand-off is said outright.
+    """
+    if state is None:
+        return "Terminal state reached"
+    if not state.is_terminal and state.next_decisions:
+        onward = [graph.decision(d) for d in state.next_decisions]
+        if any(d is not None for d in onward) and all(
+                d is None or d.out_of_scope for d in onward):
+            named = ", ".join(d.id for d in onward if d is not None)
+            return (f"{state.description or state.id} — the interaction hands on to {named}, "
+                    f"which is out of scope for this exercise")
+    return state.description or state.id
 
 
 def _precondition(span: Optional[Span], start_state) -> str:

@@ -4,6 +4,10 @@
 
 {{digest}}
 
+HOW THIS AGENT IS DIVIDED
+
+{{blocks}}
+
 YOUR TASK
 
 Decide whether anything materially important is missing, and propose it if so.
@@ -12,6 +16,48 @@ The graph walk is exhaustive over what the intake declares, and the probe librar
 use-case-agnostic by design. Neither can see what this particular business context makes risky.
 That is the only gap worth filling, and it is why you have the business objective in front of you
 rather than just the structure.
+
+**AND ONE GAP THE WALK NOW HAS BY CONSTRUCTION.** Where blocks are declared above, the scenario
+space is walked **one block at a time**: a verification scenario begins with the cardmember
+already identified, and a charge-handling scenario begins with them already verified. That is a
+deliberate choice and it is what keeps the pack a readable size — walking every combination of
+every block multiplies out into hundreds of scenarios that test the same downstream behaviour
+over and over.
+
+What it means is that **no scenario in the digest runs the whole way through**, and the routes
+that do are exactly the ones nobody can see by reading it. Proposing the important ones is part
+of your job here, and it is the part only you can do.
+
+WHICH FULL JOURNEYS ARE WORTH PROPOSING
+
+Not many, and not the obvious ones. A journey that is simply each block's happy path joined end
+to end tests nothing the block scenarios did not already test separately, and it is the first
+thing anybody proposes. Look instead for journeys where **something carries across a boundary**:
+
+- **State carried forward.** A detail established in one block that a later one relies on, where
+  the hand-off is where it could be lost — an identity established one way rather than another, a
+  limit or entitlement read early and acted on late, a value the customer gave in the first block
+  and corrected in the third.
+- **Accumulation across blocks.** Three failed attempts spread across two blocks rather than
+  three in one, where each block on its own is within its limit. The per-block walk cannot reach
+  this at all: each block only ever counts its own.
+- **A route back.** Where a later block sends the interaction into an earlier one — verification
+  deciding the identity is stale and returning to identification. The blocks above say where those
+  returns are. A journey that goes out and comes back is a real route and no block scenario walks
+  it.
+- **The full happy path, once.** Exactly one, if there is a genuine end-to-end success worth
+  demonstrating. It is worth having as the reference conversation and it is not worth having
+  twice.
+- **A conduct or regulatory obligation that only bites at the end**, on facts established at the
+  beginning — a disclosure owed because of something said three turns earlier.
+
+Give a full journey a `decision_path` that names the decisions in order across every block it
+crosses, and leave `capabilities` listing all of them. A proposal whose steps straddle two blocks
+is correctly recorded as belonging to neither, and is issued as a scenario the tester runs from
+the beginning.
+
+Cap them at **three**, inside the overall limit below. A pack of end-to-end journeys is the
+scenario space this design exists to avoid.
 
 WHERE THE REAL GAPS TEND TO BE
 

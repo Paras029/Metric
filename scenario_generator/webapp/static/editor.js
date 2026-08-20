@@ -52,6 +52,10 @@
   }
 
   function darken() {
+    // The flag the graph's own hover reads. A selected row has to survive the pointer moving over
+    // the drawing to look at what it lit; without this, the hover handler takes over on the way
+    // there and the selection is gone before it is read.
+    document.body.classList.remove('is-holding');
     drawings().forEach(function (one) { one.classList.remove('graph--focused'); });
     lit.forEach(function (el) {
       el.classList.remove('is-lit');
@@ -89,6 +93,7 @@
         : key + ' is not connected to the graph yet.');
       return;
     }
+    document.body.classList.add('is-holding');
     drawings().forEach(function (one) { one.classList.add('graph--focused'); });
     found.nodes.forEach(function (id) { light('[data-node="' + quoted(id) + '"]'); });
     found.edges.forEach(function (edge) {

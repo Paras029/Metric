@@ -273,8 +273,13 @@
   // view exactly as it does in the detailed one. Hovering a capability block lights what hands on
   // to it and what it hands on to, which is the question that view exists to answer.
   canvas.addEventListener('mouseover', function (event) {
-    if (open.length) { return; }               // a held route outranks whatever is under the
-    var el = event.target.closest &&           // pointer, or moving to read it would lose it
+    // Anything deliberately held outranks whatever happens to be under the pointer. Two things
+    // can hold: an open scenario card here, and a selected row in the declaration editor, which
+    // sets the class below. Without the second, selecting a decision lit it and then lost it the
+    // moment the pointer crossed the drawing to look at what had lit -- which is the one movement
+    // the highlight exists to support.
+    if (open.length || document.body.classList.contains('is-holding')) { return; }
+    var el = event.target.closest &&
       event.target.closest('.graph__node, .graph__edge, .graph__label');
     if (!el) { return; }
     darken();
@@ -284,7 +289,7 @@
   });
 
   canvas.addEventListener('mouseleave', function () {
-    if (!open.length) { darken(); }
+    if (!open.length && !document.body.classList.contains('is-holding')) { darken(); }
   });
 
   function closeAll() {

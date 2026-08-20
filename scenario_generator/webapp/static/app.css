@@ -832,6 +832,10 @@ ol, ul { list-style: none; padding: 0; }
   color: var(--blue-dark);
   font-weight: 600;
 }
+/* A journey that crosses every block. The walk cannot produce one, so each is a route somebody
+   proposed deliberately -- and in a list where every other row covers one block, that is the
+   thing worth spotting. */
+.mark--journey { border-color: var(--blue); background: var(--blue-tint); }
 .mark--covered { background: var(--ok-tint); color: var(--ok); }
 /* Three tiers, so High is the top of the scale and carries the strongest colour. */
 .mark--tier-high { background: var(--bad-tint); color: var(--bad); }
@@ -2148,3 +2152,45 @@ body.is-expanded { overflow: hidden; }
 .expand__list .erow__note { display: none; }
 .expand__list .editor__tab { padding: var(--s2); font-size: var(--t-meta); }
 .expand__list .erow__form { padding-bottom: var(--s3); }
+
+
+/* The one destructive control on the entry screen. Quiet until reached for: a delete sitting at
+   full strength beside every workspace makes the list read as a list of things to remove. */
+.ledger__row { display: flex; align-items: center; gap: var(--s3); }
+.ledger__row .ledger__link { flex: 1 1 auto; min-width: 0; }
+.ledger__remove { flex: 0 0 auto; margin: 0; }
+.ledger__delete {
+  font: inherit;
+  font-size: var(--t-meta);
+  padding: .2rem .5rem;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--ink-dim);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--quick);
+}
+.ledger__row:hover .ledger__delete,
+.ledger__delete:focus { opacity: 1; }
+.ledger__delete:hover { color: var(--bad); border-color: var(--bad-edge); background: var(--bad-tint); }
+
+
+/* The declaration editor lives in the expanded view, not down the intake page.
+ *
+ * It is a list of forty rows beside a drawing, and on the page it is neither: the drawing is
+ * several screens up, so selecting a row lights something nobody can see. The expanded view is
+ * where the two are side by side, which is the only arrangement in which the editor is worth
+ * having.
+ *
+ * Hidden only where there is scripting to reach it with. Without scripting the expand button does
+ * nothing, so the section stays on the page and each row posts on its own -- which is slower, and
+ * is still the whole feature.
+ */
+.has-script [data-movable="declaration"] { display: none; }
+.expand__list [data-movable="declaration"] { display: block; }
+
+/* And a line saying where it went, in its place. A feature that vanishes without explanation is
+   one people conclude was removed. */
+.has-script .declaration__moved { display: block; }
+.declaration__moved { display: none; }

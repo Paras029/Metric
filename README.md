@@ -199,7 +199,7 @@ the same files these commands produce. A use case can move between the two freel
 | 3 | Scenario space | The routes | A name, a description and a tester script per scenario |
 | 4 | Variation space | The scenario space | The variants of each scenario worth running separately — **not built yet** |
 | 5 | Materiality | The space | A Low / Medium / High / Critical tier per scenario, driving variation counts |
-| 6 | Review | The whole space, against the documentation | Settled materiality, checked endings, flagged weaknesses, proposed additions |
+| 6 | Review | The whole space, against the documentation | Settled materiality, checked endings, flagged weaknesses, proposed additions including the end-to-end journeys |
 | 7 | Coverage | The transcripts of the model owner's testing | How many of those conversations land on each scenario, and which none of them reach |
 | 8 | Summary | The scenario space metadata | The data template to send, and what still has to be asked for |
 
@@ -227,6 +227,19 @@ finished. Their output is kept and stays downloadable. Two ways to clear a stage
 stage and everything after it* forgets the statuses and keeps the workbooks, for comparing a
 rerun against what came before; *Start again from here* deletes what those stages produced.
 Neither touches submitted documents or an intake workbook you provided.
+
+**Removing things.** A stage offers three clears, because there are three intentions. *Clear this
+stage and everything after it* forgets the statuses and keeps every file, for comparing a rerun
+against what came before. *Start again from here* deletes what those stages produced. *Start from
+nothing* also removes what was submitted to them — the documentation, the diagrams, the
+transcripts — because a "start again" that leaves the old pack in place produces a next run built
+from documents nobody remembers uploading, which for a tool whose output is meant to be traceable
+to its inputs is the worst state to be in. It is scoped to the stage: clearing coverage does not
+throw away the model documentation the intake was built from.
+
+A whole workspace can be deleted from the entry screen. That and *Start from nothing* are the only
+two irreversible actions in the tool, and they are the only two that ask first — a confirmation on
+everything is one people learn to click through.
 
 **Stopping a run.** Documents, scenario text, materiality and final review can each be dozens of
 model calls, so each of them shows a *Stop* button while running. Pressing it stops the run from
@@ -354,6 +367,25 @@ documents are read, how a workflow diagram becomes a decision graph, what the in
 load-bearing fields do, and how coverage is measured.
 
 ---
+
+**Nothing runs end to end, and the review is what fixes that.** Scoping by capability means a
+verification scenario starts with the cardmember already identified. The routes that cross a
+boundary are therefore exactly the ones nobody can see by reading the space — so the review is
+given the chain of blocks and asked for the important full journeys: a detail established in one
+block that a later one relies on, three failed attempts spread across two blocks where each is
+within its own limit, a route that goes into an earlier block and comes back, and exactly one
+end-to-end success as the reference conversation. Capped at three, because a pack of journeys is
+the scenario space this design exists to avoid. They are marked **End to end** in the list and run
+from the beginning rather than seeded part way through.
+
+**Out of scope is a boundary, not a dead end.** Marking a decision out of scope says "do not test
+past here" — a sub-system reviewed under a separate engagement. Routes arriving at it now finish
+there and stay in the pack, with the hand-off stated in the expected ending, so everything leading
+up to the boundary is still tested. It used to mean "do not test anything that leads here", which
+is a much more expensive statement than anybody intended.
+
+**Routes are listed before probes.** A probe tests what the agent must refuse whatever route it is
+on, so it belongs in the pack but not at the top of it.
 
 ## What you get
 

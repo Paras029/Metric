@@ -152,10 +152,17 @@ def to_row(scenario: Scenario, capability_names: Optional[Dict[str, str]] = None
     from the description alone.
     """
     named = (capability_names or {}).get(scenario.capability_id, "")
+    # A scenario with no block is one of two things, and they read very differently. Either the
+    # declaration draws no blocks at all -- in which case every scenario runs whole and saying so
+    # on each is noise -- or this one crosses them, which is the most interesting thing about it:
+    # the walk cannot produce those, so every one is a route somebody proposed on purpose.
+    crosses = not scenario.capability_id and len(scenario.capabilities) > 1
     return {
         "id": scenario.id,
         "capability_id": scenario.capability_id,
-        "capability": named or scenario.capability_id,
+        "capability": named or scenario.capability_id or ("End to end" if crosses else ""),
+        "crosses_blocks": crosses,
+        "capabilities": list(scenario.capabilities),
         "origin": ORIGIN_LABELS.get(scenario.origin, scenario.origin),
         "is_probe": scenario.is_probe,
         "is_proposed": scenario.is_proposed,
@@ -180,6 +187,20 @@ def to_row(scenario: Scenario, capability_names: Optional[Dict[str, str]] = None
         "runs": required_variations(scenario.effective_materiality),
         "proposal_reason": scenario.proposed_rationale,
     }
+
+
+# Which block of the list a scenario belongs to. Three rather than two: a scenario the review
+# proposed is a route nobody enumerated, and it reads as an addition to the routes rather than as
+# one of them, so it sits between the walked ones and the probes.
+_GROUPS = {ORIGIN_GRAPH: 0, ORIGIN_VARIANT_GAP: 0, ORIGIN_PROPOSED: 1, ORIGIN_PROBE: 2}
+
+
+def _group_of(row: Dict[str, object]) -> int:
+    if row.get("is_probe"):
+        return 2
+    if row.get("is_proposed"):
+        return 1
+    return 0
 
 
 def needs_attention(row: Dict[str, object]) -> bool:
@@ -349,14 +370,21 @@ def build_rows(scenarios: List[Scenario], stage: str = "summary",
     shows = set(STAGE_COLUMNS.get(stage, STAGE_COLUMNS["summary"]))
     rows = [to_row(s, capability_names) for s in scenarios]
 
+    # Functional scenarios first, probes after them. A probe is path-independent -- it tests what
+    # the agent must refuse whatever route it is on -- so it belongs in the pack but not at the top
+    # of it: the routes through the declared graph are what the exercise is about, and a list
+    # opening with forty probes buries them. Ids sort probes first on their own (NF- before SC-),
+    # which is how they came to lead.
+    #
     # Ordering by tier only says something once a tier has been assigned. Before that every
-    # scenario carries the same default and the sort is an illusion of ranking, so they stay in
-    # the order the scenario space built them.
+    # scenario carries the same default and the sort is an illusion of ranking, so within a group
+    # they stay in the order the scenario space built them.
     if MATERIALITY_COLUMNS in shows:
         ordering = {tier: index for index, tier in enumerate(reversed(MATERIALITY))}
-        rows.sort(key=lambda r: (ordering.get(r["materiality"], len(MATERIALITY)), r["id"]))
+        rows.sort(key=lambda r: (_group_of(r), ordering.get(r["materiality"], len(MATERIALITY)),
+                                 r["id"]))
     else:
-        rows.sort(key=lambda r: r["id"])
+        rows.sort(key=lambda r: (_group_of(r), r["id"]))
 
     chosen = list(cells or ()) if MATERIALITY_COLUMNS in shows else []
     grid = matrix(rows, chosen) if MATERIALITY_COLUMNS in shows else {}

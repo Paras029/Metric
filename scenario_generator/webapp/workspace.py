@@ -659,7 +659,8 @@ class Workspace:
                 invalidated.append(stage)
         return invalidated
 
-    def reset_from(self, key: str, delete: Optional[List[str]] = None) -> List[str]:
+    def reset_from(self, key: str, delete: Optional[List[str]] = None,
+                   submissions: bool = False) -> List[str]:
         """Clear this stage and everything after it, for starting a branch of work again.
 
         Clearing the status is not the same as clearing the work. Several stages read what they
@@ -667,9 +668,19 @@ class Workspace:
         status leaves the old metadata workbook, evidence and questions where they were and they come
         straight back on the next run. Pass ``delete`` to remove them as well.
 
-        Submitted documents are never touched either way. They are input rather than output, and
-        each has its own remove.
+        ``submissions`` clears what the model owner sent as well -- the documents, diagrams and
+        transcripts under ``sources/``, and any intake workbook provided. Off by default, because
+        a submitted file is input rather than output and starting a stage again is usually about
+        the work rather than the material. On, it is what "start from nothing" has to mean: a
+        reset that left the old documentation in place produced a next run built from a pack
+        nobody remembered uploading, which is the most confusing possible state for a tool whose
+        whole output is traceable to its inputs.
         """
+        # What was submitted, read *before* the stage states are cleared: the artifacts are where
+        # each file is recorded, and resetting the state throws that record away. Collected here
+        # and deleted below, so the order of the two operations cannot silently strand the files.
+        submitted = self._submitted_from(key) if submissions else []
+
         for stage in [STAGE_BY_KEY[key]] + downstream_of(key):
             self.stages[stage.key] = StageState()
 
@@ -680,9 +691,48 @@ class Workspace:
                 path.unlink()
                 removed.append(name)
 
+        if submissions:
+            removed.extend(self._delete_submitted(submitted))
+
         self._settle()
         self.save()
         return removed
+
+    def _submitted_from(self, key: str) -> List[str]:
+        """Everything the model owner sent that this stage or a later one reads.
+
+        Scoped to the stage rather than emptying ``sources/`` wholesale: resetting the coverage
+        stage should not throw away the model documentation the intake was built from. Which stage
+        reads a file is already recorded against it as an artifact, so that is what decides it.
+        """
+        return [str(stored)
+                for stage in [STAGE_BY_KEY[key]] + downstream_of(key)
+                for stored in self.stages[stage.key].artifacts.values()]
+
+    def _delete_submitted(self, stored: List[str]) -> List[str]:
+        """Remove those files, and tidy up what pointed at them."""
+        gone: List[str] = []
+        for name in stored:
+            path = (self.root / name).resolve()
+            if self.root.resolve() in path.parents and path.is_file():
+                path.unlink()
+                gone.append(name)
+
+        # An empty group directory left behind is a heading on the page with nothing under it,
+        # which reads as a file that failed to delete rather than as one that did.
+        sources = self.root / "sources"
+        if sources.is_dir():
+            for group in list(sources.iterdir()):
+                if group.is_dir() and not any(group.iterdir()):
+                    group.rmdir()
+            if not any(sources.iterdir()):
+                sources.rmdir()
+
+        # A redaction mark on a file that is gone would be applied to the next file uploaded under
+        # the same name -- a setting nobody chose, arriving from a previous run.
+        self.redact_files = {mark for mark in self.redact_files
+                             if (self.root / "sources" / mark).is_file()}
+        return gone
 
     # ----------------------------------------------------------------- queries
     def can_run(self, key: str) -> bool:
