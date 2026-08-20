@@ -399,20 +399,26 @@ retry limit is not reported: that one *is* reached, by the augmentation pass tha
 scenario is. It does not say *where* the work that matters comes from — which branch of the agent
 produces the scenarios worth running and which produces thirty that are not — and no sorting of
 three hundred rows says it either, because that is a question about the shape of the graph. So
-from the materiality stage on, the drawing takes a second reading, chosen from *Colour by*:
+from the materiality stage on, *Show volume* offers the drawing a second reading, **one band at a
+time**:
 
-- **Volume** — how much of the space flows along each arrow, in one colour, width standing for
-  load. Volume is not a judgement, so it does not get a hue of its own to compete with the tiers,
-  which are.
-- **Materiality** — the same weight in the colour of the tier that dominates there. The busy
-  branch that is all Low reads differently from the quiet one that is all High, which is the
-  comparison the table cannot make.
-- **What the review changes**, on the review stage only — green where the review proposes
-  something new, amber where it flags what is already there, and nothing at all where it has no
-  opinion, because a picture where everything is coloured says nothing about where the change is.
-  Beside it, *Without the flagged ones* recomputes the volume with the flagged scenarios taken
-  out, against the same scale, so the thinning across the graph **is** the recommendation rather
-  than a list of ids to read against the picture.
+- **Off** leads the row, because a reading laid over the drawing has to be removable and the
+  control should say so rather than leaving somebody to work out which option means none.
+- **All** — every scenario, in the interface's own blue. Volume is not a judgement, so it does not
+  take a hue that would compete with the tiers, which are.
+- **High**, **Medium**, **Low** — the same reading over one tier, in that tier's colour. "Where do
+  the High-materiality scenarios come from" is a question with an answer; an arrow coloured by
+  whichever tier happened to dominate it is a summary of three numbers that hides all three and
+  leaves the reader doing arithmetic against a legend.
+- **Review changes**, on the review stage only — green where the review proposes something new,
+  amber where it flags what is already there, and nothing at all where it has no opinion, because
+  a picture where everything is coloured says nothing about where the change is.
+
+*Without the flagged ones* recomputes whichever band is showing with the flagged scenarios taken
+out, against the same scale, so the thinning across the graph **is** the review's recommendation
+rather than a list of ids to read against the picture. Each band is counted twice for that reason:
+taking the flagged scenarios out of the High band is a different subtraction from taking them out
+of the space.
 
 Only the arrows are painted, and never the boxes. A box's colour already means something — which
 kind of ending it is, whether it is out of scope, whether it is a block — and that reading is true

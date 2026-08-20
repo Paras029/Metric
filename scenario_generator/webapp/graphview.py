@@ -1035,9 +1035,17 @@ def routes(intake: IntakeData, scenarios: Sequence) -> Dict[str, dict]:
     return found
 
 
-# How a scenario is counted when the paint is asked "which of these does this route belong to".
+# The bands the paint can be asked to show, in the order the control offers them. One at a time,
+# never blended: "where do the High-materiality scenarios come from" is a question with an answer,
+# where "which tier dominates this arrow" is a summary of three numbers that hides all three.
+#
 # Kept as one tuple so the server's keys and the page's controls cannot drift apart.
-LOADS = ("total", "High", "Medium", "Low", "proposed", "flagged", "kept")
+BANDS = ("all", "High", "Medium", "Low")
+
+# Each band twice: as counted, and with whatever the review flagged taken out. Per band rather
+# than once overall, because taking the flagged scenarios out of the High band is a different
+# subtraction from taking them out of the space.
+LOADS = tuple(BANDS) + tuple(f"{band}_kept" for band in BANDS) + ("proposed", "flagged")
 
 
 def load(intake: IntakeData, scenarios: Sequence) -> Dict[str, dict]:
@@ -1054,9 +1062,9 @@ def load(intake: IntakeData, scenarios: Sequence) -> Dict[str, dict]:
     edge that scenario is counted on, and two implementations of "which parts of the drawing does
     this route touch" would disagree the first time either changed.
 
-    ``kept`` is everything the review did not flag, so the page can show what the space looks like
-    with the flagged scenarios taken out of it -- the drop in volume across the graph is the review's
-    recommendation, drawn.
+    Each band is counted twice: as it stands, and with whatever the review flagged taken out. That
+    is what lets the page show the space as the review would leave it -- the thinning across the
+    graph is the recommendation, drawn.
     """
     walked = routes(intake, scenarios)
     by_id = {getattr(s, "id", ""): s for s in scenarios}
@@ -1083,16 +1091,18 @@ def load(intake: IntakeData, scenarios: Sequence) -> Dict[str, dict]:
     def add(key: str, scenario) -> None:
         counts = tally.setdefault(key, {name: 0 for name in LOADS})
         tier = getattr(scenario, "review_materiality", "") or getattr(scenario, "materiality", "")
-        flag = (getattr(scenario, "review_flag", "") or "").strip()
-        counts["total"] += 1
-        if tier in counts:
-            counts[tier] += 1
+        flagged = bool((getattr(scenario, "review_flag", "") or "").strip())
+
+        for band in ("all", tier if tier in BANDS else ""):
+            if not band:
+                continue
+            counts[band] += 1
+            if not flagged:
+                counts[f"{band}_kept"] += 1
         if getattr(scenario, "origin", "") == ORIGIN_PROPOSED:
             counts["proposed"] += 1
-        if flag:
+        if flagged:
             counts["flagged"] += 1
-        else:
-            counts["kept"] += 1
         for name in LOADS:
             peak[name] = max(peak[name], counts[name])
 

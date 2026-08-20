@@ -530,27 +530,30 @@
  * produces the scenarios that matter and which produces thirty that do not. That is a question
  * about the shape of the graph, and no sorting of three hundred rows answers it.
  *
- * So the drawing gets a second reading. Volume paints how much of the space runs through each
- * part of it; materiality paints the same weight in the colour of the tier that dominates there;
- * and on the review stage a third mode contrasts what the review proposes against what is already
- * there -- additions in their own colour, and a toggle that takes the flagged scenarios out of
- * the count so the drop in volume across the graph *is* the recommendation, drawn.
+ * So the drawing takes a second reading, one band at a time: all of the space, or only the High,
+ * or only the Medium, or only the Low. Never blended -- an arrow coloured by whichever tier
+ * happens to dominate it is a summary of three numbers that hides all three, and the reader is
+ * left doing arithmetic against a legend. Picking a band asks one question and gets one answer.
+ *
+ * On the review stage a further mode contrasts what the review proposes against what is there,
+ * and a toggle takes the flagged scenarios out of whichever band is showing, so the thinning
+ * across the graph is the recommendation drawn rather than a list of ids to read against it.
+ *
+ * Only the arrows are painted, and never the boxes: a box's colour already means which kind of
+ * ending it is, and that reading is true of the declaration where a paint is true of one run over
+ * it. The load rides in a channel behind the arrow instead.
  *
  * The counts come from the server, computed over the same routes() the card highlighting uses, so
- * an edge a scenario lights when its card is opened is an edge it is counted on. Painting is
- * client-side from there: switching modes is a class and a custom property per element, which is
- * instant, where a round trip per mode would make the control feel like a form.
- *
- * The scenario lighting stays on top of it. Paint is the background reading -- the shape of the
- * space -- and an opened card is a foreground answer about one route; a mode that fought the
- * lighting would take away the thing the two views were put side by side for.
+ * an arrow a scenario lights when its card is opened is an arrow it is counted on. Painting is
+ * client-side from there: switching bands is a class and a custom property per element, which is
+ * instant, where a round trip per band would make the control feel like a form.
  */
 (function () {
   var control = document.querySelector('[data-paint]');
   var canvas = document.querySelector('[data-graph-canvas]');
   if (!control || !canvas || !window.METRIC_LOAD) { return; }
 
-  var TIERS = ['High', 'Medium', 'Low'];
+  var TIERS = { High: 'high', Medium: 'medium', Low: 'low' };
   var mode = 'off';
   var dropFlagged = false;
 
@@ -564,50 +567,34 @@
                el.getAttribute('data-outcome')].join('|')];
   }
 
-  // What one element is worth, in the terms the current mode reads in.
+  // The label rides on its own group with the same three attributes, so it would be painted as a
+  // second arrow underneath the text. Only the edge itself carries a channel.
+  function isEdge(el) { return el.classList.contains('graph__edge'); }
+
+  function paintable() { return canvas.querySelectorAll('[data-source]'); }
+
+  // How much of the band showing runs through here, and the most any one arrow carries.
   //
-  // The denominator does *not* move when the flagged ones are dropped, and that is the whole
-  // point of the toggle: measured against its own new peak, a branch that lost half its scenarios
-  // renormalises straight back to the shade it had, and the picture that was supposed to show the
-  // review's effect shows nothing. Held against the full space, taking scenarios out thins the
-  // paint, which is the recommendation drawn rather than described.
+  // The peak does *not* move when the flagged ones are dropped, and that is the whole point of
+  // the toggle: measured against its own new peak, a branch that lost half its scenarios
+  // renormalises straight back to the shade it had and the picture shows nothing. Held against
+  // the band as it stands, taking scenarios out thins the paint.
   function weight(at) {
     if (!at) { return 0; }
-    return (dropFlagged ? at.kept : at.total) || 0;
+    return (dropFlagged ? at[mode + '_kept'] : at[mode]) || 0;
   }
 
-  function peak() {
-    return (window.METRIC_LOAD.peak || {}).total || 1;
-  }
-
-  function dominant(at) {
-    var best = '', most = 0;
-    TIERS.forEach(function (tier) {
-      if ((at[tier] || 0) > most) { most = at[tier]; best = tier; }
-    });
-    return best;
-  }
-
-  function paintable() {
-    // Arrows only, in both drawings. A box's colour already means which kind of ending it is,
-    // and that reading is true of the declaration where a paint is true of one run over it --
-    // overwriting the first with the second loses a fact to show a number that has somewhere of
-    // its own to go. The collapsed view paints its hand-offs the same way, so folding the
-    // capabilities to see the shape of the agent keeps the reading rather than losing it.
-    return canvas.querySelectorAll('[data-source]');
-  }
+  function peak() { return (window.METRIC_LOAD.peak || {})[mode] || 1; }
 
   function clear(el) {
     el.classList.remove('is-painted');
-    TIERS.forEach(function (tier) { el.classList.remove('is-painted--' + tier.toLowerCase()); });
+    Object.keys(TIERS).forEach(function (tier) {
+      el.classList.remove('is-painted--' + TIERS[tier]);
+    });
     el.classList.remove('is-painted--added');
     el.classList.remove('is-painted--dropped');
     el.style.removeProperty('--load');
   }
-
-  // The label rides on its own group with the same three attributes, so it would be painted as a
-  // second arrow underneath the text. Only the edge itself carries a channel.
-  function isEdge(el) { return el.classList.contains('graph__edge'); }
 
   function apply() {
     var top = peak();
@@ -617,49 +604,45 @@
       var at = counts(el);
       if (!at) { return; }
 
-      var share = Math.min(1, weight(at) / top);
       if (mode === 'review') {
         // Three states worth telling apart, and only three: what the review adds, what it would
         // take away, and what it leaves alone. Anything the review says nothing about is left
         // unpainted rather than painted "unchanged" -- a picture where everything is coloured
         // says nothing about where the change is.
+        var busiest = (window.METRIC_LOAD.peak || {}).all || 1;
         if (at.proposed) { el.classList.add('is-painted', 'is-painted--added'); }
         else if (at.flagged) { el.classList.add('is-painted', 'is-painted--dropped'); }
         else { return; }
-        el.style.setProperty('--load', Math.max(0.25, share).toFixed(3));
+        el.style.setProperty('--load',
+                             Math.max(0.25, Math.min(1, at.all / busiest)).toFixed(3));
         return;
       }
 
-      // Nothing left running through here is not a faint reading, it is an absent one -- and
-      // with the flagged scenarios dropped it is exactly what somebody is looking for.
-      if (weight(at) <= 0) { return; }
+      // Nothing of this band running through here is not a faint reading, it is an absent one --
+      // and with the flagged scenarios dropped it is exactly what somebody is looking for.
+      var flowing = weight(at);
+      if (flowing <= 0) { return; }
       el.classList.add('is-painted');
-      if (mode === 'materiality') {
-        var tier = dominant(at);
-        if (tier) { el.classList.add('is-painted--' + tier.toLowerCase()); }
-      }
+      if (TIERS[mode]) { el.classList.add('is-painted--' + TIERS[mode]); }
       // Floored above zero, because "one scenario runs through here" and "none at all" have to
       // look different: a share of 1/300 rounds to invisible, and invisible reads as untested.
-      el.style.setProperty('--load', Math.max(0.22, share).toFixed(3));
+      el.style.setProperty('--load', Math.max(0.22, Math.min(1, flowing / top)).toFixed(3));
     });
     describe();
   }
 
   function describe() {
     if (!key) { return; }
-    var top = peak();
     if (mode === 'off') { key.textContent = ''; return; }
-    if (mode === 'volume') {
-      key.textContent = 'Darker where more of the space runs through it · busiest carries '
-        + top + ' scenario' + (top === 1 ? '' : 's');
+    if (mode === 'review') {
+      key.textContent = 'Green where the review proposes something new · amber where it flags '
+        + 'what is there';
       return;
     }
-    if (mode === 'materiality') {
-      key.textContent = 'Coloured by the tier that dominates there, darker with volume';
-      return;
-    }
-    key.textContent = 'Green where the review proposes something new · amber where it flags what '
-      + 'is there';
+    var top = peak();
+    var band = mode === 'all' ? 'scenarios' : mode + '-materiality scenarios';
+    key.textContent = 'Thicker where more ' + band + ' flow along it · busiest arrow carries '
+      + top + (top === 1 ? ' scenario' : ' scenarios');
   }
 
   control.addEventListener('click', function (event) {

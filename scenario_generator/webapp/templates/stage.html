@@ -466,20 +466,30 @@
            one colour is worse than no control at all. #}
         {% if graph_load %}
           <div class="paint" data-paint>
-            <span class="paint__label">Colour by</span>
-            <div class="paint__options" role="group" aria-label="Colour the graph by">
+            <span class="paint__label">Show volume</span>
+            {# One band at a time, never blended. "Where do the High-materiality scenarios come
+               from" is a question with an answer; "which tier dominates this arrow" is a summary
+               of three numbers that hides all three. Off leads, so the control says plainly that
+               the drawing can be left alone. #}
+            <div class="paint__options" role="group" aria-label="Show the volume of">
               <button class="paint__option is-on" type="button" data-paint-mode="off">
-                Nothing
+                Off
               </button>
-              <button class="paint__option" type="button" data-paint-mode="volume">
-                Volume
+              <button class="paint__option" type="button" data-paint-mode="all">
+                All
               </button>
-              <button class="paint__option" type="button" data-paint-mode="materiality">
-                Materiality
+              <button class="paint__option" type="button" data-paint-mode="High">
+                High
+              </button>
+              <button class="paint__option" type="button" data-paint-mode="Medium">
+                Medium
+              </button>
+              <button class="paint__option" type="button" data-paint-mode="Low">
+                Low
               </button>
               {% if view.stage.key == 'review' %}
                 <button class="paint__option" type="button" data-paint-mode="review">
-                  What the review changes
+                  Review changes
                 </button>
               {% endif %}
             </div>

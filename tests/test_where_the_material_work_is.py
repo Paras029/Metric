@@ -45,7 +45,7 @@ class TestCountingTheSpaceOntoTheDrawing(unittest.TestCase):
     def test_every_route_lands_somewhere(self):
         counted = load(self.intake, self.scenarios)
         self.assertTrue(counted["at"], "nothing was counted at all")
-        self.assertGreater(counted["peak"]["total"], 0)
+        self.assertGreater(counted["peak"]["all"], 0)
 
     def test_it_counts_the_same_places_the_lighting_lights(self):
         """The paint is the background reading and an opened card is the foreground answer. They
@@ -59,30 +59,39 @@ class TestCountingTheSpaceOntoTheDrawing(unittest.TestCase):
 
     def test_a_busy_edge_carries_more_than_a_quiet_one(self):
         counted = load(self.intake, self.scenarios)["at"]
-        totals = sorted(entry["total"] for entry in counted.values())
+        totals = sorted(entry["all"] for entry in counted.values())
         self.assertGreater(totals[-1], totals[0],
                            "every part of the graph carries the same load, so there is nothing to "
                            "see and the whole control is one colour")
 
-    def test_the_tiers_are_counted_apart(self):
+    def test_each_band_is_counted_on_its_own(self):
+        """One at a time, never blended. An arrow coloured by whichever tier happens to dominate
+        it is a summary of three numbers that hides all three."""
         counted = load(self.intake, self._tiered(["High", "Low"]))
         self.assertGreater(counted["peak"]["High"], 0)
         self.assertGreater(counted["peak"]["Low"], 0)
         self.assertEqual(counted["peak"]["Medium"], 0)
 
-    def test_the_review_flag_decides_what_is_kept(self):
-        """"Kept" is what the space looks like with the review's recommendation taken -- the drop
-        in volume across the graph is the recommendation, drawn."""
-        counted = load(self.intake, self._tiered(["High"], flags=["Redundant", ""]))["at"]
+    def test_the_bands_add_up_to_the_whole(self):
+        counted = load(self.intake, self._tiered(["High", "Medium", "Low"]))["at"]
         for entry in counted.values():
-            self.assertEqual(entry["kept"] + entry["flagged"], entry["total"])
-        self.assertTrue(any(e["flagged"] for e in counted.values()))
-        self.assertTrue(any(e["kept"] for e in counted.values()))
+            self.assertEqual(entry["High"] + entry["Medium"] + entry["Low"], entry["all"])
+
+    def test_the_flagged_ones_come_out_of_their_own_band(self):
+        """Taking the flagged scenarios out of the High band is a different subtraction from
+        taking them out of the space, so each band is counted twice rather than once overall."""
+        counted = load(self.intake, self._tiered(["High", "Low"], flags=["Redundant", ""]))["at"]
+        for entry in counted.values():
+            for band in ("all", "High", "Medium", "Low"):
+                self.assertLessEqual(entry[band + "_kept"], entry[band])
+        self.assertTrue(any(e["High_kept"] < e["High"] for e in counted.values()),
+                        "no band lost anything, so the toggle has nothing to show")
 
     def test_nothing_flagged_means_nothing_to_take_away(self):
         counted = load(self.intake, self.scenarios)
         self.assertEqual(counted["peak"]["flagged"], 0)
-        self.assertEqual(counted["peak"]["kept"], counted["peak"]["total"])
+        for band in ("all", "High", "Medium", "Low"):
+            self.assertEqual(counted["peak"][band + "_kept"], counted["peak"][band])
 
     def test_a_proposal_is_counted_as_an_addition(self):
         proposed = replace(self.scenarios[0])
@@ -137,8 +146,15 @@ class TestWhereTheControlIsOffered(unittest.TestCase):
 
     def test_on_the_materiality_stage(self):
         page = self._page("materiality")
-        self.assertIn('data-paint-mode="volume"', page)
-        self.assertIn('data-paint-mode="materiality"', page)
+        for band in ("all", "High", "Medium", "Low"):
+            self.assertIn(f'data-paint-mode="{band}"', page)
+
+    def test_it_can_be_switched_off(self):
+        """A reading laid over the drawing has to be removable, and the control has to say so
+        rather than leaving somebody to guess which option means none."""
+        page = self._page("materiality")
+        self.assertIn('data-paint-mode="off"', page)
+        self.assertIn(">\n                Off\n              <", page)
 
     def test_the_review_mode_is_only_on_the_review(self):
         self.assertNotIn('data-paint-mode="review"', self._page("materiality"))
@@ -194,7 +210,7 @@ class TestTheCollapsedDrawingKeepsTheReading(unittest.TestCase):
         cls.counted = load(cls.intake, build_scenario_space(cls.intake, with_probes=False))["at"]
 
     def _blocks(self):
-        return {key: entry["total"] for key, entry in self.counted.items()
+        return {key: entry["all"] for key, entry in self.counted.items()
                 if key.startswith("edge|CAP") or key.startswith("edge|__start__|CAP")}
 
     def test_the_hand_offs_between_blocks_carry_a_load(self):
@@ -240,6 +256,12 @@ class TestThePaintDoesNotFightTheLighting(unittest.TestCase):
         painting = self.script[self.script.index("painting the drawing"):]
         peak = painting[painting.index("function peak()"):]
         self.assertNotIn("dropFlagged", peak[:200])
+
+    def test_one_band_is_painted_at_a_time(self):
+        """Never a blend. An arrow coloured by whichever tier dominates it is a summary of three
+        numbers that hides all three, and leaves the reader doing arithmetic against a legend."""
+        painting = self.script[self.script.index("painting the drawing"):]
+        self.assertNotIn("dominant", painting)
 
 
 if __name__ == "__main__":
