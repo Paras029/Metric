@@ -2347,3 +2347,73 @@ body.is-expanded { overflow: hidden; }
   padding: var(--s2) var(--s3); border-bottom: 1px solid var(--rule);
 }
 .walk__table td { padding: var(--s2) var(--s3); border-bottom: 1px solid var(--rule-soft); }
+
+/* Block filter beside the grid. Laid out as a wrapping row rather than a column: a use case with
+   three blocks should not take three lines of the page to say so, and one with a dozen should
+   wrap rather than push the scenario list below the fold. */
+.filters__blocks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.75rem;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.filters__legend {
+  padding: 0 0.5rem 0 0;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.filters__block {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+
+.filters__tally {
+  color: var(--ink-dim);
+  font-size: 0.78rem;
+}
+
+.filters__clear {
+  font-size: 0.8rem;
+}
+
+/* Bulk carry-forward, immediately under the count it acts on. Deliberately plain: it is a
+   destructive-looking control that is not destructive, and dressing it up as one would make
+   people hesitate over a decision they are meant to make freely and reverse. */
+.bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.85rem;
+}
+
+.bulk__label {
+  font-size: 0.86rem;
+  color: var(--ink-mid);
+}
+
+.bulk__note {
+  font-size: 0.8rem;
+  color: var(--ink-dim);
+}
+
+/* A scenario that is still on record but is not being issued. Dimmed rather than hidden: a
+   reviewer needs to be able to see what they set aside in order to change their mind about it. */
+.card--aside {
+  opacity: 0.62;
+}
+
+.mark--aside {
+  background: var(--rule-soft);
+  color: var(--ink-dim);
+}

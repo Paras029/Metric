@@ -71,6 +71,14 @@ def describe_graph(intake: IntakeData) -> str:
     # see where one block ends and the next begins. Without it, a merge that reads perfectly well
     # locally can weld two blocks together and change how the whole space is enumerated.
     def _span(c) -> str:
+        # Out of scope is stated before the span and instead of it. A model shown "entered at
+        # S-03, hands on at S-07" writes scenarios through the block; what it needs to know first
+        # is that this block is somebody else's and the only thing to say about it is that it has
+        # already happened by the time a later block starts.
+        if c.out_of_scope:
+            return (" — OUT OF SCOPE: the agent does this, but it is not being tested here. Write "
+                    "no scenario for it. Where a later block depends on it, say in the setup that "
+                    "it has already completed successfully.")
         if not c.entry_states and not c.exit_states:
             return " — no span drawn, so nothing is walked through it"
         return (f" — entered at {', '.join(c.entry_states) or 'nothing'}"
@@ -203,6 +211,14 @@ def describe_blocks(intake: IntakeData) -> str:
 
     lines = ["The agent is divided into these blocks, and the scenario space is walked one block "
              "at a time. Each line says where a block is entered and where it hands on."]
+    if any(c.out_of_scope for c in bounded):
+        # Named here rather than dropped from the chain. A journey that skips a block without
+        # saying so reads as a gap in the graph, and the next thing a proposal does with an
+        # apparent gap is invent a step to fill it.
+        lines.append("A block marked OUT OF SCOPE still runs -- a journey through the agent passes "
+                     "through it -- but it is not being tested. Do not build a scenario around it "
+                     "and do not test its outcomes. In a journey that crosses it, state in the "
+                     "setup that it has already completed successfully and carry on from there.")
     for capability in bounded:
         entries = ", ".join(f"{s} ({described[s].description})" if s in described else s
                             for s in capability.entry_states)
@@ -216,7 +232,8 @@ def describe_blocks(intake: IntakeData) -> str:
                 onward.append(f"{state_id} ends the interaction ({state.outcome_type or 'no type'})")
             else:
                 onward.append(state_id)
-        lines.append(f"- {capability.id} ({capability.name or capability.id}): entered at "
+        lines.append(f"- {capability.id} ({capability.name or capability.id})"
+                     f"{' [OUT OF SCOPE]' if capability.out_of_scope else ''}: entered at "
                      f"{entries or 'nothing declared'}; leaves at "
                      f"{'; '.join(onward) or 'nothing declared'}")
     return "\n".join(lines)

@@ -37,7 +37,7 @@ from ..core.intake import (read_intake, read_review_notes, set_capability_span,
                            set_decision_scope,
                            write_template)
 from ..utils.text import ID_BODY
-from ..core.models import MATERIALITY
+from ..core.models import EXCLUSION_REASONS, MATERIALITY, REVIEW_FLAGS
 from ..ingest.conversations import read_conversations
 from ..ingest.extraction import SAME_FLOW_EACH, SPLIT_ACROSS_IMAGES
 from ..ingest.groups import (ALL_EXTENSIONS, DEFAULT_GROUP, DIAGRAMS, GROUP_BY_KEY, GROUPS,
@@ -319,6 +319,8 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             coverage_shape=_coverage_shape(workspace),
             pack_gaps_only=workspace.pack_gaps_only,
             materiality_tiers=MATERIALITY,
+            review_flags=REVIEW_FLAGS,
+            exclusion_reasons=EXCLUSION_REASONS,
             produced={n: p for n, p in workspace.state(key).artifacts.items()
                       if not str(p).startswith("sources/")},
         )
@@ -429,12 +431,14 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
 
     def _space_for(scenarios, key: str, workspace: Optional[Workspace] = None):
         """The list in the middle of the page: this stage's scenarios, narrowed to the cells
-        picked in the grid above it. ``?cell=`` repeats, one per selected cell."""
+        picked in the grid above it and the blocks picked beside it. ``?cell=`` and ``?block=``
+        both repeat, one per selection, so a narrowed view is a URL somebody can send on."""
         if scenarios is None:
             return None
         return build_rows(scenarios, stage=key, cells=parse_cells(request.args.getlist("cell")),
                           limit=_page_limit(),
-                          capability_names=_capability_names(workspace) if workspace else None)
+                          capability_names=_capability_names(workspace) if workspace else None,
+                          blocks=request.args.getlist("block"))
 
     def _shape_for(scenarios, key: str):
         """The tally in the side panel, from the same scenarios the list is drawn from.
@@ -1206,14 +1210,44 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
         return redirect(url_for("stage", key="summary",
                                 invalidated=", ".join(s.title for s in invalidated)))
 
+    def _rulings_saved(workspace: Workspace, intake, ruled: Dict[str, object]) -> None:
+        """Write a ruling into the live metadata and into every stage snapshot that has it.
+
+        A snapshot is a stage's own reading, which is what lets the scenario-text page show text
+        without tiers written after it. A human ruling is not a stage's reading: it is a decision
+        about the scenario itself, and one that only reached the live workbook was invisible on
+        the very page it was made from -- the page reads the snapshot. So it is written wherever
+        the scenario appears, and the snapshots stay what they are for.
+
+        The template's variation counts come from materiality and its contents come from what is
+        carried forward, so a pack written before a ruling no longer reflects it. Saying so beats
+        letting a stale workbook look current.
+        """
+        for path in [workspace.root / METADATA] + [workspace.root / _snapshot(k)
+                                                   for k in SCENARIO_STAGES]:
+            if not path.exists():
+                continue
+            held = read_scenarios(str(path), intake)
+            for scenario in held:
+                decided = ruled.get(scenario.id)
+                if decided is not None:
+                    scenario.materiality_override = decided.materiality_override
+                    scenario.review_flag = decided.review_flag
+                    scenario.excluded = decided.excluded
+            write_space_metadata(str(path), intake, held)
+        workspace.invalidate_after("review")
+        workspace.save()
+
     @app.route("/stage/<key>/scenario/<scenario_id>", methods=["POST"])
     def rule_on_scenario(key: str, scenario_id: str):
         """Record the reviewer's ruling on one scenario, straight into the scenario space metadata.
 
-        Two rulings, both already columns the scenario space metadata carries. An override sets materiality and
-        outranks every model pass, which is what makes the tiers a recommendation rather than a
-        verdict. Clearing a flag says the review's concern has been considered and dismissed --
-        the concern was never able to remove anything, so dismissing it removes only the marker.
+        Three rulings, all of them columns the scenario space metadata already carries. An override
+        sets materiality and outranks every model pass, which is what makes the tiers a
+        recommendation rather than a verdict. The tag is editable rather than only dismissable,
+        because a reviewer who disagrees with "Redundant" usually has a different word for it and
+        not none. And setting a scenario aside says it is not to be carried on -- it stays in the
+        record, with the reason, and leaves the pack.
         """
         workspace = _workspace()
         intake = _intake(workspace)
@@ -1227,17 +1261,45 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             scenario.materiality_override = ruling
         elif ruling == "Clear":
             scenario.materiality_override = ""
+        if "flag" in request.form:
+            scenario.review_flag = (request.form.get("flag") or "").strip()
+        if "excluded" in request.form:
+            scenario.excluded = (request.form.get("excluded") or "").strip()
         if request.form.get("clear_flag"):
             scenario.review_flag = ""
 
-        write_space_metadata(str(workspace.root / METADATA), intake, scenarios)
-
-        # The template's variation counts come from materiality, so a pack written before this ruling no
-        # longer reflects it. Saying so beats letting a stale workbook look current.
-        workspace.invalidate_after("review")
-        workspace.save()
+        _rulings_saved(workspace, intake, {scenario.id: scenario})
         return redirect(url_for("stage", key=key, cell=request.form.getlist("cell"),
-                                _anchor=scenario_id))
+                                block=request.form.getlist("block"), _anchor=scenario_id))
+
+    @app.route("/stage/<key>/carry-forward", methods=["POST"])
+    def carry_forward(key: str):
+        """Set aside, or bring back, every scenario the current view has narrowed to.
+
+        The one-at-a-time control is the wrong shape for the decision people actually make here.
+        "Send the High and Medium ones on and leave the Low ones out" is one judgement about a
+        hundred scenarios, and asking for it a hundred times is how a reviewer ends up issuing the
+        whole space because narrowing it was too much work.
+
+        It acts on what the page is showing -- the grid cells and blocks picked above the list --
+        so the selection is made by narrowing to it and seeing it, rather than by ticking rows
+        against a rule held in somebody's head.
+        """
+        workspace = _workspace()
+        intake = _intake(workspace)
+        scenarios = _scenarios(workspace, intake)
+
+        targets = set(request.form.getlist("id"))
+        ruled = {}
+        reason = (request.form.get("excluded") or "").strip()
+        for scenario in scenarios:
+            if scenario.id in targets:
+                scenario.excluded = reason
+                ruled[scenario.id] = scenario
+
+        _rulings_saved(workspace, intake, ruled)
+        return redirect(url_for("stage", key=key, cell=request.form.getlist("cell"),
+                                block=request.form.getlist("block")))
 
     @app.route("/stage/<key>/run", methods=["POST"])
     def run_stage(key: str):

@@ -3,6 +3,7 @@ template. Assumes a well-formed workbook, with row 1 of each sheet as the header
 """
 from __future__ import annotations
 
+from dataclasses import replace
 import re
 from pathlib import Path
 from typing import Dict, List
@@ -157,8 +158,20 @@ def read_intake(path: str) -> IntakeData:
     declared = [s.id for s in states]
     capabilities = [Capability(_cell(r, 0), _cell(r, 1), _cell(r, 2),
                                _named(_cell(r, 3), declared, _STATE_TOKEN),
-                               _named(_cell(r, 4), declared, _STATE_TOKEN))
+                               _named(_cell(r, 4), declared, _STATE_TOKEN),
+                               is_yes(_cell(r, 5)))
                     for r in rows["L2 Capabilities"]]
+
+    # A capability out of scope puts its decisions out of scope, which is the same statement the
+    # L3 sheet already makes one decision at a time. Folding it in here rather than teaching the
+    # walk about capability scope means every place that already stops at an out-of-scope decision
+    # -- the enumeration, the gap spans, the unreached-endings report, the model's context -- gets
+    # this without a second rule that could disagree with the first.
+    excluded = {c.id for c in capabilities if c.out_of_scope}
+    if excluded:
+        decisions = [d if d.out_of_scope or d.trigger_capability not in excluded
+                     else replace(d, out_of_scope=True)
+                     for d in decisions]
 
     tools = [Tool(_cell(r, 0), _cell(r, 1), is_yes(_cell(r, 2)))
              for r in rows["Tools"] if _cell(r, 0)]
@@ -336,6 +349,25 @@ def set_capability_span(path: str, capability_id: str, entry_states: List[str],
     return False
 
 
+def set_capability_scope(path: str, capability_id: str, out_of_scope: bool) -> bool:
+    """Flip one capability's Out of Scope column in place. Returns whether a row was found.
+
+    Written by column number for the reason :func:`set_decision_scope` gives: a workbook produced
+    before this column existed has five columns on the sheet, and indexing past a short row raises
+    where ``sheet.cell`` extends it.
+    """
+    workbook = _open_for_editing(path)
+    if "L2 Capabilities" not in workbook.sheetnames:
+        return False
+    sheet = workbook["L2 Capabilities"]
+    for row in sheet.iter_rows(min_row=2):
+        if row and str(row[0].value or "").strip() == capability_id:
+            sheet.cell(row=row[0].row, column=6, value="Yes" if out_of_scope else "No")
+            workbook.save(path)
+            return True
+    return False
+
+
 def set_state_reached_via(path: str, state_id: str, reached_via: str) -> bool:
     """Correct one state's Reached Via column in place. Returns whether a row was found.
 
@@ -499,8 +531,9 @@ def write_template(path: str) -> None:
     sheets.add_sheet(workbook, "Personas",
                      ["ID", "Name", "Applies To", "Default"], [10, 34, 28, 10])
     sheets.add_sheet(workbook, "L2 Capabilities",
-                     ["Capability ID", "Name", "Type", "Entry States", "Exit States"],
-                     [14, 30, 20, 22, 26])
+                     ["Capability ID", "Name", "Type", "Entry States", "Exit States",
+                      "Out of Scope"],
+                     [14, 30, 20, 22, 26, 14])
     sheets.add_sheet(workbook, "L3 Decisions",
                      ["Decision ID", "Decision", "Triggering Capability", "Inputs",
                       "Possible Outputs", "Input Source", "Max Attempts", "Outcome Condition",

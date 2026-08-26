@@ -1189,27 +1189,55 @@
           </figure>
         {% endif %}
 
-        {% if space.total > space.limit_options[0] %}
-          {# The only control left beside the grid. The dropdowns that used to sit here narrowed
-             one column at a time and could not express "these two cells", which is the thing a
-             reader triaging a space actually wants; the grid can, so they went. #}
+        {% if space.blocks | length > 1 or space.total > space.limit_options[0] %}
+          {# What is left beside the grid. The dropdowns that used to sit here narrowed one column
+             at a time and could not express "these two cells", which is the thing a reader
+             triaging a space actually wants; the grid can, so they went.
+
+             The block filter stayed, because it asks a different question. The grid asks what the
+             space looks like; this is somebody reviewing one part of the agent who wants the rest
+             out of the way. Checkboxes rather than a dropdown, because two blocks that hand on to
+             each other are read together as often as one is read alone. #}
           <form class="filters" method="get" action="{{ url_for('stage', key=stage.key) }}">
             {% for picked in space.cells %}
               <input type="hidden" name="cell" value="{{ picked }}">
             {% endfor %}
-            <label class="filters__field">
-              Show
-              <select name="limit" onchange="this.form.submit()">
-                {% for option in space.limit_options %}
-                  <option value="{{ option }}"
-                    {% if (option == 'all' and space.limit is none)
-                          or (option != 'all' and option == space.limit) %}selected{% endif %}>
-                    {{ option }}
-                  </option>
+            {% if space.blocks | length > 1 %}
+              <fieldset class="filters__blocks">
+                <legend class="filters__legend">Blocks</legend>
+                {% for block in space.blocks %}
+                  <label class="filters__block">
+                    <input type="checkbox" name="block" value="{{ block.id }}"
+                           onchange="this.form.submit()"
+                           {% if block.id in space.picked_blocks %}checked{% endif %}>
+                    <span>{{ block.label }}</span>
+                    <span class="filters__tally mono">{{ block.count }}</span>
+                  </label>
                 {% endfor %}
-              </select>
-              rows
-            </label>
+                {% if space.picked_blocks %}
+                  <a class="filters__clear"
+                     href="{{ url_for('stage', key=stage.key, cell=space.cells,
+                                      limit=request.args.get('limit')) }}">Show all blocks</a>
+                {% endif %}
+              </fieldset>
+            {% endif %}
+            {% if space.total > space.limit_options[0] %}
+              <label class="filters__field">
+                Show
+                <select name="limit" onchange="this.form.submit()">
+                  {% for option in space.limit_options %}
+                    <option value="{{ option }}"
+                      {% if (option == 'all' and space.limit is none)
+                            or (option != 'all' and option == space.limit) %}selected{% endif %}>
+                      {{ option }}
+                    </option>
+                  {% endfor %}
+                </select>
+                rows
+              </label>
+            {% else %}
+              <noscript><button class="button button--quiet" type="submit">Apply</button></noscript>
+            {% endif %}
           </form>
         {% endif %}
 
@@ -1225,11 +1253,44 @@
             — <span class="mono">{{ space.selected - space.shown }}</span> more; choose
             "Show" above to see them
           {%- endif %}
+          {%- if space.total > space.carried %}
+            · <span class="mono">{{ space.total - space.carried }}</span> set aside, not carried on
+          {%- endif %}
         </p>
+
+        {% if 'materiality' in space.shows and space.selected %}
+          {# Acts on what the view has narrowed to, all of it, not only the rows on this page --
+             "send High and Medium on and leave Low out" is one judgement about a hundred
+             scenarios, and asking for it a hundred times is how a reviewer ends up issuing the
+             whole space because narrowing it was too much work. #}
+          <form class="bulk" method="post"
+                action="{{ url_for('carry_forward', key=stage.key) }}">
+            {% for picked in space.cells %}
+              <input type="hidden" name="cell" value="{{ picked }}">
+            {% endfor %}
+            {% for picked in space.picked_blocks %}
+              <input type="hidden" name="block" value="{{ picked }}">
+            {% endfor %}
+            {% for id in space.selected_ids %}
+              <input type="hidden" name="id" value="{{ id }}">
+            {% endfor %}
+            <span class="bulk__label">These {{ space.selected }}:</span>
+            <select class="card__select" name="excluded">
+              <option value="">Carry forward to the next stage</option>
+              {% for reason in exclusion_reasons %}
+                <option value="{{ reason }}">Set aside — {{ reason }}</option>
+              {% endfor %}
+            </select>
+            <button class="button button--quiet" type="submit">Apply</button>
+            {% if space.set_aside %}
+              <span class="bulk__note">{{ space.set_aside }} of them already set aside</span>
+            {% endif %}
+          </form>
+        {% endif %}
 
         <ul class="cards">
           {% for row in space.rows %}
-            <li class="card" id="{{ row.id }}">
+            <li class="card{% if row.excluded %} card--aside{% endif %}" id="{{ row.id }}">
               {# The route this scenario walks, so opening the card lights it in the graph above.
                  Carried on the element rather than fetched, because the answer is already known
                  when the page is built and a request per card would make comparing three
@@ -1270,6 +1331,9 @@
                       <span class="mark mark--tier mark--tier-{{ row.materiality | lower }}">
                         {{ row.materiality }}
                       </span>
+                    {% endif %}
+                    {% if row.excluded %}
+                      <span class="mark mark--aside">Set aside — {{ row.excluded }}</span>
                     {% endif %}
                   </span>
                 </summary>
@@ -1349,6 +1413,9 @@
                     {% for picked in space.cells %}
                       <input type="hidden" name="cell" value="{{ picked }}">
                     {% endfor %}
+                    {% for picked in space.picked_blocks %}
+                      <input type="hidden" name="block" value="{{ picked }}">
+                    {% endfor %}
                     <label class="card__rule-label" for="tier-{{ row.id }}">Set materiality</label>
                     <select class="card__select" id="tier-{{ row.id }}" name="materiality">
                       <option value="">Leave as judged</option>
@@ -1360,12 +1427,32 @@
                       {% endfor %}
                       {% if row.overridden %}<option value="Clear">Remove the override</option>{% endif %}
                     </select>
-                    {% if row.flag %}
-                      <label class="check">
-                        <input type="checkbox" name="clear_flag" value="1">
-                        Dismiss the flag
-                      </label>
-                    {% endif %}
+                    {# The review's own tag, editable rather than only dismissable. A reviewer who
+                       disagrees with "Redundant" usually has a different word for it, not none. #}
+                    <label class="card__rule-label" for="flag-{{ row.id }}">Tag</label>
+                    <select class="card__select" id="flag-{{ row.id }}" name="flag">
+                      <option value="">No tag</option>
+                      {% for tag in review_flags %}
+                        <option value="{{ tag }}"
+                          {% if row.flag == tag %}selected{% endif %}>{{ tag }}</option>
+                      {% endfor %}
+                      {% if row.flag and row.flag not in review_flags %}
+                        <option value="{{ row.flag }}" selected>{{ row.flag }}</option>
+                      {% endif %}
+                    </select>
+                    {# Set aside, not deleted. What is on record and what is issued are different
+                       questions, and only the second one this answers. #}
+                    <label class="card__rule-label" for="aside-{{ row.id }}">Carry forward</label>
+                    <select class="card__select" id="aside-{{ row.id }}" name="excluded">
+                      <option value="">Yes — send it on</option>
+                      {% for reason in exclusion_reasons %}
+                        <option value="{{ reason }}"
+                          {% if row.excluded == reason %}selected{% endif %}>No — {{ reason }}</option>
+                      {% endfor %}
+                      {% if row.excluded and row.excluded not in exclusion_reasons %}
+                        <option value="{{ row.excluded }}" selected>No — {{ row.excluded }}</option>
+                      {% endif %}
+                    </select>
                     <button class="button button--quiet" type="submit">Save</button>
                   </form>
                   {% endif %}

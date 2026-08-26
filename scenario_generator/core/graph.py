@@ -150,6 +150,8 @@ def spans_for(graph: DecisionGraph, capabilities: Sequence[Capability]) -> List[
     """
     spans: List[Span] = []
     for capability in capabilities:
+        if capability.out_of_scope:
+            continue
         entries = [s for s in capability.entry_states if s in graph.states]
         exits = frozenset(s for s in capability.exit_states if s in graph.states)
         if not entries or not exits:
@@ -164,9 +166,14 @@ def spans_for(graph: DecisionGraph, capabilities: Sequence[Capability]) -> List[
             spans.append(Span(capability.id, capability.name or capability.id, entry, exits,
                               adopts_orphans=position == 0))
 
-    if not spans:
+    # The whole-graph fallback is for a declaration nobody has divided up yet. A declaration where
+    # every block was divided up and then put out of scope has said something else entirely, and
+    # walking it end to end would test exactly what it asked not to be tested.
+    if not spans and not any(c.out_of_scope for c in capabilities):
         endings = frozenset(s.id for s in graph.states.values() if s.is_terminal)
         return [Span("", "", start, endings) for start in graph.start_states]
+    if not spans:
+        return []
 
     return spans + _spans_for_the_gaps(graph, spans)
 

@@ -43,7 +43,8 @@ class Kind:
 
 KINDS: Dict[str, Kind] = {
     "capability": Kind("L2 Capabilities", "id", {
-        "id": 1, "name": 2, "type": 3, "entry_states": 4, "exit_states": 5}, prefix="CAP-"),
+        "id": 1, "name": 2, "type": 3, "entry_states": 4, "exit_states": 5,
+        "out_of_scope": 6}, prefix="CAP-"),
     "decision": Kind("L3 Decisions", "id", {
         "id": 1, "name": 2, "capability_id": 3, "inputs": 4, "outcomes": 5, "input_source": 6,
         "max_attempts": 7, "outcome_condition": 8, "out_of_scope": 9}, prefix="DEC-"),

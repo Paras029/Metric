@@ -179,6 +179,7 @@ def to_row(scenario: Scenario, capability_names: Optional[Dict[str, str]] = None
         "materiality": scenario.effective_materiality,
         "materiality_reason": _reason(scenario),
         "overridden": bool(scenario.materiality_override),
+        "excluded": scenario.excluded,
         "flag": scenario.review_flag,
         "flag_reason": _flag_reason(scenario),
         "flag_shares_reason": bool(scenario.review_flag) and not _flag_reason(scenario),
@@ -349,9 +350,32 @@ def _cell_label(category: str, tier: str) -> str:
 
 
 
+_CROSSING = "__crossing__"
+"""The block filter's entry for scenarios that belong to no single block.
+
+Not a capability id, and deliberately not one: a route somebody proposed across three blocks is
+the one thing the block filter cannot express as a capability, and it is also the set a reviewer
+most often wants on its own."""
+
+
+def _blocks_available(rows: List[Dict[str, object]]) -> List[Dict[str, object]]:
+    """Which blocks the space actually has scenarios in, with how many, in the order shown."""
+    counts: Dict[str, int] = {}
+    labels: Dict[str, str] = {}
+    for row in rows:
+        key = row["capability_id"] or _CROSSING
+        counts[key] = counts.get(key, 0) + 1
+        labels.setdefault(key, row["capability"] or "Not grouped into a block")
+    ordered = sorted((k for k in counts if k != _CROSSING), key=lambda k: labels[k].lower())
+    if _CROSSING in counts:
+        ordered.append(_CROSSING)
+    return [{"id": key, "label": labels[key], "count": counts[key]} for key in ordered]
+
+
 def build_rows(scenarios: List[Scenario], stage: str = "summary",
                cells: Sequence[Tuple[str, str]] = (), limit: int = PAGE_SIZE,
-               capability_names: Optional[Dict[str, str]] = None) -> Dict[str, object]:
+               capability_names: Optional[Dict[str, str]] = None,
+               blocks: Sequence[str] = ()) -> Dict[str, object]:
     """The rows to show, the grid that selects them, and what was left out.
 
     **The grid is the only selector.** It replaced three view tabs and five dropdowns, and it does
@@ -363,6 +387,12 @@ def build_rows(scenarios: List[Scenario], stage: str = "summary",
     ``cells`` is (category, tier) pairs, either of which may be ``*`` for a whole row or column.
     Several are a union rather than an intersection: two cells show the scenarios in both, which
     is the only reading of "I clicked two things" that anybody means.
+
+    ``blocks`` narrows to capabilities, and is separate from the grid rather than another axis on
+    it because it answers a different question. The grid asks what a space looks like; the block
+    filter is somebody reviewing one part of the agent and wanting the rest out of the way. It
+    intersects with the grid: picking Critical and picking identification means Critical scenarios
+    in identification, not both sets.
 
     Returns the counts as well as the rows, because a narrowed list that does not say what it
     narrowed is a list that quietly loses scenarios.
@@ -386,6 +416,14 @@ def build_rows(scenarios: List[Scenario], stage: str = "summary",
     else:
         rows.sort(key=lambda r: (_group_of(r), r["id"]))
 
+    # Built before the block filter is applied, so the counts beside each block name stay the size
+    # of that block rather than shrinking to whatever is currently shown -- which would make the
+    # filter unable to tell you what turning it off would give you back.
+    available = _blocks_available(rows)
+    picked = [b for b in blocks if b in {b["id"] for b in available}]
+    if picked:
+        rows = [r for r in rows if (r["capability_id"] or _CROSSING) in picked]
+
     chosen = list(cells or ()) if MATERIALITY_COLUMNS in shows else []
     grid = matrix(rows, chosen) if MATERIALITY_COLUMNS in shows else {}
     selected = [r for r in rows if _matches(r, chosen)]
@@ -396,10 +434,15 @@ def build_rows(scenarios: List[Scenario], stage: str = "summary",
         "shows": shows,
         "matrix": grid,
         "cells": [as_cell(category, tier) for category, tier in chosen],
+        "blocks": available,
+        "picked_blocks": picked,
         "limit": limit,
         "limit_options": PAGE_SIZE_OPTIONS,
         "shown": len(shown_rows),
         "selected": len(selected),
+        "selected_ids": [r["id"] for r in selected],
+        "set_aside": sum(1 for r in selected if r["excluded"]),
         "total": len(rows),
+        "carried": sum(1 for r in rows if not r["excluded"]),
         "attention": sum(1 for r in rows if needs_attention(r)),
     }

@@ -253,11 +253,18 @@ def _coverage(graph: DecisionGraph, intake: IntakeData, scenarios: Sequence[Scen
         reached |= opening_of(intake, graph, scenario)
 
     declared_states = {s.id for s in intake.states}
+    if any(d.out_of_scope for d in intake.decisions):
+        # A state only an out-of-scope decision leads to is not a state this review failed to
+        # reach; it is a state this review said it was not going to reach. Counting it as missing
+        # would make every declaration with anything excluded read as incomplete.
+        declared_states &= (
+            {graph.successor(d.id, v) for d in intake.decisions if not d.out_of_scope
+             for v in d.variants} | set(graph.start_states) | reached)
     report.states_declared = len(declared_states)
     report.states_reached = len(declared_states & reached)
     report.states_missing = sorted(declared_states - reached)
 
-    counts: Dict[str, int] = {c.id: 0 for c in intake.capabilities}
+    counts: Dict[str, int] = {c.id: 0 for c in intake.capabilities if not c.out_of_scope}
     for scenario in scenarios:
         if scenario.capability_id in counts:
             counts[scenario.capability_id] += 1

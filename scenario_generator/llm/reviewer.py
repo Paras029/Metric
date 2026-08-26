@@ -33,7 +33,8 @@ import logging
 from typing import Callable, List, Optional, Tuple
 
 from ..core.generation import peer_signals
-from ..core.models import (CATEGORIES, MATERIALITY, IntakeData, OwnerScenario, Scenario)
+from ..core.models import (CATEGORIES, MATERIALITY, REVIEW_FLAGS, IntakeData,
+                           OwnerScenario, Scenario)
 from ..core.proposals import instantiate_proposals
 from ..utils import chunks, one_of, parse_json_object
 from ..utils.replies import prose
@@ -55,8 +56,6 @@ DEFAULT_BATCH_SIZE = 6
 # against a five-value vocabulary rather than reasoning about business consequence -- so it takes
 # a much coarser batch, and the second reviewed column costs a fraction of the first's calls.
 CATEGORY_BATCH_SIZE = 20
-
-REVIEW_FLAGS = ("Redundant", "Under-specified", "Mis-scoped")
 
 _SYSTEM_PROMPT = "reviewer.system"
 _ASSESS_PROMPT = "reviewer.assess"

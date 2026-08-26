@@ -98,6 +98,9 @@ FIELDS: Dict[str, List[dict]] = {
         {"name": "exit_states", "label": "Hands on or ends at", "kind": "states",
          "of": "exit_options",
          "hint": "Where a route leaves — the next capability's entry, or an ending."},
+        {"name": "out_of_scope", "label": "Out of scope", "kind": "flag",
+         "hint": "Part of the agent, but not tested here. No scenarios are written for it; "
+                 "later blocks treat it as already done."},
     ],
     "tool": [
         {"name": "capability_id", "label": "Capability", "kind": "choice", "of": "capabilities"},
@@ -172,9 +175,11 @@ def _rows(intake: IntakeData, spans: Optional[Dict[str, dict]] = None) -> Dict[s
         "fields": {"name": c.name, "type": c.type,
                    "decisions": [d.id for d in intake.decisions
                                  if d.trigger_capability == c.id],
-                   "entry_states": list(c.entry_states), "exit_states": list(c.exit_states)},
+                   "entry_states": list(c.entry_states), "exit_states": list(c.exit_states),
+                   "out_of_scope": c.out_of_scope},
         "span": spans.get(c.id, {}),
-        "note": (" → ".join(filter(None, [", ".join(c.entry_states), ", ".join(c.exit_states)]))
+        "note": ("out of scope — not tested here" if c.out_of_scope else
+                 " → ".join(filter(None, [", ".join(c.entry_states), ", ".join(c.exit_states)]))
                  or "no span drawn"),
         "problems": audit["capability"].get(c.id, []),
     } for c in intake.capabilities]

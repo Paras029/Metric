@@ -103,11 +103,23 @@ def _intake(workspace: Workspace) -> IntakeData:
 
 
 def _scenarios(workspace: Workspace, intake: IntakeData):
-    """The scenario space as the last stage left it."""
+    """The scenario space as the last stage left it, excluded scenarios included."""
     path = workspace.root / METADATA
     if not path.exists():
         raise ValueError("Build the scenario space first.")
     return read_scenarios(str(path), intake)
+
+
+def _live(scenarios):
+    """The scenarios a stage actually works on: everything not set aside at an earlier one.
+
+    Every stage saves the whole space and runs on this slice. Excluding a scenario is what makes
+    the pack narrower without making the record of it thinner -- the low-materiality routes are
+    still enumerated, still counted in the space, and still say why they are not being issued --
+    and it is also the only thing that stops a stage spending a model call on work somebody has
+    already said they do not want.
+    """
+    return [s for s in scenarios if not s.is_excluded]
 
 
 def _context(workspace: Workspace) -> str:
@@ -468,7 +480,7 @@ def _run_scenarios(workspace: Workspace, progress=None, cancel=None) -> Dict[str
     intake = _intake(workspace)
     scenarios = _scenarios(workspace, intake)
     ScenarioWriter(context=_context(workspace), progress=progress,
-                  cancel=cancel).write(scenarios, intake)
+                  cancel=cancel).write(_live(scenarios), intake)
     _save_metadata(workspace, "scenarios", intake, scenarios)
 
     written = sum(1 for s in scenarios if s.description)
@@ -480,7 +492,7 @@ def _run_materiality(workspace: Workspace, progress=None, cancel=None) -> Dict[s
     intake = _intake(workspace)
     scenarios = _scenarios(workspace, intake)
     MaterialityAssessor(context=_context(workspace), progress=progress,
-                        cancel=cancel).assess(scenarios, intake)
+                        cancel=cancel).assess(_live(scenarios), intake)
     _save_metadata(workspace, "materiality", intake, scenarios)
 
     tiers = Counter(s.effective_materiality for s in scenarios)
@@ -492,8 +504,9 @@ def _run_review(workspace: Workspace, progress=None, cancel=None) -> Dict[str, o
     intake = _intake(workspace)
     scenarios = _scenarios(workspace, intake)
     reviewer = ScenarioReviewer(context=_context(workspace), progress=progress, cancel=cancel)
-    scenarios, proposals = reviewer.review(scenarios, intake)
-    scenarios = list(scenarios) + list(proposals)
+    set_aside = [s for s in scenarios if s.is_excluded]
+    reviewed, proposals = reviewer.review(_live(scenarios), intake)
+    scenarios = list(reviewed) + list(proposals) + set_aside
 
     _save_metadata(workspace, "review", intake, scenarios)
 
@@ -521,11 +534,13 @@ def _run_summary(workspace: Workspace, progress=None, cancel=None) -> Dict[str, 
     report("Writing the scenario space metadata", 1, 3)
     _save_metadata(workspace, "summary", intake, scenarios)
 
-    issued, held_back = scenarios, 0
+    issued, set_aside = _live(scenarios), len(scenarios) - len(_live(scenarios))
+    held_back = 0
     gaps = _under_represented(workspace)
     if workspace.pack_gaps_only and gaps is not None:
-        issued = [s for s in scenarios if s.id in gaps]
-        held_back = len(scenarios) - len(issued)
+        held_back = len(issued)
+        issued = [s for s in issued if s.id in gaps]
+        held_back -= len(issued)
 
     report("Writing the data template", 2, 3)
     write_data_template(str(workspace.root / TEMPLATE), intake, issued)
@@ -537,6 +552,8 @@ def _run_summary(workspace: Workspace, progress=None, cancel=None) -> Dict[str, 
                "Expected outcomes in the pack": 0}
     if workspace.pack_gaps_only:
         summary["Held back as already covered"] = held_back
+    if set_aside:
+        summary["Set aside earlier"] = set_aside
     return summary
 
 

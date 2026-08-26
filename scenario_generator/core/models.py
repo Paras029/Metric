@@ -11,6 +11,18 @@ CATEGORIES = ["Happy path", "Retry", "Fallback", "Escalation", "Termination"]
 # inconsistency expensive. What the scale has to separate is what the agent is *for* from what
 # supports it, and that is three buckets: the act, the approach to the act, and the rest.
 MATERIALITY = ["Low", "Medium", "High"]
+
+REVIEW_FLAGS = ("Redundant", "Under-specified", "Mis-scoped")
+"""What the review can say is wrong with a scenario, and what a reviewer can say instead.
+
+A fixed vocabulary because these are counted and compared across use cases -- "Under-specified"
+has to mean the same thing in every pack for the number of them to mean anything. A reviewer can
+still keep a tag the model wrote that is not on this list; what they cannot do is invent a
+fourteenth synonym for redundant."""
+
+EXCLUSION_REASONS = ("Low materiality", "Redundant", "Under-specified",
+                     "Covered by another scenario", "Not in this review")
+"""Why a scenario is not carried on to the next stage. See :attr:`Scenario.excluded`."""
 CONFIDENCE = ["Low", "Medium", "High"]
 
 # What a capability does. Drives probe applicability, so it is a closed vocabulary rather than
@@ -75,6 +87,16 @@ class Capability:
     type: str = ""
     entry_states: Tuple[str, ...] = ()
     exit_states: Tuple[str, ...] = ()
+    out_of_scope: bool = False
+    """Present in the agent, but not a block this review writes scenarios for.
+
+    The usual case is a capability covered by a separate engagement -- identification handled by a
+    platform team, say -- which the agent still performs and the graph still has to show, because
+    a route through charge approval genuinely does pass through it. So it is not removed: no
+    scenarios are enumerated for it, and everything downstream treats it as something that has
+    already happened. A turn plan for a later block says "after identification and verification"
+    and starts where that leaves off, and the full-workflow scenarios the review proposes step
+    over it rather than testing it."""
 
     @property
     def is_bounded(self) -> bool:
@@ -233,6 +255,23 @@ class Scenario:
     # Proposal provenance. Set only on scenarios the review layer added.
     proposed_rationale: str = ""
     proposed_anchor: str = ""
+
+    excluded: str = ""
+    """Why this scenario is not being carried forward, or empty if it is.
+
+    Held on the scenario rather than by deleting it, because "we are not testing this" is a
+    judgement somebody has to be able to see and reverse. A deleted scenario is indistinguishable
+    from one the walk never produced, which is exactly the confusion the enumeration exists to
+    remove -- and the reason is the record of why a pack of ninety went out instead of a pack of
+    two hundred.
+
+    A reason rather than a flag for the same purpose: "Low materiality" and "Redundant" and
+    "Not in this release" are different decisions and read differently in a review.
+    """
+
+    @property
+    def is_excluded(self) -> bool:
+        return bool(self.excluded)
 
     @property
     def is_probe(self) -> bool:
