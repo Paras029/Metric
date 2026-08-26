@@ -1392,6 +1392,15 @@
                         <strong>{{ row.flag }}</strong> — {{ row.flag_reason }}
                       </p>
                     {% endif %}
+                    {% if 'review' in space.shows and row.revised %}
+                      {# What the review rewrote, said plainly. A repaired scenario reads as
+                         though it always looked like this, and a reviewer needs to know which
+                         text they are reading is the model's rather than the walk's. #}
+                      <p class="aside">
+                        <strong>Rewritten by the review</strong> — {{ row.revised }}. The flag
+                        above says what was wrong with it.
+                      </p>
+                    {% endif %}
                     {% if 'review' in space.shows and row.proposal_reason %}
                       <p class="aside">
                         <strong>Proposed</strong> — {{ row.proposal_reason }}

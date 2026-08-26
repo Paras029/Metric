@@ -190,6 +190,57 @@ def digest(scenarios: List[Scenario], description_chars: int = 160) -> str:
     return "\n".join(lines)
 
 
+def hardest_routes(scenarios: List[Scenario], intake: IntakeData, per_block: int = 4) -> str:
+    """The routes in each block that are worth chaining into a full journey, named so they can be.
+
+    A proposal pass asked for challenging end-to-end journeys and given only the digest writes the
+    happy path joined end to end, because that is the journey a compact list of one-line summaries
+    makes visible. The hard routes are the ones it has to read the whole space carefully to find,
+    and it is reading a hundred lines through a narrow window.
+
+    So they are singled out and handed over as raw material: the longest routes, the ones that
+    retry, and the ones that end anywhere other than success. Chaining three of those is a
+    difficult journey by construction, and it is a journey through routes the declaration actually
+    has rather than one the model imagined.
+
+    Scored rather than filtered, because "difficult" is several things at once and a route can be
+    hard in more than one way. Length is the base -- a longer route is more places for state to be
+    lost -- with a repeated decision counting double, because a retry is where an attempt count
+    and a hand-off interact, and a non-success ending counting for as much again.
+    """
+    endings = {s.id: s.outcome_type for s in intake.states}
+    by_block: Dict[str, List[tuple]] = {}
+    for scenario in scenarios:
+        if not scenario.path or scenario.is_probe or not scenario.capability_id:
+            continue
+        taken = [step.decision_id for step in scenario.path]
+        repeated = len(taken) - len(set(taken))
+        ending = endings.get(scenario.path[-1].next_state, "")
+        score = len(taken) + repeated * 2 + (3 if ending and ending != "Happy path" else 0)
+        by_block.setdefault(scenario.capability_id, []).append((score, scenario, ending))
+
+    if not by_block:
+        return ""
+
+    named = {c.id: c.name or c.id for c in intake.capabilities}
+    lines = ["The hardest routes already walked in each block, longest and most awkward first. "
+             "These are the pieces to build a difficult journey out of: a journey that chains "
+             "three of these is testing something none of them tests alone."]
+    for block in sorted(by_block):
+        lines.append(f"\n{block} ({named.get(block, block)}):")
+        for score, scenario, ending in sorted(by_block[block],
+                                              key=lambda row: -row[0])[:per_block]:
+            taken = [step.decision_id for step in scenario.path]
+            marks = []
+            if len(taken) != len(set(taken)):
+                marks.append("retries")
+            if ending and ending != "Happy path":
+                marks.append(f"ends {ending.lower()}")
+            lines.append(f"- {scenario.id}: {scenario.path_str}"
+                         f"{' [' + ', '.join(marks) + ']' if marks else ''}")
+    return "\n".join(lines)
+
+
 def describe_blocks(intake: IntakeData) -> str:
     """The agent as its chain of capabilities: which block hands on to which, and where each ends.
 

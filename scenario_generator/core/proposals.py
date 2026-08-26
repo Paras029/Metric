@@ -9,12 +9,15 @@ legitimately has none. What it never gets is a fabricated one.
 """
 from __future__ import annotations
 
+import logging
 from typing import List, Tuple
 
 from ..utils.replies import prose
 from ..utils.text import one_of
 from .models import (CATEGORIES, MATERIALITY, ORIGIN_PROPOSED, IntakeData, Scenario,
                      Step, TurnMeta)
+
+logger = logging.getLogger(__name__)
 
 
 def _validate_path(entry: dict, intake: IntakeData) -> Tuple[List[Step], int]:
@@ -31,9 +34,27 @@ def _validate_path(entry: dict, intake: IntakeData) -> Tuple[List[Step], int]:
     return steps, dropped
 
 
+def _scripted_turns(entry: dict) -> int:
+    """How many turns the plan actually has.
+
+    Counted off the plan rather than read from the ``turns`` field, which is the model restating
+    something it has already written and is the field it most often gets wrong. The two
+    disagreeing is not harmless: the turn count drives how many rows the issued Turn_Plan sheet
+    has, so a six-line plan declared as three turns is issued with half of it missing.
+    """
+    lines = [line for line in str(entry.get("turn_plan", "")).splitlines() if line.strip()]
+    if lines:
+        return min(len(lines), 20)
+    declared = entry.get("turns", 0)
+    try:
+        return max(1, min(int(declared or 3), 10))
+    except (TypeError, ValueError):
+        return 3
+
+
 def _turn_meta(steps: List[Step], entry: dict, intake: IntakeData) -> List[TurnMeta]:
     """Per-turn ground truth. Where a path survived validation it drives the turns; otherwise
-    the proposal's own turn count does, with its expected outcome repeated per turn."""
+    the plan's own length does, with its expected outcome repeated per turn."""
     by_id = {d.id: d for d in intake.decisions}
     if steps:
         return [TurnMeta(index=i, decision_id=s.decision_id,
@@ -45,11 +66,31 @@ def _turn_meta(steps: List[Step], entry: dict, intake: IntakeData) -> List[TurnM
                 for i, s in enumerate(steps, start=1)]
 
     expectation = str(entry.get("expected_outcome", "")).strip() or "See scenario description."
-    turns = max(1, min(int(entry.get("turns", 3) or 3), 10))
     return [TurnMeta(index=i, decision_id="-", decision_name=str(entry.get("title", "Proposed")),
                      expected_variant=expectation, expected_tool="", next_state="-",
                      input_source="User")
-            for i in range(1, turns + 1)]
+            for i in range(1, _scripted_turns(entry) + 1)]
+
+
+def _category_for(entry: dict, steps: List[Step], intake: IntakeData) -> str:
+    """The category, taken from where the route ends before it is taken from the claim.
+
+    A route that ends in a declared terminal state has already said how it ends -- that is what
+    Outcome Type on the L4 sheet is -- and reading it off the graph agrees with every walked
+    scenario by construction. The claim is only asked for where there is no route to read.
+
+    It used to fall back to the literal string "Proposed", which is not one of :data:`CATEGORIES`.
+    That put a value in the category column that no grid cell could ever match, so a proposal with
+    a category the model left blank was a scenario a reviewer could not find by narrowing.
+    """
+    claimed = one_of(entry.get("category"), CATEGORIES, "")
+    if steps:
+        last = steps[-1]
+        landed = next((s for s in intake.states
+                       if f"{last.decision_id}={last.variant}" in (s.reached_via or "")), None)
+        if landed is not None and landed.outcome_type in CATEGORIES:
+            return landed.outcome_type
+    return claimed or "Fallback"
 
 
 def instantiate_proposal(entry: dict, index: int, intake: IntakeData) -> Scenario:
@@ -103,7 +144,7 @@ def instantiate_proposal(entry: dict, index: int, intake: IntakeData) -> Scenari
     scenario = Scenario(
         id=f"LP-{index:03d}",
         path=steps,
-        category=one_of(entry.get("category"), CATEGORIES, "Proposed"),
+        category=_category_for(entry, steps, intake),
         persona=persona,
         seeded_state=seeded,
         termination=str(entry.get("expected_outcome", "")).strip() or "See scenario description.",
@@ -130,9 +171,16 @@ def instantiate_proposals(entries: List[dict], intake: IntakeData,
                           limit: int = None) -> List[Scenario]:
     """Validated proposals, truncated to `limit`, with stable LP-xxx IDs.
 
-    A proposal missing a description is dropped — it cannot be issued or reviewed without one.
+    A proposal missing a description or a turn plan is dropped. Both are issued to the model owner
+    and neither can be reconstructed: a scenario with no description cannot be reviewed, and one
+    with no plan is a title the other team is asked to run. Filling in either from the rest would
+    put text in front of a tester that nobody wrote for them.
     """
-    usable = [e for e in entries if str(e.get("description", "")).strip()]
+    usable = [e for e in entries
+              if str(e.get("description", "")).strip() and str(e.get("turn_plan", "")).strip()]
+    if len(usable) < len(entries):
+        logger.warning("Dropped %d proposal(s) with no description or no turn plan.",
+                       len(entries) - len(usable))
     if limit is not None:
         usable = usable[:limit]
     return [instantiate_proposal(entry, index, intake)

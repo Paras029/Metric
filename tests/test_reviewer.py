@@ -3,8 +3,8 @@ review is allowed to do.
 """
 import unittest
 import json
-from scenario_generator.core.models import (Capability, Decision, IntakeData, OwnerScenario,
-                                            Persona, State, Tool)
+from scenario_generator.core.models import (CATEGORIES, Capability, Decision, IntakeData,
+                                            OwnerScenario, Persona, State, Tool)
 from scenario_generator.core.probes import build_probes
 from scenario_generator.pipeline import build_scenario_space
 from scenario_generator.core.proposals import instantiate_proposals
@@ -48,10 +48,22 @@ class TestProposalValidation(unittest.TestCase):
     def test_a_valid_proposal_survives_intact(self):
         scenario = instantiate_proposals([_valid_proposal()], _INTAKE)[0]
         self.assertEqual(scenario.path_str, "DEC-01=Pass")
-        self.assertEqual(scenario.category, "Fallback")
         self.assertEqual(scenario.materiality, "High")
         self.assertEqual(scenario.capabilities, ["CAP-01"])
         self.assertEqual(scenario.proposed_anchor, "SC-001")
+
+    def test_the_category_comes_off_the_route_rather_than_the_claim(self):
+        """A route ending in a declared terminal state has already said how it ends. Taking the
+        claim instead would let a proposal be filed somewhere no walked scenario could be."""
+        landing = next(s for s in _INTAKE.states if "DEC-01=Pass" in (s.reached_via or ""))
+        self.assertTrue(landing.outcome_type, "the fixture no longer types this ending")
+        scenario = instantiate_proposals([_valid_proposal(category="Fallback")], _INTAKE)[0]
+        self.assertEqual(scenario.category, landing.outcome_type)
+
+    def test_with_no_route_to_read_the_claim_is_what_there_is(self):
+        scenario = instantiate_proposals(
+            [_valid_proposal(decision_path=[], category="Escalation")], _INTAKE)[0]
+        self.assertEqual(scenario.category, "Escalation")
 
     def test_undeclared_decisions_are_discarded_and_recorded(self):
         scenario = instantiate_proposals(
@@ -72,8 +84,15 @@ class TestProposalValidation(unittest.TestCase):
                              category="NotACategory", materiality="Enormous")], _INTAKE)[0]
         self.assertNotIn("CAP-99", scenario.capabilities)
         self.assertEqual(scenario.persona.id, "P1")
-        self.assertEqual(scenario.category, "Proposed")
         self.assertEqual(scenario.materiality, "Medium")
+
+    def test_a_category_outside_the_vocabulary_is_replaced_by_one_inside_it(self):
+        """It used to fall back to the literal "Proposed", which is not one of CATEGORIES -- so
+        the proposal carried a value no grid cell could match and could not be found by
+        narrowing."""
+        scenario = instantiate_proposals(
+            [_valid_proposal(decision_path=[], category="NotACategory")], _INTAKE)[0]
+        self.assertIn(scenario.category, CATEGORIES)
 
 
 class TestWhichBlocksAProposalTouches(unittest.TestCase):
@@ -154,11 +173,19 @@ class TestWhichBlocksAProposalTouches(unittest.TestCase):
         self.assertTrue(scenario.is_proposed)
         self.assertTrue(scenario.id.startswith("LP-"))
 
-    def test_pathless_proposal_gets_turns_from_its_own_count(self):
+    def test_pathless_proposal_gets_its_turns_from_the_plan_it_wrote(self):
+        """Counted off the plan, not read from the turns field. The two disagreeing is not
+        harmless: the count drives how many rows the issued Turn_Plan sheet has, so a four-line
+        plan declared as two turns went out with half of it missing."""
         scenario = instantiate_proposals(
-            [_valid_proposal(decision_path=[], turns=4)], _INTAKE)[0]
+            [_valid_proposal(decision_path=[], turns=2,
+                             turn_plan="1. One.\n2. Two.\n3. Three.\n4. Four.")], _INTAKE)[0]
         self.assertEqual(len(scenario.turn_meta), 4)
         self.assertTrue(all(t.decision_id == "-" for t in scenario.turn_meta))
+
+    def test_a_proposal_without_a_turn_plan_is_dropped(self):
+        """It would be issued to the model owner as a title with nothing to run."""
+        self.assertEqual(instantiate_proposals([_valid_proposal(turn_plan="  ")], _INTAKE), [])
 
 
 class TestReviewSweep(unittest.TestCase):

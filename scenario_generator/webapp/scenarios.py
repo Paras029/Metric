@@ -181,6 +181,7 @@ def to_row(scenario: Scenario, capability_names: Optional[Dict[str, str]] = None
         "overridden": bool(scenario.materiality_override),
         "excluded": scenario.excluded,
         "flag": scenario.review_flag,
+        "revised": scenario.review_revised,
         "flag_reason": _flag_reason(scenario),
         "flag_shares_reason": bool(scenario.review_flag) and not _flag_reason(scenario),
         "coverage": scenario.owner_coverage,

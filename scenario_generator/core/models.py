@@ -235,6 +235,15 @@ class Scenario:
     # disagreement here is usually a defect in that declaration rather than in the scenario, and
     # the fix belongs in the workbook. Recorded beside the declared value rather than replacing
     # it, for the same reason materiality is: both readings stay visible and a person rules.
+    review_revised: str = ""
+    """Which fields the review rewrote, or empty where it only judged.
+
+    Set alongside the flag rather than instead of it. A flag on its own was advice nobody could
+    act on -- text the review called under-specified went to the model owner exactly as it stood --
+    but a rewrite with the flag cleared would hide the judgement behind the fix, and a reviewer
+    needs to see both: that something was wrong with this scenario, and that the pass had a go at
+    it."""
+
     review_category: str = ""
     review_category_rationale: str = ""
 

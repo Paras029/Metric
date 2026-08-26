@@ -104,7 +104,7 @@ class TestWhatTheProposalPassIsTold(unittest.TestCase):
 
         rendered = prompt_loader.render(
             "reviewer.propose", owner="", total=1, digest="d", limit=5,
-            blocks=describe_blocks(self.intake), categories="c", materiality="m", cds="")
+            blocks=describe_blocks(self.intake), hard="", categories="c", materiality="m", cds="")
         self.assertIn("one block at a time", rendered)
         self.assertIn("no scenario in the digest runs the whole way through", rendered)
         self.assertIn("CAP-02", rendered, "the block chain was not carried into the prompt")

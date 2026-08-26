@@ -171,7 +171,7 @@ class TestTheDefinitionReachesEveryPromptThatWritesAGraph(unittest.TestCase):
                 context="c"),
             "reviewer.propose": prompt_loader.render(
                 "reviewer.propose", owner="", total=1, digest="d", limit=1, categories="c",
-                materiality="m", cds=_cds(), blocks="b"),
+                materiality="m", cds=_cds(), blocks="b", hard="h"),
             "the diagram prompts": _vocabulary(),
         }
         for name, text in rendered.items():

@@ -8,6 +8,10 @@ HOW THIS AGENT IS DIVIDED
 
 {{blocks}}
 
+THE HARDEST ROUTES ALREADY WALKED
+
+{{hard}}
+
 YOUR TASK
 
 Decide whether anything materially important is missing, and propose it if so.
@@ -30,9 +34,38 @@ of your job here, and it is the part only you can do.
 
 WHICH FULL JOURNEYS ARE WORTH PROPOSING
 
-Not many, and not the obvious ones. A journey that is simply each block's happy path joined end
-to end tests nothing the block scenarios did not already test separately, and it is the first
-thing anybody proposes. Look instead for journeys where **something carries across a boundary**:
+Not many, and not the obvious ones.
+
+**A journey that joins each block's happy path end to end is not worth proposing.** It tests
+nothing the block scenarios did not already test separately, and it is the first thing anybody
+writes. There is one exception, below, and it is one scenario.
+
+Build them out of the hard routes instead. The section above lists, for each block, the routes
+that are longest, that retry, and that end anywhere other than success. Those are the pieces. A
+journey that takes a route which retried twice in identification, hands on into a verification
+route that ends in a fallback, and carries both into charge approval is difficult by construction
+— and it is difficult in a way built from routes the declaration actually has, not from a
+situation you imagined for it.
+
+When you choose which pieces to chain, prefer:
+
+- **The long over the short.** More turns is more places for a detail to be dropped, and the point
+  of a full journey is what survives the hand-offs.
+- **Routes that already went wrong.** A block entered after a fallback in the previous block is a
+  different test from the same block entered cleanly, and no block scenario can be entered that
+  way — the walk starts each block from a stated position, and "after the previous block failed"
+  is not one of them.
+- **Routes that retried.** Attempts are counted per decision. A journey that spends attempts in
+  two blocks is the case the per-block walk structurally cannot reach.
+- **Endings that are not success.** Escalation, termination and fallback carry obligations —
+  disclosures, hand-offs, what the agent may still do afterwards — and those obligations are where
+  a long journey breaks.
+
+Name the routes you chained in the rationale, by their SC ids. A journey that cannot say which
+routes it is made of is a journey somebody invented, and it is the one most likely to be
+unrunnable.
+
+Beyond difficulty, look for journeys where **something carries across a boundary**:
 
 - **State carried forward.** A detail established in one block that a later one relies on, where
   the hand-off is where it could be lost — an identity established one way rather than another, a
@@ -52,12 +85,15 @@ thing anybody proposes. Look instead for journeys where **something carries acro
   beginning — a disclosure owed because of something said three turns earlier.
 
 Give a full journey a `decision_path` that names the decisions in order across every block it
-crosses, and leave `capabilities` listing all of them. A proposal whose steps straddle two blocks
-is correctly recorded as belonging to neither, and is issued as a scenario the tester runs from
-the beginning.
+crosses — the actual decisions, in the order a tester would reach them, taken from the routes you
+chained. A path that skips the middle of a journey is not a full journey; it is a claim about one.
+Leave `capabilities` listing every block it crosses. A proposal whose steps straddle two blocks is
+correctly recorded as belonging to neither, and is issued as a scenario the tester runs from the
+beginning, so its turn plan has to start at the beginning too.
 
 Cap them at **three**, inside the overall limit below. A pack of end-to-end journeys is the
-scenario space this design exists to avoid.
+scenario space this design exists to avoid. Three difficult ones are worth more than ten ordinary
+ones, and one difficult one is worth more than three ordinary ones.
 
 WHERE THE REAL GAPS TEND TO BE
 
@@ -98,7 +134,12 @@ WHAT TO RETURN FOR EACH PROPOSAL
 - description: two or three sentences telling the agent's team what to test and why it matters
   here, with no hint of the expected outcome.
 - turn_plan: numbered lines, "1. ", "2. ", joined with the two characters \n, giving what the
-  tester says or does at each turn. Only what the tester does.
+  tester says or does at each turn. Only what the tester does. Every field below is filled in for
+  every proposal: a proposal that arrives without a plan, a persona, a category or the blocks it
+  touches is one a reviewer cannot place and cannot issue, and it is discarded rather than
+  guessed at. Where a proposal follows a declared route, the plan needs one turn per step of that
+  route — a four-turn plan against a seven-step path is a scenario that stops before it reaches
+  what it was proposed for.
 - turns: how many lines the turn_plan has, as an integer.
 - expected_outcome: what a correct agent should end up doing. Internal ground truth.
 - decision_path: where the scenario follows a route through the declared graph, a list of

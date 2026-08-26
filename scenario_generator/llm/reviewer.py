@@ -41,7 +41,7 @@ from ..utils.replies import prose
 from . import cancellation, config, council, prompt_loader
 from .calling import call_batch, parsed_reply
 from .context import (describe_blocks, describe_graph, describe_use_case, digest,
-                      supplementary_context)
+                      hardest_routes, supplementary_context)
 from .gateway import ask_llm
 
 logger = logging.getLogger(__name__)
@@ -95,6 +95,24 @@ def _tiers_apart(scenario: Scenario) -> int:
         return 0
 
 
+def _expected_turns(scenario: Scenario) -> List[dict]:
+    """What the walk says happens at each turn, beside the plan that is supposed to induce it.
+
+    This is the fact the review was missing. Without it the only question it could ask about a
+    turn plan was whether the prose reads clearly, and "under-specified" collapsed into a matter
+    of taste. With it there is something to check the plan *against*: the route says turn three
+    lands on DEC-04=Declined, so turn three of the plan has to be the tester doing the thing that
+    gets it declined, and a plan with four turns against a six-step route is missing two.
+
+    Only turns the walk actually determined. A proposal with no route carries placeholder turn
+    meta, and listing that as ground truth would invite the review to check a plan against a
+    restatement of itself.
+    """
+    return [{"turn": t.index, "decision": t.decision_name or t.decision_id,
+             "must_land_on": t.expected_variant, "driven_by": t.input_source}
+            for t in scenario.turn_meta if t.decision_id and t.decision_id != "-"]
+
+
 def _batch_payload(scenarios: List[Scenario], signals: dict) -> str:
     return json.dumps([{
         "id": s.id,
@@ -103,6 +121,7 @@ def _batch_payload(scenarios: List[Scenario], signals: dict) -> str:
         "decision_path": s.path_str,
         "description": s.description,
         "turn_plan": s.turn_plan,
+        "what_each_turn_must_induce": _expected_turns(s),
         "expected_outcome": s.termination,
         "existing_materiality": s.effective_materiality,
         "capabilities": s.capabilities,
@@ -116,6 +135,22 @@ def _batch_payload(scenarios: List[Scenario], signals: dict) -> str:
         "num_turns": s.turn_count,
         **signals.get(s.id, {}),
     } for s in scenarios], indent=2)
+
+
+def _repair(scenario: Scenario, entry: dict) -> str:
+    """Apply the review's rewrite of one scenario. Returns what it changed, for the record.
+
+    Each field is replaced only where a rewrite came back and differs from what is there. A model
+    that echoes the text unchanged is agreeing with it, not revising it, and recording that as a
+    revision would put a marker on every flagged scenario whether or not anything moved.
+    """
+    changed = []
+    for field, revised in (("description", prose(entry, "revised_description")),
+                           ("turn_plan", prose(entry, "revised_turn_plan"))):
+        if revised and revised != getattr(scenario, field):
+            setattr(scenario, field, revised)
+            changed.append(field.replace("_", " "))
+    return ", ".join(changed)
 
 
 class NullReviewer:
@@ -191,7 +226,11 @@ class ScenarioReviewer:
 
         cancellation.check(self._cancel)
         self._progress("Looking for what enumeration could not reach", done, total)
-        proposals = self._propose(intake, preamble, shared)
+        # The hard routes go to the proposal call and nowhere else. Asked for a difficult
+        # journey and given only the digest, it writes the happy path joined end to end -- that is
+        # the journey a list of one-line summaries makes visible.
+        proposals = self._propose(intake, preamble, shared,
+                                  hardest_routes(scenarios, intake))
         self._progress("Review complete", total, total)
         return scenarios, proposals
 
@@ -343,7 +382,18 @@ class ScenarioReviewer:
             batch=_batch_payload(chunk, {}))
 
     def _apply_assessment(self, chunk: List[Scenario], reply) -> None:
-        """Write one chunk's materiality verdict and flag onto its scenarios."""
+        """Write one chunk's verdict, flag and repair onto its scenarios.
+
+        A flag on its own was advice nobody could act on. Text the review calls under-specified is
+        issued to the model owner exactly as it stands -- nothing downstream reads it again -- so
+        a pass that can see what is missing and cannot write it down leaves the defect in the
+        pack it just described. Where a repair comes back it is applied, the flag stays on so the
+        judgement is still visible, and what was rewritten is recorded beside it.
+
+        A repair is only taken where the review also flagged the scenario. Rewriting text it had
+        no complaint about is the pass quietly restyling the pack, which is a different and much
+        larger thing than fixing what it found.
+        """
         parsed = parsed_reply(reply, "Review call", ", ".join(s.id for s in chunk))
         for scenario in chunk:
             entry = parsed.get(scenario.id)
@@ -352,6 +402,8 @@ class ScenarioReviewer:
             scenario.review_materiality = one_of(entry.get("materiality"), MATERIALITY)
             scenario.review_rationale = prose(entry, "rationale")
             scenario.review_flag = one_of(entry.get("flag"), REVIEW_FLAGS)
+            if scenario.review_flag:
+                scenario.review_revised = _repair(scenario, entry)
 
     def _apply_category(self, chunk: List[Scenario], reply) -> None:
         """Record where the review reads a scenario's ending differently from the intake.
@@ -371,9 +423,10 @@ class ScenarioReviewer:
             scenario.review_category = category
             scenario.review_category_rationale = prose(entry, "rationale")
 
-    def _propose(self, intake: IntakeData, preamble: str, shared: dict) -> List[Scenario]:
+    def _propose(self, intake: IntakeData, preamble: str, shared: dict,
+                 hard: str = "") -> List[Scenario]:
         user = f"{preamble}\n\n" + prompt_loader.render(
-            _PROPOSE_PROMPT, **shared, limit=self._limit,
+            _PROPOSE_PROMPT, **shared, limit=self._limit, hard=hard,
             cds=prompt_loader.load("shared.cds"),
             # How the agent is divided, which is the one thing the digest cannot say. Every
             # scenario in it covers a single block, so the routes that cross two are exactly the
