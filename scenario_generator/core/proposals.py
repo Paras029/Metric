@@ -13,6 +13,7 @@ import logging
 from typing import List, Tuple
 
 from ..utils.replies import prose
+from .graph import DecisionGraph
 from ..utils.text import one_of
 from .models import (CATEGORIES, MATERIALITY, ORIGIN_PROPOSED, IntakeData, Scenario,
                      Step, TurnMeta)
@@ -32,6 +33,34 @@ def _validate_path(entry: dict, intake: IntakeData) -> Tuple[List[Step], int]:
         else:
             dropped += 1
     return steps, dropped
+
+
+def _breaks_in(steps: List[Step], intake: IntakeData) -> List[str]:
+    """Where a proposed path is not a route: a step the previous one cannot reach.
+
+    Each pair on its own can be perfectly legal and the sequence still not be a route. A proposal
+    that names DEC-01 and then DEC-03, where the state DEC-01 lands on offers DEC-02, has skipped
+    the middle of its own journey -- and this is the defect behind "the decision path is not shown
+    in the tree". The drawing lights arrows the declaration has, so a hop the declaration does not
+    have is drawn as nothing at all, and a reader sees a scenario with no route rather than a route
+    with a hole in it.
+
+    Reported rather than repaired. Bridging the gap would invent steps the proposal did not
+    propose, and truncating at the break would turn a journey somebody asked for into a fragment
+    while leaving its description talking about the whole thing. What the reviewer needs is to be
+    told, which is what a flag is for.
+    """
+    graph = DecisionGraph(intake.decisions, intake.states)
+    states = {s.id: s for s in intake.states}
+    breaks, at = [], None
+    for step in steps:
+        if at is not None:
+            offered = states[at].next_decisions if at in states else []
+            if step.decision_id not in offered:
+                breaks.append(f"{step.decision_id} cannot be reached from "
+                              f"{'the previous step' if at not in states else at}")
+        at = graph.successor(step.decision_id, step.variant)
+    return breaks
 
 
 def _scripted_turns(entry: dict) -> int:
@@ -106,6 +135,9 @@ def instantiate_proposal(entry: dict, index: int, intake: IntakeData) -> Scenari
     if dropped:
         rationale = f"{rationale} ({dropped} proposed step(s) discarded as outside the " \
                     f"intake vocabulary)".strip()
+    breaks = _breaks_in(steps, intake)
+    if breaks:
+        rationale = f"{rationale} (the proposed route skips a step: {'; '.join(breaks)})".strip()
 
     # Which block the proposal belongs to, read off the decisions it actually walks rather than
     # taken from what it claimed. A proposal is enumerated over the same blocks as everything else
@@ -164,6 +196,11 @@ def instantiate_proposal(entry: dict, index: int, intake: IntakeData) -> Scenari
     scenario.materiality_rationale = "Proposed by the review layer; not independently assessed."
     scenario.proposed_rationale = rationale
     scenario.proposed_anchor = str(entry.get("anchor_scenario_id", "")).strip()
+    if breaks:
+        # Flagged rather than silently kept, so it lands in the same list as everything else the
+        # review wants a second look at, and can be set aside from there in one click.
+        scenario.review_flag = "Under-specified"
+        scenario.review_rationale = f"The proposed route is not a route: {'; '.join(breaks)}."
     return scenario
 
 
