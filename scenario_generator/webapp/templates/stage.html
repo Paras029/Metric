@@ -434,6 +434,85 @@
           </p>
         {% endif %}
 
+        {# Whether the enumeration agrees with the declaration it came from. Shown on the stage
+           that produced it, because it is the one property of a scenario space nobody can check
+           by reading the space: an impossible route looks like a scenario, and a missing route
+           looks like nothing at all. #}
+        {% if walk %}
+          <details class="block walk" {% if not (walk.sound and walk.complete) %}open{% endif %}>
+            <summary class="walk__head">
+              <span class="walk__verdict walk__verdict--{{ 'ok' if walk.sound and walk.complete else 'bad' }}">
+                {% if walk.sound and walk.complete %}The walk checks out{% else %}The walk needs a look{% endif %}
+              </span>
+              <span class="walk__counts mono">
+                {{ walk.replayed }}/{{ walk.routes }} routes replay ·
+                {{ walk.outcomes_walked }}/{{ walk.outcomes_declared }} outcomes ·
+                {{ walk.states_reached }}/{{ walk.states_declared }} states
+              </span>
+            </summary>
+
+            <p class="block__body">
+              Every route is replayed against the declaration step by step, and the number of
+              routes the declaration allows is counted a second way that shares no code with the
+              walk. Both have to agree.
+            </p>
+
+            {% if walk.findings %}
+              <p class="aside aside--bad">
+                Routes that do not hold up against the declaration:
+              </p>
+              <ul class="rows">
+                {% for line in walk.findings %}<li class="rows__row mono">{{ line }}</li>{% endfor %}
+              </ul>
+            {% endif %}
+
+            {% if walk.counts %}
+              <p class="aside aside--bad">
+                The declaration and the walk disagree about how many routes there are:
+              </p>
+              <ul class="rows">
+                {% for line in walk.counts %}<li class="rows__row">{{ line }}</li>{% endfor %}
+              </ul>
+            {% endif %}
+
+            {% if walk.outcomes_missing %}
+              <p class="aside aside--warn">
+                Declared outcomes no scenario exercises:
+                <span class="mono">{{ walk.outcomes_missing | join(', ') }}</span>.
+              </p>
+            {% endif %}
+
+            {% if walk.states_missing %}
+              <p class="aside aside--warn">
+                Declared states no scenario reaches:
+                <span class="mono">{{ walk.states_missing | join(', ') }}</span>.
+              </p>
+            {% endif %}
+
+            {% if walk.capabilities_empty %}
+              <p class="aside aside--warn">
+                Capabilities with no scenarios at all:
+                <span class="mono">{{ walk.capabilities_empty | join(', ') }}</span>.
+              </p>
+            {% endif %}
+
+            <table class="walk__table">
+              <thead>
+                <tr><th>Capability</th><th>Routes walked</th><th>The declaration allows</th></tr>
+              </thead>
+              <tbody>
+                {% for cap, walked, expected in walk.per_capability %}
+                  <tr>
+                    <td class="mono">{{ cap or 'outside every capability' }}</td>
+                    <td class="mono">{{ walked }}</td>
+                    <td class="mono">{{ 'could not be counted' if expected is none else expected }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </details>
+        {% endif %}
+
         {# Endings enumeration cannot arrive at. Said here rather than left to be noticed as a
            missing scenario, because a pack missing the ending nobody could reach looks exactly
            like a complete one -- and each reason wants a different fix, so the reason is the

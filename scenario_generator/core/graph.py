@@ -9,9 +9,9 @@ declared (decision, variant) the DFS never exercised.
 Loops are bounded by each decision's own declared `Max Attempts`, not by a global revisit cap,
 so a decision that genuinely allows three tries produces three-try paths. A route that *returns*
 to a decision after going elsewhere is deliberately not enumerated here and belongs in the
-variation space -- see the note above MIN_DEPTH. The depth backstop is derived from the
-declaration rather than fixed, and the path cap remains as a backstop only; hitting either is
-reported rather than silent.
+variation space -- see the note above the loop rule. Nothing truncates the walk: a route's
+length is bounded by the declaration's own attempt counts, and completeness is judged by
+:mod:`core.verify` rather than guessed at from a cap.
 """
 from __future__ import annotations
 
@@ -41,56 +41,35 @@ logger = logging.getLogger(__name__)
 # not a scenario, and it belongs in the variation space where the number of laps is a knob rather
 # than in the base space where it is a combinatorial explosion nobody asked for.
 #
-# Backstops, and neither is meant to shape the walk.
+# There is no depth limit and no path cap.
 #
-# Depth is *derived* rather than fixed -- see :func:`depth_limit`. Every decision can fire a
-# bounded number of times per route, so the longest route a declaration allows is arithmetic over
-# the declaration, and a constant put a number under that arithmetic and silently cut whatever
-# was past it. A derived limit cannot cut a route the loop rules would have allowed, which is the
-# only thing a depth limit was ever wanted for: guaranteeing the walk ends.
+# Both used to exist as backstops and both were doing harm. A route's length is already bounded by
+# the declaration: every decision may fire at most its declared Max Attempts times, so the longest
+# route is the sum of those and the walk terminates without help. A cap on top of that arithmetic
+# can only cut a route the declaration allows, which is the one thing enumeration must not do.
 #
-# Paths remains a constant, and remains for one reason: a declaration can ask for more routes than
-# a person can read or a run can afford, and an interface that hangs is worse than one that says
-# it stopped. It is far above anything a real declaration produces, and hitting it is reported --
-# see :class:`Limits`.
-MIN_DEPTH = 24
-MAX_PATHS = 25000
+# The path cap went for the same reason. Scoping the walk to a capability keeps each block's route
+# count small, and returning routes are left to the variation space, so the combinatorial blow-up
+# a cap was guarding against does not arise. A declaration that genuinely produces more routes
+# than anybody can run is a fact about the declaration and belongs in the report, not in a silent
+# truncation.
+
+_START_HINT = re.compile(r"start|begin|connect|inbound", re.I)
+
+Path = List[Step]
 
 
 @dataclass
 class Limits:
-    """Whether a backstop bit, filled in by the walk for a caller that wants to say so.
-
-    Mutable and passed in rather than returned, because the walk is called from several places
-    with three different return shapes and threading a fourth value through all of them to be
-    dropped by most callers is how a report stops being kept up to date. A caller that does not
-    care passes nothing.
-    """
+    """Kept for callers that thread it through. Nothing truncates the walk any more, so it stays
+    empty; :func:`core.verify.check_walk` is where a scenario space is now judged complete."""
 
     paths: bool = False
     depth: bool = False
 
     @property
     def truncated(self) -> bool:
-        return self.paths or self.depth
-
-
-def depth_limit(graph: DecisionGraph) -> int:
-    """The longest route this declaration can produce, so the backstop never cuts a real one.
-
-    Each decision may fire at most its declared Max Attempts times on one route, so their sum is
-    the longest route the rules allow. Bounded below so a two-decision graph still has room for the
-    augmentation pass to work in.
-    """
-    return max(MIN_DEPTH, sum(d.max_attempts for d in graph.decisions.values()))
-
-# What an opening state says in its "Reached Via" cell when it is not reached by a decision at all.
-# Only consulted for states that name no decision edge: a state reached via "DEC-02=Reconnected"
-# is reached by a decision, and matching "connect" inside that outcome would make it a second
-# place the walk starts from and fill the scenario space with routes the agent cannot take.
-_START_HINT = re.compile(r"start|begin|connect|inbound", re.I)
-
-Path = List[Step]
+        return False
 
 
 class DecisionGraph:
@@ -286,19 +265,11 @@ def walk_paths(graph: DecisionGraph, span: Optional[Span] = None,
                 for p in walk_paths(graph, Span("", "", start, endings), limits)]
 
     paths: List[Path] = []
-    told = limits if limits is not None else Limits()
-    deepest = depth_limit(graph)
 
     def finishes_here(state: Optional[State], state_id: str) -> bool:
         return state_id in span.exit_states or (state is not None and state.is_terminal)
 
     def visit(state_id: str, path: Path, fired: Dict[str, int]) -> None:
-        if len(paths) >= MAX_PATHS:
-            told.paths = True
-            return
-        if len(path) > deepest:
-            told.depth = True
-            return
         state = graph.state(state_id)
         if state is None or finishes_here(state, state_id) or not state.next_decisions:
             if path and finishes_here(state, state_id):
@@ -328,7 +299,7 @@ def walk_paths(graph: DecisionGraph, span: Optional[Span] = None,
             occurrence = fired.get(decision_id, 0)
             # Max Attempts bounds both taking a decision again on the spot and coming back to it
             # after going elsewhere. The second of those is a route the declaration does draw and
-            # this does not walk -- see the note above MIN_DEPTH for why it is left to the
+            # this does not walk -- see the note above for why it is left to the
             # variation space rather than multiplied into this one.
             if occurrence >= decision.max_attempts:
                 continue
@@ -344,13 +315,16 @@ def walk_paths(graph: DecisionGraph, span: Optional[Span] = None,
 
     visit(span.entry_state, [], {})
 
-    if told.paths:
-        logger.warning("Path enumeration stopped at the cap of %d — the scenario set is "
-                       "incomplete. Split the use case or raise MAX_PATHS.", MAX_PATHS)
-    if told.depth:
-        logger.warning("One or more paths were cut at %d steps — those branches are not "
-                       "represented.", deepest)
     return paths
+
+
+def _longest(graph: DecisionGraph) -> int:
+    """The longest route the declaration allows: every decision fired its full attempt count.
+
+    Not a cap. The focused searches of :func:`augment_variants` are breadth-first over the same
+    graph and need a stopping condition, and this is the one the declaration itself states.
+    """
+    return max(1, sum(d.max_attempts for d in graph.decisions.values()))
 
 
 def covered_variants(paths: List[Path]) -> Set[Tuple[str, str]]:
@@ -530,7 +504,6 @@ def endings_not_reached(graph: DecisionGraph, capabilities: Sequence[Capability]
     augmentation pass, so reporting it here would be reporting a route that does get walked.
     """
     found: List[Unreached] = []
-    deepest = depth_limit(graph)
     by_capability: Dict[str, List[Span]] = {}
     for span in spans_for(graph, capabilities):
         by_capability.setdefault(span.capability_id, []).append(span)
@@ -557,7 +530,7 @@ def endings_not_reached(graph: DecisionGraph, capabilities: Sequence[Capability]
                         into[state_id] = depth
 
         for ending in sorted(wanted):
-            if ending in honouring and honouring[ending] <= deepest:
+            if ending in honouring:
                 continue
             if ending not in ignoring:
                 reason = ("the decision that produces it cannot be reached from where this block "
@@ -568,9 +541,8 @@ def endings_not_reached(graph: DecisionGraph, capabilities: Sequence[Capability]
                 reason = ("the block is declared to hand on at "
                           + (", ".join(blocking) if blocking else "an exit")
                           + " before a route gets there")
-            else:
-                reason = (f"the shortest route to it is {honouring[ending]} decisions, past the "
-                          f"{deepest}-step backstop")
+            else:                                   # reachable, so a route does arrive there
+                continue
             found.append(Unreached(capability_id, ending, reason))
     return found
 
@@ -601,7 +573,7 @@ def _shortest_prefix_to(graph: DecisionGraph, decision_id: str, span: Span) -> P
         if state_id in targets:
             return prefix
         state = graph.state(state_id)
-        if state is None or len(prefix) >= depth_limit(graph):
+        if state is None or len(prefix) >= _longest(graph):
             continue
         # An exit is where the block hands on, so the search stops there for the same reason the
         # walk does: a route that leaves the block is not a route through it.
@@ -644,7 +616,7 @@ def _shortest_suffix_to_ending(graph: DecisionGraph, state_id: str,
     while queue:
         current, suffix, used = queue.popleft()
         state = graph.state(current)
-        if state is None or taken + len(suffix) >= depth_limit(graph):
+        if state is None or taken + len(suffix) >= _longest(graph):
             continue
         for decision_id in state.next_decisions:
             decision = graph.decision(decision_id)

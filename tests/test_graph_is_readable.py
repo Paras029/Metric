@@ -366,12 +366,27 @@ class TestWhereAScenarioRunsInThePicture(unittest.TestCase):
         self.assertEqual(len(arrows), len(build_layout(_SPLIT_ENDINGS).edges))
         self.assertIn("Pass", arrows)
 
-    def test_a_scenario_with_no_path_is_left_out_rather_than_returned_empty(self):
-        """A proposal the review added has no walk behind it yet. Left out, the page can tell
-        "no route" from "a route that lights nothing"."""
+    def test_a_scenario_with_no_route_and_no_capability_is_left_out(self):
+        """Nothing to point at, so the page can tell "no route" from "a route that lights
+        nothing"."""
         _, scenarios = self._scenarios(_SPLIT_ENDINGS)
         scenarios[0].path = []
+        scenarios[0].capabilities = []
+        scenarios[0].capability_id = ""
         self.assertNotIn(scenarios[0].id, routes(_SPLIT_ENDINGS, scenarios))
+
+    def test_a_proposal_with_no_route_still_lights_the_capabilities_it_names(self):
+        """A proposal the review added has no walk behind it yet, but it does say which part of
+        the agent it is about, and that is the question the reader opened it to ask. Lighting
+        nothing at all reads as the page being broken."""
+        _, scenarios = self._scenarios(_SPLIT_ENDINGS)
+        named = next(c.id for c in _SPLIT_ENDINGS.capabilities)
+        scenarios[0].path = []
+        scenarios[0].capabilities = [named]
+        lit = routes(_SPLIT_ENDINGS, scenarios)
+        self.assertIn(scenarios[0].id, lit)
+        self.assertEqual(lit[scenarios[0].id]["edges"], [], "a proposal has no arrows to light")
+        self.assertTrue(lit[scenarios[0].id]["nodes"])
 
 
 class TestTheCardCarriesItsRoute(unittest.TestCase):
@@ -433,10 +448,10 @@ class TestTheCardCarriesItsRoute(unittest.TestCase):
         self.assertEqual(body.count("data-route='"), len(self.scenarios))
         self.assertIn("The scenarios that walk it", body)
 
-    def test_a_scenario_the_drawing_cannot_place_is_left_out_of_the_list(self):
-        """A proposal the review added has no walk behind it yet. Listed, it would look selectable
-        and light nothing when opened, which reads as the page being broken rather than as the
-        scenario having no route -- and the card would carry no route for the script to read."""
+    def test_a_scenario_the_drawing_cannot_place_at_all_is_left_out_of_the_list(self):
+        """Listed, it would look selectable and light nothing when opened, which reads as the page
+        being broken. A proposal that names a capability is a different case -- it can be placed,
+        and the next test covers it."""
         from scenario_generator.core.models import ORIGIN_PROPOSED
         from scenario_generator.webapp.graphpage import render_graph_page
         from scenario_generator.core.intake import read_intake as _read
@@ -445,10 +460,25 @@ class TestTheCardCarriesItsRoute(unittest.TestCase):
         intake = _read(str(workspace / "intake.xlsx"))
         proposal = copy.deepcopy(self.scenarios[0])
         proposal.id, proposal.path, proposal.origin = "SC-999", [], ORIGIN_PROPOSED
+        proposal.capabilities, proposal.capability_id = [], ""
 
         body = render_graph_page(intake, list(self.scenarios) + [proposal])
         self.assertEqual(body.count("data-route='"), len(self.scenarios))
-        self.assertNotIn("SC-999", body)
+
+    def test_a_proposal_that_names_a_capability_is_listed(self):
+        from scenario_generator.core.models import ORIGIN_PROPOSED
+        from scenario_generator.webapp.graphpage import render_graph_page
+        from scenario_generator.core.intake import read_intake as _read
+
+        workspace = next(self.root.iterdir())
+        intake = _read(str(workspace / "intake.xlsx"))
+        proposal = copy.deepcopy(self.scenarios[0])
+        proposal.id, proposal.path, proposal.origin = "SC-999", [], ORIGIN_PROPOSED
+        proposal.capabilities = [intake.capabilities[0].id]
+
+        body = render_graph_page(intake, list(self.scenarios) + [proposal])
+        self.assertEqual(body.count("data-route='"), len(self.scenarios) + 1)
+        self.assertIn("SC-999", body)
 
     def test_without_a_scenario_workbook_it_is_the_graph_alone(self):
         """Not a broken list: the drawing on its own is a complete thing, and an empty section

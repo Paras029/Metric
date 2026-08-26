@@ -32,6 +32,7 @@ from werkzeug.utils import secure_filename
 from ..core.gaps import CAPABILITY, DECISION, STATE, find_gaps
 from ..core import editing
 from ..core.graph import DecisionGraph, exits_for
+from ..core.verify import check_walk
 from ..core.intake import (read_intake, read_review_notes, set_capability_span,
                            set_decision_scope,
                            write_template)
@@ -304,6 +305,7 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             # judgement to make about it. Not on the intake or workflow stages: nothing has been
             # weighed there yet, so every route would paint the same and the control would be
             # three ways of drawing one colour.
+            walk=(_walk_check(workspace, intake) if key == "workflow" else None),
             graph_load=(_graph_load(intake, scenarios)
                         if graph_svg and key in LOAD_STAGES and scenarios else {}),
             structure_proposals=(workspace.structure_proposals
@@ -498,6 +500,48 @@ def create_app(workspace_root: Path = WORKSPACE_ROOT) -> Flask:
             logger.exception("Could not rebuild the coverage report for display")
             return None
         return coverage_view(workspace, report, texts) if report else None
+
+    def _walk_check(workspace: Workspace, intake):
+        """Whether the enumeration agrees with the declaration it came from.
+
+        Read on the page rather than left to a log, because it is the one thing about a scenario
+        space nobody can check by reading it: an impossible route looks like a scenario and a
+        missing route looks like nothing at all.
+        """
+        if intake is None:
+            return None
+        # Read from the workflow stage's own snapshot rather than the live metadata workbook: the
+        # question is whether *this* walk agreed with the declaration, not what later stages have
+        # since made of the space.
+        path = workspace.root / _snapshot("workflow")
+        if not path.exists():
+            path = workspace.root / METADATA
+        if not path.exists():
+            return None
+        try:
+            report = check_walk(intake, read_scenarios(str(path), intake))
+        except Exception:
+            logger.exception("Could not check the walk")
+            return None
+        return {
+            "sound": report.sound,
+            "complete": report.complete,
+            "routes": report.routes,
+            "replayed": report.replayed,
+            "outcomes_walked": report.outcomes_walked,
+            "outcomes_declared": report.outcomes_declared,
+            "states_reached": report.states_reached,
+            "states_declared": report.states_declared,
+            "findings": [str(f) for f in
+                         report.unreplayable + report.misplaced + report.duplicates][:20],
+            "outcomes_missing": report.outcomes_missing[:20],
+            "states_missing": report.states_missing[:20],
+            "capabilities_empty": report.capabilities_empty,
+            "counts": report.count_disagreements[:10],
+            "per_capability": sorted(
+                (cap, report.counted_by_capability.get(cap, 0), expected)
+                for cap, expected in report.expected_by_capability.items()),
+        }
 
     def _routes(intake, scenarios) -> dict:
         """Where each scenario runs in the drawing, for the card that opens it to light it up.

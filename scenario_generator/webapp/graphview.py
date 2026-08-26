@@ -1001,31 +1001,62 @@ def routes(intake: IntakeData, scenarios: Sequence) -> Dict[str, dict]:
     out entirely rather than returned empty, so the page can tell "no route" from "no highlight".
     """
     layout = build_layout(intake)
+    states = {s.id: s for s in intake.states}
     # Endings declared several times are drawn as one box, so a route ending at S-19 has to light
     # the box that stands for it rather than an id that was never drawn.
     stands_for = {state_id: node.id for node in layout.nodes.values()
                   for state_id in (node.merged_ids or (node.id,))}
     drawn = {(edge.source, edge.target, edge.outcome) for edge in layout.edges}
 
+    owned: Dict[str, List[str]] = {}
+    for decision in intake.decisions:
+        owned.setdefault(decision.trigger_capability, []).append(decision.id)
+
     found: Dict[str, dict] = {}
     for scenario in scenarios:
         steps = list(getattr(scenario, "path", ()) or ())
         if not steps:
+            # A proposal need not follow a declared route, and a probe never does. Lighting the
+            # capabilities it names is still worth more than lighting nothing: the reader learns
+            # which part of the agent it is about, which is the question they opened it to ask.
+            blocks = [c for c in (list(getattr(scenario, "capabilities", ()) or [])
+                                  or [getattr(scenario, "capability_id", "")]) if c]
+            reach = [d for c in blocks for d in owned.get(c, [])]
+            reach = [d for d in reach if d in layout.nodes]
+            if not reach:
+                continue
+            found[scenario.id] = {"nodes": reach, "edges": [],
+                                  "block": blocks[0] if len(blocks) == 1 else ""}
             continue
 
         walked = [(_START_ID, steps[0].decision_id, "")]
         for index, step in enumerate(steps):
             if index + 1 < len(steps):
                 walked.append((step.decision_id, steps[index + 1].decision_id, step.variant))
-            else:
-                ending = stands_for.get(step.next_state)
-                if ending:
-                    walked.append((step.decision_id, ending, step.variant))
+                continue
+            # The last hop. A route that ends the interaction points at an ending box. A route
+            # that ends by *handing on* has no box to point at -- an intermediate state is drawn
+            # as an arrow, not a node -- so the arrow to light is the one that carries the
+            # conversation onward, out of this capability and into the next. Left unhandled, every
+            # capability-scoped route lost its final step and the reader saw a path that stopped
+            # one arrow short of where the scenario said it ended.
+            ending = stands_for.get(step.next_state)
+            if ending:
+                walked.append((step.decision_id, ending, step.variant))
+            onward = states.get(step.next_state)
+            for offered in (onward.next_decisions if onward else ()):
+                walked.append((step.decision_id, offered, step.variant))
 
         edges = [edge for edge in walked if edge in drawn]
-        if not edges:
+        # Every decision the route takes is lit whether or not the arrow into it was drawn. A
+        # scoped route begins part-way through the graph, so the arrow into its first decision
+        # comes from a capability this scenario does not cover and is not part of its route.
+        nodes = list(dict.fromkeys(
+            [step.decision_id for step in steps]
+            + [end for edge in edges for end in edge[:2]]))
+        nodes = [node for node in nodes if node in layout.nodes]
+        if not edges and not nodes:
             continue
-        nodes = list(dict.fromkeys([end for edge in edges for end in edge[:2]]))
         # The block as well as the route. Which capability a scenario tests is the first thing a
         # reader wants from the collapsed drawing, and without this, opening a scenario while the
         # collapsed view is showing lights nothing at all -- which reads as the highlighting being

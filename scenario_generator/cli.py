@@ -31,6 +31,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_graph.add_argument("--with-probes", action="store_true",
                          help="also generate applicable adversarial probes")
 
+    p_check = sub.add_parser("check-walk",
+                             help="check the enumeration against the declaration it came from")
+    p_check.add_argument("intake")
+    p_check.add_argument("--verbose", action="store_true",
+                         help="list every finding rather than the first few")
+
     p_probes = sub.add_parser("build-probes",
                               help="append applicable adversarial probes to a graph file (no LLM)")
     p_probes.add_argument("intake")
@@ -215,6 +221,43 @@ def _run_command(args) -> int:
     if args.command == "build-graph":
         build_graph(args.intake, args.graph_output, with_probes=args.with_probes)
         return 0
+
+    if args.command == "check-walk":
+        from .core.intake import read_intake
+        from .core.verify import check_walk
+        from .pipeline import build_scenario_space
+
+        intake = read_intake(args.intake)
+        report = check_walk(intake, build_scenario_space(intake, with_probes=False))
+        print(report.headline())
+        print(f"sound: {report.sound}    complete: {report.complete}")
+
+        cut = None if args.verbose else 5
+        for heading, lines in (
+                ("routes that do not hold up", [str(f) for f in report.unreplayable]),
+                ("routes filed under a capability they do not walk",
+                 [str(f) for f in report.misplaced]),
+                ("duplicated routes", [str(f) for f in report.duplicates]),
+                ("the declaration and the walk disagree on how many routes there are",
+                 report.count_disagreements),
+                ("declared outcomes no scenario exercises", report.outcomes_missing),
+                ("declared states no scenario reaches", report.states_missing),
+                ("capabilities with no scenarios", report.capabilities_empty)):
+            if not lines:
+                continue
+            print(f"\n{heading} ({len(lines)}):")
+            for line in lines[:cut]:
+                print(f"  - {line}")
+            if cut and len(lines) > cut:
+                print(f"  ... {len(lines) - cut} more (--verbose)")
+
+        print("\nper capability:")
+        for capability, expected in sorted(report.expected_by_capability.items()):
+            walked = report.counted_by_capability.get(capability, 0)
+            allowed = "could not be counted" if expected is None else expected
+            print(f"  {capability or 'outside every capability':16} walked {walked:4}   "
+                  f"declaration allows {allowed}")
+        return 0 if report.sound else 1
 
     if args.command == "build-probes":
         build_probes_stage(args.intake, args.graph_input, args.graph_output)

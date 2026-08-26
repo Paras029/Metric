@@ -2325,3 +2325,25 @@ body.is-expanded { overflow: hidden; }
 /* The lighting wins wherever the two meet: paint is the background reading of the whole space,
    an opened card is the foreground answer about one route. */
 .graph__edge.is-lit .graph__flow { stroke-opacity: 0.5; }
+
+
+/* ------------------------------------------------------------------ the walk check
+ *
+ * Whether the enumeration agrees with the declaration it came from. Open by default only when
+ * something is wrong: a check nobody has to read is a check that stays trusted. */
+.walk { margin-bottom: var(--s4); }
+.walk__head {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s3);
+  cursor: pointer; list-style: none;
+}
+.walk__head::-webkit-details-marker { display: none; }
+.walk__verdict { font-weight: 650; font-size: var(--t-ui); }
+.walk__verdict--ok { color: var(--ok); }
+.walk__verdict--bad { color: var(--bad); }
+.walk__counts { font-size: var(--t-meta); color: var(--ink-dim); }
+.walk__table { border-collapse: collapse; margin-top: var(--s3); font-size: var(--t-meta); }
+.walk__table th {
+  text-align: left; font-weight: 600; color: var(--ink-dim);
+  padding: var(--s2) var(--s3); border-bottom: 1px solid var(--rule);
+}
+.walk__table td { padding: var(--s2) var(--s3); border-bottom: 1px solid var(--rule-soft); }

@@ -31,7 +31,7 @@ from ..io import read_space_metadata, read_scenarios, write_data_template, write
 from ..llm import MaterialityAssessor, ScenarioReviewer, ScenarioWriter
 from ..llm.gateway import ask_llm
 from ..llm import cancellation, config
-from ..core.graph import Limits
+from ..core.verify import check_walk
 from ..pipeline import (build_scenario_space, draft_intake_workbook, ingest_documents,
                         map_conversation_coverage, revise_intake_workbook, structural_problems)
 from .coverageview import stored_report
@@ -424,26 +424,43 @@ def _apply_proposal(path: Path, entry: dict) -> bool:
 def _run_workflow(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
     """Enumerate every route through the declared graph and add the applicable probes."""
     report = progress or (lambda *args, **kwargs: None)
-    report("Reading the intake", 0, 3)
+    report("Reading the intake", 0, 4)
     intake = _intake(workspace)
-    report("Walking the graph", 1, 3)
-    limits = Limits()
-    scenarios = build_scenario_space(intake, with_probes=True, limits=limits)
-    report("Writing the scenario space metadata", 2, 3)
+    report("Walking the graph", 1, 4)
+    scenarios = build_scenario_space(intake, with_probes=True)
+    report("Checking the walk against the declaration", 2, 4)
+    walk = check_walk(intake, scenarios)
+    report("Writing the scenario space metadata", 3, 4)
     _save_metadata(workspace, "workflow", intake, scenarios)
-    report("Built the scenario space", 3, 3)
+    report("Built the scenario space", 4, 4)
 
     probes = sum(1 for s in scenarios if s.is_probe)
     facts = {"Scenarios": len(scenarios), "Routes through the graph": len(scenarios) - probes,
-             "Probes": probes}
-    # Said on the stage rather than left in a log. An incomplete scenario space that does not
-    # know it is incomplete is the one failure this whole stage cannot be checked for by reading
-    # its output: what is missing is missing.
-    if limits.truncated:
-        facts["Enumeration"] = ("Stopped at a backstop — the set is incomplete"
-                                if limits.paths else
-                                "Some branches were cut for length — the set is incomplete")
+             "Probes": probes,
+             "Routes that replay": f"{walk.replayed} of {walk.routes}",
+             "Outcomes exercised": f"{walk.outcomes_walked} of {walk.outcomes_declared}",
+             "States reached": f"{walk.states_reached} of {walk.states_declared}"}
+    workspace.state("workflow").note = "" if walk.sound and walk.complete else _walk_note(walk)
     return facts
+
+
+def _walk_note(walk) -> str:
+    """One line saying what the check found, for the stage to show without opening a panel."""
+    parts = []
+    if walk.unreplayable:
+        parts.append(f"{len(walk.unreplayable)} route(s) could not be replayed against the "
+                     f"declaration")
+    if walk.misplaced:
+        parts.append(f"{len(walk.misplaced)} route(s) are filed under a capability they do not "
+                     f"walk")
+    if walk.duplicates:
+        parts.append(f"{len(walk.duplicates)} route(s) duplicate another")
+    if walk.outcomes_missing:
+        parts.append(f"{len(walk.outcomes_missing)} declared outcome(s) are exercised by no "
+                     f"scenario")
+    if walk.count_disagreements:
+        parts.append("the independent count of the declaration disagrees with the walk")
+    return "; ".join(parts).capitalize() + "." if parts else ""
 
 
 def _run_scenarios(workspace: Workspace, progress=None, cancel=None) -> Dict[str, object]:
